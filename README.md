@@ -21,18 +21,16 @@ Requirements: Claude Code with dynamic workflows (proven on 2.1.303 and 2.1.304)
 
 ## Set up a repository
 
-The plugin holds the tool: the skill, the workflow, the eight agents, the guard and the GitHub wrapper. Each repository keeps its own contract, which the plugin never edits:
+The plugin holds the tool: the skill, the workflow, the eight agents, the guard and the GitHub wrapper. Each repository keeps its own contract, which the plugin never edits. Set it up in this order, from the repository's root:
 
-| Path in the repository | What | Start from |
-| --- | --- | --- |
-| `.claude/redline/checks.sh` | The repository's gate as a script that emits Redline's JSON (see `checks.sh` below) | `scripts/checks-template.sh`: fill in the TODOs from the gate's command steps |
-| `.claude/redline.json` | Round cap, the teammate to request review from, checker mode and stall timeout, models | `templates/redline.json.example` |
-| `.claude/settings.json` | The marketplace, the plugin enabled, and the allow list for what runs outside a guarded role | merge `templates/settings.allow.json`, then add the gate's own commands (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`) |
-| `.gitignore` | One line, `.claude/redline.local.json`: each person's saved launch settings (see "Settings"), never committed | add the line beside `.claude/settings.local.json` |
-| `.claude/commands/agent-os/shape-spec.md` | An "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask | `templates/shape-spec-unattended.md` |
-| `CLAUDE.md` | One sentence in the Git section, and one paragraph beside the attribution rule | `templates/claude-md-git-sentence.md` |
-
-Then verify, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `gh auth status` signed in. Before the first real PR, run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there.
+1. **`.claude/redline/checks.sh`**: the repository's gate as a script that emits Redline's JSON (see `checks.sh` below). Copy `scripts/checks-template.sh`, make it executable, and fill in the TODOs from the gate's command steps.
+2. **`.claude/redline.json`**: the round cap, the teammate to request review from, the checker mode and stall timeout, and the models. Start from `templates/redline.json.example`.
+3. **`.claude/settings.json`**: the marketplace, the plugin enabled, and the allow list for what runs outside a guarded role. Merge `templates/settings.allow.json`, then add the gate's own commands (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`).
+4. **`.gitignore`**: add the line `.claude/redline.local.json`, beside `.claude/settings.local.json`. That file holds each person's saved launch settings (see "Settings") and is never committed.
+5. **`.claude/commands/agent-os/shape-spec.md`**: add an "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask. Start from `templates/shape-spec-unattended.md`.
+6. **`CLAUDE.md`**: one sentence in the Git section, and one paragraph beside the attribution rule, from `templates/claude-md-git-sentence.md`.
+7. **Verify**, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `gh auth status` signed in.
+8. **Dry run.** Before the first real PR, run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there.
 
 ## Use
 
