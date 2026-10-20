@@ -1,6 +1,6 @@
 # Redline
 
-Redline is a Claude Code plugin for one command, `/redline:redline <pr>`. It reviews a pull request, posts one review per round, fixes what it found through Agent OS (shape a spec, approve the plan, implement one commit per finding, check), pushes, replies in each finding's thread, and re-reviews the fix diff until a round finds no correctness bugs. Then it requests review from a teammate. A finding that needs a product or design decision comes back to you in the session instead of being decided by an agent. The author runs it on their own PR; the second developer's review stays in place.
+Redline is a Claude Code plugin for one command, `/redline:redline <pr>`. It reviews a pull request, posts one review per round, fixes what it found through Agent OS (shape a spec, approve the plan, implement one commit per finding, check), pushes, replies in each finding's thread, and re-reviews the fix diff until a round finds no correctness bugs. Then it requests review from a teammate. A finding that needs a product or design decision comes back to you in the session instead of being decided by an agent, and an interrupt dial sets how often the run stops for you, from never to after every review. Every decision is posted with its owner. The author runs it on their own PR; the second developer's review stays in place.
 
 It was built and proven end to end on seeded pull requests in a production Laravel application before it was packaged as a plugin.
 
@@ -28,6 +28,7 @@ The plugin holds the tool: the skill, the workflow, the eight agents, the guard 
 | `.claude/redline/checks.sh` | The repository's gate as a script that emits Redline's JSON (see `checks.sh` below) | `scripts/checks-template.sh`: fill in the TODOs from the gate's command steps |
 | `.claude/redline.json` | Round cap, the teammate to request review from, checker mode and stall timeout, models | `templates/redline.json.example` |
 | `.claude/settings.json` | The marketplace, the plugin enabled, and the allow list for what runs outside a guarded role | merge `templates/settings.allow.json`, then add the gate's own commands (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`) |
+| `.gitignore` | One line, `.claude/redline.local.json`: each person's saved launch settings (see "Settings"), never committed | add the line beside `.claude/settings.local.json` |
 | `.claude/commands/agent-os/shape-spec.md` | An "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask | `templates/shape-spec-unattended.md` |
 | `CLAUDE.md` | One sentence in the Git section, and one paragraph beside the attribution rule | `templates/claude-md-git-sentence.md` |
 
@@ -42,24 +43,77 @@ Check out the PR's branch, clean, at the pushed head, and type the command from 
 /redline:redline 21 max 2 rounds
 /redline:redline 21 revise fable no push
 /redline:redline 21 reviewer @sam
+/redline:redline 21 autopilot
+/redline:redline 21 plan correctness only
+/redline:redline 21 review
 /redline:redline 21 dry run review only
 ```
 
-`dry run` posts and pushes nothing: every body is written under the round's spec folder instead, and the PR may be closed (a seed). `/redline:redline-review` and `/redline:redline-revise` are the two halves on their own, for debugging.
+The words can come in any order. `dry run` posts and pushes nothing: every body is written under the round's spec folder instead, and the PR may be closed (a seed). The first launch in a repository asks for the settings it was not given on the command line, and later launches confirm the remembered ones in one question; see "Settings". `/redline:redline-review` and `/redline:redline-revise` are the two halves on their own, for debugging.
+
+## Settings
+
+Four settings shape a run besides the PR number. Each can be typed on the command line; otherwise it comes from the saved file, then from the defaults.
+
+### The interrupt dial
+
+`interrupt` says where the run stops for you. Each level is a stopping point the loop already has.
+
+| Word | Stops | What you do there |
+| --- | --- | --- |
+| `autopilot` | Never | Nothing. At a judgment call the shaper's recommendation becomes the decision, attributed `redline (autopilot)`, and the run goes on |
+| `guided` (default) | Only when the shaper returns a judgment call (`ask`) | Answer the calls, one at a time, in the session; the run relaunches with the decisions |
+| `plan` | After shaping, every round | See every finding's disposition (fix, defer, ask) with the shaper's one-sentence recommendation. Approve as-is, change a disposition to fix, defer or accept, or answer an ask; the run relaunches and stops again after the next round's shaping |
+| `review` | After the round 1 review is posted | Pick the findings to act on; each one not picked is dropped with a reason, which is posted in its thread. Later rounds stop as `guided` does |
+| `review only` | After the round 1 review | Nothing is revised |
+
+`autopilot` and `review only` are per-run verbs: they are never saved.
+
+### Scope
+
+`correctness only` sets `scope` to `correctness`: the reviewer is told not to look for nits at all, and a round with no correctness finding is done, with no final nit pass. The default, `all`, reviews for correctness bugs and nits, and a round of nits ends in one final nit pass over the nit fixes.
+
+### Saved preferences
+
+`.claude/redline.local.json` in the repository (ignored by git, so per person per repository) remembers `interrupt`, `revise` (the model id), `maxRounds` and `scope`:
+
+```json
+{"interrupt": "guided", "revise": "claude-opus-5-5", "maxRounds": 3, "scope": "all"}
+```
+
+- **No saved file.** The skill asks one `AskUserQuestion` for every setting not typed on the command line (up to four fields), with the defaults first: guided, Opus 5.5, 3 rounds, all. A `review only` run asks only for the scope, since no revise agent starts.
+- **A saved file.** One confirm question whose first option reads `Run with: <interrupt> · <model> · <N> rounds · <scope>` (a value typed on the command line overrides the saved one and is marked `(command line)`), and whose second option, "Change something", re-asks the fields that were not typed.
+- **Whatever the run uses becomes the saved set**, however it was chosen, except `autopilot` and `review only`, which are never written: the previous saved interrupt stays.
+- **A hand-off relaunch asks nothing** beyond the existing "Relaunch with these decisions / Let me change one" confirm.
+
+The merge rules live in `scripts/redline-prefs.sh` (`resolve` prints the effective settings, what to ask and the confirm line; `save` writes the file), and `tests/prefs-test.sh` is their unit test. The file is one of Redline's own: the guard refuses it for every role, and only the skill writes it, through the script.
+
+### Decided by
+
+Every decision is posted with its owner. Each Decision in a round's `shape.md`, each reply in a finding's thread, and each line of the handoff comment's Decisions list ends with one of:
+
+- `decided by: redline`: the shaper settled it from the evidence (a fix, a defer, an answer the PR description or the code already gave);
+- `decided by: @<login>`: a person decided it at a hand-off (the login `redline-gh.sh login` prints), with their reasoning restated in one sentence;
+- `decided by: redline (autopilot)`: the run took the shaper's recommendation on autopilot.
+
+The handoff comment lists every decision of the run, not only the human ones. The shaper's JSON carries `decidedBy` per finding (`redline` or `pending`); the workflow fills `@<login>` from `args.login` for the answers a person gave.
 
 ## Files
 
 | Path in the plugin | What |
 | --- | --- |
-| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, prechecks, writes the start snapshot, launches `redline:redline-loop`, handles hand-offs and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
-| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, hand-off, and the pass/fail decision from the checker's JSON. Runs as `redline:redline-loop` |
+| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks, writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
+| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, and the pass/fail decision from the checker's JSON. Runs as `redline:redline-loop` |
 | `agents/redline-*.md` | The eight roles: reviewer, shaper, resolve, plan-approver, standards-approver, implementer, checker, github. They load as `redline:redline-<role>` |
 | `hooks/hooks.json` | One `PreToolUse` hook on Bash, Write, Edit, MultiEdit and NotebookEdit, calling the guard |
 | `scripts/redline-guard.sh` | The per-role guard; see below |
 | `scripts/redline-gh.sh` | Every GitHub call; see below |
+| `scripts/redline-prefs.sh` | The saved launch settings: the merge rules behind `.claude/redline.local.json`; see "Settings" |
 | `scripts/checks-template.sh` | The starting point for a repository's `.claude/redline/checks.sh` |
 | `templates/` | The per-repository files above |
 | `tests/guard-test.sh`, `tests/guard-cases.tsv` | The guard's regression table |
+| `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners and the replay rule (`node tests/loop-test.mjs`) |
+| `tests/prefs-test.sh` | The unit test of the settings merge rules |
 
 ## The guard
 
@@ -71,7 +125,7 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 
 ## Launching
 
-`/redline:redline <pr>` is typed in an interactive session; the workflow runs in the background and the session waits for it. A headless session (`claude -p`) stops background tasks ten minutes after its last turn, which kills a run mid-phase, so it is started with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`. A run the harness stopped is resumed from the session that launched it: the skill relaunches with byte-identical `args`, no `decisions`, and `resumeFromRunId` set to the run id; finished agents replay from cache and the interrupted one reruns.
+`/redline:redline <pr>` is typed in an interactive session; the workflow runs in the background and the session waits for it. A headless session (`claude -p`) stops background tasks ten minutes after its last turn, which kills a run mid-phase, so it is started with `CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS=0`. A run the harness stopped is resumed from the session that launched it: the skill relaunches with byte-identical `args`, no new `decisions`, and `resumeFromRunId` set to the run id; finished agents replay from cache and the interrupted one reruns. A hand-off relaunch works the same way, adding only what the stop asked for (`decisions`; `approvedPlans` for the plan dial; `selected` for the review dial), so every prompt before the stopping point replays from cache.
 
 ## Known limits
 
