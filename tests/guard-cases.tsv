@@ -267,3 +267,21 @@ redline:redline-implementer	deny	Bash	sed -i '' 's/3/9/' .claude/redline.json
 # redline-gh.sh runs only from the plugin; a copy where the tool tier used to live is not it.
 redline:redline-reviewer	deny	Bash	REPO/.claude/redline/redline-gh.sh pr 42
 redline:redline-github	deny	Bash	REPO/.claude/redline/redline-gh.sh post-review 42 /tmp/r.json
+
+# Step 13: the saved preferences file (.claude/redline.local.json) is one of Redline's own files,
+# and the preferences script is the skill's, never a role's. The main session, which runs the
+# skill, is not a Redline role, so the guard is inert for it.
+redline:redline-implementer	deny	Write	.claude/redline.local.json
+redline:redline-implementer	deny	Edit	REPO/.claude/redline.local.json
+redline:redline-implementer	deny	Bash	cp /tmp/prefs.json .claude/redline.local.json
+redline:redline-implementer	deny	Bash	rm .claude/redline.local.json
+redline:redline-github	deny	Write	.claude/redline.local.json
+redline:redline-shaper	deny	Write	.claude/redline.local.json
+redline:redline-resolve	deny	Edit	.claude/redline.local.json
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-prefs.sh save REPO/ --interrupt autopilot --revise opus --max-rounds 3 --scope all
+redline:redline-github	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
+redline:redline-reviewer	allow	Bash	cat .claude/redline.local.json
+redline:redline-implementer	allow	Bash	cat .claude/redline.local.json
+-	inert	Write	.claude/redline.local.json
+-	inert	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
