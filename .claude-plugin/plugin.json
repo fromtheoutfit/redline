@@ -1,0 +1,13 @@
+{
+  "name": "redline",
+  "displayName": "Redline",
+  "version": "0.1.0",
+  "description": "Review a pull request, fix what the review finds through Agent OS, re-review the fixes, and hand the PR to a teammate once no correctness bugs remain. One command, /redline:redline <pr>, with a per-role command guard on every agent.",
+  "author": {
+    "name": "Michael Witwicki",
+    "email": "michael@theout.fit"
+  },
+  "repository": "https://github.com/fromtheoutfit/redline",
+  "license": "MIT",
+  "keywords": ["code-review", "pull-request", "agent-os", "workflow"]
+}

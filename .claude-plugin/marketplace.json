@@ -1,0 +1,15 @@
+{
+  "name": "redline",
+  "owner": {
+    "name": "Michael Witwicki",
+    "email": "michael@theout.fit"
+  },
+  "description": "Redline, the review/revise loop for pull requests, as a single-plugin marketplace.",
+  "plugins": [
+    {
+      "name": "redline",
+      "source": "./",
+      "description": "Review a pull request, fix what the review finds through Agent OS, re-review the fixes, and hand the PR to a teammate once no correctness bugs remain."
+    }
+  ]
+}

@@ -1,0 +1,269 @@
+# agent_type	expected	tool	command or path
+#
+# agent_type is what Claude Code puts in the hook input: redline:redline-<role> for the plugin's
+# agents, redline-<role> for a copy installed into .claude/agents/, anything else for other agents,
+# and - for none (the main session). expected is allow, deny, or inert (exit 0, no output: not a
+# Redline role). REPO/ is the repository root, PLUGIN/ the plugin root; \n is expanded.
+
+redline:redline-reviewer	allow	Bash	git status
+redline:redline-reviewer	allow	Bash	git diff main...HEAD -- app
+redline:redline-reviewer	allow	Bash	git log --oneline -5
+redline:redline-reviewer	allow	Bash	grep -rn "bucket" app/ | head -20
+redline:redline-reviewer	allow	Bash	php artisan test --filter=OrderControllerTest
+redline:redline-reviewer	allow	Bash	vendor/bin/pest tests/Feature/Api/OrderControllerTest.php
+redline:redline-reviewer	deny	Bash	php artisan tinker --execute 'App\\Models\\Order::count();'
+redline:redline-reviewer	allow	Bash	mkdir -p /tmp/redlinerepro && cat > /tmp/redlinerepro/reviewer-r1-ReproTest.php <<'EOF'\n<?php\nuses(Tests\\TestCase::class);\nEOF
+redline:redline-reviewer	allow	Bash	vendor/bin/pest /tmp/redlinerepro/reviewer-r1-ReproTest.php
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh review-comments 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh issues-search "order status"
+redline:redline-reviewer	deny	Bash	PLUGIN/scripts/redline-gh.sh post-review 42 /tmp/r.json
+redline:redline-reviewer	deny	Bash	gh pr view 42
+redline:redline-reviewer	deny	Bash	echo hi > app/x.php
+redline:redline-reviewer	deny	Bash	sed -i '' 's/a/b/' app/Models/Order.php
+redline:redline-reviewer	allow	Bash	sed -n '1,20p' app/Models/Order.php
+redline:redline-reviewer	allow	Bash	cat app/Models/Order.php > /tmp/order.php
+redline:redline-reviewer	allow	Bash	cat app/Models/Order.php 2>/dev/null | wc -l
+redline:redline-reviewer	deny	Bash	git checkout main
+redline:redline-reviewer	deny	Bash	git push
+redline:redline-reviewer	deny	Bash	curl https://example.com
+redline:redline-reviewer	allow	Bash	ls app && cat $(git ls-files | head -1)
+redline:redline-reviewer	deny	Bash	cat `ls`
+redline:redline-reviewer	deny	Bash	echo "$(rm -rf app)"
+redline:redline-reviewer	deny	Bash	php artisan migrate:fresh --force
+redline:redline-reviewer	allow	Bash	cd app && cat Models/Order.php
+redline:redline-reviewer	deny	Bash	find app -name '*.php' -exec rm {} \\;
+redline:redline-reviewer	allow	Bash	find app -name '*.php' | xargs grep -l Order
+redline:redline-reviewer	deny	Bash	bash -c "git push"
+redline:redline-reviewer	allow	Bash	bash -c "git log -1"
+redline:redline-reviewer	deny	Bash	php -r 'unlink("app/x.php");'
+redline:redline-reviewer	deny	Write	app/Models/Order.php
+redline:redline-reviewer	deny	Bash	REPO/.claude/redline/checks.sh /tmp/s.json
+redline:redline-shaper	allow	Bash	mkdir -p agent-os/specs/2026-10-18-0912-21-review-round-1
+redline:redline-shaper	allow	Bash	cat >> agent-os/specs/2026-10-18-0912-21-review-round-1/shape.md <<'EOF'\nrm -rf app\nEOF
+redline:redline-shaper	allow	Bash	sed -i '' 's/pending/decided/' agent-os/specs/x/shape.md
+redline:redline-shaper	allow	Bash	cat agent-os/standards/index.yml >> agent-os/specs/x/standards.md
+redline:redline-shaper	deny	Bash	echo x > app/Models/Order.php
+redline:redline-shaper	deny	Bash	sed -i '' 's/a/b/' agent-os/standards/index.yml
+redline:redline-shaper	deny	Bash	git add agent-os/specs/x
+redline:redline-shaper	deny	Bash	git commit -m "redline: x"
+redline:redline-shaper	allow	Bash	tee agent-os/specs/x/plan.md < /tmp/plan.md
+redline:redline-shaper	deny	Bash	tee app/foo.php
+redline:redline-shaper	deny	Bash	rm -rf agent-os/specs
+redline:redline-shaper	allow	Bash	rm -rf agent-os/specs/x/visuals
+redline:redline-shaper	allow	Write	agent-os/specs/x/plan.md
+redline:redline-shaper	deny	Write	app/Models/Order.php
+redline:redline-shaper	deny	Bash	echo x > agent-os/specs/../standards/index.yml
+redline:redline-shaper	deny	Bash	mv agent-os/specs/x/plan.md app/plan.md
+redline:redline-resolve	allow	Bash	cat agent-os/specs/x/plan.md
+redline:redline-resolve	allow	Bash	sed -i '' 's/pending/decided/' agent-os/specs/x/shape.md
+redline:redline-resolve	deny	Bash	echo x > /tmp/y
+redline:redline-resolve	allow	Edit	agent-os/specs/x/shape.md
+redline:redline-resolve	deny	Edit	app/Models/Order.php
+redline:redline-resolve	deny	Bash	php artisan test
+redline:redline-plan-approver	allow	Bash	cat app/Models/Order.php
+redline:redline-plan-approver	allow	Bash	git show HEAD:app/Models/Order.php
+redline:redline-plan-approver	allow	Bash	php artisan route:list
+redline:redline-plan-approver	deny	Bash	echo x > /tmp/y
+redline:redline-plan-approver	deny	Bash	php artisan test
+redline:redline-plan-approver	deny	Write	/tmp/notes.md
+redline:redline-plan-approver	deny	Bash	mkdir /tmp/x
+redline:redline-standards-approver	allow	Bash	grep -rn "upsert" agent-os/standards
+redline:redline-standards-approver	deny	Bash	sed -i '' 's/a/b/' agent-os/standards/index.yml
+redline:redline-standards-approver	deny	Edit	agent-os/standards/index.yml
+redline:redline-implementer	allow	Bash	git add app/Models/Order.php tests/Feature/OrderTest.php
+redline:redline-implementer	deny	Bash	git add -A
+redline:redline-implementer	deny	Bash	git add .
+redline:redline-implementer	deny	Bash	git add app/*.php
+redline:redline-implementer	deny	Bash	git add .claude/redline/checks.sh
+redline:redline-implementer	allow	Bash	git commit -m "redline: R1-1 reject an empty order reference (#42)"
+redline:redline-implementer	deny	Bash	git commit -m "Fix empty names"
+redline:redline-implementer	deny	Bash	git commit -m "redline: R1-1 fix\n\nCo-Authored-By: Claude <noreply@anthropic.com>"
+redline:redline-implementer	deny	Bash	git commit -am "redline: x"
+redline:redline-implementer	deny	Bash	git commit --amend -m "redline: x"
+redline:redline-implementer	deny	Bash	git commit
+redline:redline-implementer	deny	Bash	git push
+redline:redline-implementer	deny	Bash	gh pr view 1
+redline:redline-implementer	allow	Bash	REPO/.claude/redline/checks.sh /tmp/snapshot.json
+redline:redline-implementer	allow	Bash	composer fix && composer check
+redline:redline-implementer	allow	Bash	vendor/bin/pint app/Models/Order.php
+redline:redline-implementer	allow	Bash	php artisan make:test OrderTest --pest --no-interaction
+redline:redline-implementer	allow	Bash	php artisan optimize
+redline:redline-implementer	deny	Bash	php artisan db:wipe --force
+redline:redline-implementer	allow	Bash	cat > app/Models/Order.php <<'EOF'\n<?php\nEOF
+redline:redline-implementer	deny	Bash	echo x > .claude/redline/checks.sh
+redline:redline-implementer	deny	Bash	echo x > ../other/file
+redline:redline-implementer	deny	Bash	rm -rf .
+redline:redline-implementer	allow	Bash	rm app/Models/Old.php
+redline:redline-implementer	deny	Bash	git checkout -- app/Models/Order.php
+redline:redline-implementer	deny	Bash	git stash
+redline:redline-implementer	deny	Bash	composer require foo/bar
+redline:redline-implementer	allow	Bash	npm run build
+redline:redline-implementer	allow	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction
+redline:redline-implementer	allow	Write	app/Models/Order.php
+redline:redline-implementer	deny	Write	.claude/agents/redline-implementer.md
+redline:redline-implementer	deny	Bash	git commit -F /tmp/does-not-exist.txt
+redline:redline-checker	allow	Bash	REPO/.claude/redline/checks.sh --git-only /tmp/s.json
+redline:redline-checker	allow	Bash	REPO/.claude/redline/checks.sh /tmp/s.json 2>/dev/null
+redline:redline-checker	deny	Bash	REPO/.claude/redline/checks.sh /tmp/s.json > /tmp/out.json
+redline:redline-checker	deny	Bash	git status
+redline:redline-checker	deny	Bash	cat /tmp/s.json
+redline:redline-checker	deny	Bash	/somewhere/else/checks.sh /tmp/s.json
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh pr 42
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh post-review 42 agent-os/specs/x/redline/round-1.json
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh has-review 42 1
+redline:redline-github	allow	Bash	git push
+redline:redline-github	allow	Bash	git push origin feature/42-order-status
+redline:redline-github	deny	Bash	git push --force
+redline:redline-github	deny	Bash	git push origin +main
+redline:redline-github	deny	Bash	git push origin :redline-scratch
+redline:redline-github	deny	Bash	gh pr comment 42 --body x
+redline:redline-github	allow	Bash	mkdir -p agent-os/specs/x/redline
+redline:redline-github	deny	Bash	cat > agent-os/specs/x/redline/body.md <<'EOF'\nRedline handoff\nEOF
+redline:redline-github	deny	Bash	git commit -m "redline: x"
+redline:redline-github	deny	Bash	git add x
+redline:redline-github	deny	Bash	cat agent-os/specs/x/plan.md
+redline:redline-github	allow	Write	agent-os/specs/x/redline/body.md
+redline:redline-github	deny	Write	app/Models/Order.php
+redline:redline-shaper	deny	Bash	php artisan tinker --execute 'echo 1;'
+redline:redline-implementer	deny	Bash	php artisan tinker
+redline:redline-implementer	deny	Bash	php artisan tinker --execute 'App\\Models\\Order::query()->delete();'
+redline:redline-reviewer	allow	Bash	git diff abc1234..HEAD -- ':/' ':(top,exclude)agent-os/specs'
+redline:redline-checker	allow	Bash	REDLINE_OCTANE=1 REPO/.claude/redline/checks.sh REPO/agent-os/specs/x/redline/snapshot.json
+redline:redline-github	allow	Write	REPO/agent-os/specs/x/redline/snapshot.json
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh files 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh login
+redline:redline-reviewer	allow	Write	/tmp/redlinerepro/reviewer-r1-ReproTest.php
+redline:redline-shaper	allow	Write	/tmp/redlinerepro/shaper-r2-ReproTest.php
+redline:redline-plan-approver	allow	Bash	PLUGIN/scripts/redline-gh.sh issues-search "order status"
+redline:redline-plan-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh post-review 42 /tmp/r.json
+redline:redline-shaper	allow	Bash	PLUGIN/scripts/redline-gh.sh issues-search "closing line"
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh comment 42 /tmp/c.md
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh issues-search "x"
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh place 42 /tmp/review.json
+redline:redline-implementer	allow	Write	.claude/commands/agent-os/shape-spec.md
+redline:redline-implementer	allow	Edit	CLAUDE.md
+redline:redline-implementer	allow	Bash	git add CLAUDE.md .claude/commands/agent-os/shape-spec.md
+redline:redline-implementer	allow	Bash	git commit -m "redline: R1-8 point the git tip in .claude/commands/agent-os/shape-spec.md at CLAUDE.md (#42)"
+redline:redline-implementer	deny	Bash	git commit -m "redline: R1-8 tidy CLAUDE.md as Claude suggested (#42)"
+redline:redline-implementer	deny	Bash	git commit -m "redline: R1-8 fix per Anthropic docs (#42)"
+redline:redline-implementer	deny	Write	.claude/settings.json
+redline:redline-implementer	deny	Write	.claude/settings.local.json
+redline:redline-implementer	deny	Edit	.claude/agents/redline-reviewer.md
+redline:redline-implementer	deny	Edit	.claude/redline/redline-guard.sh
+redline:redline-implementer	deny	Bash	rm -rf .claude
+redline:redline-implementer	deny	Bash	rm -rf .claude/agents
+redline:redline-implementer	deny	Bash	mv .claude/redline /tmp/redline
+redline:redline-implementer	deny	Bash	cp /tmp/x.md .claude/agents/redline-shaper.md
+redline:redline-implementer	allow	Write	.claude/agents/other-agent.md
+redline:redline-implementer	allow	Bash	cp /tmp/x.md .
+redline:redline-shaper	deny	Write	.claude/commands/agent-os/shape-spec.md
+redline:redline-reviewer	deny	Write	CLAUDE.md
+redline:redline-github	deny	Write	.claude/settings.json
+redline:redline-reviewer	deny	Bash	grep -l x app | xargs sed -i '' 's/x/y/'
+redline:redline-reviewer	deny	Bash	grep -l x app | xargs rm
+redline:redline-plan-approver	deny	Bash	find app -name '*.php' | xargs touch
+redline:redline-reviewer	allow	Bash	grep -l x app | xargs grep -n y
+redline:redline-implementer	allow	Bash	grep -l x app | xargs sed -i '' 's/x/y/'
+redline:redline-reviewer	deny	Bash	sed -i '' 's/a/b/'
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/'
+redline:redline-reviewer	deny	Bash	cd /tmp && find REPO/app -name '*.php' -exec rm {} \\;
+redline:redline-reviewer	deny	Bash	find app -name '*.php' -exec sed -i '' 's/a/b/' {} \\;
+redline:redline-reviewer	allow	Bash	find /tmp/redlinerepro -name '*.php' -exec rm {} \\;
+redline:redline-reviewer	allow	Bash	find app -name '*.php' -exec grep -l Order {} +
+redline:redline-implementer	allow	Bash	find app -name '*.php' -exec sed -i '' 's/a/b/' {} \\;
+redline:redline-implementer	deny	Bash	find .claude/redline -name '*.sh' -exec rm {} \\;
+redline:redline-reviewer	deny	Bash	find -exec rm {} \\;
+redline:redline-checker	deny	Bash	/tmp/.claude/redline/checks.sh /tmp/s.json
+redline:redline-checker	deny	Bash	cd /tmp && .claude/redline/checks.sh /tmp/s.json
+redline:redline-checker	allow	Bash	cd REPO/app && ../.claude/redline/checks.sh /tmp/s.json
+redline:redline-implementer	allow	Bash	.claude/redline/checks.sh /tmp/s.json
+redline:redline-implementer	allow	Bash	./.claude/redline/checks.sh /tmp/s.json
+redline:redline-github	deny	Bash	cp PLUGIN/scripts/redline-gh.sh /tmp/redline-gh.sh && /tmp/redline-gh.sh comment 42 /tmp/c.md
+redline:redline-implementer	deny	Write	.claude/workflows/redline-loop.js
+redline:redline-implementer	deny	Edit	.claude/skills/redline/SKILL.md
+redline:redline-implementer	deny	Write	.claude/skills/redline-review/SKILL.md
+redline:redline-implementer	deny	Write	.claude/skills/redline-revise/SKILL.md
+redline:redline-implementer	deny	Bash	rm -rf .claude/workflows
+redline:redline-implementer	deny	Bash	rm -rf .claude/skills
+redline:redline-implementer	deny	Bash	mv .claude/skills/redline /tmp/redline
+redline:redline-implementer	deny	Bash	cp /tmp/x.js .claude/workflows/redline-loop.js
+redline:redline-implementer	deny	Bash	sed -i '' 's/x/y/' .claude/skills/redline-revise/SKILL.md
+redline:redline-implementer	allow	Write	.claude/workflows/other-workflow.js
+redline:redline-implementer	allow	Write	.claude/skills/other-skill/SKILL.md
+redline:redline-shaper	deny	Write	.claude/workflows/redline-loop.js
+redline:redline-github	deny	Write	.claude/skills/redline/SKILL.md
+redline:redline-reviewer	allow	Bash	REPO/vendor/bin/pest REPO/tests/Feature/Api/OrderControllerTest.php
+redline:redline-reviewer	allow	Bash	./vendor/bin/pest tests/Feature/Api/OrderControllerTest.php
+redline:redline-reviewer	allow	Bash	cd REPO/tests && ../vendor/bin/pest Feature/Api/OrderControllerTest.php
+redline:redline-shaper	allow	Bash	REPO/vendor/bin/pest /tmp/redlinerepro/shaper-r2-ReproTest.php
+redline:redline-implementer	allow	Bash	REPO/vendor/bin/pint REPO/app/Models/Order.php
+redline:redline-implementer	allow	Bash	REPO/vendor/bin/phpstan analyse
+redline:redline-reviewer	deny	Bash	REPO/vendor/bin/pint app/Models/Order.php
+redline:redline-reviewer	deny	Bash	/tmp/vendor/bin/pest tests/Feature/Api/OrderControllerTest.php
+redline:redline-reviewer	deny	Bash	cd /tmp && vendor/bin/pest ReproTest.php
+redline:redline-reviewer	deny	Bash	php REPO/vendor/bin/pest tests/Feature/Api/OrderControllerTest.php
+redline:redline-checker	deny	Bash	REPO/vendor/bin/pest
+redline:redline-shaper	allow	Bash	git -C REPO/ log --oneline -3 && git -C REPO/ status --porcelain
+redline:redline-reviewer	allow	Bash	php REPO/artisan test --compact REPO/tests/Feature/Api/OrderControllerTest.php
+redline:redline-reviewer	allow	Bash	php ./artisan test --filter=OrderControllerTest
+redline:redline-reviewer	allow	Bash	cd REPO/tests && php ../artisan test --filter=OrderControllerTest
+redline:redline-reviewer	deny	Bash	php /tmp/artisan test --filter=OrderControllerTest
+redline:redline-reviewer	deny	Bash	cd /tmp && php artisan test --filter=OrderControllerTest
+redline:redline-reviewer	deny	Bash	php REPO/artisan tinker --execute 'echo 1;'
+redline:redline-reviewer	deny	Bash	php REPO/artisan make:test OrderTest --pest
+redline:redline-implementer	allow	Bash	php REPO/artisan make:test OrderTest --pest --no-interaction
+redline:redline-implementer	deny	Bash	php REPO/artisan db:wipe --force
+redline:redline-plan-approver	allow	Bash	php REPO/artisan route:list
+redline:redline-plan-approver	deny	Bash	php REPO/artisan test
+redline:redline-checker	deny	Bash	php REPO/artisan test
+redline:redline-implementer	deny	Bash	php artisan test --compact tests/Feature/Api/OrderControllerTest.php 2>&1 | python3 -c "import sys; print(sys.stdin.read()[-200:])"
+redline:redline-implementer	deny	Bash	vendor/bin/pest tests/Feature/Api/OrderControllerTest.php | node -e "process.stdin.pipe(process.stdout)"
+redline:redline-implementer	deny	Bash	php -r 'echo json_decode(file_get_contents("php://stdin"))->ok;'
+redline:redline-implementer	allow	Bash	php artisan test --compact tests/Feature/Api/OrderControllerTest.php 2>&1 | tail -40
+redline:redline-reviewer	allow	Bash	grep -n 'run `composer check` first' agent-os/standards/global/quality-gates.md
+redline:redline-shaper	allow	Bash	grep -rn 'never `git add -A`' agent-os/standards
+redline:redline-implementer	allow	Bash	git commit -m 'redline: R1-4 rename `total()` to `subtotal()` (#42)'
+redline:redline-reviewer	deny	Bash	grep -n "`id`" app
+redline:redline-reviewer	deny	Bash	grep -n "\`id\`" app
+redline:redline-reviewer	deny	Bash	grep -n 'a' `id` app
+redline:redline-reviewer	deny	Bash	grep -n \' `id` \' app
+redline:redline-reviewer	deny	Bash	grep -n 'unterminated `id` app
+redline:redline-reviewer	deny	Bash	grep -n x app # it's\ngrep `id` app 'y'
+redline:redline-reviewer	deny	Bash	cat <<'EOF'\nit's `id` it's\nEOF
+redline:redline-reviewer	deny	Bash	bash -c 'grep -n "`id`" app'
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh update 42 - REPO/agent-os/specs/2026-10-19-1329-42-review-round-1/pr-body.md REPO/agent-os/specs/2026-10-19-1329-42-review-round-2/redline/pr-body-backup.json
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh update 42 - REPO/agent-os/specs/2026-10-19-1329-42-review-round-1/pr-body.md
+redline:redline-reviewer	deny	Bash	grep -n x#y app ; rm -rf app
+redline:redline-reviewer	deny	Bash	git log --format=a#b ; git push
+redline:redline-reviewer	deny	Bash	git status # note\nrm -rf app
+redline:redline-reviewer	deny	Bash	bash -c 'grep -n x#y app ; rm -rf app'
+redline:redline-reviewer	allow	Bash	grep -rn '## Known limits' PLUGIN/README.md
+redline:redline-implementer	allow	Bash	git commit -m 'redline: R1-2 state the rounding rule in the docblock (#42)'
+redline:redline-implementer	deny	Bash	grep -n x#y app ; git push --force origin main
+
+# Not a Redline role: the guard does nothing, whatever the command.
+-	inert	Bash	git push --force origin main
+-	inert	Write	REPO/.claude/redline/checks.sh
+general-purpose	inert	Bash	rm -rf REPO/app
+Explore	inert	Bash	git push --force
+other-plugin:redline-reviewer	inert	Bash	git push --force
+redline:reviewer	inert	Bash	git status
+# A Redline-shaped agent_type whose role is not in the table is refused.
+redline:redline-bogus	deny	Bash	git status
+redline:redline-	deny	Bash	git status
+# A copy installed into .claude/agents/ is guarded the same way.
+redline-reviewer	allow	Bash	git status
+redline-reviewer	deny	Bash	git push
+redline-implementer	deny	Write	.claude/agents/redline-implementer.md
+# The plugin's own directory and the per-repo config are Redline's own files.
+redline:redline-implementer	deny	Write	PLUGIN/scripts/redline-guard.sh
+redline:redline-implementer	deny	Edit	PLUGIN/agents/redline-reviewer.md
+redline:redline-implementer	deny	Bash	rm -rf PLUGIN/
+redline:redline-reviewer	deny	Bash	echo x > PLUGIN/README.md
+redline:redline-github	deny	Bash	cp /tmp/x.sh PLUGIN/scripts/redline-gh.sh
+redline:redline-implementer	deny	Write	.claude/redline.json
+redline:redline-implementer	deny	Write	.claude/redline.local.json
+redline:redline-implementer	deny	Bash	sed -i '' 's/3/9/' .claude/redline.json
+# redline-gh.sh runs only from the plugin; a copy where the tool tier used to live is not it.
+redline:redline-reviewer	deny	Bash	REPO/.claude/redline/redline-gh.sh pr 42
+redline:redline-github	deny	Bash	REPO/.claude/redline/redline-gh.sh post-review 42 /tmp/r.json
