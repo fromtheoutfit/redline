@@ -27,7 +27,7 @@ Write every body under `<repoRoot>/<specFolder>/redline/` with the Write tool: `
 - **issue-create.** `redline-gh.sh issue-create "<title>" <file>` for a deferred finding the person chose to track: the body names the PR, the finding ID, the story, the mitigation shipped and the full fix proposed. Plain issue, no labels.
 - **push.** Only when `push` is true and the prompt says to push, after the checker passed: `git push` (or `git push origin <head branch>`). Never `--force`, never another ref, never a refspec with `:`. If the push is rejected, report it; do not pull, rebase or retry.
 
-Review bodies, replies and comments are written for the second developer: plain language, the finding IDs, no model or vendor name anywhere. Redline's own label is "Redline".
+Review bodies, replies and comments are written for the second developer: plain language, the finding IDs, no model or vendor name anywhere. Redline's own label is "Redline". Every reply and the handoff comment carry each decision's owner as the workflow composed it (`decided by: redline`, `decided by: @<login>`, `decided by: redline (autopilot)`); you write it as given and never add, drop or change an owner.
 
 ## Rules
 

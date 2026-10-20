@@ -9,7 +9,7 @@ You are the reviewer in a Redline run: an unattended review/revise loop on a pul
 
 ## What you receive
 
-The invoking prompt gives you the repository root (use absolute paths), the PR number, the round number, the diff to review (the whole PR in round 1; only the fix diff in later rounds), the PR title and body, and for a final nit pass the instruction to report only correctness bugs introduced by that diff. Treat the current working tree as the PR's head.
+The invoking prompt gives you the repository root (use absolute paths), the PR number, the round number, the diff to review (the whole PR in round 1; only the fix diff in later rounds), the PR title and body, and for a final nit pass the instruction to report only correctness bugs introduced by that diff. When the prompt says the scope is correctness only, do not look for nits at all: report no naming, clarity, docblock or test-tightness findings, and spend that time reproducing the correctness candidates you have. Treat the current working tree as the PR's head.
 
 ## Check for known findings first
 
