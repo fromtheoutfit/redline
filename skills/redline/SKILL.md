@@ -60,6 +60,8 @@ It prints `effective` (command line over saved file over defaults: `guided`, `cl
   - "What should the reviewer look for?" **Everything** (`all`: correctness bugs and nits) · **Correctness only** (no nits, no final nit pass).
 - **`confirm` is true (a saved file).** Ask one `AskUserQuestion`: "Settings for this run?" whose first option is the script's `summary` verbatim (`Run with: <interrupt> · <model> · <N> rounds · <scope>`, with `(command line)` after each value typed in the command, which overrides the saved one), and whose second option is **Change something**. On "Change something", ask the fields above that were not typed on the command line (every field in `applies`), with the saved values as the first options.
 
+A headless session (`claude -p`) has no `AskUserQuestion`: there, take the script's `effective` values without asking (the command line, the saved file and the defaults, in that order) and say so in one line. Pass every setting on the command line when a headless run must not rely on the saved file.
+
 Whatever the run uses is the new saved set, however it was chosen: run `redline-prefs.sh save <repoRoot> --interrupt <word> --revise <model id> --max-rounds <N> --scope <word>` with the four effective values before launching. The script itself keeps `autopilot` and `review only` out of the file (they are per-run verbs; the previous saved interrupt stays), so always pass what the run uses. The saved file is one of Redline's own: no Redline role may write it, and you write it only through the script.
 
 The revise model holds for every round of the run and every relaunch. A `review only` run never starts a revise agent; its `models.revise.model` is whatever was settled, as a placeholder.
