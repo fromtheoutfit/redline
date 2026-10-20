@@ -64,6 +64,7 @@ export REDLINE_GUARD_PLUGIN_ROOT
 #   checks     the repository's .claude/redline/checks.sh
 #   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | files | login | place
 #   gh-all     the plugin's scripts/redline-gh.sh, every subcommand
+#   git-read   read-only git alone (status, log, rev-parse, ...), without the file tools of read
 #   git-add    git add <paths>  (never -A, --all, -u, ., *)
 #   git-commit git commit -m/-F (never -a, --amend, --no-verify; message starts "redline:", no attribution)
 #   git-push   git push [remote [branch]]  (never --force, -f, --force-with-lease, --delete, +ref)
@@ -89,7 +90,7 @@ plan-approver      | read gh-read                                      | NONE
 standards-approver | read                                              | NONE
 implementer        | read tests build checks git-add git-commit        | TMP REPO
 checker            | checks                                            | NONE
-github             | gh-all git-push                                   | TMP agent-os/specs/
+github             | gh-all git-read git-add git-commit git-push       | TMP agent-os/specs/
 '
 export REDLINE_GUARD_TABLE
 
@@ -689,7 +690,7 @@ def check_git(args, cur):
         return "git without a subcommand"
     sub, rest = args[0], args[1:]
 
-    if sub in GIT_READ and "read" in GROUPS:
+    if sub in GIT_READ and ("read" in GROUPS or "git-read" in GROUPS):
         return None
     if sub == "branch" and "read" in GROUPS:
         if any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f", "--delete", "--move", "--copy", "--force", "-u",

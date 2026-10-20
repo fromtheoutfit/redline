@@ -53,6 +53,17 @@ function mock(scenario) {
       if (opts.label === 'PR description') {
         return { operation: 'update', prBody: { file: '', updated: false, backup: '', copy: '' }, error: '' }
       }
+      // git status over the record's paths: by default one uncommitted file per round folder, and
+      // the start snapshot as untracked; scenario.recordFiles scripts the list instead.
+      if (opts.label === 'record files') {
+        const paths = prompt.slice(prompt.indexOf('--untracked-files=all -- ') + 25).split('\n')[0].split(' ')
+        const files = scenario.recordFiles ? scenario.recordFiles.slice() : paths.map((p) => (p.endsWith('/') ? `${p}handoff.md` : p))
+        return { operation: 'record-status', files, error: '' }
+      }
+      if (opts.label === 'record commit') {
+        const files = prompt.slice(prompt.indexOf(' add -- ') + 8).split('\n')[0].split(' ')
+        return { operation: 'record-commit', committed: true, sha: 'c'.repeat(40), pushed: prompt.includes('push: true'), files, error: scenario.recordError || '' }
+      }
       return { operation: 'handoff', dryRun: false, posted: true, comment_url: 'u', reviewRequested: true, files: [], error: '' }
     }
     if (t === 'redline:redline-reviewer') {
@@ -106,7 +117,7 @@ const baseArgs = {
 }
 
 async function go(name, args, scenario) {
-  const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved }
+  const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
   const { agent, calls } = mock(s)
   const fn = new Function('args', 'agent', 'parallel', 'phase', 'log', body)
   const parallel = async (thunks) => Promise.all(thunks.map((t) => t().catch(() => null)))
@@ -119,6 +130,11 @@ async function go(name, args, scenario) {
   }
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
+  // Every run that reaches Finish ends with the run-record commit, after the closing comment.
+  if (!thrown && (res.status === 'capped' || 'handoffPosted' in res) && !scenario.recordFiles) {
+    const tail = calls.slice(-3).map((c) => c.label)
+    check(`${name}: the run-record commit is the last call, after the closing comment`, /comment$/.test(tail[0]) && tail[1] === 'record files' && tail[2] === 'record commit' && res.recordCommit && res.recordCommit.committed, tail)
+  }
   return { res, calls, thrown }
 }
 
@@ -244,7 +260,7 @@ function samePrefix(name, first, second, n) {
   check('review: the re-review sees the drops as settled', pick(second.calls, 're-review r2').prompt.includes('"outcome": "not acted on in this run: Naming is fine as it is. · decided by: @author"'), pick(second.calls, 're-review r2').prompt)
   check('review: round record lists the drops', JSON.stringify(second.res.rounds[0].dropped) === '[{"id":"R1-2","reason":"Naming is fine as it is."},{"id":"R1-3","reason":"Not selected for this run."}]', second.res.rounds[0].dropped)
   const none = await go('review: nothing selected', { ...reviewArgs, selected: { act: [], dropped: { 'R1-1': 'Known and accepted.' } } }, scenario)
-  check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|PR description|handoff comment', labels(none.calls))
+  check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|PR description|handoff comment|record files|record commit', labels(none.calls))
   const later = await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
   check('review: a later round hands off its asks as guided does', later.res.status === 'handoff' && later.res.handoffKind === 'decisions' && later.res.handoffRound === 2, later.res.status)
 }
@@ -292,6 +308,56 @@ function samePrefix(name, first, second, n) {
   check('bad scope: refused', run.thrown && /args.scope must be/.test(run.thrown.message))
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   check('no login: the author stands in', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
+}
+
+// ---------------------------------------------------------------------------
+// 7. Finish commits the run record: last, after the description and the closing comment, staging
+//    by name only the record files git status lists, and only when it lists any.
+// ---------------------------------------------------------------------------
+{
+  const folder1 = 'agent-os/specs/2026-10-20-1600-114-review-round-1/redline/'
+  const folder2 = 'agent-os/specs/2026-10-20-1600-114-review-round-2/redline/'
+  const start = 'agent-os/specs/x/redline/snapshot-start.json'
+  const scenario = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
+  let run = await go('record: two rounds, pushed', baseArgs, scenario)
+  check('record: after the description and the handoff comment', labels(run.calls).slice(-4).join('|') === 'PR description|handoff comment|record files|record commit', labels(run.calls).slice(-4))
+  const status = pick(run.calls, 'record files').prompt
+  check('record: status covers every round folder and the start snapshot', status.includes(`git -C /r status --porcelain --untracked-files=all -- ${folder1} ${folder2} ${start}\n`), status)
+  const commit = pick(run.calls, 'record commit').prompt
+  check('record: stages the listed files by name', commit.includes(`git -C /r add -- ${folder1}handoff.md ${folder2}handoff.md ${start}\n`), commit)
+  check('record: the commit message', commit.includes('git -C /r commit -m "redline: record the run\'s replies, reviews and handoff for PR #114 (#114)"'), commit)
+  check('record: pushes the head branch when push is on', commit.includes('push: true') && commit.includes('git -C /r push origin redline-seed-3'), commit)
+  check('record: reported in the result', run.res.recordCommit.committed === true && run.res.recordCommit.sha === 'c'.repeat(40) && run.res.recordCommit.pushed === true && run.res.recordCommit.files.length === 3, run.res.recordCommit)
+  check('record: the handoff comment is composed before the commit, so it lists only the fix commits', !comment(run.calls, 'handoff comment').includes('record the run'))
+
+  run = await go('record: nothing uncommitted', baseArgs, { ...scenario, recordFiles: [] })
+  check('record: no commit when git status lists nothing', run.res.status === 'done' && labels(run.calls).slice(-2).join('|') === 'handoff comment|record files' && run.res.recordCommit.committed === false, labels(run.calls).slice(-3))
+
+  run = await go('record: a stray file in the status', baseArgs, { ...scenario, recordFiles: [`${folder1}round-1-reply-R1-1.md`, 'app/x.php'] })
+  const stray = pick(run.calls, 'record commit').prompt
+  check('record: stages only the record, never a file outside it', stray.includes(`add -- ${folder1}round-1-reply-R1-1.md\n`) && !stray.includes('app/x.php'), stray)
+  check('record: the stray file is a warning', run.res.warnings.some((w) => w.includes('app/x.php') && w.includes('not staged')), run.res.warnings)
+
+  run = await go('record: dry run commits locally', { ...baseArgs, postToGitHub: false }, scenario)
+  const dry = pick(run.calls, 'record commit').prompt
+  check('record: a dry run commits and does not push', dry.includes('Do not push (this is a dry run)') && !dry.includes(' push origin ') && run.res.recordCommit.pushed === false, dry)
+  run = await go('record: no push', { ...baseArgs, push: false }, scenario)
+  check('record: no push commits and does not push', pick(run.calls, 'record commit').prompt.includes('Do not push (push is off for this run)'))
+
+  run = await go('record: cap hit', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] })
+  check('record: the cap-hit run commits its record too', run.res.status === 'capped' && labels(run.calls).slice(-3).join('|') === 'cap-hit comment|record files|record commit', labels(run.calls).slice(-3))
+
+  for (const [name, args, s] of [
+    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness', { needsDecision: true })]], ask: ['R1-1'] }],
+    ['the review dial', { ...baseArgs, interrupt: 'review' }, { reviews: [[f('R1-1', 'correctness')]] }],
+    ['review only', { ...baseArgs, interrupt: 'review only' }, { reviews: [[f('R1-1', 'nit')]] }],
+  ]) {
+    run = await go(`record: ${name} stops before Finish`, args, s)
+    check(`record: ${name} commits no record`, !labels(run.calls).some((l) => l.startsWith('record')), labels(run.calls))
+  }
+
+  run = await go('record: the commit fails', baseArgs, { ...scenario, recordError: 'nothing added to commit' })
+  check('record: a failed commit is an error at finish', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('committing the run record failed'), run.res)
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

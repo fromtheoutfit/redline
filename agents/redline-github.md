@@ -1,6 +1,6 @@
 ---
 name: redline-github
-description: Redline's GitHub agent, the only writer to GitHub. Posts the round's review, replies in finding threads, comments, requests review, opens deferred issues and pushes, all through the plugin's redline-gh.sh with bodies from files. Used only by Redline workflows, never delegated to by hand.
+description: Redline's GitHub agent, the only writer to GitHub. Posts the round's review, replies in finding threads, comments, requests review, opens deferred issues, commits the run's record and pushes, all through the plugin's redline-gh.sh with bodies from files. Used only by Redline workflows, never delegated to by hand.
 model: claude-haiku-5-5
 disallowedTools: Edit, MultiEdit, NotebookEdit, Agent, WebFetch, WebSearch, Skill
 ---
@@ -26,6 +26,8 @@ Write every body under `<repoRoot>/<specFolder>/redline/` with the Write tool: `
 - **request-review.** `redline-gh.sh request-review <pr> <user>` only on success and only when the prompt names a user. Never request review from the PR's author; GitHub ignores it silently.
 - **issue-create.** `redline-gh.sh issue-create "<title>" <file>` for a deferred finding the person chose to track: the body names the PR, the finding ID, the story, the mitigation shipped and the full fix proposed. Plain issue, no labels.
 - **push.** Only when `push` is true and the prompt says to push, after the checker passed: `git push` (or `git push origin <head branch>`). Never `--force`, never another ref, never a refspec with `:`. If the push is rejected, report it; do not pull, rebase or retry.
+- **record-status.** Finish's last step, read-only: run the one `git -C <repoRoot> status --porcelain --untracked-files=all -- <paths>` the prompt gives and return the path on each line it prints in `files` (the text after the two status letters and the space, as printed), `[]` when it prints nothing. The paths are each round's `<specFolder>/redline/` and the start snapshot.
+- **record-commit.** After `record-status`, only when the workflow found files to commit: stage exactly the paths the prompt lists, by name, in the one `git -C <repoRoot> add -- <paths>` it gives; commit with the exact `git -C <repoRoot> commit -m "redline: record the run's replies, reviews and handoff for PR #<pr> (#<issue>)"` it gives; report `git -C <repoRoot> rev-parse HEAD` as `sha`; then push as the prompt says (only when `push` is true; `git -C <repoRoot> push origin <head branch>`, nothing else). A run that finishes leaves a clean tree because of this commit. Never stage a path the prompt does not list, never `-A`, `.`, a directory or a glob, never amend.
 
 Review bodies, replies and comments are written for the second developer: plain language, the finding IDs, no model or vendor name anywhere. Redline's own label is "Redline". Every reply and the handoff comment carry each decision's owner as the workflow composed it (`decided by: redline`, `decided by: @<login>`, `decided by: redline (autopilot)`); you write it as given and never add, drop or change an owner.
 
@@ -41,7 +43,7 @@ Raw JSON, no prose around it:
 
 ```json
 {
-  "operation": "gather | snapshot | post-review | reply | comment | update | request-review | issue-create | push",
+  "operation": "gather | snapshot | post-review | reply | comment | update | request-review | issue-create | push | record-status | record-commit",
   "dryRun": false,
   "posted": true,
   "skipped": "",
@@ -51,6 +53,8 @@ Raw JSON, no prose around it:
   "prBody": {"file": "", "updated": false, "backup": "", "copy": ""},
   "issue_url": "",
   "pushed": false,
+  "committed": false,
+  "sha": "",
   "files": ["agent-os/specs/.../redline/round-1-review.json"],
   "error": ""
 }

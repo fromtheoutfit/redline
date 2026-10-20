@@ -91,7 +91,7 @@ Any failure stops the launch with one line saying which check failed and what to
    {"pr": 43, "start_sha": "<headRefOid>", "base_ref": "<baseRefName>", "files": ["..."], "plan_paths": []}
    ```
 
-   It sits under `agent-os/specs/`, which every `checks.sh` allowed list includes, and it is committed with round 1's spec folder as the run's record.
+   It sits under `agent-os/specs/`, which every `checks.sh` allowed list includes, and it is committed as the run's record: with round 1's spec folder, or by the run-record commit at Finish when no round committed it.
 5. Assemble `args` (every field, every time; the workflow reads nothing else):
 
    ```json
@@ -195,7 +195,7 @@ Change nothing else in `args` (a plan hand-off adds `approvedPlans`, a `reviewed
 
 ### `done`
 
-Report in a few lines: rounds, commits, the decisions by owner (`decided`: how many by `redline`, by `@<login>`, by `redline (autopilot)`), whether the PR description was replaced (`prBody.file`, and the old body's `copy` in the round's `redline/` folder, or that no round wrote a `pr-body.md`), whether the handoff comment was posted and the review requested (or, in a dry run, where `handoff.md` was written), any `warnings`, and any Redline files left uncommitted (`git status --porcelain`; the reply and handoff files are written after the round's last commit). Then walk the `deferred` list **one item at a time**, in prose: the finding, the mitigation that shipped, the full fix left open, and three choices:
+Report in a few lines: rounds, commits, the decisions by owner (`decided`: how many by `redline`, by `@<login>`, by `redline (autopilot)`), whether the PR description was replaced (`prBody.file`, and the old body's `copy` in the round's `redline/` folder, or that no round wrote a `pr-body.md`), whether the handoff comment was posted and the review requested (or, in a dry run, where `handoff.md` was written), any `warnings`, and the run-record commit (`recordCommit`: its short SHA, how many files, whether it was pushed, or that nothing was left to commit). Then run `git status --porcelain`: a finished run leaves a clean tree, so name anything it prints. Then walk the `deferred` list **one item at a time**, in prose: the finding, the mitigation that shipped, the full fix left open, and three choices:
 
 - **Open an issue**: write the body to `<repoRoot>/<specFolder>/redline/issue-<id>.md` (PR, finding ID, story, the mitigation shipped, the full fix proposed; no AI attribution) and run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh issue-create "<title>" <file>`. In a dry run, write the file only.
 - **Decline**: update the code comment that names the finding so a later reviewer does not re-find it (say it was declined and why, in the person's words). Leave the change uncommitted; outside a Redline run the person commits.
@@ -203,7 +203,7 @@ Report in a few lines: rounds, commits, the decisions by owner (`decided`: how m
 
 ### `capped`
 
-The round cap was hit with correctness bugs open: the cap-hit comment was posted (or written), and no review was requested. List `openFindings` one line each and stop. The person picks them up by hand or with another `/redline:redline`.
+The round cap was hit with correctness bugs open: the cap-hit comment was posted (or written), the run record was committed (`recordCommit`), and no review was requested. List `openFindings` one line each and stop. The person picks them up by hand or with another `/redline:redline`.
 
 ### `error`
 

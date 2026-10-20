@@ -119,7 +119,7 @@ redline:redline-github	deny	Bash	git push origin :redline-scratch
 redline:redline-github	deny	Bash	gh pr comment 42 --body x
 redline:redline-github	allow	Bash	mkdir -p agent-os/specs/x/redline
 redline:redline-github	deny	Bash	cat > agent-os/specs/x/redline/body.md <<'EOF'\nRedline handoff\nEOF
-redline:redline-github	deny	Bash	git commit -m "redline: x"
+redline:redline-github	allow	Bash	git commit -m "redline: x"
 redline:redline-github	deny	Bash	git add x
 redline:redline-github	deny	Bash	cat agent-os/specs/x/plan.md
 redline:redline-github	allow	Write	agent-os/specs/x/redline/body.md
@@ -285,3 +285,24 @@ redline:redline-reviewer	allow	Bash	cat .claude/redline.local.json
 redline:redline-implementer	allow	Bash	cat .claude/redline.local.json
 -	inert	Write	.claude/redline.local.json
 -	inert	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
+
+# Step 14: Finish commits the run record. The GitHub agent lists the record's uncommitted files
+# with git status, stages them by name (agent-os/specs/ only, its write prefix), commits with the
+# redline: prefix and pushes. Read-only git is all it gains for reading: no file tools.
+redline:redline-github	allow	Bash	git -C REPO/ status --porcelain --untracked-files=all -- agent-os/specs/2026-10-20-1600-42-review-round-1/redline/ agent-os/specs/2026-10-20-1600-42-review-round-2/redline/
+redline:redline-github	allow	Bash	git -C REPO/ add -- agent-os/specs/2026-10-20-1600-42-review-round-1/redline/round-1-reply-R1-1.md agent-os/specs/2026-10-20-1600-42-review-round-2/redline/handoff.md
+redline:redline-github	allow	Bash	git -C REPO/ commit -m "redline: record the run's replies, reviews and handoff for PR #42 (#42)"
+redline:redline-github	allow	Bash	git -C REPO/ rev-parse HEAD
+redline:redline-github	allow	Bash	git -C REPO/ push origin feature/42-order-status
+redline:redline-github	deny	Bash	git -C REPO/ add -- app/Models/Order.php
+redline:redline-github	deny	Bash	git -C REPO/ add -A
+redline:redline-github	deny	Bash	git -C REPO/ add agent-os/specs/x/redline/*.md
+redline:redline-github	deny	Bash	git -C REPO/ commit -m "record the run"
+redline:redline-github	deny	Bash	git -C REPO/ commit -a -m "redline: record the run"
+redline:redline-github	deny	Bash	git -C REPO/ commit --amend -m "redline: record the run"
+redline:redline-github	deny	Bash	git -C REPO/ commit -m "redline: record the run\n\nCo-Authored-By: someone"
+redline:redline-github	deny	Bash	git -C REPO/ checkout main
+redline:redline-github	deny	Bash	git -C REPO/ reset --hard HEAD~1
+redline:redline-github	deny	Bash	git -C REPO/ stash
+redline:redline-github	deny	Bash	cat REPO/agent-os/specs/x/plan.md
+redline:redline-github	deny	Bash	git -C REPO/ add -- .claude/redline.local.json

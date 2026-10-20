@@ -13,7 +13,7 @@ export const meta = {
     { title: 'Implement', detail: 'one commit per finding (revise model)' },
     { title: 'Check', detail: 'checks.sh by the checker; the script judges' },
     { title: 'Push and reply', detail: 'push when allowed, reply in every finding thread' },
-    { title: 'Finish', detail: 'PR description from pr-body.md, handoff comment and review request, or the cap-hit comment' },
+    { title: 'Finish', detail: 'PR description from pr-body.md, handoff comment and review request, or the cap-hit comment; then the run-record commit' },
   ],
 }
 
@@ -442,6 +442,12 @@ const FINISH_SCHEMA = {
   },
 }
 
+const RECORD_SCHEMA = {
+  type: 'object',
+  required: ['operation', 'committed', 'sha', 'pushed', 'files', 'error'],
+  properties: { operation: str, committed: bool, sha: str, pushed: bool, files: strings, error: str },
+}
+
 // ---------------------------------------------------------------------------
 // Bodies the GitHub agent writes verbatim. Composed here so the words are
 // deterministic and never depend on a model's paraphrase.
@@ -844,6 +850,41 @@ ${request}
 Return only the JSON your instructions specify, with operation "${kind}".`
 }
 
+function recordStatusPrompt(paths) {
+  return `${RUN_LINE}
+
+Operation: record-status. PR #${pr}. Read only. Run this once, exactly as given, and nothing else:
+
+git -C ${repoRoot} status --porcelain --untracked-files=all -- ${paths.join(' ')}
+
+Set files to the path on each line it prints (the text after the two status letters and the space, repository-relative, exactly as printed), in the order printed, or [] when it prints nothing. If git fails, set error to its message.
+
+Return only the JSON your instructions specify, with operation "record-status".`
+}
+
+function recordCommitPrompt(files, message) {
+  const step3 = push
+    ? `Step 3. Push: run \`git -C ${repoRoot} push origin ${headRef}\` once and set pushed true. If it is rejected, set error to git's message.`
+    : `Step 3. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}); set pushed false.`
+  return `${RUN_LINE}
+
+Operation: record-commit. PR #${pr}, head branch ${headRef}. push: ${push}.
+
+These files are the run's record that no commit holds yet (the reviews, findings, snapshots, replies and the closing comment, under the spec folders). Commit them so the run leaves a clean tree.
+
+Step 1. Stage them by name, in one command, these paths and no others:
+
+git -C ${repoRoot} add -- ${files.join(' ')}
+
+Step 2. Commit with exactly this command, then run \`git -C ${repoRoot} rev-parse HEAD\` and set sha to the full SHA it prints and committed true:
+
+git -C ${repoRoot} commit -m "${message}"
+
+${step3}
+
+Return only the JSON your instructions specify, with operation "record-commit" and files listing the paths you staged.`
+}
+
 // ---------------------------------------------------------------------------
 // The checker's verdict. The script decides, never an agent.
 // ---------------------------------------------------------------------------
@@ -923,6 +964,7 @@ const warnings = []
 let approvedPaths = []
 let baseline = null
 let baselineFailing = []
+let recordCommit = null
 
 function compactFinding(f) {
   return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, needsDecision: f.needsDecision, knownAs: f.knownAs }
@@ -970,6 +1012,7 @@ function result(status, extra) {
     decided: decidedAll,
     openFindings: [],
     commits: commitsAll,
+    recordCommit,
     specFolders: unique(rounds.map((record) => record.specFolder)),
     snapshotStart,
     warnings,
@@ -1454,7 +1497,42 @@ async function finish(kind, record, compose) {
     throw stageError('finish', `the ${kind} comment failed: ${out.error}`)
   }
   record.files.push(file)
+  recordCommit = await commitRecord()
   return { ...out, prBody }
+}
+
+// Finish's last step: commit the run's record, so a finished run leaves a clean tree. The replies
+// and the closing comment are written after the round's last commit, and a round with no revise
+// pass never committed its review at all. The status call only reports which of the record's
+// paths no commit holds; the workflow picks what is staged, and commits only when there is any.
+async function commitRecord() {
+  const folders = unique(rounds.map((r) => `${r.specFolder}/redline/`))
+  const start = snapshotStart.startsWith(`${repoRoot}/`) ? snapshotStart.slice(repoRoot.length + 1) : ''
+  const status = await run('finish', recordStatusPrompt(unique(folders.concat(start ? [start] : []))), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: 'record files', phase: 'Finish', schema: FILE_OP_SCHEMA,
+  })
+  if (status.error) {
+    throw stageError('finish', `listing the run record failed: ${status.error}`)
+  }
+  const listed = unique(status.files.map((path) => path.trim()).filter((path) => path !== ''))
+  const inRecord = (path) => path === start || folders.some((folder) => path.startsWith(folder))
+  const outside = listed.filter((path) => !inRecord(path))
+  if (outside.length) {
+    warnings.push(`record: git status listed ${outside.join(', ')}, outside the run record; not staged`)
+  }
+  const files = listed.filter(inRecord)
+  if (!files.length) {
+    log('record: every record file is already committed')
+    return { committed: false, sha: '', pushed: false, files: [] }
+  }
+  const message = `redline: record the run's replies, reviews and handoff for PR #${pr} (#${issue})`
+  const out = await run('finish', recordCommitPrompt(files, message), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: 'record commit', phase: 'Finish', schema: RECORD_SCHEMA,
+  })
+  if (out.error) {
+    throw stageError('finish', `committing the run record failed: ${out.error}`, { files })
+  }
+  return { committed: out.committed, sha: out.sha, pushed: out.pushed, files, message }
 }
 
 // ---------------------------------------------------------------------------

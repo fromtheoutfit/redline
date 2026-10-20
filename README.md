@@ -112,7 +112,7 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 | `scripts/checks-template.sh` | The starting point for a repository's `.claude/redline/checks.sh` |
 | `templates/` | The per-repository files above |
 | `tests/guard-test.sh`, `tests/guard-cases.tsv` | The guard's regression table |
-| `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners and the replay rule (`node tests/loop-test.mjs`) |
+| `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners, the replay rule and the run-record commit (`node tests/loop-test.mjs`) |
 | `tests/prefs-test.sh` | The unit test of the settings merge rules |
 
 ## The guard
@@ -137,13 +137,13 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 
 These apply when the prompt says the session is a Redline run. Outside a Redline run the repo's CLAUDE.md Git section stands unchanged: never commit, push or stage.
 
-1. **One commit per finding.** Each finding fixed in a round is its own commit. The standards retrospective, when it changes anything, is one more commit on its own. The spec folder (`agent-os/specs/<ts>-<pr>-review-round-<n>/`) is committed in the round's first commit or on its own; never mixed into a finding's commit. Its As built notes land in the round's last commit. So a round makes the spec commit, one commit per finding, the standards commit when there is one, and the as-built commit: three findings make six commits.
+1. **One commit per finding.** Each finding fixed in a round is its own commit. The standards retrospective, when it changes anything, is one more commit on its own. The spec folder (`agent-os/specs/<ts>-<pr>-review-round-<n>/`) is committed in the round's first commit or on its own; never mixed into a finding's commit. Its As built notes land in the round's last commit. So a round makes the spec commit, one commit per finding, the standards commit when there is one, and the as-built commit: three findings make six commits. A run that finishes (handed off or capped) then makes one more, the run-record commit: after the handoff or cap-hit comment (and the PR description, when one was posted), the GitHub agent stages, by name, every file under each round's `<specFolder>/redline/` that no commit holds yet (the replies, the closing comment, the description's backup, and the review and findings of a round that had no revise pass), plus `snapshot-start.json` if it is untracked, and commits them as `redline: record the run's replies, reviews and handoff for PR #<pr> (#<issue>)`. When nothing is left to stage there is no commit.
 2. **Stage files by name.** `git add <path> [<path>...]` only. Never `git add -A`, `git add .`, `git add -u` or `git commit -a`. A file that is not named in the plan task is not staged.
 3. **`redline:` prefix.** Every commit message starts with `redline: ` followed by one sentence naming the finding and the change, for example `redline: R1-2 reject a status outside the enum (#42)`. Reference the PR's issue number the way the repo's other commits do.
 4. **No AI attribution.** No `Co-Authored-By`, no "Generated with", no model or vendor names, in commits, PR bodies, comments, issues or spec files. Redline labels its own work as Redline (`Redline round 2`, `Redline handoff`, `redline:`), which is a tool name, not vendor attribution.
-5. **Push only when `args.push` is true.** The implementer never pushes. The GitHub agent pushes once per round, after the checker passed, with `git push` to the PR's head branch and nothing else (no `--force`, no other refs). With `push: false` the commits stay local and the replies say so.
+5. **Push only when `args.push` is true.** The implementer never pushes. The GitHub agent pushes once per round, after the checker passed, and once more after the run-record commit, with `git push` to the PR's head branch and nothing else (no `--force`, no other refs). With `push: false` the commits stay local and the replies say so.
 6. **Never merge, approve, rebase or amend.** Reviews post with the `COMMENT` event. History is append-only during a run.
-7. **A clean tree at the start.** A fresh launch requires the PR's head branch, a clean tree and HEAD equal to the PR's head SHA. The only expected uncommitted state during a run is the round's spec folder before its commit.
+7. **A clean tree at the start and at the end.** A fresh launch requires the PR's head branch, a clean tree and HEAD equal to the PR's head SHA. During a run the only expected uncommitted state is under the spec folders: the round's folder before its commit, and the reply files written after the round's last commit. A run that finishes leaves a clean tree, because the run-record commit holds the rest. A run that stops for the person (a hand-off, the review dial, `review only`) leaves its spec folder uncommitted: a relaunch picks it up, and a `review only` run's files are the person's to commit or remove.
 
 ## `checks.sh`
 
@@ -241,7 +241,7 @@ Rules the agent follows around these:
 
 ## Snapshot file
 
-Two kinds, both under `agent-os/specs/` (inside every allowed list, and committed with the spec folder as the run's record):
+Two kinds, both under `agent-os/specs/` (inside every allowed list, and committed as the run's record: with the round's spec folder, or by the run-record commit at Finish):
 
 - **Start snapshot**, `<round 1 spec folder>/redline/snapshot-start.json`, written by the `/redline:redline` skill after the precheck from `redline-gh.sh pr <n>` and `redline-gh.sh files <n>`, with `plan_paths: []`. The checker's `--baseline` run reads it.
 - **Round snapshot**, `<round N spec folder>/redline/snapshot.json`, written by the GitHub agent after the plan approver passes, with `plan_paths` set to every path approved so far in the run plus the round's spec folder. Cumulative, because the git block measures from `start_sha` and an earlier round's files are still changed later. The implementer's and checker's full runs read it.
