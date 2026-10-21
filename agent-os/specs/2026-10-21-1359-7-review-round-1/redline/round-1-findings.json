@@ -1,0 +1,109 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "00c886d0e1210f86a490a49ae80091145da4899c",
+    "to": "00c886d0e1210f86a490a49ae80091145da4899c"
+  },
+  "summary": "The gate stamp is well built. The parser handles all three known gate shapes, and the hash errs toward firing. Stamping is idempotent and keeps the executable bit, and the harness pins the fixture hashes and checks this checkout's own stamp.\n\nThe findings sit at the edges of that design:\n- **Self-hosted rules:** the rules that keep a run here from needing a restamp are incomplete. They miss a fix that changes the hash definition or the stamp format, and the shaper's overriding rule 7 contradicts the new checks.sh defer.\n- **Section choice:** the parser can switch silently to the plan-template decoy.\n- **Smaller mismatches:** a few lines of documentation and one argument path disagree with what the code does.\n\n**Concurrency:** this repository has no scheduled commands or queued jobs. The one shared file is checks.sh: a hand-run `stamp` rewrites it in place, and the precheck and checker only read it. `stamp` is run when a launch has refused, so no run is reading the file then.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": ".claude/commands/agent-os/shape-spec.md",
+      "line": 69,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "likely",
+      "title": "Point 11 does not defer a fix that moves this checkout's hash through scripts/redline-gate.sh",
+      "description": "Point 11, and the matching Known limits line at README.md:147, send only one kind of finding to `defer`: a finding whose fix changes the backticked text of the Verification Gate. A second kind needs a restamp too. A fix in scripts/redline-gate.sh can change how the hash is computed (the normalisation, the join, or what counts as an item, such as adding step numbers or the heading), or it can change the stamp line's format. Either way this checkout's stamp no longer matches.\n\nIn this repository the guard lets the implementer edit scripts/redline-gate.sh (tests/guard-cases.tsv, `allow Edit scripts/redline-gate.sh` under `# @cwd PLUGIN`). It refuses `.claude/redline/` to every role. The implementer can repin the fixture hashes in tests/gate-test.sh, but it cannot restamp. The last case of tests/gate-test.sh (`check \"$PLUGIN\"`) then stays red, so the `gate` check in .claude/redline/checks.sh fails. The implementer can only return blocked, which is a stage error (agent-os/specs/2026-10-21-1108-5-review-round-1/shape.md, Investigation, R1-1). The round ends with nothing pushed.\n\nA shaper that follows point 11 as written sorts such a finding as an ordinary `fix`. R1-6's fix options include one that changes the stamp format, so the gap matters in this PR's own rounds.",
+      "proposedFix": "Extend point 11 and the README Known limits line: a finding whose fix changes how scripts/redline-gate.sh computes this repository's hash, or the stamp line's format, also needs a restamp. Like a gate-text finding it is `defer`, and a person restamps after the run. Point 11 sits outside the gate section, so editing it does not move the hash. If gate step 6's sentence at line 245 is extended too, keep the new words outside backticks so that edit does not need a restamp either.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": ".claude/commands/agent-os/shape-spec.md",
+      "line": 69,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "Point 11's checks.sh defer contradicts the shaper's overriding rule 7",
+      "description": "Point 11 now says \"The same holds for `.claude/redline/checks.sh`\", which makes a finding there `defer`. Rule 7 of agents/redline-shaper.md sits under \"Rules that override everything else\". It still says a finding on `.claude/redline/` is never `fix` or `defer` but `ask`, and its self-hosted exception names only scripts/redline-guard.sh and hooks/hooks.json. A shaper reading both gets opposite dispositions for a checks.sh finding, and the overriding rule wins. When point 11 first gained the guard and hook, PR #5 round 1 (R1-1) added a matching exception to rule 7 (agent-os/specs/2026-10-21-1108-5-review-round-1/shape.md, Decisions). This change does not add one for checks.sh.",
+      "proposedFix": "Add `.claude/redline/checks.sh` to the self-hosted exception in agents/redline-shaper.md rule 7. A finding there, or one whose fix changes the gate's backticked text, is `defer`, as the repository's unattended-mode section says.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": ".claude/commands/agent-os/shape-spec.md",
+      "line": 246,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Gate step 6 still says about 20 seconds; checks.sh records 29",
+      "description": "This change edits the continuation line under gate step 6, but the line still says \"About 20 seconds on 2026-10-21\". For the same six checks, the header of .claude/redline/checks.sh (line 24) records \"Baseline on 2026-10-21: 29 seconds\". agent-os/standards/testing/tests.md says the gate records its baseline time in that header.",
+      "proposedFix": "Change the sentence to match the header (about 30 seconds), or drop it and point to the header. The words are prose outside backticks, so the hash does not move and no restamp is needed.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "README.md",
+      "line": 32,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "Upgrading says \"stamped once\", but each older PR branch is refused too",
+      "description": "The Upgrading section says a repository is stamped once and that this is the whole upgrade. The precheck reads checks.sh from the PR's head: items 3 to 5 of skills/redline/SKILL.md section 4 require HEAD to be the PR branch and the tree to be clean. So every PR branch cut before the stamp commit reached its base still carries no stamp, and its launch stops with \"carries no gate stamp\". Stamping on that branch dirties the tree (item 4) and needs a commit pushed to the PR (item 5), or else the base merged in. The section does not say so.",
+      "proposedFix": "Add one sentence to Upgrading. A PR branch cut before the stamp commit carries no stamp: merge its base into it, or stamp it on the branch and commit and push, before launching on it.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "scripts/checks-template.sh",
+      "line": 32,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Template says restamp \"with the command in the TODO line\", which stamping removes",
+      "description": "The template header tells the reader to \"restamp it with the command in the TODO line\". `stamp` replaces that TODO line with the stamp itself. A restamp is only ever needed in an already-stamped checks.sh, and there the sentence points at a line that no longer exists. This repository's own checks.sh spells the command out instead (.claude/redline/checks.sh line 39).",
+      "proposedFix": "Write the command into the sentence, as this repository's checks.sh does: \"restamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh\".",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-6",
+      "file": "scripts/redline-gate.sh",
+      "line": 108,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "Gate selection can switch silently to the plan-template decoy",
+      "description": "Pass 2 takes the first heading containing \"verification gate\" whose section holds a `1.` line. This includes headings inside a column-0 fence, which Losers League's plan-template gate needs. In this repository (shape-spec.md line 202, inside the Step 7 fence) and in Chalkboard, the plan template's `## Task N: Verification Gate` comes before the real `## Verification Gate` (line 234). It is skipped today only because it holds no numbered list.\n\nIf that template task is ever written as a numbered list, which is the form Losers League already uses, `extract` picks it instead. `check` fails once with \"gate changed\" and the person restamps as told. `stamp` prints only the stamp line, not which heading it hashed, and the skill shows only `check`'s stderr line, not `actual.heading` or `actual.line`. From then on, edits to the real gate never move the hash. That is the false negative the stamp exists to catch, and nothing makes the switch visible. The fixtures cover only prose-only decoys.\n\nThe question for the person: when two sections qualify, which one is the gate, and should the script choose, refuse or announce?",
+      "proposedFix": "Options for the person:\n(a) When more than one \"verification gate\" section holds a numbered list, exit 1 and name both lines, so a person picks. A `--heading-line` flag on `stamp` would record the choice.\n(b) Prefer a section outside any fence over one inside a fence.\n(c) Have `stamp` print the chosen heading and line on stderr, and/or record the heading line in the stamp. (c) changes the stamp format, which R1-1 shows needs a person to restamp this checkout.\nEach option needs a fixture with two list-bearing sections.",
+      "needsDecision": true,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-7",
+      "file": "scripts/redline-gate.sh",
+      "line": 241,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "`stamp ... --steps` with no value exits 1 silently",
+      "description": "`--steps) range=\"${2:-}\"; shift 2 ;;`: when --steps is the last argument (`stamp shape-spec.md checks.sh --steps`), `shift 2` runs with one positional parameter left. It fails without changing them, and under `set -euo pipefail` the script exits 1 with no message. The header and the README table document exit 1 as \"the file has no gate\" and exit 2 as \"a bad or missing --steps\".",
+      "proposedFix": "`--steps) [[ $# -ge 2 ]] || usage; range=\"$2\"; shift 2 ;;`. Add a gate-test case: `expect_exit \"--steps with no value: exit 2\" 2 stamp \"$SPEC\" --steps`.",
+      "needsDecision": false,
+      "knownAs": ""
+    }
+  ]
+}

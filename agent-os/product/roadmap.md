@@ -10,6 +10,7 @@ Redline runs on the repositories its author works in, and on itself. Agent OS is
 4. **Redline on Redline** (#4): Agent OS and the per-repo contract in this repository, and the guard's self-hosted case, so a Redline PR gets a Redline review.
 5. **A seeded PR per repository before the first real one**: a branch with planted bugs whose answer key lives outside the repository, to measure the reviewer's recall there. Three seeds in Chalkboard so far: 7 of 7 in-function bugs found on the right line, one race missed.
 6. **A second machine**: a teammate installing from `extraKnownMarketplaces` in a repository's `.claude/settings.json` has not been tried.
+7. **Setup and the gate stamp** (#6): first the stamp (done, 2026-10-21): `checks.sh` carries a hash of the gate's backticked text and a launch refuses a gate that moved, so a step added to `shape-spec.md` later cannot go unnoticed. Then `/redline:setup`, which walks a repository through the contract, asks about what it cannot read off the repository, and stamps the gate; until it exists an existing repository is stamped by hand with `scripts/redline-gate.sh stamp`.
 
 ## Phase 2: Beyond Agent OS and GitHub
 

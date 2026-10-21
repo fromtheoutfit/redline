@@ -70,15 +70,16 @@ The revise model holds for every round of the run and every relaunch. A `review 
 
 Skip this on a relaunch after a hand-off: the round's spec folder is uncommitted in the tree by design.
 
-1. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr <n>`: the PR must be `OPEN`, except in a `dry run`, which posts and pushes nothing and so may read a closed PR (a seed for a recall test). Keep `headRefName`, `headRefOid`, `baseRefName`, `title`.
-2. `git rev-parse --abbrev-ref HEAD` must equal `headRefName`.
-3. `git status --porcelain` must print nothing.
-4. `git rev-parse HEAD` must equal `headRefOid`.
+1. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` must exit 0: the gate stamp in `<repoRoot>/.claude/redline/checks.sh` still matches the repository's Verification Gate (see "Gate stamp" in the README). On exit 1, stop the launch with the script's one stderr line, verbatim: the gate has changed since `checks.sh` was stamped, or `checks.sh` carries no stamp. On exit 2, stop as section 1 does: this repository is not set up for Redline yet.
+2. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr <n>`: the PR must be `OPEN`, except in a `dry run`, which posts and pushes nothing and so may read a closed PR (a seed for a recall test). Keep `headRefName`, `headRefOid`, `baseRefName`, `title`.
+3. `git rev-parse --abbrev-ref HEAD` must equal `headRefName`.
+4. `git status --porcelain` must print nothing.
+5. `git rev-parse HEAD` must equal `headRefOid`.
 
-Run the git commands plainly, from the session's working directory, which step 1 established is inside the checkout: the shared allow rules are `Bash(git status:*)` and `Bash(git rev-parse:*)`, and a `git -C <path> ...` spelling matches neither, so it asks the person before running.
-5. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh login` prints the login Redline posts as: keep it as `login` (every decision the person makes is attributed `@<login>`). When `reviewer` is set, it must not equal `reviewer` (GitHub ignores a review request to the PR's own author).
+Run the git commands plainly, from the session's working directory, which section 1 established is inside the checkout: the shared allow rules are `Bash(git status:*)` and `Bash(git rev-parse:*)`, and a `git -C <path> ...` spelling matches neither, so it asks the person before running.
+6. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh login` prints the login Redline posts as: keep it as `login` (every decision the person makes is attributed `@<login>`). When `reviewer` is set, it must not equal `reviewer` (GitHub ignores a review request to the PR's own author).
 
-Any failure stops the launch with one line saying which check failed and what to do (`check out <branch>`, `commit or stash your changes`, `pull or push so HEAD matches the PR`, `pick another reviewer`). Never fix the checkout yourself.
+Any failure stops the launch with one line saying which check failed and what to do (the gate script's own line, `check out <branch>`, `commit or stash your changes`, `pull or push so HEAD matches the PR`, `pick another reviewer`). Never fix the checkout yourself, and never stamp or edit `checks.sh`: a person does that.
 
 ## 5. Write the start snapshot and assemble `args`
 

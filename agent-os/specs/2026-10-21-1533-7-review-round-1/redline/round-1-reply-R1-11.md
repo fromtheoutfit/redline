@@ -1,0 +1,1 @@
+Redline round 1: fixed in 896fef3 (redline: R1-11 stamp checks.sh in setup step 5, after the unattended section adds the step range (#6)). · decided by: redline

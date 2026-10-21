@@ -2,3 +2,5 @@
 *.log
 .claude/settings.local.json
 .claude/redline.local.json
+/.idea
+.idea/

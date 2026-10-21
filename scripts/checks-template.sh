@@ -25,6 +25,13 @@
 # Exit 0 when every non-recorded check passed and git.unexpected_files and
 # git.uncommitted are both empty, else 1. Usage errors exit 2. See the Redline
 # README for the output contract.
+#
+# The last line of this header is the gate stamp: a hash of the gate's backticked text, written
+# by <plugin>/scripts/redline-gate.sh stamp. A launch recomputes it from the gate and refuses to
+# run when the two differ, so a gate step added later cannot go unnoticed. After bringing this
+# file up to date with a changed gate, restamp it:
+# <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
+# redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 
 set -euo pipefail
 
@@ -39,7 +46,7 @@ for arg in "$@"; do
     case "$arg" in
         --baseline) mode="baseline" ;;
         --git-only) mode="git-only" ;;
-        -h|--help) sed -n '2,27p' "$0" >&2; exit 2 ;;
+        -h|--help) sed -n '2,/^$/p' "$0" >&2; exit 2 ;;
         -*) echo "checks.sh: unknown flag $arg" >&2; exit 2 ;;
         *) snapshot="$arg" ;;
     esac
@@ -64,12 +71,24 @@ trap 'rm -rf "$work"' EXIT
 
 checks_json="$work/checks.jsonl"
 : > "$checks_json"
+checks_ran="$work/checks.ran.jsonl"
+: > "$checks_ran"
 failed=0
+
+# Cap what the checks contribute to the JSON so the whole result stays well under the Bash
+# tool's inline limit, however many fail. A passing check keeps its last 20 lines (at most
+# 16 KB). The failing checks keep up to 200 lines each and share one 16 KB budget, split
+# evenly among them in the final pass after every check has run; within a failing check,
+# each stream takes at least half of its share when both are long, and bytes one stream
+# leaves unused go to the other (#7, R2-1). truncated is true when a line count or a byte
+# allotment cut a stream.
+keep_passed=20 keep_failed=200 cap=16384 budget=16384
 
 log() { printf 'checks.sh: %s\n' "$*" >&2; }
 
 # run_check <name> <recorded:0|1> <command string>
-# Runs the command through bash -c so composite commands read as one check.
+# Runs the command through bash -c so composite commands read as one check, and records it
+# for the final pass, which writes its JSON once every check has run.
 run_check() {
     local name="$1" recorded="$2" cmd="$3" code=0
     log "running $name: $cmd"
@@ -83,13 +102,55 @@ run_check() {
     else
         log "$name exit $code"
     fi
-    jq -n \
+    jq -n -c \
         --arg name "$name" --arg cmd "$cmd" --argjson exit "$code" \
         --argjson recorded "$([[ $recorded -eq 1 ]] && echo true || echo false)" \
-        --rawfile stdout <(tail -n 200 "$work/$name.out") \
-        --rawfile stderr <(tail -n 200 "$work/$name.err") \
-        '{name: $name, cmd: $cmd, exit: $exit, recorded: $recorded, stdout: $stdout, stderr: $stderr}' \
-        >> "$checks_json"
+        '{name: $name, cmd: $cmd, exit: $exit, recorded: $recorded}' \
+        >> "$checks_ran"
+}
+
+# The final pass, run once after every check: writes each recorded check's JSON object to
+# $checks_json in run order, its streams cut to the limits described above. Each failing check's
+# share of the budget is budget / (number of failing checks), so the sum stays bounded.
+emit_checks() {
+    local failing share entry name code keep out_cap err_cap out_kept err_kept truncated
+    failing=$(jq -s '[.[] | select(.exit != 0)] | length' "$checks_ran")
+    share=$budget
+    if [[ $failing -gt 0 ]]; then
+        share=$((budget / failing))
+    fi
+    while IFS= read -r entry; do
+        name=$(jq -r '.name' <<<"$entry")
+        code=$(jq -r '.exit' <<<"$entry")
+        if [[ $code -ne 0 ]]; then
+            keep=$keep_failed
+            out_kept=$(tail -n "$keep" "$work/$name.out" | wc -c)
+            err_kept=$(tail -n "$keep" "$work/$name.err" | wc -c)
+            err_cap=$((share / 2))
+            if [[ $((share - out_kept)) -gt $err_cap ]]; then
+                err_cap=$((share - out_kept))
+            fi
+            if [[ $err_kept -lt $err_cap ]]; then
+                err_cap=$((err_kept))
+            fi
+            out_cap=$((share - err_cap))
+        else
+            keep=$keep_passed
+            out_cap=$cap
+            err_cap=$cap
+        fi
+        truncated=false
+        if [[ $(wc -l <"$work/$name.out") -gt $keep || $(wc -l <"$work/$name.err") -gt $keep \
+            || $(wc -c <"$work/$name.out") -gt $out_cap || $(wc -c <"$work/$name.err") -gt $err_cap ]]; then
+            truncated=true
+        fi
+        jq -n \
+            --argjson check "$entry" --argjson truncated "$truncated" \
+            --rawfile stdout <(tail -n "$keep" "$work/$name.out" | tail -c "$out_cap") \
+            --rawfile stderr <(tail -n "$keep" "$work/$name.err" | tail -c "$err_cap") \
+            '$check + {truncated: $truncated, stdout: $stdout, stderr: $stderr}' \
+            >> "$checks_json"
+    done < "$checks_ran"
 }
 
 # A check that stands for a gate step not filled in yet: it fails, with a line saying so.
@@ -244,6 +305,8 @@ if [[ "$mode" != "baseline" ]]; then
         log "uncommitted changes outside agent-os/specs/: $(tr '\n' ' ' < "$work/uncommitted")"
     fi
 fi
+
+emit_checks
 
 jq -n \
     --arg mode "$mode" \

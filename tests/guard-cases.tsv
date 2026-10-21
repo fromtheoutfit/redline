@@ -281,7 +281,8 @@ redline:redline-github	deny	Bash	REPO/.claude/redline/redline-gh.sh post-review 
 
 # Step 13: the saved preferences file (.claude/redline.local.json) is one of Redline's own files,
 # and the preferences script is the skill's, never a role's. The main session, which runs the
-# skill, is not a Redline role, so the guard is inert for it.
+# skill, is not a Redline role, so the guard is inert for it. The gate stamp script (#6) is the
+# skill's in the same way: no role runs it, and a role can never restamp checks.sh.
 redline:redline-implementer	deny	Write	.claude/redline.local.json
 redline:redline-implementer	deny	Edit	REPO/.claude/redline.local.json
 redline:redline-implementer	deny	Bash	cp /tmp/prefs.json .claude/redline.local.json
@@ -292,10 +293,13 @@ redline:redline-resolve	deny	Edit	.claude/redline.local.json
 redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-prefs.sh save REPO/ --interrupt autopilot --revise opus --max-rounds 3 --scope all
 redline:redline-github	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
 redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-gate.sh stamp REPO/.claude/commands/agent-os/shape-spec.md REPO/.claude/redline/checks.sh
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 redline:redline-reviewer	allow	Bash	cat .claude/redline.local.json
 redline:redline-implementer	allow	Bash	cat .claude/redline.local.json
 -	inert	Write	.claude/redline.local.json
 -	inert	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
+-	inert	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 
 # Step 14: Finish commits the run record. The GitHub agent lists the record's uncommitted files
 # with git status, stages them by name (agent-os/specs/ only, its write prefix), commits with the
@@ -325,6 +329,7 @@ redline:redline-github	deny	Bash	git -C REPO/ add -- .claude/redline.local.json
 redline:redline-implementer	allow	Write	agents/redline-reviewer.md
 redline:redline-implementer	allow	Edit	scripts/redline-gh.sh
 redline:redline-implementer	allow	Edit	scripts/redline-prefs.sh
+redline:redline-implementer	allow	Edit	scripts/redline-gate.sh
 redline:redline-implementer	allow	Write	workflows/redline-loop.js
 redline:redline-implementer	allow	Edit	skills/redline/SKILL.md
 redline:redline-implementer	allow	Write	tests/guard-cases.tsv

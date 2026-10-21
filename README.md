@@ -21,17 +21,27 @@ This repository is itself set up the same way (`.claude/redline/checks.sh`, `.cl
 
 Requirements: Claude Code with dynamic workflows (proven on 2.1.303 and 2.1.304), `gh` signed in as the person who runs Redline, `jq`, `python3`, and Agent OS in the repository.
 
+## Upgrading
+
+A launch now refuses a `checks.sh` that carries no gate stamp (see "Gate stamp" under `checks.sh` below). A repository set up before the stamp existed is stamped once, by hand, from its root:
+
+```bash
+<plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
+```
+
+It prints the line it wrote. Change the `-h|--help` line of `checks.sh` from its numeric `sed -n '2,NNp'` range to `sed -n '2,/^$/p'` at the same time (the inserted line shifts the header, and `stamp` warns when it does), then commit both. A PR branch cut before that commit reached its base carries no stamp, and a launch on it stops with the same line: merge the base into the branch, or stamp it on the branch and commit and push, before launching on it. Until `/redline:setup` exists (the second half of #6), that is the whole upgrade.
+
 ## Set up a repository
 
 The plugin holds the tool: the skill, the workflow, the eight agents, the guard and the GitHub wrapper. Each repository keeps its own contract, which the plugin never edits. Set it up in this order, from the repository's root:
 
-1. **`.claude/redline/checks.sh`**: the repository's gate as a script that emits Redline's JSON (see `checks.sh` below). Copy `scripts/checks-template.sh`, make it executable, and fill in the TODOs from the gate's command steps.
+1. **`.claude/redline/checks.sh`**: the repository's gate as a script that emits Redline's JSON (see `checks.sh` below). Copy `scripts/checks-template.sh`, make it executable, and fill in the TODOs from the gate's command steps. Leave the header's `# redline-gate: TODO` line as it is: it is stamped in step 5, once the unattended section gives the stamp its step range.
 2. **`.claude/redline.json`**: the round cap, the teammate to request review from, the checker mode and stall timeout, and the models. Start from `templates/redline.json.example`.
 3. **`.claude/settings.json`**: the marketplace, the plugin enabled, and the allow list for what runs outside a guarded role. Merge `templates/settings.allow.json`, then add the gate's own commands (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`).
 4. **`.gitignore`**: add the line `.claude/redline.local.json`, beside `.claude/settings.local.json`. That file holds each person's saved launch settings (see "Settings") and is never committed.
-5. **`.claude/commands/agent-os/shape-spec.md`**: add an "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask. Start from `templates/shape-spec-unattended.md`.
+5. **`.claude/commands/agent-os/shape-spec.md`**: add an "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask. Start from `templates/shape-spec-unattended.md`. Then stamp `checks.sh`: `<plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh` replaces the header's `# redline-gate: TODO` line with the gate's hash, taking the step range from point 7's `(gate steps M to N` parenthetical (see "Gate stamp"). The unattended section sits outside the gate, so adding it never moves the hash.
 6. **`CLAUDE.md`**: one sentence in the Git section, and one paragraph beside the attribution rule, from `templates/claude-md-git-sentence.md`.
-7. **Verify**, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `gh auth status` signed in.
+7. **Verify**, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `<plugin>/scripts/redline-gate.sh check .` exiting 0, `gh auth status` signed in.
 8. **Dry run.** Before the first real PR, run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there.
 
 ## Use
@@ -102,18 +112,20 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 
 | Path in the plugin | What |
 | --- | --- |
-| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks, writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
+| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
 | `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, and the pass/fail decision from the checker's JSON. Runs as `redline:redline-loop` |
 | `agents/redline-*.md` | The eight roles: reviewer, shaper, resolve, plan-approver, standards-approver, implementer, checker, github. They load as `redline:redline-<role>` |
 | `hooks/hooks.json` | One `PreToolUse` hook on Bash, Write, Edit, MultiEdit and NotebookEdit, calling the guard |
 | `scripts/redline-guard.sh` | The per-role guard; see below |
 | `scripts/redline-gh.sh` | Every GitHub call; see below |
 | `scripts/redline-prefs.sh` | The saved launch settings: the merge rules behind `.claude/redline.local.json`; see "Settings" |
+| `scripts/redline-gate.sh` | The gate stamp: `extract` parses a repository's Verification Gate, `stamp` writes its hash into `checks.sh`, `check` compares the two at launch; see "Gate stamp" under `checks.sh` |
 | `scripts/checks-template.sh` | The starting point for a repository's `.claude/redline/checks.sh` |
 | `templates/` | The per-repository files above |
 | `tests/guard-test.sh`, `tests/guard-cases.tsv` | The guard's regression table |
 | `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners, the replay rule and the run-record commit (`node tests/loop-test.mjs`) |
 | `tests/prefs-test.sh` | The unit test of the settings merge rules |
+| `tests/gate-test.sh`, `tests/gate-fixtures/` | The unit test of the gate stamp, on one synthetic `shape-spec.md` per gate shape seen so far; its last case checks this repository's own stamp |
 
 ## The guard
 
@@ -132,7 +144,7 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 - **Correctness inside one function is found reliably; a race between two commands is not.** Across three seeded PRs, every planted bug that sits inside one function was found on the right line, 7 of 7: a missing status filter, a tie counted as a win, a streak one short, a missing value read as 0, an undocumented sort order, a method named for the wrong end of a copy, and a docblock that disagreed with its code. The one planted race was missed.
 - **The missed race.** One command copies an archived day file by file. A scheduled prune deletes days once they age out, and the oldest day is the one most worth keeping. When both run at once, part of the day is lost for good, and the copy fails with an error that reads as a storage fault. The reviewer read the prune and its schedule, and tested a failed copy against a mocked disk. It reported only that the failure path had no test, a nit. So round 1 had no correctness finding, and the run handed the PR to the teammate with the race still in it.
 - **What a clean run means.** No correctness bug in the changed code that the reviewer could read or reproduce. It says nothing about the change running at the same time as a scheduled command or a queued job. The reviewer is now asked for that overlap (`agents/redline-reviewer.md`, "Scheduled and queued work on the same data"). Until a seed shows the check working, concurrency belongs to the human review.
-- **A run on this repository runs the PR's own code.** The plugin loads in place from this checkout, so the skill, workflow, agents and guard that review a Redline PR are the PR branch's, not a released copy. The guard script and the hook registration are refused for every role here, so a run cannot loosen the guard that vets it; everything else the PR changes is what runs. A finding in either file is deferred, mitigated by a `tests/guard-cases.tsv` row pinning today's decision or a line here, and a person makes the change after the run.
+- **A run on this repository runs the PR's own code.** The plugin loads in place from this checkout, so the skill, workflow, agents and guard that review a Redline PR are the PR branch's, not a released copy. The guard script and the hook registration are refused for every role here, so a run cannot loosen the guard that vets it; everything else the PR changes is what runs. A finding in either file is deferred, mitigated by a `tests/guard-cases.tsv` row pinning today's decision or a line here, and a person makes the change after the run. The same holds for `.claude/redline/checks.sh`: a run cannot restamp it, so a finding whose fix changes the gate's backticked text in `shape-spec.md`, or how `scripts/redline-gate.sh` computes the hash or writes the stamp line, is deferred to a person too.
 
 ## Git rules for Redline agents
 
@@ -179,7 +191,7 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
   "mode": "full | baseline | git-only",
   "ok": true,
   "checks": [
-    {"name": "check", "cmd": "composer check", "exit": 0, "recorded": false, "stdout": "last 200 lines", "stderr": "last 200 lines"}
+    {"name": "check", "cmd": "composer check", "exit": 0, "recorded": false, "truncated": false, "stdout": "the last 20 lines; a failing check keeps up to 200, within its share of 16 KB", "stderr": "the same"}
   ],
   "git": {
     "start_sha": "the snapshot's start_sha",
@@ -198,12 +210,35 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
 - `uncommitted` is the working tree against HEAD (modified, added, deleted and untracked), leaving out `agent-os/specs/`, where the round's reply files and snapshot sit uncommitted by design. The checks ran against that tree and the push would omit it, so a full or git-only run fails on it; the workflow's judge reads it too.
 - `git` is `null` in `--baseline` mode. `checks` is `[]` in `--git-only` mode, and `formatter_touched_outside_pr` is `null` there because `composer fix` did not run.
 - `recorded: true` marks a check whose exit code never fails the run (`fix`).
+- `truncated: true` marks a check whose stdout or stderr was cut, by the line count (20, or 200 for a failing check) or by bytes. The failing checks share one 16 KB budget, split evenly among them once every check has run (each stream takes at least half of a check's share when both are long, and a short stream's unused bytes go to the other), so the result stays bounded however many fail; a passing check is cut at 16 KB. Nothing in the workflow reads `truncated` yet.
 - `diff_lines` is insertions plus deletions versus `start_sha`, plus the line count of untracked files.
 - `commits` lists `start_sha..HEAD` in `git log` order, newest first.
 
 **Exit code:** `0` when every check with `recorded: false` exited 0 and `unexpected_files` and `uncommitted` are both empty; `1` otherwise; `2` for a usage error (no snapshot, a file that is not a snapshot, a `start_sha` that is not a commit here). The workflow reads `ok` and the git block; the implementer reads the failing check's output.
 
 **Baseline.** The checker runs `--baseline` once before the first implement step of a run. "Tests pass" in later runs means no failure the baseline did not already have.
+
+**Gate stamp.** The last line of `checks.sh`'s header records the gate it transcribes:
+
+```
+# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-6 sha256:<64 hex>
+```
+
+The hash covers every backticked span and every fenced block in the gate's section of `shape-spec.md`, nested lines included, in document order, with runs of whitespace collapsed (a code span that continues on a second line is not recognised). Prose outside backticks never changes it; any backticked change does, so adding or removing a step that holds a backticked span or a fenced block moves the hash, as does giving one a new flag or swapping two such steps. A step written wholly in prose changes nothing when it is added, removed or moved, so a command step keeps its command in backticks. `steps m-n` names the command steps `checks.sh` transcribes and is for the reader: the hash covers the whole section, prose steps included, because a false positive costs a restamp and a false negative is the drift the stamp exists to catch. `/redline:redline` runs `redline-gate.sh check` first in its precheck and stops on any of these lines:
+
+- `the verification gate in <file> has changed since .claude/redline/checks.sh was stamped; bring checks.sh up to date, then restamp with <plugin>/scripts/redline-gate.sh stamp <file> .claude/redline/checks.sh`
+- `.claude/redline/checks.sh carries no gate stamp; stamp it with <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh`
+- `the verification gate in <file> is ambiguous: 2 verification gate sections hold a numbered list, the headings at lines <a> ("<heading>") and <b> ("<heading>"); rewrite one so only the gate holds a numbered list, then run check again` (reason `two gates`: the stamp never picks one silently, so a plan-template task written as a numbered list cannot take the real gate's place)
+
+`scripts/redline-gate.sh` is the skill's, never a role's (the guard refuses it to every role, and no role may write `checks.sh`), and `tests/gate-test.sh` is its unit test. Its header is the reference; in short:
+
+| subcommand | does | exit |
+| --- | --- | --- |
+| `extract <shape-spec.md>` | finds the gate (the one "verification gate" heading whose section holds a numbered list: a top-level section, or a task heading inside the plan template's fence) and prints JSON: heading, line, the steps with their backticked items, the default step range from the unattended section's `(gate steps M to N` parenthetical, the hashed items and the sha256 | 0; 1 when the file has no gate, or two sections qualify |
+| `stamp <shape-spec.md> [<checks.sh>] [--steps m-n]` | prints the stamp line and, with `checks.sh`, replaces its `# redline-gate:` line (the template's TODO included) or inserts one as the header's last line | 0; 1 no gate or two; 2 a bad or missing `--steps` |
+| `check <repoRoot>` | compares the stamp in `<repoRoot>/.claude/redline/checks.sh` with the gate it names; prints `{ok, reason, stamp, actual}` | 0 match; 1 moved, missing, the placeholder or two gates; 2 no `checks.sh` |
+
+The second half of #6, `/redline:setup`, moves the stamping into the setup command; until then `stamp` is run by hand (see "Upgrading").
 
 ## `redline-gh.sh`
 

@@ -31,7 +31,7 @@ and is allowed; a model or vendor name next to it is not.
 
 ## Specs
 
-- Work is shaped with `/agent-os:shape-spec` and follows the standards in `agent-os/standards/`. A spec is not complete until the Verification Gate in `.claude/commands/agent-os/shape-spec.md` passes (`.claude/redline/checks.sh --baseline` runs its five commands), including its standards retrospective: check what the spec taught against the standards, land approved edits in their own commit, or record "Standards retrospective: no changes" in the spec's `shape.md`. This applies to any spec-sized change, whether or not the command was used to shape it.
+- Work is shaped with `/agent-os:shape-spec` and follows the standards in `agent-os/standards/`. A spec is not complete until the Verification Gate in `.claude/commands/agent-os/shape-spec.md` passes (`.claude/redline/checks.sh --baseline` runs its six commands), including its standards retrospective: check what the spec taught against the standards, land approved edits in their own commit, or record "Standards retrospective: no changes" in the spec's `shape.md`. This applies to any spec-sized change, whether or not the command was used to shape it.
 
 ## Code review — check before reporting
 
