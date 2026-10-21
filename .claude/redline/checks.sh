@@ -94,12 +94,21 @@ run_check() {
     else
         log "$name exit $code"
     fi
+    # Cap what each check contributes to the JSON so the whole result stays
+    # well under the Bash tool's inline limit. A passing check keeps its last
+    # 20 lines; a failing one keeps up to 200 lines and 16 KB of tail.
+    local keep=20 cap=16384
+    [[ $code -ne 0 ]] && keep=200
+    local out_lines err_lines
+    out_lines=$(wc -l <"$work/$name.out")
+    err_lines=$(wc -l <"$work/$name.err")
     jq -n \
         --arg name "$name" --arg cmd "$cmd" --argjson exit "$code" \
         --argjson recorded "$([[ $recorded -eq 1 ]] && echo true || echo false)" \
-        --rawfile stdout <(tail -n 200 "$work/$name.out") \
-        --rawfile stderr <(tail -n 200 "$work/$name.err") \
-        '{name: $name, cmd: $cmd, exit: $exit, recorded: $recorded, stdout: $stdout, stderr: $stderr}' \
+        --argjson truncated "$([[ $out_lines -gt $keep || $err_lines -gt $keep ]] && echo true || echo false)" \
+        --rawfile stdout <(tail -n "$keep" "$work/$name.out" | tail -c "$cap") \
+        --rawfile stderr <(tail -n "$keep" "$work/$name.err" | tail -c "$cap") \
+        '{name: $name, cmd: $cmd, exit: $exit, recorded: $recorded, truncated: $truncated, stdout: $stdout, stderr: $stderr}' \
         >> "$checks_json"
 }
 
