@@ -217,29 +217,35 @@ def under(path, prefix):
 
 
 def protected(raw, absolute, real):
-    """A reason when the target is one of Redline's own files, or a directory holding one."""
+    """A reason when the target is one of Redline's own files, or a directory holding one.
+
+    Every comparison is case-folded: on a case-insensitive volume (the macOS default)
+    Scripts/redline-guard.sh is the guard. Folding only ever refuses more (#5, R1-4)."""
+    paths = (absolute.casefold(), real.casefold())
+    repo = REPO.casefold()
     for plugin in ([] if SELF_HOSTED else PLUGIN_DIRS):
-        for path in (absolute, real):
+        plugin = plugin.casefold()
+        for path in paths:
             if under(path, plugin):
                 return f"'{raw}' is inside the Redline plugin ({PLUGIN}), which no Redline role may write"
-            if path != REPO and path != "/" and under(plugin, path):
+            if path != repo and path != "/" and under(plugin, path):
                 return f"'{raw}' holds the Redline plugin ({PLUGIN}), which no Redline role may write"
     for prot in PROTECTED_DIRS:
-        full = os.path.join(REPO, prot)
-        for path in (absolute, real):
+        full = os.path.join(repo, prot.casefold())
+        for path in paths:
             if under(path, full):
                 return f"'{raw}' is under {prot}, which no Redline role may write"
-            if path != REPO and under(full.rstrip("/"), path):
+            if path != repo and under(full.rstrip("/"), path):
                 return f"'{raw}' holds {prot}, which no Redline role may write"
     for pattern in PROTECTED_FILES:
-        full = os.path.join(REPO, pattern)
+        full = os.path.join(repo, pattern.casefold())
         what = "the guard that vets this run" if pattern in SELF_HOSTED_FILES else "Redline's own files"
-        for path in (absolute, real):
+        for path in paths:
             if fnmatch.fnmatchcase(path, full):
                 if pattern in SELF_HOSTED_FILES:
                     return f"'{raw}' is {what} ({pattern}); a person changes it, never a Redline role"
                 return f"'{raw}' is one of {what} ({pattern}), which no Redline role may write"
-            if path != REPO and under(os.path.dirname(full), path):
+            if path != repo and under(os.path.dirname(full), path):
                 return f"'{raw}' holds {what} ({pattern}), which no Redline role may write"
     return None
 

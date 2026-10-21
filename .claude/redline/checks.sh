@@ -11,7 +11,7 @@
 #   checks.sh --git-only <snapshot.json>   git block only, checks is []
 #
 # The five checks, in the gate's order:
-#   syntax    bash -n over scripts/*.sh, and hooks/hooks.json parses as JSON (it is the only file
+#   syntax    bash -n over each of scripts/*.sh, and hooks/hooks.json parses as JSON (it is the only file
 #             under hooks/, so bash -n would be wrong for it)
 #   validate  claude plugin validate .  (the plugin and marketplace manifests, agents, skills)
 #   guard     tests/guard-test.sh  (every row of tests/guard-cases.tsv; from this checkout it uses
@@ -136,8 +136,9 @@ formatter_touched="$work/formatter_touched"
 if [[ "$mode" != "git-only" ]]; then
     # No formatter: nothing touches a file, so formatter_touched stays empty.
 
-    # 1. Syntax: every script parses, and the hook registration is JSON.
-    run_check syntax 0 "bash -n scripts/*.sh && jq -e . hooks/hooks.json >/dev/null"
+    # 1. Syntax: every script parses, and the hook registration is JSON. bash -n reads only its
+    #    first file, so each script gets its own.
+    run_check syntax 0 "ls scripts/*.sh | xargs -n1 bash -n && jq -e . hooks/hooks.json >/dev/null"
 
     # 2. Manifest: the plugin and marketplace manifests, agents, skills and commands validate.
     run_check validate 0 "claude plugin validate ."

@@ -267,8 +267,12 @@ redline:redline-implementer	deny	Edit	PLUGIN/hooks/hooks.json
 # In a repository that is not the plugin, a file by one of the plugin's names is ordinary content.
 redline:redline-implementer	allow	Write	REPO/agents/redline-reviewer.md
 redline:redline-implementer	allow	Write	REPO/scripts/redline-guard.sh
+redline:redline-implementer	allow	Write	REPO/Scripts/redline-guard.sh
 redline:redline-implementer	allow	Edit	hooks/hooks.json
 redline:redline-implementer	deny	Write	.claude/redline.json
+# Another spelling of a protected path is the same file on a case-insensitive volume (#5, R1-4).
+redline:redline-implementer	deny	Write	.claude/Redline.json
+redline:redline-implementer	deny	Bash	echo x > .Git/config
 redline:redline-implementer	deny	Write	.claude/redline.local.json
 redline:redline-implementer	deny	Bash	sed -i '' 's/3/9/' .claude/redline.json
 # redline-gh.sh runs only from the plugin; a copy where the tool tier used to live is not it.
@@ -346,6 +350,14 @@ redline:redline-implementer	deny	Bash	rm -rf scripts
 redline:redline-implementer	deny	Bash	rm -rf hooks
 redline:redline-implementer	deny	Bash	mv hooks hooks2
 redline:redline-implementer	deny	Bash	rm -rf PLUGIN/
+# The default macOS volume is case-insensitive: another spelling of a protected path is the same
+# file (#5, R1-4). Other source in another spelling stays repository content.
+redline:redline-implementer	deny	Bash	cp /tmp/g.sh Scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/deny/allow/' scripts/Redline-Guard.sh
+redline:redline-implementer	deny	Edit	HOOKS/hooks.json
+redline:redline-implementer	deny	Bash	rm -rf Scripts
+redline:redline-implementer	deny	Write	.Claude/redline.json
+redline:redline-implementer	allow	Edit	Scripts/redline-gh.sh
 redline:redline-implementer	deny	Write	.claude/settings.json
 redline:redline-implementer	deny	Write	.claude/redline.json
 redline:redline-implementer	deny	Edit	.claude/redline/checks.sh
