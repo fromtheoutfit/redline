@@ -1,0 +1,1 @@
+Redline round 1: fixed in 330690a (redline: R1-12 say only steps that hold a backticked span move the gate hash, and pin a prose-only step added (#6)). · decided by: redline

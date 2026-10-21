@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "1089c42b92a5ed0f802ed59cdcbf33ef92fbe551",
+    "to": "3225dbae428db3752bc6dcd3bf642c98bd097d3c"
+  },
+  "summary": "The round 2 fix lets a failing check's stderr use the part of the check's share that stdout leaves unused. I traced emit_checks in scripts/checks-template.sh through all four cases. When both streams are long, each gets half the share. When stdout is short, stderr takes the rest of the share. When stderr is short, stdout takes what stderr leaves. When both are short, both are kept whole. In every case the two caps add up to exactly the share, so the shared 16 KB budget still holds. The output and the truncated flag both use the same line-limited byte counts, and the template comment and the README's truncated bullet describe the new split accurately. The guard does not let the reviewer run bash -n, so this was checked by reading the code, not by running it. The diff introduces no correctness bugs.",
+  "findings": []
+}
