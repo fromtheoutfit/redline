@@ -12,7 +12,7 @@
       "Workflow(redline:redline-loop)",
       "Bash(/*/scripts/redline-gh.sh *)",
       "Bash(/*/scripts/redline-prefs.sh *)",
-      "Bash(/*/scripts/redline-gate.sh *)",
+      "Bash(/*/scripts/redline-gate.sh check *)",
       "Bash(/*/.claude/redline/checks.sh *)",
       "Bash(REDLINE_OCTANE=1 /*/.claude/redline/checks.sh *)",
       "Bash(.claude/redline/checks.sh:*)",
