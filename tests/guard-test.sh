@@ -13,8 +13,14 @@
 #
 # The repository is the one holding the current directory, so run it from a repository that uses
 # Redline. From the plugin's own checkout, or outside any repository, it uses an empty repository
-# at ~/.cache/redline/guard-test-repo instead: the plugin's directory is protected for every role,
-# and a temp directory is one of the roles' scratch areas, so neither can stand in for a repo.
+# at ~/.cache/redline/guard-test-repo instead: the ordinary rows need a repository that is not
+# the plugin (whose directory is protected for every role), and a temp directory is one of the
+# roles' scratch areas, so neither can stand in for a repo.
+#
+# A directive line in the case file switches the hook's cwd for the rows after it: `# @cwd PLUGIN`
+# sends them from the plugin's own checkout, where the guard finds the repository and the plugin
+# at the same path (Redline reviewing itself), and `# @cwd REPO` (the default) sends them from
+# the repository above. Under `# @cwd PLUGIN` a relative path resolves against the checkout.
 
 set -uo pipefail
 PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -32,11 +38,16 @@ trap 'rm -f "$err"' EXIT
 pass=0; fail=0
 printf 'Repository: %s\nPlugin: %s\n\n' "$REPO" "$PLUGIN" >&2
 printf '| Agent | Tool | Command | Expected | Got | Reason |\n|---|---|---|---|---|---|\n'
+cwd="$REPO"
 while IFS=$'\t' read -r agent expect tool cmd; do
+    case "$agent" in
+        "# @cwd PLUGIN") cwd="$PLUGIN"; continue ;;
+        "# @cwd REPO") cwd="$REPO"; continue ;;
+    esac
     [[ -z "$agent" || "$agent" == \#* ]] && continue
     cmd="${cmd//PLUGIN\//$PLUGIN/}"
     cmd="$(printf '%b' "${cmd//REPO\//$REPO/}")"
-    json="$(jq -cn --arg cwd "$REPO" --arg agent "$agent" --arg t "$tool" --arg c "$cmd" '
+    json="$(jq -cn --arg cwd "$cwd" --arg agent "$agent" --arg t "$tool" --arg c "$cmd" '
         {tool_name: $t, cwd: $cwd}
         + (if $agent == "-" then {} else {agent_type: $agent} end)
         + (if $t == "Bash" then {tool_input: {command: $c}} else {tool_input: {file_path: $c}} end)')"

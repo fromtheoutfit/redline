@@ -1,0 +1,16 @@
+{
+  "maxRounds": 3,
+  "maxPlanAdjustments": 2,
+  "reviewer": "marcamos",
+  "checker": "full",
+  "checkerStallMs": 300000,
+  "push": true,
+  "models": {
+    "reviewerFirstRound": { "model": "claude-opus-5-5", "effort": "xhigh" },
+    "reviewerLaterRounds": { "model": "claude-opus-5-5", "effort": "high" },
+    "planApprover": { "model": "claude-opus-5-5", "effort": "high" },
+    "standardsApprover": { "model": "claude-sonnet-5-5" },
+    "checker": { "model": "claude-haiku-5-5" },
+    "github": { "model": "claude-haiku-5-5" }
+  }
+}

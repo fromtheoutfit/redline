@@ -4,6 +4,8 @@
 # agents, redline-<role> for a copy installed into .claude/agents/, anything else for other agents,
 # and - for none (the main session). expected is allow, deny, or inert (exit 0, no output: not a
 # Redline role). REPO/ is the repository root, PLUGIN/ the plugin root; \n is expanded.
+# A line `# @cwd PLUGIN` sends the rows after it from the plugin's checkout as the repository (Redline
+# reviewing itself); `# @cwd REPO` (the default) sends them from the repository the test runs in.
 
 redline:redline-reviewer	allow	Bash	git status
 redline:redline-reviewer	allow	Bash	git diff main...HEAD -- app
@@ -261,7 +263,16 @@ redline:redline-implementer	deny	Edit	PLUGIN/agents/redline-reviewer.md
 redline:redline-implementer	deny	Bash	rm -rf PLUGIN/
 redline:redline-reviewer	deny	Bash	echo x > PLUGIN/README.md
 redline:redline-github	deny	Bash	cp /tmp/x.sh PLUGIN/scripts/redline-gh.sh
+redline:redline-implementer	deny	Edit	PLUGIN/hooks/hooks.json
+# In a repository that is not the plugin, a file by one of the plugin's names is ordinary content.
+redline:redline-implementer	allow	Write	REPO/agents/redline-reviewer.md
+redline:redline-implementer	allow	Write	REPO/scripts/redline-guard.sh
+redline:redline-implementer	allow	Write	REPO/Scripts/redline-guard.sh
+redline:redline-implementer	allow	Edit	hooks/hooks.json
 redline:redline-implementer	deny	Write	.claude/redline.json
+# Another spelling of a protected path is the same file on a case-insensitive volume (#5, R1-4).
+redline:redline-implementer	deny	Write	.claude/Redline.json
+redline:redline-implementer	deny	Bash	echo x > .Git/config
 redline:redline-implementer	deny	Write	.claude/redline.local.json
 redline:redline-implementer	deny	Bash	sed -i '' 's/3/9/' .claude/redline.json
 # redline-gh.sh runs only from the plugin; a copy where the tool tier used to live is not it.
@@ -306,3 +317,63 @@ redline:redline-github	deny	Bash	git -C REPO/ reset --hard HEAD~1
 redline:redline-github	deny	Bash	git -C REPO/ stash
 redline:redline-github	deny	Bash	cat REPO/agent-os/specs/x/plan.md
 redline:redline-github	deny	Bash	git -C REPO/ add -- .claude/redline.local.json
+
+# The repository is the plugin: Redline loaded in place from its own checkout, reviewing itself
+# (issue #4). The plugin's source is repository content under the roles' usual prefixes; .claude/'s
+# Redline files stay refused, and so do the guard and the hook that registers it, for every role.
+# @cwd PLUGIN
+redline:redline-implementer	allow	Write	agents/redline-reviewer.md
+redline:redline-implementer	allow	Edit	scripts/redline-gh.sh
+redline:redline-implementer	allow	Edit	scripts/redline-prefs.sh
+redline:redline-implementer	allow	Write	workflows/redline-loop.js
+redline:redline-implementer	allow	Edit	skills/redline/SKILL.md
+redline:redline-implementer	allow	Write	tests/guard-cases.tsv
+redline:redline-implementer	allow	Edit	README.md
+redline:redline-implementer	allow	Edit	.claude-plugin/plugin.json
+redline:redline-implementer	allow	Edit	templates/settings.allow.json
+redline:redline-implementer	allow	Write	.claude/commands/agent-os/shape-spec.md
+redline:redline-implementer	allow	Edit	CLAUDE.md
+redline:redline-implementer	allow	Write	agent-os/standards/scripts/guard.md
+redline:redline-implementer	allow	Write	PLUGIN/agents/redline-reviewer.md
+redline:redline-implementer	allow	Bash	git add agents/redline-reviewer.md tests/guard-cases.tsv
+redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' scripts/redline-prefs.sh
+redline:redline-implementer	allow	Bash	PLUGIN/.claude/redline/checks.sh /tmp/snapshot.json
+redline:redline-implementer	allow	Bash	git commit -m "redline: R1-1 resolve the plugin root once (#4)"
+redline:redline-implementer	deny	Write	scripts/redline-guard.sh
+redline:redline-implementer	deny	Edit	PLUGIN/scripts/redline-guard.sh
+redline:redline-implementer	deny	Edit	hooks/hooks.json
+redline:redline-implementer	deny	Bash	cp /tmp/g.sh scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/deny/allow/' scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	git add scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	git add hooks/hooks.json
+redline:redline-implementer	deny	Bash	rm -rf scripts
+redline:redline-implementer	deny	Bash	rm -rf hooks
+redline:redline-implementer	deny	Bash	mv hooks hooks2
+redline:redline-implementer	deny	Bash	rm -rf PLUGIN/
+# The default macOS volume is case-insensitive: another spelling of a protected path is the same
+# file (#5, R1-4). Other source in another spelling stays repository content.
+redline:redline-implementer	deny	Bash	cp /tmp/g.sh Scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/deny/allow/' scripts/Redline-Guard.sh
+redline:redline-implementer	deny	Edit	HOOKS/hooks.json
+redline:redline-implementer	deny	Bash	rm -rf Scripts
+redline:redline-implementer	deny	Write	.Claude/redline.json
+redline:redline-implementer	allow	Edit	Scripts/redline-gh.sh
+redline:redline-implementer	deny	Write	.claude/settings.json
+redline:redline-implementer	deny	Write	.claude/redline.json
+redline:redline-implementer	deny	Edit	.claude/redline/checks.sh
+redline:redline-implementer	deny	Bash	rm -rf .claude
+redline:redline-implementer	deny	Bash	echo x > .claude/redline.local.json
+redline:redline-reviewer	deny	Write	agents/redline-reviewer.md
+redline:redline-reviewer	deny	Bash	echo x > README.md
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh diff 5
+redline:redline-reviewer	allow	Bash	cat agents/redline-reviewer.md
+redline:redline-reviewer	allow	Write	/tmp/redlinerepro/reviewer-r1-ReproTest.php
+redline:redline-shaper	allow	Write	agent-os/specs/2026-10-21-1200-5-review-round-1/shape.md
+redline:redline-shaper	deny	Write	scripts/redline-gh.sh
+redline:redline-github	allow	Bash	git add agent-os/specs/2026-10-21-1200-5-review-round-1/redline/round-1-review.json
+redline:redline-github	deny	Bash	git add scripts/redline-gh.sh
+redline:redline-github	allow	Bash	git push origin feature/4-agent-os
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh post-review 5 agent-os/specs/2026-10-21-1200-5-review-round-1/redline/round-1.json
+redline:redline-github	deny	Bash	cp /tmp/x.sh scripts/redline-gh.sh
+redline:redline-checker	allow	Bash	.claude/redline/checks.sh /tmp/snapshot.json
+# @cwd REPO
