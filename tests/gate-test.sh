@@ -169,6 +169,8 @@ expect_exit "no parenthetical, --steps given: exit 0" 0 stamp "$WORK/norange.md"
 expect_exit "--steps past the last step: exit 2" 2 stamp "$SPEC" --steps 1-9
 expect_exit "--steps reversed: exit 2" 2 stamp "$SPEC" --steps 3-2
 expect_exit "--steps malformed: exit 2" 2 stamp "$SPEC" --steps x
+expect_exit "--steps with no value: exit 2" 2 stamp "$SPEC" --steps
+expect_exit "--steps with an empty value: exit 2" 2 stamp "$SPEC" --steps ""
 expect_exit "no gate: exit 1" 1 stamp "$WORK/nogate.md" --steps 1-1
 [[ ! -e "$REPO/.claude/redline/checks.sh" ]] && ok "without a checks.sh nothing is written" || bad "without a checks.sh nothing is written" "file exists"
 

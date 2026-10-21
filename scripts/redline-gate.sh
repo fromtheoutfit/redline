@@ -238,7 +238,9 @@ cmd_stamp() {
     local spec="" checks="" range=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --steps) range="${2:-}"; shift 2 ;;
+            --steps)
+                [[ $# -ge 2 && -n "$2" ]] || { echo "redline-gate: --steps needs a value, <m>-<n>" >&2; exit 2; }
+                range="$2"; shift 2 ;;
             -*) usage ;;
             *)
                 if [[ -z "$spec" ]]; then spec="$1"
