@@ -191,7 +191,7 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
   "mode": "full | baseline | git-only",
   "ok": true,
   "checks": [
-    {"name": "check", "cmd": "composer check", "exit": 0, "recorded": false, "stdout": "last 200 lines", "stderr": "last 200 lines"}
+    {"name": "check", "cmd": "composer check", "exit": 0, "recorded": false, "truncated": false, "stdout": "the last 20 lines, 200 when the check failed, at most 16 KB", "stderr": "the same"}
   ],
   "git": {
     "start_sha": "the snapshot's start_sha",
@@ -210,6 +210,7 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
 - `uncommitted` is the working tree against HEAD (modified, added, deleted and untracked), leaving out `agent-os/specs/`, where the round's reply files and snapshot sit uncommitted by design. The checks ran against that tree and the push would omit it, so a full or git-only run fails on it; the workflow's judge reads it too.
 - `git` is `null` in `--baseline` mode. `checks` is `[]` in `--git-only` mode, and `formatter_touched_outside_pr` is `null` there because `composer fix` did not run.
 - `recorded: true` marks a check whose exit code never fails the run (`fix`).
+- `truncated: true` marks a check whose stdout or stderr was cut, by the line count (20, or 200 for a failing check) or by the 16 KB cap. Nothing in the workflow reads it yet.
 - `diff_lines` is insertions plus deletions versus `start_sha`, plus the line count of untracked files.
 - `commits` lists `start_sha..HEAD` in `git log` order, newest first.
 

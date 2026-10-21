@@ -93,15 +93,18 @@ run_check() {
     # Cap what each check contributes to the JSON so the whole result stays
     # well under the Bash tool's inline limit. A passing check keeps its last
     # 20 lines; a failing one keeps up to 200 lines and 16 KB of tail.
+    # truncated is true when either limit cut a stream.
     local keep=20 cap=16384
     [[ $code -ne 0 ]] && keep=200
-    local out_lines err_lines
+    local out_lines err_lines out_bytes err_bytes
     out_lines=$(wc -l <"$work/$name.out")
     err_lines=$(wc -l <"$work/$name.err")
+    out_bytes=$(wc -c <"$work/$name.out")
+    err_bytes=$(wc -c <"$work/$name.err")
     jq -n \
         --arg name "$name" --arg cmd "$cmd" --argjson exit "$code" \
         --argjson recorded "$([[ $recorded -eq 1 ]] && echo true || echo false)" \
-        --argjson truncated "$([[ $out_lines -gt $keep || $err_lines -gt $keep ]] && echo true || echo false)" \
+        --argjson truncated "$([[ $out_lines -gt $keep || $err_lines -gt $keep || $out_bytes -gt $cap || $err_bytes -gt $cap ]] && echo true || echo false)" \
         --rawfile stdout <(tail -n "$keep" "$work/$name.out" | tail -c "$cap") \
         --rawfile stderr <(tail -n "$keep" "$work/$name.err" | tail -c "$cap") \
         '{name: $name, cmd: $cmd, exit: $exit, recorded: $recorded, truncated: $truncated, stdout: $stdout, stderr: $stderr}' \
