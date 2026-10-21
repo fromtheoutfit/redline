@@ -223,18 +223,19 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
 # redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-6 sha256:<64 hex>
 ```
 
-The hash covers every backticked span and every fenced block in the gate's section of `shape-spec.md`, nested lines included, in document order, with runs of whitespace collapsed (a code span that continues on a second line is not recognised). Prose outside backticks never changes it; any backticked change does, so a step added, removed, reordered or given a new flag moves the hash. `steps m-n` names the command steps `checks.sh` transcribes and is for the reader: the hash covers the whole section, prose steps included, because a false positive costs a restamp and a false negative is the drift the stamp exists to catch. `/redline:redline` runs `redline-gate.sh check` first in its precheck and stops on either line:
+The hash covers every backticked span and every fenced block in the gate's section of `shape-spec.md`, nested lines included, in document order, with runs of whitespace collapsed (a code span that continues on a second line is not recognised). Prose outside backticks never changes it; any backticked change does, so a step added, removed, reordered or given a new flag moves the hash. `steps m-n` names the command steps `checks.sh` transcribes and is for the reader: the hash covers the whole section, prose steps included, because a false positive costs a restamp and a false negative is the drift the stamp exists to catch. `/redline:redline` runs `redline-gate.sh check` first in its precheck and stops on any of these lines:
 
 - `the verification gate in <file> has changed since .claude/redline/checks.sh was stamped; bring checks.sh up to date, then restamp with <plugin>/scripts/redline-gate.sh stamp <file> .claude/redline/checks.sh`
 - `.claude/redline/checks.sh carries no gate stamp; stamp it with <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh`
+- `the verification gate in <file> is ambiguous: 2 verification gate sections hold a numbered list, the headings at lines <a> ("<heading>") and <b> ("<heading>"); rewrite one so only the gate holds a numbered list, then run check again` (reason `two gates`: the stamp never picks one silently, so a plan-template task written as a numbered list cannot take the real gate's place)
 
 `scripts/redline-gate.sh` is the skill's, never a role's (the guard refuses it to every role, and no role may write `checks.sh`), and `tests/gate-test.sh` is its unit test. Its header is the reference; in short:
 
 | subcommand | does | exit |
 | --- | --- | --- |
-| `extract <shape-spec.md>` | finds the gate (the first "verification gate" heading whose section holds a numbered list: a top-level section, or a task heading inside the plan template's fence) and prints JSON: heading, line, the steps with their backticked items, the default step range from the unattended section's `(gate steps M to N` parenthetical, the hashed items and the sha256 | 0; 1 when the file has no gate |
-| `stamp <shape-spec.md> [<checks.sh>] [--steps m-n]` | prints the stamp line and, with `checks.sh`, replaces its `# redline-gate:` line (the template's TODO included) or inserts one as the header's last line | 0; 1 no gate; 2 a bad or missing `--steps` |
-| `check <repoRoot>` | compares the stamp in `<repoRoot>/.claude/redline/checks.sh` with the gate it names; prints `{ok, reason, stamp, actual}` | 0 match; 1 moved, missing or the placeholder; 2 no `checks.sh` |
+| `extract <shape-spec.md>` | finds the gate (the one "verification gate" heading whose section holds a numbered list: a top-level section, or a task heading inside the plan template's fence) and prints JSON: heading, line, the steps with their backticked items, the default step range from the unattended section's `(gate steps M to N` parenthetical, the hashed items and the sha256 | 0; 1 when the file has no gate, or two sections qualify |
+| `stamp <shape-spec.md> [<checks.sh>] [--steps m-n]` | prints the stamp line and, with `checks.sh`, replaces its `# redline-gate:` line (the template's TODO included) or inserts one as the header's last line | 0; 1 no gate or two; 2 a bad or missing `--steps` |
+| `check <repoRoot>` | compares the stamp in `<repoRoot>/.claude/redline/checks.sh` with the gate it names; prints `{ok, reason, stamp, actual}` | 0 match; 1 moved, missing, the placeholder or two gates; 2 no `checks.sh` |
 
 The second half of #6, `/redline:setup`, moves the stamping into the setup command; until then `stamp` is run by hand (see "Upgrading").
 

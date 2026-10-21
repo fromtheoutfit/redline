@@ -238,6 +238,24 @@ expect_exit "not a directory: exit 2" 2 check "$WORK/plugin-shape.md"
 mkdir -p "$WORK/bare"
 expect_exit "no checks.sh: exit 2" 2 check "$WORK/bare"
 
+echo "# two qualifying sections"
+T="$WORK/two-gates-shape.md"
+T1="$(grep -n '^## Task N: Verification Gate' "$T" | cut -d: -f1)"
+T2="$(grep -n '^## Verification Gate' "$T" | cut -d: -f1)"
+expect_exit "two gates: extract exits 1" 1 extract "$T"
+expect_stderr "two gates: extract names both heading lines" "lines $T1 .* and $T2 " extract "$T"
+expect_exit "two gates: stamp exits 1" 1 stamp "$T" --steps 1-1
+cp "$WORK/checks-no-stamp.sh" "$WORK/two-gates-checks.sh"
+"$GATE" stamp "$T" "$WORK/two-gates-checks.sh" --steps 1-1 >/dev/null 2>&1
+cmp -s "$WORK/two-gates-checks.sh" "$WORK/checks-no-stamp.sh" && ok "two gates: stamp writes nothing" || bad "two gates: stamp writes nothing" "$(diff "$WORK/two-gates-checks.sh" "$WORK/checks-no-stamp.sh")"
+cp "$P" "$SPEC"
+"$GATE" stamp "$SPEC" "$CHECKS" >/dev/null 2>&1
+cp "$T" "$SPEC"
+expect_exit "two gates: check exits 1" 1 check "$REPO"
+expect_json "two gates: check's own reason" '.reason' "two gates" check "$REPO"
+expect_stderr "two gates: check names both heading lines" "lines $T1 .* and $T2 " check "$REPO"
+[[ "$("$GATE" check "$REPO" 2>&1 >/dev/null | wc -l | tr -d ' ')" == "1" ]] && ok "two gates: exactly one stderr line" || bad "two gates: exactly one stderr line" "$("$GATE" check "$REPO" 2>&1 >/dev/null)"
+
 echo "# this checkout"
 expect_exit "the plugin's own checks.sh stamp matches its gate" 0 check "$PLUGIN"
 

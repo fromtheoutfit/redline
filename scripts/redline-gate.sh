@@ -19,8 +19,9 @@
 #       names and compare. Prints {ok, reason, stamp: {path, steps, sha256} | null,
 #       actual: {heading, line, steps, sha256} | null}.
 #
-# The gate is the first heading whose text contains "verification gate" (any case) and whose section
-# holds a numbered list. A section runs to the next heading of the same or a higher level, or, when
+# The gate is the one heading whose text contains "verification gate" (any case) and whose section
+# holds a numbered list. When more than one qualifies, every subcommand exits 1 naming each heading
+# line, and check's reason is "two gates". A section runs to the next heading of the same or a higher level, or, when
 # the heading sits inside a fenced block (a gate written into the plan template), to that fence's
 # close. The hash covers every backticked span and every fenced block in the section, nested lines
 # included, in document order, each with runs of whitespace collapsed; the items are joined with
@@ -29,9 +30,10 @@
 #
 # The stamp line:  # redline-gate: <repo-relative shape-spec path> steps <m>-<n> sha256:<64 hex>
 #
-# Exit codes: extract 0, or 1 when the file has no gate; stamp 0, 1 when the file has no gate, 2 on
-# a bad or missing --steps; check 0 on a match, 1 when the gate moved, the stamp is missing or the
-# placeholder, or the stamped path does not exist (a failed check, with one line on stderr), 2 when
+# Exit codes: extract 0, or 1 when the file has no gate or two qualifying sections; stamp 0, 1 when
+# the file has no gate or two qualifying sections, 2 on a bad or missing --steps; check 0 on a
+# match, 1 when the gate moved, the stamp is missing or the placeholder, the stamped path does not
+# exist, or it holds two qualifying sections (a failed check, with one line on stderr), 2 when
 # <repoRoot> has no .claude/redline/checks.sh. A bad invocation exits 2. Needs python3 and jq.
 
 set -euo pipefail
@@ -105,8 +107,10 @@ def section_end(i, level, e):
         j += 1
     return n
 
-# Pass 2: the first "verification gate" heading whose section holds a numbered list.
-chosen = None
+# Pass 2: every "verification gate" heading whose section holds a numbered list. Exactly one must
+# qualify: none is no gate, and more than one is refused, naming each heading line, rather than
+# taking the first, so the hash can never move silently onto the wrong section.
+found = []
 for i, line in enumerate(lines):
     h = HEAD.match(line)
     if not h or not re.search(r"verification gate", h.group(2), re.I):
@@ -117,13 +121,20 @@ for i, line in enumerate(lines):
     level = len(h.group(1))
     end = section_end(i, level, e)
     if any(enc[j] == e and LIST1.match(lines[j]) for j in range(i + 1, end)):
-        chosen = (i, h.group(2), level, end, e)
-        break
-if chosen is None:
+        found.append((i, h.group(2), level, end, e))
+if not found:
     print(json.dumps({"error": "no verification gate section with a numbered list"}))
     sys.exit(1)
+if len(found) > 1:
+    named = ["%d (\"%s\")" % (f[0] + 1, f[1]) for f in found]
+    print(json.dumps({
+        "error": "%d verification gate sections hold a numbered list, the headings at lines %s and %s; rewrite one so only the gate holds a numbered list" % (len(found), ", ".join(named[:-1]), named[-1]),
+        "reason": "two gates",
+        "lines": [f[0] + 1 for f in found],
+    }))
+    sys.exit(1)
 
-i, heading, level, end, e = chosen
+i, heading, level, end, e = found[0]
 
 def title_of(rest):
     t = TITLE.match(rest)
@@ -315,6 +326,9 @@ cmd_check() {
     fi
     local parsed
     if ! parsed="$(python3 -I -c "$PARSE" < "$root/$path")"; then
+        if [[ "$(jq -r '.reason // empty' <<<"$parsed" 2>/dev/null)" == "two gates" ]]; then
+            check_fail "two gates" "the verification gate in $path is ambiguous: $(jq -r '.error' <<<"$parsed"), then run check again" "$stamp_json"
+        fi
         check_fail "no gate" "the gate stamp in .claude/redline/checks.sh names $path, which has no verification gate; restamp it with $SELF stamp <shape-spec.md> .claude/redline/checks.sh" "$stamp_json"
     fi
     actual_json="$(jq '{heading: .heading, line: .line, steps: (.steps | length), sha256: .sha256}' <<<"$parsed")"
