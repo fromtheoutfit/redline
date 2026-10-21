@@ -152,6 +152,9 @@ differs "a nested list item's span" plugin-shape.md nested.md
 awk '/^Only after all seven pass/{print "8. **Shell lint** — `shellcheck scripts/*.sh` prints nothing."} {print}' "$P" > "$WORK/added.md"
 differs "a step added" plugin-shape.md added.md
 expect_json "a step added: eight steps" '.steps | length' "8" extract "$WORK/added.md"
+awk '/^Only after all seven pass/{print "8. **Review** — read the diff once more before reporting."} {print}' "$P" > "$WORK/proseadded.md"
+same "a step with no backticks added: hash unchanged" plugin-shape.md proseadded.md
+expect_json "a step with no backticks added: eight steps" '.steps | length' "8" extract "$WORK/proseadded.md"
 grep -v '^7\. ' "$P" > "$WORK/removed.md"
 differs "a step removed" plugin-shape.md removed.md
 expect_json "a step removed: six steps" '.steps | length' "6" extract "$WORK/removed.md"
