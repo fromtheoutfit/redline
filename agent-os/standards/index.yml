@@ -18,7 +18,7 @@ scripts:
 
 testing:
   tests:
-    description: guard-test.sh, loop-test.mjs and prefs-test.sh; a tested surface gains a case with every change; red before green
+    description: guard-test.sh, loop-test.mjs, prefs-test.sh and gate-test.sh; a tested surface gains a case with every change; red before green
 
 workflow:
   agents:
