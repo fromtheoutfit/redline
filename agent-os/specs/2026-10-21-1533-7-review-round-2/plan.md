@@ -73,3 +73,11 @@ Steps 7 and 8 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 7, standards retrospective.** The proposed list under `## Standards retrospective (proposed)` in `shape.md` is "no changes": R2-1's lesson is already in `agent-os/standards/scripts/bash-conventions.md` and its deferral in `agent-os/standards/scripts/guard.md`. The standards approver approves the list. With no edits there is no standards commit; `shape.md` already records "Standards retrospective: no changes".
 - **Step 8, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+- **Task 1.** The four spec files, committed on their own; `redline/` left to the workflow.
+- **Task 2 (R2-1, defer).** `emit_checks` in `scripts/checks-template.sh` takes the suggested lines as written: `out_kept` joins the `local` line, and stderr's cap is `min(err_kept, max(share / 2, share - out_kept))`, with `out_cap = share - err_cap` unchanged. The comment above the caps and the README `truncated` bullet take the suggested wording. `.claude/redline/checks.sh` is untouched, as planned.
+- **Proof.** `grep -c "out_kept"` on the template prints 4; `grep -c "at most half"` prints 0 on the template and on `README.md`; `grep -c "at least half"` prints 1 on each. The gate's `syntax` check passes, and the `gate` check's case "the plugin's own checks.sh stamp matches its gate" is `ok`.
+- **Deviation.** The template comment ends its new sentence with "(#7, R2-1)", since a deferred finding's mitigation names its finding in its code comment; the comment now wraps over four lines instead of three, with "at least half" on one line. No decision turned on it.
+- **Task 3.** `checks.sh` passed on its first run after the R2-1 commit: every check exit 0, no unexpected or uncommitted files. Standards retrospective: no changes, so there is no standards commit.
