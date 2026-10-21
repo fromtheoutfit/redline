@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Redline gate for the Redline plugin's own repository. Runs the runnable part of the
-# Verification Gate (.claude/commands/agent-os/shape-spec.md, steps 1 to 5) plus the git-state
+# Verification Gate (.claude/commands/agent-os/shape-spec.md, steps 1 to 6) plus the git-state
 # checks, and emits exactly one JSON object on stdout. Progress goes to stderr. Nothing in it is
 # new policy; the gate text stays the source.
 #
@@ -10,7 +10,7 @@
 #   checks.sh --baseline [snapshot.json]   commands only, git block is null
 #   checks.sh --git-only <snapshot.json>   git block only, checks is []
 #
-# The five checks, in the gate's order:
+# The six checks, in the gate's order:
 #   syntax    bash -n over each of scripts/*.sh, and hooks/hooks.json parses as JSON (it is the only file
 #             under hooks/, so bash -n would be wrong for it)
 #   validate  claude plugin validate .  (the plugin and marketplace manifests, agents, skills)
@@ -18,9 +18,12 @@
 #             the empty repository under ~/.cache/redline/ for the rows that need one)
 #   loop      node tests/loop-test.mjs  (the workflow under scripted agents)
 #   prefs     tests/prefs-test.sh  (the saved-settings merge rules)
+#   gate      tests/gate-test.sh  (the gate parser and the stamp, on the fixtures under
+#             tests/gate-fixtures/; its last case checks this file's own stamp)
 # No formatter, so there is no recorded "fix" step, and no long-lived-process suite, so
-# REDLINE_OCTANE is ignored. Baseline on 2026-10-21: 22 seconds, almost all of it the guard
-# table (337 rows at about 60 ms each), so `checker: full` is the right mode.
+# REDLINE_OCTANE is ignored. Baseline on 2026-10-21: 29 seconds, almost all of it the guard
+# table (350 rows at about 60 ms each; the gate test adds a few seconds), so `checker: full`
+# is the right mode.
 #
 # Snapshot: {"pr", "start_sha", "base_ref", "files": [...], "plan_paths": [...]}.
 # Allowed changes are files + plan_paths + agent-os/specs/ + agent-os/standards/; anything
@@ -29,6 +32,12 @@
 # Exit 0 when every non-recorded check passed and git.unexpected_files and
 # git.uncommitted are both empty, else 1. Usage errors exit 2. See README.md for the output
 # contract.
+#
+# The last line of this header is the gate stamp: a hash of the gate's backticked text, written
+# by scripts/redline-gate.sh stamp. A launch recomputes it and refuses to run when the gate has
+# changed since this file was stamped. After bringing this file up to date with a changed gate,
+# restamp it: scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
+# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-6 sha256:1333f0cc80f5f1aa9f40aaae1af355d1734bad943947df8bba8bb8fd14e66ff4
 
 set -euo pipefail
 
@@ -41,7 +50,7 @@ for arg in "$@"; do
     case "$arg" in
         --baseline) mode="baseline" ;;
         --git-only) mode="git-only" ;;
-        -h|--help) sed -n '2,32p' "$0" >&2; exit 2 ;;
+        -h|--help) sed -n '2,/^$/p' "$0" >&2; exit 2 ;;
         -*) echo "checks.sh: unknown flag $arg" >&2; exit 2 ;;
         *) snapshot="$arg" ;;
     esac
@@ -151,6 +160,9 @@ if [[ "$mode" != "git-only" ]]; then
 
     # 5. Prefs: the saved-settings merge rules.
     run_check prefs 0 "tests/prefs-test.sh"
+
+    # 6. Gate stamp: the gate parser and the stamp, ending with this file's own stamp.
+    run_check gate 0 "tests/gate-test.sh"
 fi
 
 git_json="null"

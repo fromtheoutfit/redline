@@ -9,11 +9,11 @@
 
 - Bash with `set -euo pipefail` for every script under `scripts/`; `jq` for JSON; `python3 -I` with the standard library for the guard's command parser
 - `gh` for every GitHub call, through `scripts/redline-gh.sh`; authentication is `gh`'s
-- Each repository's gate is its own `.claude/redline/checks.sh`, built from `scripts/checks-template.sh`; here it runs the five steps in `.claude/commands/agent-os/shape-spec.md`
+- Each repository's gate is its own `.claude/redline/checks.sh`, built from `scripts/checks-template.sh`; here it runs the six steps in `.claude/commands/agent-os/shape-spec.md`, and carries the gate stamp that `scripts/redline-gate.sh` checks at launch
 
 ## Tests
 
-- Bash harnesses for the guard (`tests/guard-test.sh` over `tests/guard-cases.tsv`) and the saved settings (`tests/prefs-test.sh`); Node, ESM, no dependencies, for the workflow (`tests/loop-test.mjs`)
+- Bash harnesses for the guard (`tests/guard-test.sh` over `tests/guard-cases.tsv`), the saved settings (`tests/prefs-test.sh`) and the gate stamp (`tests/gate-test.sh` over `tests/gate-fixtures/`); Node, ESM, no dependencies, for the workflow (`tests/loop-test.mjs`)
 - No framework, no package manager, no lockfile, no build step, no CI yet
 
 ## Planner and host

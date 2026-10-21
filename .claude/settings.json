@@ -4,6 +4,7 @@
       "Workflow(redline:redline-loop)",
       "Bash(/*/scripts/redline-gh.sh *)",
       "Bash(/*/scripts/redline-prefs.sh *)",
+      "Bash(/*/scripts/redline-gate.sh *)",
       "Bash(/*/.claude/redline/checks.sh *)",
       "Bash(.claude/redline/checks.sh:*)",
       "Bash(./.claude/redline/checks.sh *)",

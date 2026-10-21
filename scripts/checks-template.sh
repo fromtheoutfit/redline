@@ -25,6 +25,12 @@
 # Exit 0 when every non-recorded check passed and git.unexpected_files and
 # git.uncommitted are both empty, else 1. Usage errors exit 2. See the Redline
 # README for the output contract.
+#
+# The last line of this header is the gate stamp: a hash of the gate's backticked text, written
+# by <plugin>/scripts/redline-gate.sh stamp. A launch recomputes it from the gate and refuses to
+# run when the two differ, so a gate step added later cannot go unnoticed. After bringing this
+# file up to date with a changed gate, restamp it with the command in the TODO line.
+# redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 
 set -euo pipefail
 
@@ -39,7 +45,7 @@ for arg in "$@"; do
     case "$arg" in
         --baseline) mode="baseline" ;;
         --git-only) mode="git-only" ;;
-        -h|--help) sed -n '2,27p' "$0" >&2; exit 2 ;;
+        -h|--help) sed -n '2,/^$/p' "$0" >&2; exit 2 ;;
         -*) echo "checks.sh: unknown flag $arg" >&2; exit 2 ;;
         *) snapshot="$arg" ;;
     esac
