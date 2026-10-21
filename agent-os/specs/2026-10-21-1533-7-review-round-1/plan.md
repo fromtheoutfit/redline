@@ -138,3 +138,19 @@ Steps 7 and 8 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 7, standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. The standards approver approves the list. The implementer applies it in its own commit, touching only the files the list names: `agent-os/standards/scripts/bash-conventions.md` and `agent-os/standards/scripts/guard.md`. Item 3 (R1-13, the shared budget) is drafted now that the person has decided, and goes to the standards approver with the others; it touches only `agent-os/standards/scripts/bash-conventions.md`.
 - **Step 8, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Commits, in order: the spec folder (6b6e488), R1-11 (896fef3), R1-12 (330690a), R1-14 (579c0a5), R1-13 (5e6b249), the standards retrospective (5be9760), and this note.
+
+- **Task 2 (R1-11) and Task 3 (R1-12).** As planned, with the suggested wording. The gate check ran 117 cases with none failing, the two new prose-only cases and "the plugin's own checks.sh stamp matches its gate" among them.
+- **Task 4 (R1-14).** As planned: `out_bytes` and `err_bytes` beside the line counts, and the two byte comparisons added to `truncated`.
+- **Task 5 (R1-13).** As planned, with these implementation choices, none of which changes the behaviour the plan states:
+  - The line counts and caps are top-level variables, `keep_passed=20 keep_failed=200 cap=16384 budget=16384`, declared once beside the new comment above `run_check`, not locals inside it, because the final pass `emit_checks` reads them too.
+  - `run_check` appends `{name, cmd, exit, recorded}` with `jq -n -c` to `$work/checks.ran.jsonl`. `emit_checks` merges `truncated`, `stdout` and `stderr` into that object, so the field order of each check is the same as before.
+  - A failing check's stderr allotment is the smaller of half its share and the bytes its last 200 lines of stderr hold. Its stdout gets the rest of the share, so an empty stderr gives stdout the whole share.
+  - `truncated` compares each whole stream's byte count with the allotment it was cut to. When the line count did not cut the stream, the whole stream is what was cut by bytes, so this matches the plan's wording. When the line count did cut it, `truncated` is already true.
+  - Task 4's two `wc -c` lines moved into `emit_checks`. `grep -c "wc -c"` still prints 2 (the stderr kept-bytes line, plus the condition line that holds both stream counts).
+- **Proofs.** The guard does not let the implementer run `tests/gate-test.sh` or `bash -n` directly, so the gate's `syntax` and `gate` checks were the proof, as the plan's Commands paragraph says. The template's `run_check` and `emit_checks` have no harness (Tasks 4 and 5).
+- **Standards.** The three approved edits landed in one commit. All three are lessons, and no part of a finding's fix goes through them, so the commit message names no finding.
+- No deviation needed a Decision in `shape.md`.
