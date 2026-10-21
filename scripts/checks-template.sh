@@ -79,8 +79,9 @@ failed=0
 # tool's inline limit, however many fail. A passing check keeps its last 20 lines (at most
 # 16 KB). The failing checks keep up to 200 lines each and share one 16 KB budget, split
 # evenly among them in the final pass after every check has run; within a failing check,
-# stderr takes at most half of its share and stdout the rest. truncated is true when a line
-# count or a byte allotment cut a stream.
+# each stream takes at least half of its share when both are long, and bytes one stream
+# leaves unused go to the other (#7, R2-1). truncated is true when a line count or a byte
+# allotment cut a stream.
 keep_passed=20 keep_failed=200 cap=16384 budget=16384
 
 log() { printf 'checks.sh: %s\n' "$*" >&2; }
@@ -112,7 +113,7 @@ run_check() {
 # $checks_json in run order, its streams cut to the limits described above. Each failing check's
 # share of the budget is budget / (number of failing checks), so the sum stays bounded.
 emit_checks() {
-    local failing share entry name code keep out_cap err_cap err_kept truncated
+    local failing share entry name code keep out_cap err_cap out_kept err_kept truncated
     failing=$(jq -s '[.[] | select(.exit != 0)] | length' "$checks_ran")
     share=$budget
     if [[ $failing -gt 0 ]]; then
@@ -123,8 +124,12 @@ emit_checks() {
         code=$(jq -r '.exit' <<<"$entry")
         if [[ $code -ne 0 ]]; then
             keep=$keep_failed
+            out_kept=$(tail -n "$keep" "$work/$name.out" | wc -c)
             err_kept=$(tail -n "$keep" "$work/$name.err" | wc -c)
             err_cap=$((share / 2))
+            if [[ $((share - out_kept)) -gt $err_cap ]]; then
+                err_cap=$((share - out_kept))
+            fi
             if [[ $err_kept -lt $err_cap ]]; then
                 err_cap=$((err_kept))
             fi
