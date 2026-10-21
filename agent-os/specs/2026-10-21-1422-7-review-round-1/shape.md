@@ -172,6 +172,9 @@ Confirmed by reading.
 - **R1-10: fix.** The gate test's `differs` passes only when both sides are 64-hex hashes and they differ. A new case, red first, shows a copy with no gate is not counted as a change.
   Decided by: redline
 
+- **As built, R1-6: `check`'s `two gates` line does not repeat the parser's advice.** The parser's error already says "rewrite one so only the gate holds a numbered list", so `check` appends only ", then run check again". Recorded in `plan.md`'s As built.
+  Decided by: redline
+
 ### Proportionality
 
 - **R1-1.**

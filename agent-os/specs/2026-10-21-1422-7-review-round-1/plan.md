@@ -208,3 +208,13 @@ Steps 7 and 8 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 7, standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. The standards approver approves the list. The implementer applies it in its own commit, touching only the files the list names: `agent-os/standards/scripts/guard.md`, `agent-os/standards/testing/tests.md` and `agent-os/standards/scripts/bash-conventions.md` (items 4 and 5, drafted after the person's decisions on R1-9 and R1-6). No item is held any longer.
 - **Step 8, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Every task landed as planned, one commit per finding, and the gate is green with "the plugin's own checks.sh stamp matches its gate" `ok`: this checkout's hash did not move.
+
+- **Task 7 (R1-7), Task 9 (R1-10), Task 10 (R1-6)** went red first in the `gate` check: the two `--steps` cases (exit 1 and exit 0), the "a copy with no gate is not a change" case, and six of the eight two-gates cases, as the plan predicted.
+- **Task 10, cmd_check's line.** The `no gate` branch the plan cites at lines 312 to 314 is at 315 to 316, as the plan approver noted. The parser's error already ends with "rewrite one so only the gate holds a numbered list", so `check`'s `two gates` line reads `the verification gate in <path> is ambiguous: <the parser's error>, then run check again` instead of repeating "rewrite one of them". The error counts the sections ("2 verification gate sections ...") rather than spelling "two", so it stays true for three. The README's stop line quotes this wording.
+- **Task 10, the stamp-writes-nothing case** stamps into a copy of `checks-no-stamp.sh` in the temp directory and compares it with the fixture copy, so nothing touches the repository under test.
+- **Task 11, not in the run.** `.claude/settings.json` line 7 still carries `Bash(/*/scripts/redline-gate.sh *)`. The author narrows it to `Bash(/*/scripts/redline-gate.sh check *)` by hand when reviewing the round; no Redline role may write that file.
+- **Standards retrospective.** The five approved edits landed in one commit, with the text from `shape.md`'s proposed list. No finding's fix runs through it, so its message names none.
