@@ -50,7 +50,14 @@ expect_stderr() {
 sha() { "$GATE" extract "$1" 2>/dev/null | jq -r .sha256; }
 # same <name> <file a> <file b>: the two files hash the same; differs: they do not
 same() { [[ "$(sha "$WORK/$2")" == "$(sha "$WORK/$3")" ]] && ok "$1" || bad "$1" "$(sha "$WORK/$2") vs $(sha "$WORK/$3")"; }
-differs() { [[ "$(sha "$WORK/$2")" != "$(sha "$WORK/$3")" ]] && ok "$1" || bad "$1" "both $(sha "$WORK/$2")"; }
+# hashes_differ <file a> <file b>: returns a status only; true when both files yield a real hash
+# (64 lowercase hex) and the two differ, so a copy that fails to parse is never counted as a change
+hashes_differ() {
+    local a b
+    a="$(sha "$WORK/$1")"; b="$(sha "$WORK/$2")"
+    [[ "$a" =~ ^[0-9a-f]{64}$ && "$b" =~ ^[0-9a-f]{64}$ && "$a" != "$b" ]]
+}
+differs() { hashes_differ "$2" "$3" && ok "$1" || bad "$1" "$(sha "$WORK/$2") vs $(sha "$WORK/$3")"; }
 # mut <src> <dst> <sed expression>
 mut() { sed "$3" "$WORK/$1" > "$WORK/$2"; }
 
@@ -97,6 +104,7 @@ expect_json "fenced: the later prose decoy is not chosen" '.line < 60' "true" ex
 
 echo "# extract: no gate"
 mut plugin-shape.md nogate.md 's/^## Verification Gate$/## Checks/'
+! hashes_differ plugin-shape.md nogate.md && ok "differs: a copy with no gate is not a change" || bad "differs: a copy with no gate is not a change" "$(sha "$WORK/plugin-shape.md") vs '$(sha "$WORK/nogate.md")'"
 expect_exit "no gate: exit 1" 1 extract "$WORK/nogate.md"
 expect_stderr "no gate: one line names the problem" "no verification gate" extract "$WORK/nogate.md"
 expect_exit "unreadable file: exit 2" 2 extract "$WORK/missing.md"
