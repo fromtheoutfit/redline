@@ -29,7 +29,7 @@ A launch now refuses a `checks.sh` that carries no gate stamp (see "Gate stamp" 
 <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 ```
 
-It prints the line it wrote. Change the `-h|--help` line of `checks.sh` from its numeric `sed -n '2,NNp'` range to `sed -n '2,/^$/p'` at the same time (the inserted line shifts the header, and `stamp` warns when it does), then commit both. Until `/redline:setup` exists (the second half of #6), that is the whole upgrade.
+It prints the line it wrote. Change the `-h|--help` line of `checks.sh` from its numeric `sed -n '2,NNp'` range to `sed -n '2,/^$/p'` at the same time (the inserted line shifts the header, and `stamp` warns when it does), then commit both. A PR branch cut before that commit reached its base carries no stamp, and a launch on it stops with the same line: merge the base into the branch, or stamp it on the branch and commit and push, before launching on it. Until `/redline:setup` exists (the second half of #6), that is the whole upgrade.
 
 ## Set up a repository
 
