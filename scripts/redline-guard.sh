@@ -26,7 +26,9 @@
 #
 # The repository is the one holding the hook's cwd. The plugin's own files are found through
 # CLAUDE_PLUGIN_ROOT, which Claude Code exports to plugin hooks (this script's parent directory
-# when it is run by hand, as tests/guard-test.sh does).
+# when it is run by hand, as tests/guard-test.sh does). When the two are the same directory
+# (Redline loaded in place from its own checkout, reviewing itself), the plugin's source is the
+# repository's content and the roles write it by the same rules as any other; see the table.
 #
 # Needs python3 (macOS command line tools) and jq. Set REDLINE_GUARD_LOG=<file> in the
 # environment Claude Code starts from to append one line per decision for tuning, inert ones
@@ -81,6 +83,11 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # rest of .claude/ (commands, other skills and agents, CLAUDE.md beside it) is ordinary repository
 # content: the implementer may write it when the approved plan names it, and the checker's
 # allowed list is what holds the implementer to the plan.
+# When the repository is the plugin (its checkout loaded in place, Redline reviewing itself), the
+# plugin's directory is the repository, so it is not refused as a whole: agents/, scripts/,
+# workflows/, skills/, tests/, templates/, hooks/ and the README are repository content under the
+# same prefixes. Two files stay refused for every role there, because they are the guard that
+# vets the run: scripts/redline-guard.sh and hooks/hooks.json. A person changes those.
 # ---------------------------------------------------------------------------
 REDLINE_GUARD_TABLE='
 reviewer           | read tests gh-read                                | TMP
@@ -186,6 +193,12 @@ PROTECTED_FILES = [".claude/redline*.json", ".claude/settings*.json",
 # The plugin's own directory, wherever it is installed: a marketplace cache, a local checkout
 # loaded in place, a --plugin-dir under a temp directory.
 PLUGIN_DIRS = {PLUGIN, os.path.realpath(PLUGIN)}
+# The repository is the plugin itself: Redline loaded in place, reviewing its own checkout. Its
+# source is then repository content, except the guard and the hook that registers it.
+SELF_HOSTED = os.path.realpath(REPO) in {os.path.realpath(p) for p in PLUGIN_DIRS}
+SELF_HOSTED_FILES = ["scripts/redline-guard.sh", "hooks/hooks.json"]
+if SELF_HOSTED:
+    PROTECTED_FILES = PROTECTED_FILES + SELF_HOSTED_FILES
 NEVER_WRITES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 ENV_OK = {"TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CLAUDE_PROJECT_DIR": os.environ.get("CLAUDE_PROJECT_DIR", REPO)}
 
@@ -205,7 +218,7 @@ def under(path, prefix):
 
 def protected(raw, absolute, real):
     """A reason when the target is one of Redline's own files, or a directory holding one."""
-    for plugin in PLUGIN_DIRS:
+    for plugin in ([] if SELF_HOSTED else PLUGIN_DIRS):
         for path in (absolute, real):
             if under(path, plugin):
                 return f"'{raw}' is inside the Redline plugin ({PLUGIN}), which no Redline role may write"
@@ -220,11 +233,14 @@ def protected(raw, absolute, real):
                 return f"'{raw}' holds {prot}, which no Redline role may write"
     for pattern in PROTECTED_FILES:
         full = os.path.join(REPO, pattern)
+        what = "the guard that vets this run" if pattern in SELF_HOSTED_FILES else "Redline's own files"
         for path in (absolute, real):
             if fnmatch.fnmatchcase(path, full):
-                return f"'{raw}' is one of Redline's own files ({pattern}), which no Redline role may write"
+                if pattern in SELF_HOSTED_FILES:
+                    return f"'{raw}' is {what} ({pattern}); a person changes it, never a Redline role"
+                return f"'{raw}' is one of {what} ({pattern}), which no Redline role may write"
             if path != REPO and under(os.path.dirname(full), path):
-                return f"'{raw}' holds Redline's own files ({pattern}), which no Redline role may write"
+                return f"'{raw}' holds {what} ({pattern}), which no Redline role may write"
     return None
 
 

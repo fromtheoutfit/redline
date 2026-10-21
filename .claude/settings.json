@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Workflow(redline:redline-loop)",
+      "Bash(/*/scripts/redline-gh.sh *)",
+      "Bash(/*/scripts/redline-prefs.sh *)",
+      "Bash(/*/.claude/redline/checks.sh *)",
+      "Bash(.claude/redline/checks.sh:*)",
+      "Bash(./.claude/redline/checks.sh *)",
+      "Edit(/agent-os/specs/**)",
+      "Edit(//tmp/redlinerepro/**)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git merge-base:*)",
+      "Bash(bash -n:*)",
+      "Bash(jq -e . hooks/hooks.json)",
+      "Bash(claude plugin validate:*)",
+      "Bash(tests/*.sh:*)",
+      "Bash(node tests/loop-test.mjs)"
+    ]
+  },
+  "enabledPlugins": {
+    "redline@redline": true
+  },
+  "extraKnownMarketplaces": {
+    "redline": {
+      "source": {
+        "source": "github",
+        "repo": "fromtheoutfit/redline"
+      }
+    }
+  }
+}

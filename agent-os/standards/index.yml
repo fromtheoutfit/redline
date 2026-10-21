@@ -1,0 +1,27 @@
+# Agent OS Standards Index
+
+process:
+  internal-notes:
+    description: The public repo carries the tool and its README; design records and step notes live in redline-internal
+  standards-retrospective:
+    description: Every spec ends by checking what it taught against these files, in its own commit or as "no changes"
+
+prompts:
+  attribution:
+    description: Redline labels its own work as Redline; never a model or vendor name in a commit, body, comment or spec
+
+scripts:
+  bash-conventions:
+    description: set -euo pipefail, one JSON object on stdout and progress on stderr, usage errors exit 2, every subcommand in the guard's groups
+  guard:
+    description: Default deny, literal allowlists in the table, every change proven by a guard-cases row, the self-hosted case
+
+testing:
+  tests:
+    description: guard-test.sh, loop-test.mjs and prefs-test.sh; a tested surface gains a case with every change; red before green
+
+workflow:
+  agents:
+    description: One role per file, model and disallowedTools in frontmatter, judgment calls returned never decided, an owner on every decision
+  replay:
+    description: Every prompt before a stopping point is byte-identical on relaunch; decisions enter after shaping; no clock reads
