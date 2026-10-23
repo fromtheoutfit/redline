@@ -247,7 +247,7 @@ The hash covers every backticked span and every fenced block in the gate's secti
 
 `/redline:setup` stamps `checks.sh` as its step 10; `stamp` by hand is the quick path for a repository set up before it existed (see "Upgrading").
 
-**Template version.** The header line above the stamp, `# redline-template: checks-template.sh v1`, names the version of `scripts/checks-template.sh` a `checks.sh` was generated from. `/redline:redline`'s precheck compares it with the plugin's template (`redline-setup.sh version`) and warns, never stops, when the repository's is older or missing: `checks.sh was made from checks-template.sh v1; the plugin ships v2. Run /redline:setup to port the change`. A rerun of `/redline:setup` regenerates `checks.sh` from `checks.json` and the current template, which is the port.
+**Template version.** The header line above the stamp, `# redline-template: checks-template.sh v1`, names the version of `scripts/checks-template.sh` a `checks.sh` was generated from. `/redline:redline`'s precheck compares it with the plugin's template (`redline-setup.sh version`) and warns, never stops, when the repository's is older or missing: `checks.sh was made from checks-template.sh v1; the plugin ships v2. Run /redline:setup to port the change`. When the repository's is newer than the plugin's (a teammate on an older install), the line says to update the plugin instead, since a rerun would regenerate `checks.sh` from the older template. A rerun of `/redline:setup` regenerates `checks.sh` from `checks.json` and the current template, which is the port.
 
 ## `redline-setup.sh`
 
@@ -261,7 +261,7 @@ The scriptable parts of `/redline:setup`, the skill's only (the guard refuses it
 | `config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run]` | `redline.json` from the template: `git-only` over five minutes else `full`; the stall is 1.7 times the baseline, rounded up to five minutes, never below 300000 | 0; 1 the file exists and differs without `--force`; 2 |
 | `checks <checks.json> <checks.sh> [--dry-run]` | generates `checks.sh` (header, version line, the existing stamp or the placeholder, the template's functions, one `run_check` per step); writes nothing when the bytes are unchanged | 0; 1 a template anchor is missing; 2 a bad `checks.json`, every reason on stderr |
 | `read-checks <checks.sh>` | the `run_check` lines, guards, variables and header read back, with a best-effort `checks.json` under `input` | 0; 2 |
-| `version <checks.sh>` | the file's template version against the plugin's | 0 match; 1 older or missing |
+| `version <checks.sh>` | the file's template version against the plugin's | 0 match; 1 older, newer or missing |
 
 
 ## `redline-gh.sh`

@@ -45,7 +45,8 @@
 #       with a best-effort checks.json under "input" (the bootstrap for a hand-written checks.sh).
 #   redline-setup.sh version <checks.sh>
 #       Compare the file's "# redline-template:" line with the template's. Prints {template, file,
-#       match}; exits 1 on a mismatch or a missing line.
+#       match, newer}; exits 1 on a mismatch or a missing line, and the stderr line says which: run
+#       /redline:setup for an older or missing line, update the plugin for a newer one.
 #
 # Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh (tests).
 #
@@ -63,8 +64,8 @@
 # none of " $ ` \ }, and an alwaysAllowed entry no '.
 #
 # Exit codes: 0; 1 when a compared file differs without --force, a template anchor is missing, or
-# the version line is missing or older; 2 on a bad invocation, a file that is not JSON, a settings
-# file with a BOM, or a bad checks.json (every reason on stderr). Needs python3 and jq.
+# the version line is missing, older or newer; 2 on a bad invocation, a file that is not JSON, a
+# settings file with a BOM, or a bad checks.json (every reason on stderr). Needs python3 and jq.
 
 set -euo pipefail
 
@@ -940,12 +941,22 @@ cmd_version() {
     tv="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}' || true)"
     fv="$(grep -m1 '^# redline-template: checks-template.sh ' "$file" | awk '{print $NF}' || true)"
     [[ -n "$tv" ]] || die2 "$TEMPLATE has no '# redline-template:' line"
-    local match=false
+    local match=false newer=false fnum=""
     [[ -n "$fv" && "$fv" == "$tv" ]] && match=true
-    jq -n --arg t "$tv" --arg f "$fv" --argjson match "$match" '{template: $t, file: (if $f == "" then null else $f end), match: $match}'
+    # Compared as numbers when both read v<digits>: a newer file is not ported back to an older template.
+    if [[ "$fv" =~ ^v([0-9]+)$ ]]; then
+        fnum="${BASH_REMATCH[1]}"
+        if [[ "$tv" =~ ^v([0-9]+)$ ]] && (( 10#$fnum > 10#${BASH_REMATCH[1]} )); then
+            newer=true
+        fi
+    fi
+    jq -n --arg t "$tv" --arg f "$fv" --argjson match "$match" --argjson newer "$newer" \
+        '{template: $t, file: (if $f == "" then null else $f end), match: $match, newer: $newer}'
     if [[ "$match" == false ]]; then
         if [[ -z "$fv" ]]; then
             echo "redline-setup: $file carries no template version line; the plugin ships checks-template.sh $tv. Run /redline:setup to port it" >&2
+        elif [[ "$newer" == true ]]; then
+            echo "redline-setup: $file was made from checks-template.sh $fv, newer than the $tv this plugin ships; update the plugin" >&2
         else
             echo "redline-setup: $file was made from checks-template.sh $fv; the plugin ships $tv. Run /redline:setup to port the change" >&2
         fi

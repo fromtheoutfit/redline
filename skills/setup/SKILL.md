@@ -67,7 +67,7 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh stamp <repoRoot>/.claude/commands/
 
 The baseline in step 6 needs it: a gate that tests its own stamp (this plugin's does) is red until then, and step 10 stamps again without `--steps` as the cross-check.
 
-**Rerun with a `checks.json`.** First `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>`:
+**Rerun with a `checks.json`.** When step 1's `version` reported `newer: true`, stop here: `checks.sh` was made from a newer template than this plugin ships, and regenerating would take it back; say to update the plugin and rerun. First `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>`:
 
 - exit 0 (the gate has not moved): regenerate with the same `checks` command. `changed: false` is "nothing drifted". `changed: true` means the template or the generator moved since the file was written (an `emit_checks` port, say): show `git diff .claude/redline/checks.sh` and ask; a no reverts the file with `git checkout -- .claude/redline/checks.sh`.
 - exit 1, "gate changed": compare the `extract` output's per-step commands with `checks.json`'s steps and show what was added, removed or changed, step by step. Ask how each should read in `checks.json` (a new step gets a name as in step 3), write the answer into `checks.json` with Edit, regenerate, and restamp with the `stamp` command above (the section's range is updated in step 10, which stamps again). Never edit `checks.sh` to settle a difference.
