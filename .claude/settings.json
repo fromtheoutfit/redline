@@ -5,6 +5,7 @@
       "Bash(/*/scripts/redline-gh.sh *)",
       "Bash(/*/scripts/redline-prefs.sh *)",
       "Bash(/*/scripts/redline-gate.sh check *)",
+      "Bash(/*/scripts/redline-setup.sh version *)",
       "Bash(/*/.claude/redline/checks.sh *)",
       "Bash(.claude/redline/checks.sh:*)",
       "Bash(./.claude/redline/checks.sh *)",
