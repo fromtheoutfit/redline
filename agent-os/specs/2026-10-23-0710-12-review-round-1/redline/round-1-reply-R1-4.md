@@ -1,0 +1,1 @@
+Redline round 1: fixed in 9f69af2 (redline: R1-4 write settings.json with CRLF when the existing file uses it (#6)) and cc7f232 (redline: record the round 1 review lessons in the standards, finishing R1-1, R1-4 and R1-8 (#6)). · decided by: redline

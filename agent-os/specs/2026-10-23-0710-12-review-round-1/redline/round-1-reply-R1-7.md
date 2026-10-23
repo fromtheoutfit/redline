@@ -1,0 +1,1 @@
+Redline round 1: fixed in d4b7ab8 (redline: R1-7 tell a newer checks.sh from an older one in version and say to update the plugin (#6)). · decided by: redline

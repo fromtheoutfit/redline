@@ -1,0 +1,1 @@
+Redline round 1: fixed in 64f26c1 (redline: R1-3 keep every value already in settings.json and report the differing ones under conflicts (#6)). · decided by: redline
