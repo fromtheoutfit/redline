@@ -59,7 +59,8 @@
 #             {"step": 6, "name": "env", "recorded": 0, "kind": "base-diff", "source": "...$env_base..."}]}
 # A step's "cmd" is the exact string bash -c runs (quoted for you); "source" is emitted verbatim
 # inside double quotes for a step that must expand a shell variable. "kind": "base-diff" wraps the
-# step in the template's base_ref guard.
+# step in the template's base_ref guard. Every text field is a single line; a var's default holds
+# none of " $ ` \ }, and an alwaysAllowed entry no '.
 #
 # Exit codes: 0; 1 when a compared file differs without --force, a template anchor is missing, or
 # the version line is missing or older; 2 on a bad invocation, a file that is not JSON, a settings
@@ -504,6 +505,9 @@ errors = []
 def need(cond, msg):
     if not cond:
         errors.append(msg)
+# line: a text field that lands in a comment or inside quotes is one line (empty allowed).
+def line(v):
+    return isinstance(v, str) and "\n" not in v and "\r" not in v
 need(isinstance(spec, dict), "the top level must be an object")
 if not isinstance(spec, dict):
     spec = {}
@@ -511,21 +515,35 @@ repo = spec.get("repo")
 gate_file = spec.get("gateFile")
 need(isinstance(repo, str) and repo.strip() != "", "repo (the phrase after \x27Redline gate for\x27) is required")
 need(isinstance(gate_file, str) and gate_file.strip() != "", "gateFile is required")
+need(not isinstance(gate_file, str) or line(gate_file), "gateFile must be a single line")
 self_hosted = spec.get("selfHosted", False)
 need(isinstance(self_hosted, bool), "selfHosted must be true or false")
 allowed = spec.get("alwaysAllowed", [])
 need(isinstance(allowed, list) and all(isinstance(a, str) and a for a in allowed), "alwaysAllowed must be a list of paths")
+for a in (allowed if isinstance(allowed, list) else []):
+    if isinstance(a, str):
+        need(line(a), "alwaysAllowed entry %r must be a single line" % a)
+        need("\x27" not in a, "alwaysAllowed entry %r must not hold a single quote" % a)
 IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 NAME = re.compile(r"^[a-z][a-z0-9-]*$")
 vars_ = spec.get("vars", [])
 need(isinstance(vars_, list), "vars must be a list")
 for v in (vars_ if isinstance(vars_, list) else []):
-    need(isinstance(v, dict) and IDENT.match(str(v.get("name", ""))) and IDENT.match(str(v.get("env", ""))) and isinstance(v.get("default", None), str) and isinstance(v.get("doc", ""), str), "each var needs name, env, default and doc")
+    if not (isinstance(v, dict) and IDENT.match(str(v.get("name", ""))) and IDENT.match(str(v.get("env", ""))) and isinstance(v.get("default", None), str) and isinstance(v.get("doc", ""), str)):
+        errors.append("each var needs name, env, default and doc")
+        continue
+    need(line(v.get("doc", "")), "var %s: doc must be a single line" % v["name"])
+    need(line(v["default"]), "var %s: default must be a single line" % v["name"])
+    held = [c for c in "\"$`\\}" if c in v["default"]]
+    need(not held, "var %s: default must not hold %s (it is written inside \"${%s:-...}\")" % (v["name"], " ".join(held), v["env"]))
 baseline = spec.get("baseline")
 if baseline is not None:
     ok = isinstance(baseline, dict) and isinstance(baseline.get("seconds"), int) and not isinstance(baseline.get("seconds"), bool) and baseline.get("seconds") >= 0 and isinstance(baseline.get("date"), str) and re.fullmatch(r"\d{4}-\d\d-\d\d", baseline.get("date") or "")
     need(ok, "baseline needs seconds (a non-negative integer) and date (YYYY-MM-DD), or is null")
-    need(baseline.get("note") is None or isinstance(baseline.get("note"), str), "baseline.note must be a string") if isinstance(baseline, dict) else None
+    if isinstance(baseline, dict):
+        note = baseline.get("note")
+        need(note is None or isinstance(note, str), "baseline.note must be a string")
+        need(not isinstance(note, str) or line(note), "baseline.note must be a single line")
 items = []
 def one_text(d, key):
     v = d.get(key)
@@ -554,11 +572,14 @@ for s in (steps if isinstance(steps, list) else []):
     if kind == "base-diff":
         need(has_src, "step %s: a base-diff step needs source" % name)
     need(s.get("title") is None or isinstance(s.get("title"), str), "step %s: title must be a string" % name)
+    need(not isinstance(s.get("title"), str) or line(s.get("title")), "step %s: title must be a single line" % name)
     items.append({"kind": kind, "step": s.get("step"), "name": name, "recorded": rec, "cmd": s.get("cmd") if has_cmd else None, "source": s.get("source") if has_src else None, "title": s.get("title") or name})
 fmt = spec.get("formatter")
 if fmt is not None:
     ok = isinstance(fmt, dict) and isinstance(fmt.get("step"), int) and NAME.match(str(fmt.get("name", ""))) and one_text(fmt, "cmd")
     need(ok, "formatter needs step, name and cmd, or is null")
+    if isinstance(fmt, dict):
+        need(fmt.get("title") is None or line(fmt.get("title")), "formatter: title must be a string on a single line")
     if ok:
         items.append({"kind": "formatter", "step": fmt["step"], "name": fmt["name"], "recorded": 1, "cmd": fmt["cmd"], "source": None, "title": fmt.get("title") or fmt["name"]})
 octane = spec.get("octane")
