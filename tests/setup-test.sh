@@ -223,7 +223,7 @@ expect_exit "a different range: exit 1" 1 unattended "$U" --gate-steps 1-6 --pro
 expect_json "a different range: differs names have and want" '.differs.gateSteps | "\(.have)->\(.want)"' "1-5->1-6" unattended "$U" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body
 same "a different range: untouched" "$U" "$WORK/u-before.md"
 [[ "$("$SETUP" unattended "$U" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body 2>&1 >/dev/null | wc -l | tr -d ' ')" == "1" ]] && ok "a different range: one stderr line" || bad "a different range: one stderr line" "$("$SETUP" unattended "$U" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body 2>&1 >/dev/null)"
-sed -i '' 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** HAND EDIT kept./' "$U"; cp "$U" "$WORK/u-hand.md"
+sed 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** HAND EDIT kept./' "$U" > "$WORK/u-hand.md"; cp "$WORK/u-hand.md" "$U"
 expect_json "--force: changed and written" '[.changed, .written] | join(",")' "true,true" unattended "$U" --gate-steps 1-6 --prose-steps "7 and 8" --retro-step 7 --no-pr-body --force
 [[ "$(diff "$WORK/u-hand.md" "$U" | grep -c '^[<>]')" == "4" ]] && ok "--force: the diff is exactly the two patched lines" || bad "--force: the diff is exactly the two patched lines" "$(diff "$WORK/u-hand.md" "$U")"
 check "--force: the hand edit survives" grep -q 'HAND EDIT kept' "$U"
