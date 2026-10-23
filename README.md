@@ -29,20 +29,22 @@ A launch now refuses a `checks.sh` that carries no gate stamp (see "Gate stamp" 
 <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 ```
 
-It prints the line it wrote. Change the `-h|--help` line of `checks.sh` from its numeric `sed -n '2,NNp'` range to `sed -n '2,/^$/p'` at the same time (the inserted line shifts the header, and `stamp` warns when it does), then commit both. A PR branch cut before that commit reached its base carries no stamp, and a launch on it stops with the same line: merge the base into the branch, or stamp it on the branch and commit and push, before launching on it. Until `/redline:setup` exists (the second half of #6), that is the whole upgrade.
+It prints the line it wrote. Change the `-h|--help` line of `checks.sh` from its numeric `sed -n '2,NNp'` range to `sed -n '2,/^$/p'` at the same time (the inserted line shifts the header, and `stamp` warns when it does), then commit both. A PR branch cut before that commit reached its base carries no stamp, and a launch on it stops with the same line: merge the base into the branch, or stamp it on the branch and commit and push, before launching on it. Or run `/redline:setup` from the repository's root (see "Set up a repository"): on a repository whose `checks.sh` was written by hand it bootstraps `.claude/redline/checks.json` from the file (`redline-setup.sh read-checks`), regenerates `checks.sh` from the current template, which brings the version line and the template's current functions with it, shows you the diff to accept, and stamps it.
 
 ## Set up a repository
 
-The plugin holds the tool: the skill, the workflow, the eight agents, the guard and the GitHub wrapper. Each repository keeps its own contract, which the plugin never edits. Set it up in this order, from the repository's root:
+The plugin holds the tool: the skills, the workflow, the eight agents, the guard and the GitHub wrapper. Each repository keeps its own contract, which the plugin never edits. `/redline:setup`, typed from the repository's root in an interactive session, writes it: the skill (`skills/setup/SKILL.md`) reads what it can off the repository, asks about the rest, writes the files below on a branch, runs the baseline, stamps the gate, and hands back the file list with a suggested commit message. It never commits. A rerun on a repository that already has the contract changes nothing when nothing drifted and shows each diff before writing. The scriptable parts live in `scripts/redline-setup.sh` (see its table below), so by hand the same steps are, in this order:
 
-1. **`.claude/redline/checks.sh`**: the repository's gate as a script that emits Redline's JSON (see `checks.sh` below). Copy `scripts/checks-template.sh`, make it executable, and fill in the TODOs from the gate's command steps. Leave the header's `# redline-gate: TODO` line as it is: it is stamped in step 5, once the unattended section gives the stamp its step range.
-2. **`.claude/redline.json`**: the round cap, the teammate to request review from, the checker mode and stall timeout, and the models. Start from `templates/redline.json.example`.
-3. **`.claude/settings.json`**: the marketplace, the plugin enabled, and the allow list for what runs outside a guarded role. Merge `templates/settings.allow.json`, then add the gate's own commands (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`).
-4. **`.gitignore`**: add the line `.claude/redline.local.json`, beside `.claude/settings.local.json`. That file holds each person's saved launch settings (see "Settings") and is never committed.
-5. **`.claude/commands/agent-os/shape-spec.md`**: add an "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask. Start from `templates/shape-spec-unattended.md`. Then stamp `checks.sh`: `<plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh` replaces the header's `# redline-gate: TODO` line with the gate's hash, taking the step range from point 7's `(gate steps M to N` parenthetical (see "Gate stamp"). The unattended section sits outside the gate, so adding it never moves the hash.
+1. **`.claude/redline/checks.json`, then `.claude/redline/checks.sh`**: the repository's gate as data (one entry per command step: the gate step number, a check name, the command verbatim, whether it is recorded only; plus the formatter, the long-lived suite, the files the gate regenerates, and the baseline time) and the script generated from it: `redline-setup.sh checks .claude/redline/checks.json .claude/redline/checks.sh`. `checks.sh` is never edited by hand: a change to the gate is an edit to the JSON and a regenerate. Its header ends with the template version line and the gate stamp, written in step 5.
+2. **`.claude/redline.json`**: the round cap, the teammate to request review from, the checker mode and stall timeout, and the models: `redline-setup.sh config --reviewer <handle> --baseline-seconds <n> .` derives the checker mode and the stall from the baseline time and takes the rest from `templates/redline.json.example`.
+3. **`.claude/settings.json`**: the marketplace, the plugin enabled, and the allow list for what runs outside a guarded role: `redline-setup.sh settings . --allow 'Bash(<command prefix>:*)' ...` merges `templates/settings.allow.json` without dropping a key and adds one entry per gate command (a Laravel repository might add `composer check`, `php artisan test`, `vendor/bin/pest`), then `claude plugin install redline@redline --scope project`.
+4. **`.gitignore`**: `redline-setup.sh gitignore .` adds the line `.claude/redline.local.json`, beside `.claude/settings.local.json`. That file holds each person's saved launch settings (see "Settings") and is never committed.
+5. **`.claude/commands/agent-os/shape-spec.md`**: an "Unattended mode (Redline)" section, so the shaper can follow shape-spec with nobody to ask: `redline-setup.sh unattended <file> --gate-steps <m>-<n> --prose-steps "<text>" --retro-step <n> --no-pr-body` inserts `templates/shape-spec-unattended.md` after the plan-mode check with the fill-ins applied (a rerun patches the fill-ins in place and keeps the rest). Then stamp `checks.sh`: `<plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh` replaces the header's `# redline-gate: TODO` line with the gate's hash, taking the step range from point 7's `(gate steps M to N` parenthetical (see "Gate stamp"); before the section exists, `--steps <m>-<n>` gives the range, which is how the skill stamps in its step 5 so the baseline can run. The unattended section sits outside the gate, so adding it never moves the hash.
 6. **`CLAUDE.md`**: one sentence in the Git section, and one paragraph beside the attribution rule, from `templates/claude-md-git-sentence.md`.
-7. **Verify**, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `<plugin>/scripts/redline-gate.sh check .` exiting 0, `gh auth status` signed in.
+7. **Verify**, from the repository: `<plugin>/tests/guard-test.sh` all passing, `.claude/redline/checks.sh --baseline` green, `<plugin>/scripts/redline-gate.sh check .` and `<plugin>/scripts/redline-setup.sh version .claude/redline/checks.sh` exiting 0, `gh auth status` signed in.
 8. **Dry run.** Before the first real PR, run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there.
+
+Before the baseline, check the environment against the lockfiles (`composer install --dry-run`, `npm ci --dry-run`) and the built assets against the newest change under `resources/`; with a browser suite, build first. Both hand ports lost a baseline to a stale `vendor/` or asset build, which is why the skill's step 4 does this before anything runs.
 
 ## Use
 
@@ -112,7 +114,8 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 
 | Path in the plugin | What |
 | --- | --- |
-| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
+| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first, then the template version), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
+| `skills/setup/SKILL.md` | `/redline:setup`: walks a repository through the contract in conversation, in the thirteen steps of #6; see "Set up a repository" |
 | `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, and the pass/fail decision from the checker's JSON. Runs as `redline:redline-loop` |
 | `agents/redline-*.md` | The eight roles: reviewer, shaper, resolve, plan-approver, standards-approver, implementer, checker, github. They load as `redline:redline-<role>` |
 | `hooks/hooks.json` | One `PreToolUse` hook on Bash, Write, Edit, MultiEdit and NotebookEdit, calling the guard |
@@ -120,12 +123,14 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 | `scripts/redline-gh.sh` | Every GitHub call; see below |
 | `scripts/redline-prefs.sh` | The saved launch settings: the merge rules behind `.claude/redline.local.json`; see "Settings" |
 | `scripts/redline-gate.sh` | The gate stamp: `extract` parses a repository's Verification Gate, `stamp` writes its hash into `checks.sh`, `check` compares the two at launch; see "Gate stamp" under `checks.sh` |
-| `scripts/checks-template.sh` | The starting point for a repository's `.claude/redline/checks.sh` |
+| `scripts/redline-setup.sh` | The scriptable parts of setup: the `settings.json` merge, the `.gitignore` line, the unattended section, `redline.json` from the baseline time, `checks.sh` generated from `checks.json` and read back, the template version; see "`redline-setup.sh`" |
+| `scripts/checks-template.sh` | What `checks.sh` is generated from (and the starting point for a hand copy) |
 | `templates/` | The per-repository files above |
 | `tests/guard-test.sh`, `tests/guard-cases.tsv` | The guard's regression table |
 | `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners, the replay rule and the run-record commit (`node tests/loop-test.mjs`) |
 | `tests/prefs-test.sh` | The unit test of the settings merge rules |
 | `tests/gate-test.sh`, `tests/gate-fixtures/` | The unit test of the gate stamp, on one synthetic `shape-spec.md` per gate shape seen so far; its last case checks this repository's own stamp |
+| `tests/setup-test.sh`, `tests/setup-fixtures/` | The unit test of `redline-setup.sh`; its last cases regenerate this repository's own `checks.sh` from its `checks.json` and compare |
 
 ## The guard
 
@@ -160,7 +165,9 @@ These apply when the prompt says the session is a Redline run. Outside a Redline
 
 ## `checks.sh`
 
-The runnable part of the repository's Verification Gate (in `.claude/commands/agent-os/shape-spec.md`), plus the git-state checks, wrapped to emit one JSON object. Nothing in it is new policy. Each repository writes its own from `scripts/checks-template.sh`; the commands differ, and the usage, the git block, the output contract and the exit codes below are the same everywhere. The example below is a Laravel application's.
+The runnable part of the repository's Verification Gate (in `.claude/commands/agent-os/shape-spec.md`), plus the git-state checks, wrapped to emit one JSON object. Nothing in it is new policy. Each repository's is generated from its `.claude/redline/checks.json` and `scripts/checks-template.sh` by `redline-setup.sh checks`: edit the JSON and regenerate, never the script. The commands differ per repository, and the usage, the git block, the output contract and the exit codes below are the same everywhere. The example below is a Laravel application's.
+
+**`checks.json`**, the source: `repo` (the phrase the header names), `gateFile` (`.claude/commands/agent-os/shape-spec.md`), `selfHosted` (true only in this repository), `alwaysAllowed` (files the gate regenerates and the tree tracks), `vars` (a shell variable a step expands, with its environment variable, default and one-line doc), `formatter` (the recorded-only step, or `null`), `octane` (the long-lived suite's step and command, or `null`), `baseline` (`seconds`, `date`, an optional `note`; `null` until the first green run), and `steps`: one object per command step with `step` (its number in the gate), `name`, `recorded` (0 or 1), `cmd` (the exact string `bash -c` runs; quoted for you) or `source` (emitted verbatim inside double quotes, for a step that expands a variable), `title`, and `kind: "base-diff"` for a step that diffs the change against the PR's base (the template's `base_ref` guard wraps it). `redline-setup.sh read-checks` reads a `checks.sh` back into this shape, which is how a hand-written one is bootstrapped.
 
 ```
 .claude/redline/checks.sh <snapshot.json>              full run: commands + git block
@@ -238,7 +245,24 @@ The hash covers every backticked span and every fenced block in the gate's secti
 | `stamp <shape-spec.md> [<checks.sh>] [--steps m-n]` | prints the stamp line and, with `checks.sh`, replaces its `# redline-gate:` line (the template's TODO included) or inserts one as the header's last line | 0; 1 no gate or two; 2 a bad or missing `--steps` |
 | `check <repoRoot>` | compares the stamp in `<repoRoot>/.claude/redline/checks.sh` with the gate it names; prints `{ok, reason, stamp, actual}` | 0 match; 1 moved, missing, the placeholder or two gates; 2 no `checks.sh` |
 
-The second half of #6, `/redline:setup`, moves the stamping into the setup command; until then `stamp` is run by hand (see "Upgrading").
+`/redline:setup` stamps `checks.sh` as its step 10; `stamp` by hand is the quick path for a repository set up before it existed (see "Upgrading").
+
+**Template version.** The header line above the stamp, `# redline-template: checks-template.sh v1`, names the version of `scripts/checks-template.sh` a `checks.sh` was generated from. `/redline:redline`'s precheck compares it with the plugin's template (`redline-setup.sh version`) and warns, never stops, when the repository's is older or missing: `checks.sh was made from checks-template.sh v1; the plugin ships v2. Run /redline:setup to port the change`. A rerun of `/redline:setup` regenerates `checks.sh` from `checks.json` and the current template, which is the port.
+
+## `redline-setup.sh`
+
+The scriptable parts of `/redline:setup`, the skill's only (the guard refuses it to every role, and it is not in the allow list: setup is interactive, and the permission prompt is the person's confirmation). Every subcommand prints one JSON object; every writing one takes `--dry-run` and reports `changed: false` when nothing would change, so a rerun can say "nothing drifted". Its header is the reference; in short:
+
+| subcommand | does | exit |
+| --- | --- | --- |
+| `settings <repoRoot> [--allow <entry>]... [--dry-run]` | merges `templates/settings.allow.json` into `.claude/settings.json` without dropping a key; `permissions.allow` is the existing entries, then the template's, then the extras, each once; compared as JSON, so a file the plugin CLI reordered is left alone | 0; 2 not JSON, or a BOM |
+| `gitignore <repoRoot> [--dry-run]` | adds `.claude/redline.local.json` after `.claude/settings.local.json`, else after the last `.claude/` entry, else at the end; keeps CRLF | 0; 2 |
+| `unattended <shape-spec.md> --gate-steps m-n --prose-steps <text> --retro-step n (--pr-body-standard <name> \| --no-pr-body) [--force] [--dry-run]` | inserts the unattended section after the plan-mode check with the fill-ins applied; when present, reads the fill-ins back and compares, and `--force` patches them in place without touching the rest | 0; 1 present and different without `--force`; 2 bad args or no Prerequisites heading |
+| `config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run]` | `redline.json` from the template: `git-only` over five minutes else `full`; the stall is 1.7 times the baseline, rounded up to five minutes, never below 300000 | 0; 1 the file exists and differs without `--force`; 2 |
+| `checks <checks.json> <checks.sh>` | generates `checks.sh` (header, version line, the existing stamp or the placeholder, the template's functions, one `run_check` per step); writes nothing when the bytes are unchanged | 0; 1 a template anchor is missing; 2 a bad `checks.json`, every reason on stderr |
+| `read-checks <checks.sh>` | the `run_check` lines, guards, variables and header read back, with a best-effort `checks.json` under `input` | 0; 2 |
+| `version <checks.sh>` | the file's template version against the plugin's | 0 match; 1 older or missing |
+
 
 ## `redline-gh.sh`
 

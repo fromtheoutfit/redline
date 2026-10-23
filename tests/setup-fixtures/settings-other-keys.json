@@ -1,0 +1,22 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      { "matcher": "Edit", "hooks": [{ "type": "command", "command": "vendor/bin/pint --dirty" }] }
+    ]
+  },
+  "env": {
+    "APP_ENV": "testing"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(custom:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)"
+    ]
+  },
+  "enabledPlugins": {
+    "other@other": true
+  }
+}

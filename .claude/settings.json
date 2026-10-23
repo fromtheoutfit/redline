@@ -20,7 +20,8 @@
       "Bash(jq -e . hooks/hooks.json)",
       "Bash(claude plugin validate:*)",
       "Bash(tests/*.sh:*)",
-      "Bash(node tests/loop-test.mjs)"
+      "Bash(node tests/loop-test.mjs)",
+      "Bash(REDLINE_OCTANE=1 /*/.claude/redline/checks.sh *)"
     ]
   },
   "enabledPlugins": {
