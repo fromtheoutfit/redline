@@ -306,3 +306,16 @@ Steps 8 and 9 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 8, standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. Items 4 to 6 were held for R1-1, R1-5 and R1-8 and are now drafted for the person's decisions. The standards approver approves the list, and the implementer applies it in its own commit, touching only the files the list names: `agent-os/standards/scripts/bash-conventions.md` (items 1, 2, 5 and 6), `agent-os/standards/testing/tests.md` (item 3) and `agent-os/standards/scripts/guard.md` (item 4).
 - **Step 9, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+One commit per task, in task order: the spec folder, R1-2, R1-3, R1-4, R1-6, R1-7, R1-9, R1-1, R1-5, R1-8, then the standards retrospective (finishing R1-1, R1-4 and R1-8), then this section. Every task's new cases were run red first through the gate script and seen to fail before the fix (R1-9 has no red case on this machine, as planned). The `setup` count went from 198 to 240: Task 2 added 6, Task 3 6, Task 4 4, Task 5 10, Task 6 6, Task 9 9 net (12 cases where there were 3), Task 10 1. No task touched `scripts/checks-template.sh`, the generated text, `.claude/redline/`, `.claude/settings.json` or the Verification Gate; the three dogfood cases and the gate test's own-stamp case stayed `ok` throughout.
+
+Deviations:
+
+- **Task 9, "a hand-changed maxRounds: nothing to update".** The case reads `(.updated|tojson)` and expects `false,false,{}` rather than `(.updated|length|tostring)` and `0`: jq's `null | length` is 0, so the suggested filter passed before the fix. With `tojson` it failed red first, as the plan's proof says it should.
+- **Task 9, the in-place check.** The substituted file must equal the existing file with only `checker` and `checkerStallMs` set to the derived values (jq equality), not only carry those two values. So a substitution that took nothing (a missing or differently spelled key) exits 1 as planned, and so would one that touched anything else; recorded under Decisions in `shape.md`.
+- **Task 5, the helper's place.** `line()` sits beside `need()` at the top of the validation rather than beside `one_text`, because the `gateFile`, `alwaysAllowed`, `vars` and `baseline` checks that use it run before `one_text` is defined. A formatter `title` that is present and not a string is refused with the same message as a multi-line one ("a string on a single line").
+- **Task 3, the red count.** Four of the five `conflicts:` cases failed before the fix; "the template's allow entries are still added" passed, since the old merge added them too. It stays as the guard that the new merge still unions `permissions.allow`.
+- **Task 10, the red run.** The one failure showed only in the `setup` summary (`239 passed, 1 failed`): the new case sits in the settings block, above the last 200 lines a failing check's `stdout` keeps.
+- **Standards retrospective, items 1 and 5.** Landed as two new bullets right after the "A script that edits a person's file" bullet, as the approved edit allows, so that bullet keeps its own `(#6)`; item 1's wording change to that bullet is in place.

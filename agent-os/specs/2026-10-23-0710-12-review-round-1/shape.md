@@ -117,6 +117,9 @@ Confirmed by reading. `tests/setup-test.sh:207` is the only `sed -i` in `tests/*
 - **R1-1: Template and generator fixes in a self-hosted round can never pass gate step 7. Decided 2026-10-23: (a) Defer them.** In this repository, a finding whose fix touches scripts/checks-template.sh below its header, or changes the text redline-setup.sh writes into checks.sh, is deferred, so the dogfood check stays whole and a person makes the change, regenerates checks.sh and restamps after the run, as is already done for the guard, the hook and checks.sh itself. Planned as `plan.md` Task 8 (point 11 of `shape-spec.md` and a Known limits line) and standards retrospective item 4 (`guard.md:9`). The rule governs later rounds; this round touches neither the template nor the generated text. The story and options the person saw are under Judgment calls below.
   Decided by: @michaelfromtheoutfit
 
+- **R1-5, as built: how `config` proves an in-place update.** After the two `sed` substitutions, the temp file must equal the existing file with only `checker` and `checkerStallMs` set to the derived values (jq equality, key order aside), else nothing is written and it exits 1 with the `--force` advice. This is the plan's "must parse with the derived values" check made strict enough to prove the other promise of the person's decision, that every other value is kept. See `plan.md`, As built.
+  Decided by: redline
+
 ### Judgment calls
 
 The shaper returned these three to the person; the person decided each on 2026-10-23, and the decisions are recorded above. The question, story, options and recommendation below are what the person saw, kept as written.
