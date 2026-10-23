@@ -58,6 +58,7 @@ expect_exit "gitignore without a root: exit 2" 2 gitignore
 expect_exit "unattended without a file: exit 2" 2 unattended
 expect_exit "config without a reviewer: exit 2" 2 config --baseline-seconds 10
 expect_exit "checks with one argument: exit 2" 2 checks "$FIX/checks-input-laravel.json"
+expect_exit "checks with an unknown flag: exit 2" 2 checks "$FIX/checks-input-laravel.json" "$WORK/x.sh" --bogus
 expect_exit "read-checks without a file: exit 2" 2 read-checks
 expect_exit "version without a file: exit 2" 2 version
 
@@ -284,6 +285,12 @@ check "stamp: the placeholder is replaced" grep -q '^# redline-gate: .* sha256:[
 expect_json "regenerate after stamping: unchanged, stamp kept" '[.changed, .written, .stampKept] | join(",")' "false,false,true" checks "$LJ" "$LC"
 [[ "$(grep -c '^# redline-gate:' "$LC")" == "1" ]] && ok "regenerate after stamping: one stamp line" || bad "regenerate after stamping: one stamp line" "$(grep -n '^# redline-gate:' "$LC")"
 [[ "$(grep -c 'TODO' "$LC")" == "0" ]] && ok "a stamped generated file holds no TODO" || bad "a stamped generated file holds no TODO" "$(grep -n TODO "$LC")"
+expect_json "checks dry run: a new file is reported, not written" '[.changed, .written] | join(",")' "true,false" checks "$LJ" "$WORK/dry/checks.sh" --dry-run
+[[ ! -e "$WORK/dry" ]] && ok "checks dry run: not even the directory is created" || bad "checks dry run: not even the directory is created" "$(ls -la "$WORK/dry")"
+expect_json "checks dry run: an up-to-date file is unchanged" '[.changed, .written] | join(",")' "false,false" checks "$LJ" "$LC" --dry-run
+sed 's/^# Baseline on .*/# Baseline: stale./' "$LC" > "$WORK/stale.sh"; cp "$WORK/stale.sh" "$WORK/stale-before.sh"
+expect_json "checks dry run: a stale file is reported" '[.changed, .written] | join(",")' "true,false" checks "$LJ" "$WORK/stale.sh" --dry-run
+same "checks dry run: the stale file is untouched" "$WORK/stale.sh" "$WORK/stale-before.sh"
 jq '.baseline = null' "$LJ" > "$WORK/nobase.json"
 "$SETUP" checks "$WORK/nobase.json" "$WORK/nobase.sh" >/dev/null 2>&1
 check "baseline null: the header says it is not recorded yet" grep -q '^# Baseline: not recorded yet' "$WORK/nobase.sh"

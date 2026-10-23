@@ -30,12 +30,13 @@
 #       never below 300000. With a root, writes <repoRoot>/.claude/redline.json; an existing file
 #       that differs exits 1 with {differs} unless --force. Prints {config, file, existed, changed,
 #       written, differs}.
-#   redline-setup.sh checks <checks.json> <checks.sh>
+#   redline-setup.sh checks <checks.json> <checks.sh> [--dry-run]
 #       Generate checks.sh from the JSON and scripts/checks-template.sh: a header naming the gate,
 #       the checks and the baseline, the template version line, the stamp (an existing one is kept,
 #       else the TODO placeholder), the template's functions verbatim, and one run_check per step.
-#       Deterministic; nothing is written when the bytes are unchanged. Prints {file, written,
-#       changed, stampKept, checks, templateVersion}.
+#       Deterministic; nothing is written when the bytes are unchanged. With --dry-run, nothing is
+#       written, not even the target's directory. Prints {file, written, changed, stampKept,
+#       checks, templateVersion}.
 #   redline-setup.sh read-checks <checks.sh>
 #       Read the run_check lines, guards, variables, ALWAYS_ALLOWED and header back, and print them
 #       with a best-effort checks.json under "input" (the bootstrap for a hand-written checks.sh).
@@ -70,7 +71,7 @@ CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="$PLUGIN_ROOT/templates/shape-spec-unattended.md"
 
 usage() {
-    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run] | checks <checks.json> <checks.sh> | read-checks <checks.sh> | version <checks.sh>" >&2
+    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run] | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
     exit 2
 }
 die2() { echo "redline-setup: $*" >&2; exit 2; }
@@ -674,8 +675,16 @@ with open(out, "w", encoding="utf-8") as f:
 print(json.dumps({"checks": [i["name"] for i in items], "stampKept": stamp_kept, "templateVersion": version_line.split()[-1]}))
 '
 cmd_checks() {
-    [[ $# -eq 2 ]] || usage
-    local input="$1" target="$2"
+    local pos=() dry=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --dry-run) dry=true; shift ;;
+            -*) usage ;;
+            *) pos+=("$1"); shift ;;
+        esac
+    done
+    [[ ${#pos[@]} -eq 2 ]] || usage
+    local input="${pos[0]}" target="${pos[1]}"
     [[ -f "$input" && -r "$input" ]] || die2 "$input is not a readable file"
     jq -e . "$input" >/dev/null 2>&1 || die2 "$input is not JSON"
     [[ -f "$TEMPLATE" ]] || die2 "$TEMPLATE is missing"
@@ -692,7 +701,12 @@ cmd_checks() {
         [[ "$stamp" == "# redline-gate: TODO"* ]] && stamp=""
     fi
     local tmp res rc=0
-    tmp="$(tmp_beside "$target")"
+    if [[ "$dry" == true ]]; then
+        # Under the system temp directory: tmp_beside would create the target's directory.
+        tmp="$(mktemp "${TMPDIR:-/tmp}/redline-setup.XXXXXX")"
+    else
+        tmp="$(tmp_beside "$target")"
+    fi
     res="$(python3 -I -c "$PY_CHECKS" "$TEMPLATE" "$stamp" "$tmp" "$version_line" < "$input")" || rc=$?
     if [[ $rc -ne 0 ]]; then
         rm -f "$tmp"
@@ -703,11 +717,18 @@ cmd_checks() {
         rm -f "$tmp"
     else
         changed=true
-        commit_tmp "$tmp" "$target"
-        chmod +x "$target"
-        written=true
+        if [[ "$dry" == true ]]; then
+            rm -f "$tmp"
+        else
+            commit_tmp "$tmp" "$target"
+            chmod +x "$target"
+            written=true
+        fi
     fi
-    local abs; abs="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+    local abs="$target"
+    if [[ -d "$(dirname "$target")" ]]; then
+        abs="$(cd "$(dirname "$target")" && pwd)/$(basename "$target")"
+    fi
     jq --arg file "$abs" --argjson changed "$changed" --argjson written "$written" \
         '{file: $file, written: $written, changed: $changed, stampKept: .stampKept, checks: .checks, templateVersion: .templateVersion}' <<<"$res"
 }
