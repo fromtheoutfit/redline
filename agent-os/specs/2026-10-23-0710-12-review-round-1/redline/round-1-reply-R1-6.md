@@ -1,0 +1,1 @@
+Redline round 1: fixed in e4b9df9 (redline: R1-6 refuse a multi-line checks.json text field, and quotes or expansions in a var default or alwaysAllowed entry (#6)). · decided by: redline

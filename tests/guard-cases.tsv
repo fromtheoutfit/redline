@@ -301,6 +301,19 @@ redline:redline-implementer	allow	Bash	cat .claude/redline.local.json
 -	inert	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
 -	inert	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 
+# The setup script (#6, second half) is the skill's in the same way: no role runs any of its
+# subcommands, and .claude/redline/checks.json, the source checks.sh is generated from, is one of
+# Redline's own files like checks.sh, so no role may write it either.
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh checks REPO/.claude/redline/checks.json REPO/.claude/redline/checks.sh
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/ --allow 'Bash(composer check:*)'
+redline:redline-github	deny	Bash	PLUGIN/scripts/redline-setup.sh unattended REPO/.claude/commands/agent-os/shape-spec.md --gate-steps 1-3 --prose-steps 4 --retro-step 4 --no-pr-body
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-setup.sh read-checks REPO/.claude/redline/checks.sh
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+redline:redline-implementer	deny	Write	.claude/redline/checks.json
+redline:redline-implementer	deny	Edit	REPO/.claude/redline/checks.json
+redline:redline-reviewer	allow	Bash	cat .claude/redline/checks.json
+-	inert	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+
 # Step 14: Finish commits the run record. The GitHub agent lists the record's uncommitted files
 # with git status, stages them by name (agent-os/specs/ only, its write prefix), commits with the
 # redline: prefix and pushes. Read-only git is all it gains for reading: no file tools.
@@ -330,6 +343,8 @@ redline:redline-implementer	allow	Write	agents/redline-reviewer.md
 redline:redline-implementer	allow	Edit	scripts/redline-gh.sh
 redline:redline-implementer	allow	Edit	scripts/redline-prefs.sh
 redline:redline-implementer	allow	Edit	scripts/redline-gate.sh
+redline:redline-implementer	allow	Edit	scripts/redline-setup.sh
+redline:redline-implementer	deny	Edit	.claude/redline/checks.json
 redline:redline-implementer	allow	Write	workflows/redline-loop.js
 redline:redline-implementer	allow	Edit	skills/redline/SKILL.md
 redline:redline-implementer	allow	Write	tests/guard-cases.tsv

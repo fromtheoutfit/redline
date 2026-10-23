@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
-# Redline gate template. Copy it to <repo>/.claude/redline/checks.sh, make it executable,
+# Redline gate template. The normal path is /redline:setup, which writes the repository's
+# .claude/redline/checks.json and generates checks.sh from it and this file
+# (<plugin>/scripts/redline-setup.sh checks); checks.sh is then regenerated, never hand-edited.
+# The fallback is a hand copy: copy it to <repo>/.claude/redline/checks.sh, make it executable,
 # and replace each TODO with the runnable part of the repository's own gate (the
 # Verification Gate in .claude/commands/agent-os/shape-spec.md, or whatever file it
 # points to). Nothing in it should be new policy. The git block and the output contract
@@ -31,6 +34,9 @@
 # run when the two differ, so a gate step added later cannot go unnoticed. After bringing this
 # file up to date with a changed gate, restamp it:
 # <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
+# The line above the stamp names the template version this file was made from; a launch warns
+# when the plugin's template is newer.
+# redline-template: checks-template.sh v1
 # redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 
 set -euo pipefail

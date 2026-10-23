@@ -1,0 +1,1 @@
+Redline round 1: fixed in 6314aa6 (redline: R1-2 give redline-setup.sh checks a --dry-run that writes nothing, not even the directory (#6)). · decided by: redline

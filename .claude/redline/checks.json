@@ -1,0 +1,65 @@
+{
+  "repo": "the Redline plugin's own repository",
+  "gateFile": ".claude/commands/agent-os/shape-spec.md",
+  "selfHosted": true,
+  "alwaysAllowed": [],
+  "vars": [],
+  "formatter": null,
+  "octane": null,
+  "baseline": {
+    "seconds": 33,
+    "date": "2026-10-22",
+    "note": "almost all of it the guard table (361 rows at about 60 ms each) and the four other harnesses"
+  },
+  "steps": [
+    {
+      "step": 1,
+      "name": "syntax",
+      "recorded": 0,
+      "title": "Syntax",
+      "cmd": "ls scripts/*.sh | xargs -n1 bash -n && jq -e . hooks/hooks.json >/dev/null"
+    },
+    {
+      "step": 2,
+      "name": "validate",
+      "recorded": 0,
+      "title": "Manifest",
+      "cmd": "claude plugin validate ."
+    },
+    {
+      "step": 3,
+      "name": "guard",
+      "recorded": 0,
+      "title": "Guard",
+      "cmd": "tests/guard-test.sh"
+    },
+    {
+      "step": 4,
+      "name": "loop",
+      "recorded": 0,
+      "title": "Loop",
+      "cmd": "node tests/loop-test.mjs"
+    },
+    {
+      "step": 5,
+      "name": "prefs",
+      "recorded": 0,
+      "title": "Prefs",
+      "cmd": "tests/prefs-test.sh"
+    },
+    {
+      "step": 6,
+      "name": "gate",
+      "recorded": 0,
+      "title": "Gate stamp",
+      "cmd": "tests/gate-test.sh"
+    },
+    {
+      "step": 7,
+      "name": "setup",
+      "recorded": 0,
+      "title": "Setup",
+      "cmd": "tests/setup-test.sh"
+    }
+  ]
+}

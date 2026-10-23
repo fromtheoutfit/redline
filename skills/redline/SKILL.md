@@ -71,6 +71,7 @@ The revise model holds for every round of the run and every relaunch. A `review 
 Skip this on a relaunch after a hand-off: the round's spec folder is uncommitted in the tree by design.
 
 1. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` must exit 0: the gate stamp in `<repoRoot>/.claude/redline/checks.sh` still matches the repository's Verification Gate (see "Gate stamp" in the README). On exit 1, stop the launch with the script's one stderr line, verbatim: the gate has changed since `checks.sh` was stamped, or `checks.sh` carries no stamp. On exit 2, stop as section 1 does: this repository is not set up for Redline yet.
+   Then `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh version <repoRoot>/.claude/redline/checks.sh`: on exit 1, say its one stderr line (`checks.sh` was made from an older template, or carries no version line: run `/redline:setup` to port it; or from a newer one than this plugin ships: update the plugin) and go on. A warning, never a stop.
 2. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr <n>`: the PR must be `OPEN`, except in a `dry run`, which posts and pushes nothing and so may read a closed PR (a seed for a recall test). Keep `headRefName`, `headRefOid`, `baseRefName`, `title`.
 3. `git rev-parse --abbrev-ref HEAD` must equal `headRefName`.
 4. `git status --porcelain` must print nothing.

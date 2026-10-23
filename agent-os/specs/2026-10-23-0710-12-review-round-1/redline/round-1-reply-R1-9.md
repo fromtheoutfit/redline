@@ -1,0 +1,1 @@
+Redline round 1: fixed in b352ad6 (redline: R1-9 change the --force fixture with sed into a copy instead of BSD-only sed -i (#6)). · decided by: redline

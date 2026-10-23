@@ -1,0 +1,19 @@
+{
+  "repo": "an example Laravel application",
+  "gateFile": ".claude/commands/agent-os/shape-spec.md",
+  "selfHosted": false,
+  "alwaysAllowed": ["openapi.json"],
+  "vars": [
+    {"name": "migrate_db", "env": "REDLINE_MIGRATE_DB", "default": "chalkboard_redline_migrate", "doc": "scratch database for the migrations check"}
+  ],
+  "formatter": {"step": 1, "name": "fix", "cmd": "composer fix", "title": "Fix"},
+  "octane": {"step": 7, "cmd": "composer test:octane"},
+  "baseline": {"seconds": 412, "date": "2026-10-20", "note": "most of it the Pest suite"},
+  "steps": [
+    {"step": 2, "name": "check", "recorded": 0, "cmd": "composer check", "title": "Check"},
+    {"step": 3, "name": "snapshots", "recorded": 0, "title": "Pest snapshots", "cmd": "if [ -n \"$(git status --porcelain tests/.pest/snapshots)\" ]; then echo 'The test run created or changed a snapshot; review and commit it.'; git status --porcelain tests/.pest/snapshots; exit 1; fi"},
+    {"step": 4, "name": "migrations", "recorded": 0, "title": "Migrations", "source": "(DB_DATABASE=$migrate_db php artisan migrate --force --no-interaction >/dev/null 2>&1 || true) && DB_DATABASE=$migrate_db php artisan db:wipe --force --no-interaction && DB_DATABASE=$migrate_db php artisan migrate --force --no-interaction"},
+    {"step": 5, "name": "openapi", "recorded": 0, "title": "API contract", "cmd": "php artisan scramble:export --path=openapi.json && git diff --exit-code openapi.json"},
+    {"step": 6, "name": "env", "recorded": 0, "title": "Environment", "kind": "base-diff", "source": "base=\\$(git merge-base $env_base HEAD) || { echo \\\"no merge base between $env_base and HEAD\\\"; exit 1; }; for name in \\$(git diff \\\"\\$base\\\"..HEAD -- app config routes database bin | grep '^+' | grep -v '^+++' | grep -oE \\\"env\\\\(['\\\\\\\"][A-Z0-9_]+\\\" | sed -E \\\"s/^env\\\\(['\\\\\\\"]//\\\" | sort -u); do grep -qE \\\"^\\$name=\\\" .env.example || echo \\\"\\$name is read by the change but not in .env.example\\\"; done"}
+  ]
+}
