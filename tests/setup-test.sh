@@ -181,9 +181,20 @@ sed -e 's/"checker": "full"/"checker": "git-only"/' -e 's/"checkerStallMs": 3000
 C2="$WORK/c2"; mkdir -p "$C2"; "$SETUP" config --reviewer marcamos --baseline-seconds 1048 "$C2" >/dev/null 2>&1
 same "a 1048 s baseline writes git-only and 1800000" "$C2/.claude/redline.json" "$WORK/c1-ll.json"
 jq '.maxRounds = 5' "$C1/.claude/redline.json" > "$WORK/c1-5.json"; cp "$WORK/c1-5.json" "$C1/.claude/redline.json"
-expect_exit "a hand-changed maxRounds: exit 1" 1 config --reviewer marcamos --baseline-seconds 29 "$C1"
+expect_exit "a hand-changed maxRounds: exit 0" 0 config --reviewer marcamos --baseline-seconds 29 "$C1"
 expect_json "a hand-changed maxRounds: differs names it" '.differs.maxRounds | "\(.have)->\(.want)"' "5->3" config --reviewer marcamos --baseline-seconds 29 "$C1"
+expect_json "a hand-changed maxRounds: nothing to update" '[(.changed|tostring), (.written|tostring), (.updated|tojson)] | join(",")' "false,false,{}" config --reviewer marcamos --baseline-seconds 29 "$C1"
 same "a hand-changed maxRounds: untouched" "$C1/.claude/redline.json" "$WORK/c1-5.json"
+expect_json "a baseline move, dry run: updated names checker and stall" '.updated | keys | join(",")' "checker,checkerStallMs" config --reviewer marcamos --baseline-seconds 1048 "$C1" --dry-run
+same "a baseline move, dry run: untouched" "$C1/.claude/redline.json" "$WORK/c1-5.json"
+expect_json "a baseline move: changed, written" '[.changed, .written] | join(",")' "true,true" config --reviewer marcamos --baseline-seconds 1048 "$C1"
+sed -e 's/"checker": "full"/"checker": "git-only"/' -e 's/"checkerStallMs": 300000/"checkerStallMs": 1800000/' "$WORK/c1-5.json" > "$WORK/c1-5-ll.json"
+same "a baseline move: only checker and stall change, maxRounds 5 and the formatting survive" "$C1/.claude/redline.json" "$WORK/c1-5-ll.json"
+expect_json "a different reviewer: kept, listed under differs" '.differs.reviewer | "\(.have)->\(.want)"' "marcamos->sam" config --reviewer sam --baseline-seconds 1048 "$C1"
+same "a different reviewer: the file is untouched" "$C1/.claude/redline.json" "$WORK/c1-5-ll.json"
+C4="$WORK/c4"; mkdir -p "$C4/.claude"; jq 'del(.checker)' "$WORK/c1-5-ll.json" > "$C4/.claude/redline.json"; cp "$C4/.claude/redline.json" "$WORK/c4-before.json"
+expect_exit "a derived key that cannot be updated in place: exit 1" 1 config --reviewer marcamos --baseline-seconds 29 "$C4"
+same "a derived key that cannot be updated in place: untouched" "$C4/.claude/redline.json" "$WORK/c4-before.json"
 expect_json "--force: rewritten" '[.changed, .written] | join(",")' "true,true" config --reviewer marcamos --baseline-seconds 29 "$C1" --force
 same "--force: the template's values again" "$C1/.claude/redline.json" "$WORK/c1-want.json"
 C3="$WORK/c3"; mkdir -p "$C3"

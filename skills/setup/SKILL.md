@@ -103,7 +103,7 @@ Suggest a reviewer: `gh pr list --state merged --limit 30 --json reviews --jq '[
 ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh config --reviewer <handle> --baseline-seconds <n> <repoRoot>
 ```
 
-It derives `checker` (`git-only` over five minutes, else `full`) and `checkerStallMs` (1.7 times the baseline, rounded up to five minutes, never below 300000), keeps `maxRounds` 3, `push` true and the models as the template. On a rerun it exits 1 with `differs` when the file was changed by hand (a different `maxRounds`, a model): show the differences, and only on a yes rerun with `--force`.
+It derives `checker` (`git-only` over five minutes, else `full`) and `checkerStallMs` (1.7 times the baseline, rounded up to five minutes, never below 300000), keeps `maxRounds` 3, `push` true and the models as the template. On a rerun it updates only `checker` and `checkerStallMs` and keeps every other value, the reviewer included, as the person's: pass `--dry-run` first, show `updated` (the derived values it would change) and `differs` (the values it keeps that differ from the template's), and on a yes run it without `--dry-run`. `--force` rewrites the whole file from the template and drops every hand-set value; use it only when the person asks for that reset. On exit 1, a derived key could not be updated in place: show the stderr line and `differs`, and offer `--force`.
 
 ## 8. `.claude/settings.json`
 

@@ -30,9 +30,12 @@
 #   redline-setup.sh config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run]
 #       redline.json from templates/redline.json.example: checker is git-only when the baseline is
 #       over 300 s, else full; checkerStallMs is the baseline times 1.7, rounded up to five minutes,
-#       never below 300000. With a root, writes <repoRoot>/.claude/redline.json; an existing file
-#       that differs exits 1 with {differs} unless --force. Prints {config, file, existed, changed,
-#       written, differs}.
+#       never below 300000. With a root, writes <repoRoot>/.claude/redline.json. Over an existing
+#       file, updates only checker and checkerStallMs in place (listed under updated) and keeps every
+#       other value, reviewer included, as the person's: each that differs from the template's is
+#       listed under differs and left alone. Exits 1 when checker or checkerStallMs cannot be updated
+#       in place. --force rewrites the whole file from the template. Prints {config, file, existed,
+#       changed, written, updated, differs}.
 #   redline-setup.sh checks <checks.json> <checks.sh> [--dry-run]
 #       Generate checks.sh from the JSON and scripts/checks-template.sh: a header naming the gate,
 #       the checks and the baseline, the template version line, the stamp (an existing one is kept,
@@ -63,9 +66,10 @@
 # step in the template's base_ref guard. Every text field is a single line; a var's default holds
 # none of " $ ` \ }, and an alwaysAllowed entry no '.
 #
-# Exit codes: 0; 1 when a compared file differs without --force, a template anchor is missing, or
-# the version line is missing, older or newer; 2 on a bad invocation, a file that is not JSON, a
-# settings file with a BOM, or a bad checks.json (every reason on stderr). Needs python3 and jq.
+# Exit codes: 0; 1 when a compared file differs without --force (for config, when checker or
+# checkerStallMs cannot be updated in place), a template anchor is missing, or the version line is
+# missing, older or newer; 2 on a bad invocation, a file that is not JSON, a settings file with a
+# BOM, or a bad checks.json (every reason on stderr). Needs python3 and jq.
 
 set -euo pipefail
 
@@ -459,37 +463,61 @@ cmd_config() {
     jq -e . <<<"$content" >/dev/null 2>&1 || die2 "$CONFIG_TEMPLATE did not substitute into valid JSON"
     local config; config="$(jq -c . <<<"$content")"
     if [[ -z "$root" ]]; then
-        jq -n --argjson config "$config" '{config: $config, file: null, existed: false, changed: false, written: false, differs: {}}'
+        jq -n --argjson config "$config" '{config: $config, file: null, existed: false, changed: false, written: false, updated: {}, differs: {}}'
         return 0
     fi
     [[ -d "$root" ]] || die2 "$root is not a directory"
     root="$(cd "$root" && pwd)"
-    local file="$root/.claude/redline.json" existed=false have='null' differs='{}' changed=true written=false
+    local file="$root/.claude/redline.json" existed=false have='null' differs='{}' updated='{}' changed=true written=false tmp=""
     if [[ -f "$file" ]]; then
         existed=true
         have="$(jq -c . "$file" 2>/dev/null)" || die2 "$file is not JSON"
-        if [[ "$(jq -S -c . <<<"$have")" == "$(jq -S -c . <<<"$config")" ]]; then
-            changed=false
+        differs="$(config_differs "$have" "$config")"
+        if [[ "$force" == true ]]; then
+            if [[ "$(jq -S -c . <<<"$have")" == "$(jq -S -c . <<<"$config")" ]]; then
+                changed=false
+            fi
         else
-            differs="$(jq -n --argjson h "$have" --argjson w "$config" '
-                [($h | keys) + ($w | keys) | unique[]] | map(select(($h[.] | tojson) != ($w[.] | tojson)) | {key: ., value: {have: $h[.], want: $w[.]}}) | from_entries')"
-            if [[ "$force" == false ]]; then
+            # A rerun updates only the two values derived from the baseline, in place, so the file's
+            # formatting and every other value, reviewer included, stay the person's (#12, R1-5).
+            tmp="$(tmp_beside "$file")"
+            sed -e "s/\"checker\": \"[^\"]*\"/\"checker\": \"$checker\"/" \
+                -e "s/\"checkerStallMs\": [0-9]*/\"checkerStallMs\": $stall/" "$file" > "$tmp"
+            if ! jq -e --argjson h "$have" --arg c "$checker" --argjson s "$stall" \
+                    '. == ($h | .checker = $c | .checkerStallMs = $s)' "$tmp" >/dev/null 2>&1; then
+                rm -f "$tmp"
                 jq -n --argjson config "$config" --arg file "$file" --argjson differs "$differs" \
-                    '{config: $config, file: $file, existed: true, changed: false, written: false, differs: $differs}'
-                echo "redline-setup: $file exists and differs ($(jq -r 'keys | join(", ")' <<<"$differs")); pass --force to overwrite it" >&2
+                    '{config: $config, file: $file, existed: true, changed: false, written: false, updated: {}, differs: $differs}'
+                echo "redline-setup: $file: checker or checkerStallMs cannot be updated in place; pass --force to rewrite it from the template" >&2
                 exit 1
+            fi
+            updated="$(jq -n --argjson h "$have" --arg c "$checker" --argjson s "$stall" '
+                [{key: "checker", want: $c}, {key: "checkerStallMs", want: $s}]
+                | map(select($h[.key] != .want) | {key: .key, value: {have: $h[.key], want: .want}}) | from_entries')"
+            differs="$(config_differs "$(jq -c . "$tmp")" "$config")"
+            if [[ "$(jq -c . <<<"$updated")" == '{}' ]]; then
+                changed=false
             fi
         fi
     fi
     if [[ "$changed" == true && "$dry" == false ]]; then
-        local tmp; tmp="$(tmp_beside "$file")"
-        printf '%s\n' "$content" > "$tmp"
+        if [[ -z "$tmp" ]]; then
+            tmp="$(tmp_beside "$file")"
+            printf '%s\n' "$content" > "$tmp"
+        fi
         commit_tmp "$tmp" "$file"
         written=true
+    elif [[ -n "$tmp" ]]; then
+        rm -f "$tmp"
     fi
     jq -n --argjson config "$config" --arg file "$file" --argjson existed "$existed" --argjson changed "$changed" \
-        --argjson written "$written" --argjson differs "$differs" \
-        '{config: $config, file: $file, existed: $existed, changed: $changed, written: $written, differs: $differs}'
+        --argjson written "$written" --argjson updated "$updated" --argjson differs "$differs" \
+        '{config: $config, file: $file, existed: $existed, changed: $changed, written: $written, updated: $updated, differs: $differs}'
+}
+# config_differs <have> <want>: {<key>: {have, want}} for each top-level key whose values differ.
+config_differs() {
+    jq -n --argjson h "$1" --argjson w "$2" '
+        [($h | keys) + ($w | keys) | unique[]] | map(select(($h[.] | tojson) != ($w[.] | tojson)) | {key: ., value: {have: $h[.], want: $w[.]}}) | from_entries'
 }
 
 # ---------------------------------------------------------------------------------------------
