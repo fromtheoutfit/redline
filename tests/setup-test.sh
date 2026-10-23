@@ -111,6 +111,14 @@ expect_exit "not JSON: exit 2" 2 settings "$R4"
 expect_stderr "not JSON: one line names the file" "settings.json" settings "$R4"
 R5="$WORK/r5"; mkdir -p "$R5/.claude"; { printf '\xef\xbb\xbf'; cat "$FIX/settings-other-keys.json"; } > "$R5/.claude/settings.json"
 expect_exit "a BOM: exit 2 rather than a silent rewrite" 2 settings "$R5"
+R7="$WORK/r7"; mkdir -p "$R7/.claude"; awk '{printf "%s\r\n", $0}' "$FIX/settings-other-keys.json" > "$R7/.claude/settings.json"
+"$SETUP" settings "$R7" --allow 'Bash(custom:*)' >/dev/null 2>&1
+[[ "$(grep -c $'\r$' "$R7/.claude/settings.json")" == "$(wc -l < "$R7/.claude/settings.json" | tr -d ' ')" ]] && ok "settings CRLF: kept on every line" || bad "settings CRLF: kept on every line" "$(grep -c $'\r$' "$R7/.claude/settings.json") of $(wc -l < "$R7/.claude/settings.json" | tr -d ' ')"
+check "settings CRLF: still merged" jq -e '.extraKnownMarketplaces.redline.source.repo == "fromtheoutfit/redline"' "$R7/.claude/settings.json"
+cp "$R7/.claude/settings.json" "$WORK/r7-before.json"
+"$SETUP" settings "$R7" --allow 'Bash(custom:*)' >/dev/null 2>&1
+same "settings CRLF rerun: byte-identical" "$R7/.claude/settings.json" "$WORK/r7-before.json"
+[[ "$(grep -c $'\r' "$S2")" == "0" ]] && ok "settings LF: stays LF" || bad "settings LF: stays LF" "$(grep -c $'\r' "$S2") lines with a carriage return"
 expect_exit "a root that is not a directory: exit 2" 2 settings "$WORK/nope"
 
 echo "# settings: values already there are kept"

@@ -14,7 +14,8 @@
 #       it has is kept whole. permissions.allow is the existing entries, then the template's not
 #       yet present, then each --allow not yet present. Every kept value that differs from the
 #       template's is listed under conflicts. Compared as JSON, so a file the plugin CLI reordered
-#       is left alone. Prints {file, existed, changed, written, added, keysAdded, conflicts}.
+#       is left alone. Keeps CRLF. Prints
+#       {file, existed, changed, written, added, keysAdded, conflicts}.
 #   redline-setup.sh gitignore <repoRoot> [--dry-run]
 #       Add .claude/redline.local.json after .claude/settings.local.json, else after the last
 #       .claude/ entry, else at the end; keeps CRLF. Prints {file, existed, changed, written, line,
@@ -98,13 +99,16 @@ cmd_settings() {
     [[ -n "$root" ]] || usage
     [[ -d "$root" ]] || die2 "$root is not a directory"
     root="$(cd "$root" && pwd)"
-    local file="$root/.claude/settings.json" existed=false existing='{}'
+    local file="$root/.claude/settings.json" existed=false existing='{}' crlf=false
     if [[ -f "$file" ]]; then
         existed=true
         if [[ "$(head -c 3 "$file" | od -An -tx1 | tr -d ' \n')" == "efbbbf" ]]; then
             die2 "$file starts with a byte-order mark; remove it before merging"
         fi
         existing="$(jq -c . "$file" 2>/dev/null)" || die2 "$file is not JSON"
+        if grep -q $'\r$' "$file"; then
+            crlf=true
+        fi
     fi
     local extras='[]'
     if [[ ${#allows[@]} -gt 0 ]]; then
@@ -127,7 +131,11 @@ cmd_settings() {
         changed=true
         if [[ "$dry" == false ]]; then
             local tmp; tmp="$(tmp_beside "$file")"
-            jq --indent 2 . <<<"$merged" > "$tmp"
+            if [[ "$crlf" == true ]]; then
+                jq --indent 2 . <<<"$merged" | awk '{printf "%s\r\n", $0}' > "$tmp"
+            else
+                jq --indent 2 . <<<"$merged" > "$tmp"
+            fi
             commit_tmp "$tmp" "$file"
             written=true
         fi
