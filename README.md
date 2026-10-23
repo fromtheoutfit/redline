@@ -251,7 +251,7 @@ The hash covers every backticked span and every fenced block in the gate's secti
 
 ## `redline-setup.sh`
 
-The scriptable parts of `/redline:setup`, the skill's only (the guard refuses it to every role, and it is not in the allow list: setup is interactive, and the permission prompt is the person's confirmation). Every subcommand prints one JSON object; every writing one takes `--dry-run` and reports `changed: false` when nothing would change, so a rerun can say "nothing drifted". Its header is the reference; in short:
+The scriptable parts of `/redline:setup`, the skill's only (the guard refuses it to every role, and its writing subcommands are not in the allow list: setup is interactive, and the permission prompt is the person's confirmation; only `version`, which writes nothing and which `/redline:redline`'s precheck runs at every launch, has a rule, `Bash(/*/scripts/redline-setup.sh version *)`). Every subcommand prints one JSON object; every writing one takes `--dry-run` and reports `changed: false` when nothing would change, so a rerun can say "nothing drifted". Its header is the reference; in short:
 
 | subcommand | does | exit |
 | --- | --- | --- |

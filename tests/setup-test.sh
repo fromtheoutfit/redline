@@ -73,6 +73,7 @@ cp "$R1/.claude/settings.json" "$WORK/r1-before.json"
 same "fresh rerun: byte-identical" "$R1/.claude/settings.json" "$WORK/r1-before.json"
 mkdir -p "$WORK/r1b" "$WORK/r1c"
 expect_json "fresh: the extra is listed among added" '.added | index(["Bash(composer check:*)"]) != null' "true" settings "$WORK/r1b" --allow 'Bash(composer check:*)'
+check "the template allows redline-setup.sh version and no other subcommand" jq -e '[.permissions.allow[] | select(test("redline-setup"))] == ["Bash(/*/scripts/redline-setup.sh version *)"]' "$PLUGIN/templates/settings.allow.json"
 "$SETUP" settings "$WORK/r1c" >/dev/null 2>&1
 [[ "$(jq -r 'keys_unsorted[0]' "$WORK/r1c/.claude/settings.json")" == "extraKnownMarketplaces" ]] && ok "fresh: written in the template's key order" || bad "fresh: written in the template's key order" "$(jq -r 'keys_unsorted[0]' "$WORK/r1c/.claude/settings.json")"
 
