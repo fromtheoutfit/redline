@@ -111,7 +111,7 @@ It derives `checker` (`git-only` over five minutes, else `full`) and `checkerSta
 ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh settings <repoRoot> --allow '<entry>' ... [--dry-run]
 ```
 
-with one `--allow` per entry from step 3.6. It merges `templates/settings.allow.json` without dropping a key and appends what is missing; on a rerun pass `--dry-run` first and show `added` and `keysAdded` before writing. Then `claude plugin install redline@redline --scope project`, which records the plugin as enabled (it may reorder the file's keys; the next rerun reads it as unchanged). Never read or write `settings.local.json`.
+with one `--allow` per entry from step 3.6. It merges `templates/settings.allow.json` without dropping a key and appends what is missing. It keeps every value already in the file: show `conflicts` (each `path` with the file's value and the template's) on every run, and say the file's value was kept; taking the template's is a hand edit the person makes. On a rerun pass `--dry-run` first and show `added`, `keysAdded` and `conflicts` before writing. Then `claude plugin install redline@redline --scope project`, which records the plugin as enabled (it may reorder the file's keys; the next rerun reads it as unchanged). Never read or write `settings.local.json`.
 
 ## 9. `.gitignore`
 

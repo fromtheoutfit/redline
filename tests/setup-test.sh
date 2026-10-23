@@ -99,6 +99,7 @@ expect_json "other keys: keysAdded" '.keysAdded | join(",")' "" settings "$R2" -
 cp "$S2" "$WORK/r2-before.json"
 expect_json "other keys rerun: unchanged" '[.changed, .written] | join(",")' "false,false" settings "$R2" --allow 'Bash(custom:*)' --allow 'Bash(php artisan test:*)'
 same "other keys rerun: byte-identical" "$S2" "$WORK/r2-before.json"
+expect_json "other keys: no conflicts" '.conflicts | length' "0" settings "$R2" --allow 'Bash(custom:*)' --allow 'Bash(php artisan test:*)'
 jq -S . "$S2" > "$WORK/r2-sorted.json"; cp "$WORK/r2-sorted.json" "$S2"
 expect_json "a reordered copy reads as unchanged" '.changed' "false" settings "$R2" --allow 'Bash(custom:*)' --allow 'Bash(php artisan test:*)'
 same "a reordered copy keeps its bytes" "$S2" "$WORK/r2-sorted.json"
@@ -111,6 +112,15 @@ expect_stderr "not JSON: one line names the file" "settings.json" settings "$R4"
 R5="$WORK/r5"; mkdir -p "$R5/.claude"; { printf '\xef\xbb\xbf'; cat "$FIX/settings-other-keys.json"; } > "$R5/.claude/settings.json"
 expect_exit "a BOM: exit 2 rather than a silent rewrite" 2 settings "$R5"
 expect_exit "a root that is not a directory: exit 2" 2 settings "$WORK/nope"
+
+echo "# settings: values already there are kept"
+R6="$WORK/r6"; mkdir -p "$R6/.claude"; cp "$FIX/settings-conflicts.json" "$R6/.claude/settings.json"
+expect_json "conflicts: both are reported" '[.conflicts[] | (.path | join("."))] | sort | join(",")' "enabledPlugins.redline@redline,extraKnownMarketplaces.redline" settings "$R6" --dry-run
+expect_json "conflicts: have and want" '.conflicts[] | select(.path == ["enabledPlugins", "redline@redline"]) | "\(.have)->\(.want)"' "false->true" settings "$R6" --dry-run
+"$SETUP" settings "$R6" >/dev/null 2>&1
+check "conflicts: a differing marketplace source is kept whole" jq -e '.extraKnownMarketplaces.redline.source == {"source": "git", "url": "https://example.com/redline-fork.git"}' "$R6/.claude/settings.json"
+check "conflicts: a disabled plugin stays disabled" jq -e '.enabledPlugins["redline@redline"] == false' "$R6/.claude/settings.json"
+check "conflicts: the template's allow entries are still added" jq -e '.permissions.allow | index(["Workflow(redline:redline-loop)"]) != null' "$R6/.claude/settings.json"
 
 echo "# gitignore"
 G1="$WORK/g1"; mkdir -p "$G1"; printf '.DS_Store\n*.log\n.claude/settings.local.json\n/.idea\n' > "$G1/.gitignore"

@@ -9,10 +9,12 @@
 #
 #   redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run]
 #       Merge templates/settings.allow.json into <repoRoot>/.claude/settings.json without dropping
-#       a key: existing keys keep their order, the template's are appended, and permissions.allow
-#       is the existing entries, then the template's not yet present, then each --allow not yet
-#       present. Compared as JSON, so a file the plugin CLI reordered is left alone. Prints
-#       {file, existed, changed, written, added, keysAdded}.
+#       a key or changing a value already there: a top-level key the file lacks is appended, and
+#       under a top-level object both have, each entry the file lacks is appended while each entry
+#       it has is kept whole. permissions.allow is the existing entries, then the template's not
+#       yet present, then each --allow not yet present. Every kept value that differs from the
+#       template's is listed under conflicts. Compared as JSON, so a file the plugin CLI reordered
+#       is left alone. Prints {file, existed, changed, written, added, keysAdded, conflicts}.
 #   redline-setup.sh gitignore <repoRoot> [--dry-run]
 #       Add .claude/redline.local.json after .claude/settings.local.json, else after the last
 #       .claude/ entry, else at the end; keeps CRLF. Prints {file, existed, changed, written, line,
@@ -108,11 +110,18 @@ cmd_settings() {
     if [[ ${#allows[@]} -gt 0 ]]; then
         extras="$(printf '%s\n' "${allows[@]}" | jq -R . | jq -s .)"
     fi
-    local merged
-    merged="$(jq -n --argjson e "$existing" --argjson t "$(jq -c . "$SETTINGS_TEMPLATE")" --argjson x "$extras" '
+    local template merged
+    template="$(jq -c . "$SETTINGS_TEMPLATE")"
+    # Entry-level, the file's values win: a top-level key the file lacks is appended; under a
+    # top-level object both have, an entry the file lacks is appended and one it has is kept whole.
+    merged="$(jq -n --argjson e "$existing" --argjson t "$template" --argjson x "$extras" '
         def union($a; $b): reduce $b[] as $i ($a; if index([$i]) != null then . else . + [$i] end);
-        ($e * $t)
-        | .permissions.allow = union(union(($e.permissions.allow // []); ($t.permissions.allow // [])); $x)')"
+        (reduce ($t | keys_unsorted[]) as $k ($e;
+            if has($k) | not then .[$k] = $t[$k]
+            elif (.[$k] | type) == "object" and ($t[$k] | type) == "object" then
+                reduce ($t[$k] | keys_unsorted[]) as $j (.; if (.[$k] | has($j)) then . else .[$k][$j] = $t[$k][$j] end)
+            else . end)
+         | .permissions.allow = union(union(($e.permissions.allow // []); ($t.permissions.allow // [])); $x))')"
     local changed=false written=false
     if [[ "$(jq -S -c . <<<"$existing")" != "$(jq -S -c . <<<"$merged")" ]]; then
         changed=true
@@ -124,10 +133,17 @@ cmd_settings() {
         fi
     fi
     jq -n --arg file "$file" --argjson existed "$existed" --argjson changed "$changed" --argjson written "$written" \
-        --argjson e "$existing" --argjson m "$merged" '
+        --argjson e "$existing" --argjson m "$merged" --argjson t "$template" '
         {file: $file, existed: $existed, changed: $changed, written: $written,
          added: [($m.permissions.allow // [])[] | select(. as $i | (($e.permissions.allow // []) | index([$i])) == null)],
-         keysAdded: [($m | keys_unsorted[]) | select(. as $k | ($e | has($k)) | not)]}'
+         keysAdded: [($m | keys_unsorted[]) | select(. as $k | ($e | has($k)) | not)],
+         conflicts: [$t | keys_unsorted[] as $k | select($e | has($k))
+            | if ($e[$k] | type) == "object" and ($t[$k] | type) == "object" then
+                  $t[$k] | keys_unsorted[] as $j
+                  | select(($e[$k] | has($j)) and [$k, $j] != ["permissions", "allow"] and $e[$k][$j] != $t[$k][$j])
+                  | {path: [$k, $j], have: $e[$k][$j], want: $t[$k][$j]}
+              elif $e[$k] != $t[$k] then {path: [$k], have: $e[$k], want: $t[$k]}
+              else empty end]}'
 }
 
 # ---------------------------------------------------------------------------------------------
