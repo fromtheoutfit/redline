@@ -10,3 +10,4 @@ One role per file under `agents/`, loaded as `redline:redline-<role>`, with its 
 - A role's prompt names only the commands the guard allows it, in the exact spelling the guard accepts (`<plugin>/scripts/redline-gh.sh diff <pr>`, `vendor/bin/pest <file>`)
 - Haiku for the roles that move files and post (github, checker); Opus for the ones that read code (reviewer, plan approver); the revise model is picked at launch and saved per person
 - A role that finds a problem with its own instructions (a command the guard refuses, a file that does not exist) reports it in its JSON rather than working around it
+- A degraded result is data, not an error: the GitHub agent returns a posted review with no inline comment as `posted` true with every finding in `movedToBody`, the workflow records a warning, and `error` is reserved for an operation that failed (#33: a review with every finding in the body ended the run at `post`)
