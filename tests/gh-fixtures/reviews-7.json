@@ -1,0 +1,7 @@
+[
+  {"id": 1, "body": "Redline round 1\n\nReviewed the whole pull request."},
+  {"id": 2, "body": "Looks good to me, one question inline."},
+  {"id": 3, "body": "Redline round 2\n\nReviewed only the fix diff from round 1."},
+  {"id": 4, "body": "Redline roundabout 9 is not a round."},
+  {"id": 5, "body": "Not a Redline round 5 either: the anchor is the start of the body."}
+]

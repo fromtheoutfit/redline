@@ -1,0 +1,6 @@
+{
+  "body": "Redline round 1\n\nOne finding, on a hunk.",
+  "comments": [
+    {"path": "app/Models/Order.php", "line": 43, "body": "**R1-1** · nit · low · likely\n\n**On a context line of the second hunk**"}
+  ]
+}

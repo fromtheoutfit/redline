@@ -4,7 +4,7 @@ export const meta = {
   whenToUse: 'Launched only by the /redline:redline skill (and its /redline:redline-review and /redline:redline-revise variants), which builds args from the repository\'s .claude/redline.json and the command line. Never launched by hand.',
   phases: [
     { title: 'Gather', detail: 'PR facts through redline-gh.sh (GitHub agent)' },
-    { title: 'Review', detail: 'round 1: the whole PR (reviewer, first-round model)' },
+    { title: 'Review', detail: 'the first round: the whole PR (reviewer, first-round model)' },
     { title: 'Re-review', detail: 'later rounds: the fix diff only (reviewer, later-round model)' },
     { title: 'Post', detail: 'one Redline review per round, files under <specFolder>/redline/' },
     { title: 'Shape', detail: 'shape-spec in unattended mode (revise model)' },
@@ -71,6 +71,13 @@ const snapshotStart = A.snapshotPath
 const issueFromBranch = /^[^/]+\/(\d+)-/.exec(headRef)
 const issue = Number.isInteger(A.issue) ? A.issue : issueFromBranch ? Number(issueFromBranch[1]) : pr
 const maxRounds = Number.isInteger(A.maxRounds) && A.maxRounds > 0 ? A.maxRounds : 3
+// A fresh launch on a PR that already carries posted Redline rounds starts after the last one.
+// The skill reads it (redline-gh.sh last-round) and passes it here: nothing inside the workflow
+// may ask GitHub for a value that changes once this run posts, or the relaunch could not replay.
+const firstRound = A.firstRound === undefined ? 1 : A.firstRound
+if (!Number.isInteger(firstRound) || firstRound < 1) {
+  fail('args.firstRound must be a positive integer, the last posted Redline round plus one; got ' + JSON.stringify(A.firstRound))
+}
 const maxPlanAdjustments = Number.isInteger(A.maxPlanAdjustments) && A.maxPlanAdjustments >= 0 ? A.maxPlanAdjustments : 2
 const teammate = typeof A.reviewer === 'string' ? A.reviewer.replace(/^@/, '') : ''
 const checkerMode = A.checker === 'git-only' ? 'git-only' : 'full'
@@ -460,7 +467,7 @@ function findingLine(f) {
 
 function reviewBody(round, reviewed, range, review, active, known) {
   const scope = reviewed === 'pr'
-    ? 'Reviewed the whole pull request.'
+    ? `Reviewed the whole pull request.${firstRound > 1 ? ` Rounds 1 to ${firstRound - 1} were posted by an earlier run; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
       ? `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the nit fixes (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
@@ -525,6 +532,19 @@ function andList(items) {
   return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
+// A reply goes in the finding's inline thread. A finding the review could not anchor sits in the
+// review body behind <!-- redline:<id> -->, so its reply is an issue comment that opens with the
+// marker and names the finding; the GitHub agent posts it with `comment` instead of `reply`.
+function replyEntry(round, specFolder, f, outcome, commentId) {
+  const body = replyBody(round, outcome)
+  return {
+    finding: f.id,
+    comment_id: commentId,
+    file: abs(`${specFolder}/redline/round-${round}-reply-${f.id}.md`),
+    body: commentId ? body : `<!-- redline:${f.id} -->\n**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${round} review body\n\n${body}`,
+  }
+}
+
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
 // the plan sent part of the fix through the retrospective.
 function replyBody(round, outcome) {
@@ -566,8 +586,11 @@ function reviewPrompt(round, reviewed, range, facts, history) {
     '',
     'Run facts:',
     `- PR #${pr}: ${facts.title}`,
-    `- Head branch ${headRef}, base ${baseRef}; the working tree is the PR's head${round > 1 ? ` after the round ${round - 1} fixes (HEAD ${range.to})` : ` (${startSha})`}.`,
+    `- Head branch ${headRef}, base ${baseRef}; the working tree is the PR's head${round > firstRound ? ` after the round ${round - 1} fixes (HEAD ${range.to})` : ` (${startSha})`}.`,
     `- The diff to review: ${diff}. Inline comments must sit on lines of the PR's diff on GitHub (\`${GH} diff ${pr}\`).`,
+    ...(reviewed === 'pr'
+      ? [`- That diff is built from GitHub's per-file patches. A file GitHub sent no patch for (built assets, lockfiles, generated code, binaries) shows as a header and one \`(no patch: ...)\` line; open such a file in the tree only when a finding points there, never as a pass over all of them.`]
+      : []),
     `- Reviewed: ${reviewed}`,
     `- Your scratch Pest test, if you write one: ${scratchTest('reviewer', round)}`,
     '',
@@ -594,7 +617,7 @@ function reviewPrompt(round, reviewed, range, facts, history) {
 
 function postPrompt(round, specFolder, reviewFile, findingsFile) {
   const step2 = postToGitHub
-    ? `Step 2. Run \`${GH} has-review ${pr} ${round}\`. Exit 0: the round is already posted; post nothing and set skipped to "already posted". Exit 2: report the error and stop. Exit 1: run \`${GH} post-review ${pr} ${abs(reviewFile.path)}\`. If GitHub answers 422 "Line could not be resolved", follow your instructions: remove that comment from comments[], add the finding to the body under **Not placed inline** with its file and line, write the file again, post again, and list the finding in movedToBody. Map every inline comment id the script prints to its finding: each comment body starts with **<finding id>**. When the post was skipped, run \`${GH} review-comments ${pr}\` and map the comments whose body starts with **R${round}- the same way, so the replies still land in their threads.`
+    ? `Step 2. Run \`${GH} has-review ${pr} ${round}\`. Exit 0: the round is already posted; post nothing and set skipped to "already posted". Exit 2: report the error and stop. Exit 1: run \`${GH} post-review ${pr} ${abs(reviewFile.path)}\`. The script itself moves every comment it cannot anchor into the body behind a marker and lists them under moved; report them in movedToBody by finding id. A review with no inline comment at all is a valid result, not an error: set error only when the post itself failed. Map every inline comment id the script prints to its finding: each comment body starts with **<finding id>**. When the post was skipped, run \`${GH} review-comments ${pr}\` and map the comments whose body starts with **R${round}- the same way, so the replies still land in their threads.`
     : 'Step 2. This is a dry run (postToGitHub is false). Run no redline-gh.sh command and post nothing. Return dryRun true, posted false, review.id 0, review.html_url "", review.comments [] and review.movedToBody [].'
   return `${RUN_LINE}
 
@@ -798,7 +821,7 @@ function pushReplyPrompt(round, specFolder, replies, doPush) {
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
     : `Step 1. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}).`
   const step2 = postToGitHub
-    ? `then run \`${GH} reply ${pr} <comment_id> <file>\`. A reply whose comment_id is 0 has no thread (its finding sits in the review body): write its file and do not call reply. Never reply twice in one thread.`
+    ? `then run \`${GH} reply ${pr} <comment_id> <file>\`. A reply whose comment_id is 0 has no thread: its finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.`
     : 'and run nothing else (dry run).'
   return `${RUN_LINE}
 
@@ -987,6 +1010,7 @@ function result(status, extra) {
     pr,
     launchedAt: A.launchedAt,
     stamp,
+    firstRound,
     postToGitHub,
     push,
     interrupt,
@@ -1046,12 +1070,12 @@ async function gather(round) {
 }
 
 async function review(round, reviewed, range, facts) {
-  const key = round === 1 ? 'reviewerFirstRound' : 'reviewerLaterRounds'
+  const key = round === firstRound ? 'reviewerFirstRound' : 'reviewerLaterRounds'
   const out = await run('review', reviewPrompt(round, reviewed, range, facts, history()), {
     agentType: 'redline:redline-reviewer',
     ...modelOpts(key),
-    label: `${round === 1 ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
-    phase: round === 1 ? 'Review' : 'Re-review',
+    label: `${round === firstRound ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
+    phase: round === firstRound ? 'Review' : 'Re-review',
     schema: REVIEW_SCHEMA,
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
@@ -1081,6 +1105,14 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   })
   if (posted.error) {
     throw stageError('post', `posting the round ${round} review failed: ${posted.error}`)
+  }
+  // A finding the script could not anchor sits in the review body behind its marker; a review
+  // with no inline thread at all is degraded, not failed (Losers League #778 stopped here, #33).
+  const moved = Array.isArray(posted.review.movedToBody) ? posted.review.movedToBody : []
+  if (posted.posted && active.length && posted.review.comments.length === 0) {
+    warnings.push(`round ${round}: no finding could be placed inline; every reply goes as an issue comment quoting its body marker`)
+  } else if (moved.length) {
+    warnings.push(`round ${round}: ${moved.join(', ')} could not be placed inline and sit in the review body behind their markers`)
   }
   const commentIds = {}
   for (const comment of posted.review.comments) {
@@ -1140,12 +1172,7 @@ function droppedReplies(record) {
     const outcome = { kind: 'dropped', reason: f.reason, commits: [], decidedBy: personLabel }
     record.outcomes[f.id] = describeOutcome(outcome)
     decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
-    return {
-      finding: f.id,
-      comment_id: record.commentIds[f.id] || 0,
-      file: abs(`${record.specFolder}/redline/round-${record.round}-reply-${f.id}.md`),
-      body: replyBody(record.round, outcome),
-    }
+    return replyEntry(record.round, record.specFolder, f, outcome, record.commentIds[f.id] || 0)
   })
 }
 
@@ -1391,12 +1418,7 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = inScope.map((f) => ({
-    finding: f.id,
-    comment_id: record.commentIds[f.id] || 0,
-    file: abs(`${specFolder}/redline/round-${round}-reply-${f.id}.md`),
-    body: replyBody(round, outcomes[f.id]),
-  })).concat(droppedReplies(record))
+  const replies = inScope.map((f) => replyEntry(round, specFolder, f, outcomes[f.id], record.commentIds[f.id] || 0)).concat(droppedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(round, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply r${round}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
@@ -1420,9 +1442,9 @@ function handoffComment(lastFixUnreviewed, prBody) {
   const reviews = rounds.length
   const last = rounds[reviews - 1]
   if (lastFixUnreviewed) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. Only round 1 reviewed the whole PR; see ${knownLimits()}.`)
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`)
   } else if (last && last.reviewed === 'final-nit-pass') {
-    lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. Only round 1 reviewed the whole PR; see ${knownLimits()}.`)
+    lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`)
   } else {
     lines.push(`Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}; the last one found no correctness bugs.`)
   }
@@ -1603,24 +1625,24 @@ try {
     return result('done', { reviseOnly: true, note: 'One revise pass; no re-review, handoff comment or review request.' })
   }
 
-  let round = 1
+  let round = firstRound
   let range = { from: startSha, to: startSha }
   let finalPass = false
 
   for (;;) {
-    const reviewed = round === 1 ? 'pr' : finalPass ? 'final-nit-pass' : 'fix-diff'
+    const reviewed = round === firstRound ? 'pr' : finalPass ? 'final-nit-pass' : 'fix-diff'
     const specFolder = specFolderFor(round)
 
     phase('Gather')
     const facts = await gather(round)
-    if (round === 1 && facts.headRefOid !== startSha) {
+    if (round === firstRound && facts.headRefOid !== startSha) {
       throw stageError('gather', `PR #${pr}'s head moved since launch (${short(facts.headRefOid)}, launched at ${short(startSha)})`)
     }
-    if (round > 1 && push && facts.headRefOid !== range.to) {
+    if (round > firstRound && push && facts.headRefOid !== range.to) {
       warnings.push(`round ${round}: GitHub head ${short(facts.headRefOid)} differs from local ${short(range.to)} after the push`)
     }
 
-    phase(round === 1 ? 'Review' : 'Re-review')
+    phase(round === firstRound ? 'Review' : 'Re-review')
     const reviewOut = await review(round, reviewed, range, facts)
     let considered = reviewOut.findings
     let droppedNits = 0
@@ -1637,7 +1659,7 @@ try {
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === 1 ? null : range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
@@ -1646,7 +1668,7 @@ try {
 
     // review dial: after the round 1 review the person picks what to act on. The run ends here
     // until the relaunch carries args.selected; the rest of the findings are dropped with a reason.
-    if (interrupt === 'review' && round === 1) {
+    if (interrupt === 'review' && round === firstRound) {
       if (!selected) {
         return reviewedResult(record, active, known, files)
       }
@@ -1687,7 +1709,8 @@ try {
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
-    if (correctness.length && round > maxRounds) {
+    // The cap counts this run's rounds, from its first.
+    if (correctness.length && round - firstRound + 1 > maxRounds) {
       const finished = await finish('cap-hit', record, () => capComment(correctness))
       return result('capped', { openFindings: correctness.map(compactFinding), capCommentPosted: finished.posted })
     }

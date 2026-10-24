@@ -6,17 +6,29 @@
 #
 # Read-only:
 #   pr <n>                         PR facts as JSON
-#   diff <n>                       the PR diff
+#   diff <n>                       the PR diff, built from the per-file patches of the paginated
+#                                  files endpoint (GitHub's whole-PR diff refuses a PR over 300
+#                                  files): a diff --git header per file, then its patch; a file
+#                                  whose patch GitHub omits (binary, or over its size limit) gets
+#                                  the header and one "(no patch: ...)" line
 #   pr-comments <n>                issue comments and reviews on the PR
 #   issues-search <query>          open issues matching the query
 #   review-comments <n>            every inline review comment on the PR as JSON:
 #                                  [{id, path, line, side, body, in_reply_to_id, pull_request_review_id}]
 #   has-review <n> <round>         exit 0 if a review body starts "Redline round <round>", 1 if none, 2 on error
-#   files <n>                      the PR's changed file paths as a JSON array
+#   last-round <n>                 the highest posted "Redline round N" as a JSON number, 0 when
+#                                  none; exit 2 on a gh error
+#   files <n>                      the PR's changed file paths as a JSON array, every page of the
+#                                  files endpoint (gh pr view --json files stops at 100)
 #   login                          the gh login Redline posts as
 #   place <n> <json-file>          the post-review file as it would be posted: comments off the
-#                                  diff's hunks moved into the body under "Not placed inline",
-#                                  with a `moved` list. Nothing is posted
+#                                  hunks of their file's patch moved into the body under "Not
+#                                  placed inline", each behind a marker <!-- redline:<finding> -->
+#                                  (the id read from the comment body's leading **R1-2**), with a
+#                                  `moved` list [{id, path, line, side}]. Nothing is posted
+#
+# Needs gh 2.48.0 or newer (gh api --slurp); an older gh stops every subcommand that lists the
+# PR's files with one line naming the installed version, exit 2.
 #
 # Writes (GitHub agent only):
 #   post-review <n> <json-file>    {body, comments:[{path,line,side,body}]} posted with event COMMENT
@@ -51,20 +63,54 @@ need_int() {
     fi
 }
 
-# Every position an inline comment may sit on: the added, removed and context lines of the PR
-# diff's hunks, one per line as "path<TAB>side<TAB>line". GitHub resolves a comment on `line` of
+# Every file of the PR as one JSON array, every page of the files endpoint: each item carries
+# filename, status, previous_filename and, unless GitHub omits it (binary, or over its per-file
+# limit), patch. The whole-PR diff endpoint refuses a PR over 300 files, so every file list and
+# every anchor comes from here. An older gh without --slurp stops with one line, exit 2.
+pr_files() {
+    local err pages
+    err="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    if ! pages="$(gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/files" 2>"$err")"; then
+        if grep -q 'unknown flag: --slurp' "$err"; then
+            echo "redline-gh.sh: $(gh --version | head -1) does not know --slurp; Redline needs gh 2.48.0 or newer" >&2
+            rm -f "$err"
+            exit 2
+        fi
+        cat "$err" >&2
+        rm -f "$err"
+        exit 1
+    fi
+    rm -f "$err"
+    jq '[.[][]]' <<<"$pages"
+}
+
+# The PR diff built from the per-file patches: the header git would write (previous_filename on
+# the a/ side of a rename, /dev/null for an added or removed file), then the patch verbatim, or
+# one line saying why there is none. Takes the pr_files JSON on stdin.
+synthesize_diff() {
+    jq -r '.[]
+        | (if .status == "renamed" and .previous_filename != null then .previous_filename else .filename end) as $a
+        | "diff --git a/\($a) b/\(.filename)",
+          (if .status == "added" then "--- /dev/null" else "--- a/\($a)" end),
+          (if .status == "removed" then "+++ /dev/null" else "+++ b/\(.filename)" end),
+          (if .patch != null then .patch
+           elif .status == "renamed" then "(no patch: renamed, contents unchanged)"
+           else "(no patch: binary or too large for GitHub)" end)'
+}
+
+# Every position an inline comment may sit on: the added, removed and context lines of each
+# file's patch, one per line as "path<TAB>side<TAB>line". GitHub resolves a comment on `line` of
 # `side` (RIGHT: the new file, LEFT: the old) only inside a hunk; a context line is on both sides.
+# Takes the pr_files JSON on stdin; a file without a patch has no position.
 diff_positions() {
-    gh pr diff "$1" | awk '
-        /^diff --git / { path = ""; inhunk = 0; next }
-        !inhunk && /^\+\+\+ / { path = ($2 == "/dev/null") ? "" : substr($2, 3); next }
-        !inhunk && /^--- / { next }
+    jq -r '.[] | select(.patch != null) | "@@@redline-file\t\(.filename)", .patch' | awk '
+        /^@@@redline-file\t/ { path = substr($0, 17); inhunk = 0; next }
         /^@@ / {
             split($2, old, ","); split($3, new, ",")
             oldline = substr(old[1], 2) + 0; newline = substr(new[1], 2) + 0
             inhunk = 1; next
         }
-        !inhunk || path == "" { next }
+        !inhunk { next }
         /^\\ No newline/ { next }
         /^\+/ { print path "\tRIGHT\t" newline; newline++; next }
         /^-/ { print path "\tLEFT\t" oldline; oldline++; next }
@@ -73,21 +119,28 @@ diff_positions() {
 }
 
 # The review file with every comment GitHub could not anchor moved into the body: prints
-# {body, comments, moved}. `side` defaults to RIGHT, as post-review sends it.
+# {body, comments, moved}. `side` defaults to RIGHT, as post-review sends it. A moved comment
+# sits behind <!-- redline:<id> --> (its id from the leading **R1-2** of its body), so a later
+# round can reply to it with an issue comment that quotes the marker. $1 is the pr_files JSON.
 place_comments() {
+    # The positions go through a file: on a PR of hundreds of files the list is megabytes, past
+    # what --argjson may carry on the command line ("Argument list too long").
     local positions
-    positions="$(diff_positions "$1" | jq -R -s 'split("\n") | map(select(length > 0))')"
-    jq --argjson positions "$positions" '
-        ($positions | map({key: ., value: true}) | from_entries) as $ok
+    positions="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    diff_positions <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
+    jq --slurpfile positions "$positions" '
+        ($positions[0] | map({key: ., value: true}) | from_entries) as $ok
         | def key: .path + "\t" + (.side // "RIGHT") + "\t" + (.line | tostring);
+        def id: (.body | capture("^\\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\*") | .id) // "";
         (.comments | map(select($ok[key] == true))) as $placed
         | (.comments | map(select($ok[key] != true))) as $moved
         | {
             body: (if ($moved | length) == 0 then .body
-                   else .body + "\n\n### Not placed inline\n\n" + ($moved | map("`" + .path + ":" + (.line | tostring) + "`\n\n" + .body) | join("\n\n")) end),
+                   else .body + "\n\n### Not placed inline\n\n" + ($moved | map((if id == "" then "" else "<!-- redline:" + id + " -->\n" end) + "`" + .path + ":" + (.line | tostring) + "`\n\n" + .body) | join("\n\n")) end),
             comments: ($placed | map(.side = (.side // "RIGHT"))),
-            moved: ($moved | map({path, line, side: (.side // "RIGHT")}))
+            moved: ($moved | map({id: id, path, line, side: (.side // "RIGHT")}))
           }' "$2"
+    rm -f "$positions"
 }
 
 cd "$(git rev-parse --show-toplevel)"
@@ -106,7 +159,8 @@ case "$cmd" in
     diff)
         [[ $# -eq 1 ]] || usage
         need_int "$1" "pr number"
-        gh pr diff "$1"
+        all="$(pr_files "$1")"
+        synthesize_diff <<<"$all"
         ;;
 
     pr-comments)
@@ -130,7 +184,8 @@ case "$cmd" in
     files)
         [[ $# -eq 1 ]] || usage
         need_int "$1" "pr number"
-        gh pr view "$1" --json files --jq '[.files[].path]'
+        all="$(pr_files "$1")"
+        jq '[.[].filename]' <<<"$all"
         ;;
 
     login)
@@ -142,7 +197,8 @@ case "$cmd" in
         [[ $# -eq 2 ]] || usage
         need_int "$1" "pr number"
         need_file "$2" "review json"
-        place_comments "$1" "$2"
+        all="$(pr_files "$1")"
+        place_comments "$all" "$2"
         ;;
 
     has-review)
@@ -156,6 +212,13 @@ case "$cmd" in
         exit 1
         ;;
 
+    last-round)
+        [[ $# -eq 1 ]] || usage
+        need_int "$1" "pr number"
+        reviews="$(gh api --paginate "repos/{owner}/{repo}/pulls/$1/reviews" --jq '.[].body')" || exit 2
+        { grep -o '^Redline round [0-9][0-9]*' <<<"$reviews" || true; } | awk '{ if ($3 + 0 > last) last = $3 + 0 } END { print last + 0 }'
+        ;;
+
     post-review)
         [[ $# -eq 2 ]] || usage
         need_int "$1" "pr number"
@@ -164,7 +227,8 @@ case "$cmd" in
             echo "redline-gh.sh: $2 must be JSON with body (string) and comments (array)" >&2
             exit 2
         fi
-        placed="$(place_comments "$1" "$2")"
+        all="$(pr_files "$1")"
+        placed="$(place_comments "$all" "$2")"
         payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
         response="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         trap 'rm -f "$response"' EXIT

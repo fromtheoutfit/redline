@@ -1,0 +1,10 @@
+{
+  "body": "Redline round 1\n\nReviewed the whole pull request.\n\nFive findings.",
+  "comments": [
+    {"path": "app/Models/Order.php", "line": 12, "side": "RIGHT", "body": "**R1-1** · correctness · high · confirmed\n\n**On an added line**"},
+    {"path": "app/Models/Order.php", "line": 11, "side": "LEFT", "body": "**R1-2** · nit · low · likely\n\n**On a removed line**"},
+    {"path": "app/Models/Order.php", "line": 30, "body": "**R1-3** · nit · low · likely\n\n**Between the hunks**"},
+    {"path": "public/build/app.js", "line": 1, "body": "**R1-4** · nit · low · unsure\n\n**In a file GitHub sent no patch for**"},
+    {"path": "app/Services/NewName.php", "line": 1, "side": "RIGHT", "body": "**R1-5** · nit · low · confirmed\n\n**In a renamed file**"}
+  ]
+}
