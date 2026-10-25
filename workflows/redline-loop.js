@@ -466,8 +466,9 @@ function findingLine(f) {
 }
 
 function reviewBody(round, reviewed, range, review, active, known) {
+  const earlier = firstRound === 2 ? ' Round 1 is already on this PR' : ` Rounds 1 to ${firstRound - 1} are already on this PR`
   const scope = reviewed === 'pr'
-    ? `Reviewed the whole pull request.${firstRound > 1 ? ` Rounds 1 to ${firstRound - 1} were posted by an earlier run; this run starts at round ${firstRound}.` : ''}`
+    ? `Reviewed the whole pull request.${firstRound > 1 ? `${earlier}; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
       ? `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the nit fixes (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
