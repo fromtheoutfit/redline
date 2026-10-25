@@ -532,16 +532,23 @@ function andList(items) {
   return items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
 }
 
-// A reply goes in the finding's inline thread. A finding the review could not anchor sits in the
-// review body behind <!-- redline:<id> -->, so its reply is an issue comment that opens with the
-// marker and names the finding; the GitHub agent posts it with `comment` instead of `reply`.
-function replyEntry(round, specFolder, f, outcome, commentId) {
+// A reply's route comes from whether the round's review is on GitHub, never from a missing thread
+// id alone (#34, R1-7):
+// - 'thread': the finding has an inline thread, and the reply goes in it.
+// - 'issue-comment': the review is on GitHub but the finding sits in its body behind
+//   <!-- redline:<id> -->, so the reply is an issue comment that opens with the marker and names
+//   the finding; the GitHub agent posts it with `comment` instead of `reply`.
+// - 'file-only': no review is on GitHub (a dry run, or a revise over a review that was only
+//   written), so the reply file is written and nothing is posted.
+function replyEntry(round, specFolder, f, outcome, commentId, reviewPosted) {
   const body = replyBody(round, outcome)
+  const route = commentId ? 'thread' : reviewPosted ? 'issue-comment' : 'file-only'
   return {
     finding: f.id,
     comment_id: commentId,
+    route,
     file: abs(`${specFolder}/redline/round-${round}-reply-${f.id}.md`),
-    body: commentId ? body : `<!-- redline:${f.id} -->\n**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${round} review body\n\n${body}`,
+    body: route === 'issue-comment' ? `<!-- redline:${f.id} -->\n**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${round} review body\n\n${body}` : body,
   }
 }
 
@@ -821,7 +828,7 @@ function pushReplyPrompt(round, specFolder, replies, doPush) {
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
     : `Step 1. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}).`
   const step2 = postToGitHub
-    ? `then run \`${GH} reply ${pr} <comment_id> <file>\`. A reply whose comment_id is 0 has no thread: its finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (\`**<id>** · ... · from the Redline round ${round} review body\`), never for the marker, which the review body also carries. Never reply twice in one thread, and never post a body finding's comment twice.`
+    ? `then act on its route. Route "thread": run \`${GH} reply ${pr} <comment_id> <file>\`. Route "issue-comment": the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (\`**<id>** · ... · from the Redline round ${round} review body\`), never for the marker, which the review body also carries. Route "file-only": no review is on GitHub for it (a dry run, or a review that was never posted), so write the file, post nothing and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.`
     : 'and run nothing else (dry run).'
   return `${RUN_LINE}
 
@@ -1172,7 +1179,7 @@ function droppedReplies(record) {
     const outcome = { kind: 'dropped', reason: f.reason, commits: [], decidedBy: personLabel }
     record.outcomes[f.id] = describeOutcome(outcome)
     decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
-    return replyEntry(record.round, record.specFolder, f, outcome, record.commentIds[f.id] || 0)
+    return replyEntry(record.round, record.specFolder, f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
   })
 }
 
@@ -1418,7 +1425,7 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = inScope.map((f) => replyEntry(round, specFolder, f, outcomes[f.id], record.commentIds[f.id] || 0)).concat(droppedReplies(record))
+  const replies = inScope.map((f) => replyEntry(round, specFolder, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(droppedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(round, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply r${round}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
@@ -1614,6 +1621,7 @@ try {
     const record = {
       round, reviewed: 'revise-only', specFolder, range: null, findings: A.revise.findings, files: [],
       commentIds: A.revise.commentIds && typeof A.revise.commentIds === 'object' ? A.revise.commentIds : {},
+      reviewPosted: A.revise.posted === true,
     }
     rounds.push(record)
     const inScope = record.findings.filter((f) => !f.knownAs)
@@ -1659,7 +1667,7 @@ try {
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
