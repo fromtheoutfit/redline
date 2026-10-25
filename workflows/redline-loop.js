@@ -482,7 +482,7 @@ function reviewBody(round, reviewed, range, review, active, known) {
     lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}`))
   }
   if (active.length) {
-    lines.push('', 'Each finding has an inline comment with the detail. Redline replies in each thread once the round\'s fixes are committed.')
+    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
   }
   return lines.join('\n')
 }
