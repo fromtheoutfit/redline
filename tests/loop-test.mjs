@@ -47,10 +47,14 @@ function mock(scenario) {
         }
         // Every finding gets an inline thread, unless the scenario moves some (scenario.moved) or
         // all of them (scenario.noInline) into the review body, as the script does when GitHub
-        // cannot anchor a comment.
+        // cannot anchor a comment. scenario.postError is the agent's error on a posted review (the
+        // Losers League #778 shape), scenario.postReviewId its review id (default 1), and
+        // scenario.postDrop the findings left out of both comments and movedToBody.
         const ids = [...new Set([...prompt.matchAll(/\*\*(R\d+-\d+)\*\*/g)].map((m) => m[1]))]
-        const moved = scenario.noInline ? ids : (scenario.moved || [])
-        return { operation: 'post-review', dryRun: false, posted: true, skipped: '', review: { id: 1, html_url: '', comments: ids.filter((id) => !moved.includes(id)).map((id, i) => ({ finding: id, id: 100 + i })), movedToBody: moved }, files: [], error: '' }
+        const drop = scenario.postDrop || []
+        const moved = (scenario.noInline ? ids : (scenario.moved || [])).filter((id) => !drop.includes(id))
+        const inline = ids.filter((id) => !moved.includes(id) && !drop.includes(id))
+        return { operation: 'post-review', dryRun: false, posted: true, skipped: '', review: { id: scenario.postReviewId === undefined ? 1 : scenario.postReviewId, html_url: '', comments: inline.map((id, i) => ({ finding: id, id: 100 + i })), movedToBody: moved }, files: [], error: scenario.postError || '' }
       }
       if (opts.label.startsWith('snapshot')) {
         return { operation: 'snapshot', files: [], error: '' }
@@ -386,6 +390,13 @@ function samePrefix(name, first, second, n) {
   check('no inline: the post prompt says a thread-less review is not an error', pick(run.calls, 'post r1').prompt.includes('A review with no inline comment at all is a valid result, not an error'))
   check('no inline: the deferred list is unaffected', run.res.deferred.length === 0)
   check('no inline: the review body does not promise an inline comment for every finding', pick(run.calls, 'post r1').prompt.includes('sits under Not placed inline below') && !pick(run.calls, 'post r1').prompt.includes('Redline replies in each thread'))
+  const errorScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']], noInline: true, postError: 'no inline comment could be anchored' }
+  run = await go('no inline with an agent error', baseArgs, errorScenario)
+  check('posted error: the #778 shape continues into shape with a warning', run.res.status === 'done' && !!pick(run.calls, 'shape r1') && run.res.warnings.some((w) => w.includes('reported an error for a review it posted; continuing: no inline comment could be anchored')), [run.res.status, run.res.warnings])
+  run = await go('posted error, review id 0', baseArgs, { ...errorScenario, postReviewId: 0 })
+  check('posted error: a posted review with no id still stops at post', run.res.status === 'error' && run.res.stage === 'post' && run.res.error.includes('posting the round 1 review failed') && !pick(run.calls, 'shape r1'), run.res)
+  run = await go('posted error, a finding in neither list', baseArgs, { ...errorScenario, noInline: false, postDrop: ['R1-2'] })
+  check('posted error: a finding in neither list still stops at post', run.res.status === 'error' && run.res.stage === 'post' && run.res.error.includes('posting the round 1 review failed') && !pick(run.calls, 'shape r1'), run.res)
   run = await go('one finding moved to the body', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']], moved: ['R1-2'] })
   check('moved: the warning names it', run.res.warnings.includes('round 1: R1-2 could not be placed inline and sit in the review body behind their markers'), run.res.warnings)
   check('moved: the inline reply keeps its thread, the body reply carries the marker', replyFor(run.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in') && replyFor(run.calls, 'push and reply r1', 'R1-2').startsWith('<!-- redline:R1-2 -->') && replies(run.calls, 'push and reply r1').find((r) => r.finding === 'R1-1').comment_id === 100, replies(run.calls, 'push and reply r1'))

@@ -1111,8 +1111,21 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   const posted = await run('post', postPrompt(round, specFolder, reviewFile, findingsFile), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `post r${round}`, phase: 'Post', schema: POST_SCHEMA,
   })
+  // The agent's `error` is not taken on trust in either direction (#34, R1-8). On a review that is
+  // posted, has an id and accounts for every finding (inline or in movedToBody) it is a warning
+  // and the run continues: the Losers League #778 shape, every finding moved plus an error string.
+  // On anything else it still stops the run, so a post-review that exited after the POST, with no
+  // thread ids back, is caught here.
   if (posted.error) {
-    throw stageError('post', `posting the round ${round} review failed: ${posted.error}`)
+    const review = posted.review && typeof posted.review === 'object' ? posted.review : null
+    const accounted = review
+      ? new Set([...(Array.isArray(review.comments) ? review.comments : []).map((c) => c.finding), ...(Array.isArray(review.movedToBody) ? review.movedToBody : [])])
+      : new Set()
+    const consistent = posted.posted === true && review !== null && Number(review.id) > 0 && active.every((f) => accounted.has(f.id))
+    if (!consistent) {
+      throw stageError('post', `posting the round ${round} review failed: ${posted.error}`)
+    }
+    warnings.push(`round ${round}: the GitHub agent reported an error for a review it posted; continuing: ${posted.error}`)
   }
   // A finding the script could not anchor sits in the review body behind its marker; a review
   // with no inline thread at all is degraded, not failed (Losers League #778 stopped here, #33).
