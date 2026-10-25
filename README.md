@@ -300,7 +300,7 @@ Rules the agent follows around these:
 
 - Check `has-review <n> <round>` before `post-review`; a hit means the round is already posted and the post is skipped.
 - Inline comments must sit on a line in the PR diff (an added, removed or context line of a hunk of that file's patch). GitHub answers `422 Unprocessable Entity` with `Line could not be resolved` and posts nothing, not even the valid comments, and the answer names no path or line. So `post-review` runs `place` first: every comment off a hunk, and every comment in a file whose patch GitHub omits, is moved into `body` under "Not placed inline" behind `<!-- redline:<id> -->` before anything is sent, and the output's `moved` says which. The agent reports them as `movedToBody`. A posted review with no inline comment at all is a degraded result the workflow records as a warning, never an error.
-- A finding in the body has no thread, so its reply is an issue comment (`comment`) whose first line is the finding's marker, then `**<id>** · \`file:line\` · from the Redline round N review body`, then the reply; one per finding, never twice.
+- A finding in the body has no thread, so its reply is an issue comment (`comment`) whose first line is the finding's marker, then `**<id>** · \`file:line\` · from the Redline round N review body`, then the reply; one per finding, never twice. To check whether one is already posted, the agent looks for that second line in `pr-comments`, never for the marker, which the review body also carries.
 - The `comments[].id` values printed by `post-review` are what `reply` takes; keep them in the round's record.
 
 ## Snapshot file

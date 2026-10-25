@@ -821,7 +821,7 @@ function pushReplyPrompt(round, specFolder, replies, doPush) {
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
     : `Step 1. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}).`
   const step2 = postToGitHub
-    ? `then run \`${GH} reply ${pr} <comment_id> <file>\`. A reply whose comment_id is 0 has no thread: its finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.`
+    ? `then run \`${GH} reply ${pr} <comment_id> <file>\`. A reply whose comment_id is 0 has no thread: its finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (\`**<id>** · ... · from the Redline round ${round} review body\`), never for the marker, which the review body also carries. Never reply twice in one thread, and never post a body finding's comment twice.`
     : 'and run nothing else (dry run).'
   return `${RUN_LINE}
 
