@@ -86,7 +86,9 @@ pr_files() {
 
 # The PR diff built from the per-file patches: the header git would write (previous_filename on
 # the a/ side of a rename, /dev/null for an added or removed file), then the patch verbatim, or
-# one line saying why there is none. Takes the pr_files JSON on stdin.
+# one line saying why there is none: "(no patch: renamed, no text changes)" for a rename GitHub
+# counts no changed lines in (`changes` 0), and "(no patch: binary or too large for GitHub)" for
+# everything else, a rename that changed included. Takes the pr_files JSON on stdin.
 synthesize_diff() {
     jq -r '.[]
         | (if .status == "renamed" and .previous_filename != null then .previous_filename else .filename end) as $a
@@ -94,7 +96,7 @@ synthesize_diff() {
           (if .status == "added" then "--- /dev/null" else "--- a/\($a)" end),
           (if .status == "removed" then "+++ /dev/null" else "+++ b/\(.filename)" end),
           (if .patch != null then .patch
-           elif .status == "renamed" then "(no patch: renamed, contents unchanged)"
+           elif .status == "renamed" and (.changes // 0) == 0 then "(no patch: renamed, no text changes)"
            else "(no patch: binary or too large for GitHub)" end)'
 }
 

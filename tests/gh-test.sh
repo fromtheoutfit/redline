@@ -6,8 +6,9 @@
 # pages for --paginate --slurp, the pages' lines for --paginate --jq, applied with the real jq),
 # refuses `gh pr diff` the way GitHub does over 300 files, refuses every write, and, with
 # GH_FAKE_OLD=1, rejects --slurp the way a gh before 2.48.0 does. PR 7 has 150 files over two
-# pages (100 generated, then 46 generated and the four special files in files-7-special.json:
-# two hunks, no patch, a rename, a removal) and five reviews; PR 8 has one human review.
+# pages (100 generated, then 44 generated and the six special files in files-7-special.json:
+# two hunks, no patch, a rename with a patch, a patch-less rename with no text changes, a
+# patch-less rename that changed, a removal) and five reviews; PR 8 has one human review.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -30,7 +31,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
-jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 146) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
+jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
 cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$WORK/pages/"
 # PR 9: one generated file of 60,000 added lines, so the positions list runs to megabytes, past
 # what a command-line argument may carry (Losers League #778, 336 files, hit that limit).
@@ -99,7 +100,9 @@ has "diff: both hunks verbatim" "$diff_out" $'+added two\n context b\n@@ -40,2 +
 has "diff: a rename's old name on the a/ side" "$diff_out" $'diff --git a/app/Services/OldName.php b/app/Services/NewName.php\n--- a/app/Services/OldName.php\n+++ b/app/Services/NewName.php'
 has "diff: an added file comes from /dev/null" "$diff_out" $'diff --git a/public/build/app.js b/public/build/app.js\n--- /dev/null\n+++ b/public/build/app.js\n(no patch: binary or too large for GitHub)'
 has "diff: a removed file goes to /dev/null" "$diff_out" $'--- a/app/Legacy/Gone.php\n+++ /dev/null\n@@ -1,2 +0,0 @@'
-is "diff: exactly one no-patch line" "$(grep -c '^(no patch' <<<"$diff_out")" "1"
+is "diff: two binary-or-too-large lines" "$(grep -c '^(no patch: binary or too large for GitHub)$' <<<"$diff_out")" "2"
+has "diff: a rename with no text changes says so" "$diff_out" $'diff --git a/app/Services/Was.php b/app/Services/Moved.php\n--- a/app/Services/Was.php\n+++ b/app/Services/Moved.php\n(no patch: renamed, no text changes)'
+has "diff: a changed rename without a patch is not called unchanged" "$diff_out" $'+++ b/public/build/vendor.min.js\n(no patch: binary or too large for GitHub)'
 
 echo "# place"
 placed="$(gh place 7 "$FIX/review-7.json")"; code=$?
