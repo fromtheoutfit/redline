@@ -176,3 +176,14 @@ Steps 9 and 10 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 9, standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. Item 6 (R1-8) is drafted for option A, the person's decision. The standards approver approves the list, and the implementer applies it in its own commit, touching only the files the list names: `agent-os/standards/workflow/agents.md` (items 1, 2, 4 and 6) and `agent-os/standards/testing/tests.md` (item 3).
 - **Step 10, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Commits, in task order: the spec folder (`c019ed0`), R1-1 (`0c0fc29`), R1-7 (`d80b9a3`), R1-2 (`cb40600`), R1-3 (`4c62688`), R1-4 (`a9eb6a2`), R1-5 (`2f9ef30`), R1-6 (`9a13558`), R1-8 (`db4414d`), and the standards retrospective (`343036d`), which applies the five approved edits (items 1, 2, 4 and 6 in `agent-os/standards/workflow/agents.md`, item 3 in `agent-os/standards/testing/tests.md`). Its message names no finding: no finding's plan in `shape.md` sends part of its fix through the retrospective, so every edit is a lesson.
+
+Each test went red before green through the gate script, as the tasks predicted: R1-1 one loop check, R1-7 six (including the reworded line-379 check), R1-2 one gh case, R1-3 three, R1-4 one, R1-6 two (the negative `firstRound` absent check passes either way), R1-8 the first of its three (the other two already stopped at post). Final summaries: `loop 143 checks passed, 0 failed`, `gh 47 passed, 0 failed`.
+
+Deviations, none of which needed a Decision:
+
+- **Task 3, `pushReplyPrompt` wording.** The routes are spelled `Route "thread"`, `Route "issue-comment"` and `Route "file-only"` in the prompt; the line-379 check asserts `Route "issue-comment": the finding sits in the review body` alongside the unchanged `comment 114 <file>` spelling, and the revise-only check asserts all three labels.
+- **Task 3, `skills/redline-revise/SKILL.md` step 6.** It reads `revise: {round, specFolder, findings, commentIds, posted}` (`posted` is step 3's `revise.posted`). The plan's two `revise.posted` mentions both sit on step 3's line, so without the parenthesis `grep -c "revise.posted"` printed 1, short of the proof's "at least 2".
