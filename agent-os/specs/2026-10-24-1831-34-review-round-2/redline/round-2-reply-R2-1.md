@@ -1,0 +1,1 @@
+Redline round 2: fixed in 72ebef0 (redline: R2-1 match the --help case against the header's last non-blank line instead of the update entry four lines earlier (#33)). · decided by: redline

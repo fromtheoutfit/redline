@@ -1,0 +1,1 @@
+Redline round 1: fixed in cb40600 (redline: R1-2 print redline-gh.sh's whole header on --help with sed -n '2,/^$/p' (#33)). · decided by: redline

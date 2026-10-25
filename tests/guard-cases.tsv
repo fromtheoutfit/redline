@@ -133,6 +133,12 @@ redline:redline-reviewer	allow	Bash	git diff abc1234..HEAD -- ':/' ':(top,exclud
 redline:redline-checker	allow	Bash	REDLINE_OCTANE=1 REPO/.claude/redline/checks.sh REPO/agent-os/specs/x/redline/snapshot.json
 redline:redline-github	allow	Write	REPO/agent-os/specs/x/redline/snapshot.json
 redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh files 42
+# last-round (#33): a read subcommand, so every gh-read role may run it; a role without gh-read may not.
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh diff 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh login
 redline:redline-reviewer	allow	Write	/tmp/redlinerepro/reviewer-r1-ReproTest.php
 redline:redline-shaper	allow	Write	/tmp/redlinerepro/shaper-r2-ReproTest.php

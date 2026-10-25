@@ -1,0 +1,123 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "2744c4b29aaa45635af501214b285359b2a5733b",
+    "to": "2744c4b29aaa45635af501214b285359b2a5733b"
+  },
+  "summary": "The change fixes the three #778 failures where they started. One paginated per-file fetch now feeds files, diff and place, positions reach jq through a temp file, and the first round number arrives through args, so replays stay byte-identical. The gh harness is sized to reproduce the real limits. Most findings are about the new route for findings in the review body. A missing thread id is now taken to mean the finding was moved to the body, the dedupe check looks for a marker the review body also carries, and the loop still stops on an agent error for the exact #778 shape. The rest are small text and help-output slips. This repository has no scheduled commands or queued jobs. The only shared state is the PR on GitHub, which the skill reads with last-round before the workflow posts, so nothing can overlap.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agents/redline-github.md",
+      "line": 23,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "Checking pr-comments for the marker always finds it in the review body, so a body finding's reply can be skipped",
+      "description": "The reply rule says a comment_id 0 reply is posted with `comment` once, and to check `redline-gh.sh pr-comments <pr>` for the marker `<!-- redline:<finding> -->` when unsure. `pr-comments` is `gh pr view --comments`, which prints review bodies as well as issue comments, as raw markdown (on PR #12 it prints `status: commented` / `Redline round 1` / `**R1-1**` unrendered). `place_comments` writes that same marker into the round's own review body under \"Not placed inline\" (scripts/redline-gh.sh line 139). So whenever the agent runs the check (for example when a resumed push-and-reply reruns), it finds the marker in the review body and decides the reply is already posted. Skipped and posted both report `reply_id` 0, so the workflow cannot tell them apart, and the finding's outcome never reaches the PR as a comment.",
+      "proposedFix": "Give the check something only the reply carries. Either tell the agent to look for the reply's second line, `**<id>** · ... · from the Redline round <n> review body`, which the review body never contains, or give the reply its own marker (for example `<!-- redline:reply:<id> -->` as the first line, written by `replyEntry` in workflows/redline-loop.js) and name that one here and in `pushReplyPrompt`.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-gh.sh",
+      "line": 30,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "usage() still prints header lines 2 to 34, which now cuts off the writes section",
+      "description": "`usage()` (line 50, outside the diff) prints `sed -n '2,34p' \"$0\"`. Before this change the header ended at line 34. The new `diff`, `last-round`, `files` and `place` lines and the gh 2.48.0 note (lines 30-31) push its end to line 46. So `--help` and every usage error now stop at the first line of `post-review` and drop `reply`, `comment`, `request-review`, `issue-create` and `update`. scripts/bash-conventions says a header is printed with `sed -n '2,/^$/p'`, never with a numeric range, because a numeric range breaks on every header edit. This edit is an example.",
+      "proposedFix": "Line 50: `usage() { sed -n '2,/^$/p' \"$0\" >&2; exit 2; }`. Optionally add a gh-test case that `redline-gh.sh --help` output contains `update <n>`.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "scripts/redline-gh.sh",
+      "line": 97,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "A renamed file without a patch is always described as \"contents unchanged\"",
+      "description": "`synthesize_diff` prints `(no patch: renamed, contents unchanged)` for any renamed file with no `patch`. GitHub also leaves `patch` out of a renamed file that did change, when the change is binary or over its per-file limit, and those are the generated and built files this PR is about. The reviewer then reads such a file as a pure rename with nothing to review. The files payload has `changes` (additions plus deletions), which tells the two cases apart. The fixture's renamed file carries a patch, so this branch has no test.",
+      "proposedFix": "`elif .status == \"renamed\" and (.changes // 0) == 0 then \"(no patch: renamed, contents unchanged)\"`, so a changed rename falls through to `(no patch: binary or too large for GitHub)`. Add a renamed, changed, patch-less file to tests/gh-fixtures/files-7-special.json and a gh-test case for each message.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "scripts/redline-gh.sh",
+      "line": 139,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The review body still says every finding has an inline comment above the \"Not placed inline\" section",
+      "description": "`reviewBody` (workflows/redline-loop.js line 485) always ends with \"Each finding has an inline comment with the detail. Redline replies in each thread once the round's fixes are committed.\" `place_comments` appends \"### Not placed inline\" right after that sentence when it moves findings. When every finding is moved, as all three were on Losers League #778, the body contradicts itself, and the replies arrive as issue comments, not in threads.",
+      "proposedFix": "When `$moved` is not empty, open the appended section with one sentence, for example \"GitHub could not anchor these inline; Redline replies to each in a PR comment that opens with its marker.\" Or reword the reviewBody sentence to cover both cases (\"Each finding has an inline comment with the detail, or sits under Not placed inline below\"). Then update the gh-test body assertions.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "skills/redline/SKILL.md",
+      "line": 82,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The precheck counts hundreds of git diff lines by eye",
+      "description": "Step 7 cross-checks GitHub's count against `git diff --name-only origin/<baseRefName>...HEAD` and says to count its lines yourself. On a 336-file PR the session has to count 336 printed paths. A miscount gives a false \"counts differ\" warning, and that false warning trains people to ignore the one check meant to catch a truncated file list like the 100-path cap this PR fixes.",
+      "proposedFix": "Run `git diff --shortstat origin/<baseRefName>...HEAD` instead. Its one line starts `N files changed`, with the same rename handling as `--name-only`. It is covered by the existing `Bash(git diff:*)` allow rule, so the count is read, not counted.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-6",
+      "file": "workflows/redline-loop.js",
+      "line": 470,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Review body reads \"Rounds 1 to 1 were posted by an earlier run\"",
+      "description": "With `firstRound` 2, the most common case and the one the #778 dogfood will hit, the sentence posted to GitHub is \"Rounds 1 to 1 were posted by an earlier run; this run starts at round 2.\" The loop test pins that exact wording. Earlier rounds can also come from more than one run.",
+      "proposedFix": "`firstRound === 2 ? 'Round 1 was posted by an earlier Redline run' : `Rounds 1 to ${firstRound - 1} were posted by earlier Redline runs``, followed by `; this run starts at round ${firstRound}.` Then update the check in tests/loop-test.mjs section 8.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-7",
+      "file": "workflows/redline-loop.js",
+      "line": 544,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "comment_id 0 now always means \"post an issue comment for a body finding\", including when no review exists",
+      "description": "`replyEntry` adds the marker header (\"from the Redline round N review body\"), and `pushReplyPrompt` routes the reply through `redline-gh.sh comment`, whenever the finding has no thread id. A missing id does not always mean the finding was moved into the body. (1) In a dry run, `postPrompt` returns `review.comments []`, so every reply file is written in the marker form, even for findings that would anchor inline. The loop-test post mock returns inline ids even when `postToGitHub` is false, so the dry-run case did not catch this. (2) `/redline:redline-revise` leaves `revise.commentIds` empty \"when nothing was posted\" (skills/redline-revise/SKILL.md step 3). A non-dry revise over a review that was only written then posts one PR comment per finding, each quoting a marker and a \"review body\" that do not exist on the PR. Before this change, comment_id 0 wrote the file and posted nothing.",
+      "proposedFix": "Base the route on whether a review exists, not on a missing id. In the main loop, use the marker body and `comment` only when `record.post.posted || record.post.skipped` and the finding has no mapped thread; otherwise keep the plain `replyBody` and the old \"write its file and do not call reply\" instruction. For revise-only, have the skill pass whether the review was posted (for example `revise.posted`) and apply the same rule. A `route` field on each reply ('thread' | 'issue-comment' | 'file-only') would keep the prompt unambiguous. Add loop-test cases for a dry run and for a revise-only run with empty commentIds, with the post mock honouring postToGitHub.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-8",
+      "file": "workflows/redline-loop.js",
+      "line": 1106,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "The #778 failure shape still ends the run at post; only the agent prompt changed",
+      "description": "`post()` still throws a stage error on any non-empty `posted.error` (lines 1106-1107) before it reaches the new warning branch. On Losers League #778 the GitHub agent returned `posted: true`, `comments: []`, every finding in `movedToBody`, plus an `error` string (spec references.md). If it does that again, the run stops at post exactly as before. The PR says the loop now treats a thread-less review as a warning, but the only guard against this outcome is the new sentence in the agent and post prompts. No loop test feeds a posted review that carries an error. Simply trusting `posted: true` is not safe either: `post-review` can exit non-zero after the POST succeeds (the comments fetch at scripts/redline-gh.sh line 245 runs under `set -e`). In that case the review is on GitHub but no thread ids came back, and continuing would send every reply as a PR comment. Question for the author: should the loop treat `posted: true` with a review id as authoritative and turn `error` into a warning (all of the time, or only when `movedToBody` accounts for every missing thread), or keep stopping on `error` and rely on the agent's instructions?",
+      "proposedFix": "Options: (a) in `post()`, when `posted.posted && posted.review.id` and every active finding is either in `review.comments` or in `movedToBody`, push the error text as a warning and continue; otherwise throw as today. (b) Keep the throw and add a loop-test case that pins it, so the behaviour is deliberate. Either way, add a loop-test scenario whose post mock returns the #778 shape with a non-empty error.",
+      "needsDecision": true,
+      "knownAs": ""
+    }
+  ]
+}

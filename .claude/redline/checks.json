@@ -60,6 +60,13 @@
       "recorded": 0,
       "title": "Setup",
       "cmd": "tests/setup-test.sh"
+    },
+    {
+      "step": 8,
+      "name": "gh",
+      "recorded": 0,
+      "title": "GitHub wrapper",
+      "cmd": "tests/gh-test.sh"
     }
   ]
 }

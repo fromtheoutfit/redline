@@ -1,0 +1,37 @@
+[
+  {
+    "filename": "app/Models/Order.php",
+    "status": "modified",
+    "previous_filename": null,
+    "patch": "@@ -10,3 +10,4 @@ class Order\n context a\n-removed line\n+added one\n+added two\n context b\n@@ -40,2 +41,3 @@\n context c\n+added three\n context d"
+  },
+  {
+    "filename": "public/build/app.js",
+    "status": "added",
+    "previous_filename": null
+  },
+  {
+    "filename": "app/Services/NewName.php",
+    "status": "renamed",
+    "previous_filename": "app/Services/OldName.php",
+    "patch": "@@ -1,1 +1,1 @@\n-<?php // old\n+<?php // new"
+  },
+  {
+    "filename": "app/Services/Moved.php",
+    "status": "renamed",
+    "previous_filename": "app/Services/Was.php",
+    "changes": 0
+  },
+  {
+    "filename": "public/build/vendor.min.js",
+    "status": "renamed",
+    "previous_filename": "public/build/old.min.js",
+    "changes": 4200
+  },
+  {
+    "filename": "app/Legacy/Gone.php",
+    "status": "removed",
+    "previous_filename": null,
+    "patch": "@@ -1,2 +0,0 @@\n-a\n-b"
+  }
+]

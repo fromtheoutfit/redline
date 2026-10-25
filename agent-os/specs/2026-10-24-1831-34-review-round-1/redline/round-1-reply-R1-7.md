@@ -1,0 +1,1 @@
+Redline round 1: fixed in d80b9a3 (redline: R1-7 route each reply from whether the review is on GitHub, so a dry run or an unposted review writes reply files only (#33)). · decided by: redline

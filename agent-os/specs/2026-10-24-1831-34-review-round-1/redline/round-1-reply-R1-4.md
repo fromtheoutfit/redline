@@ -1,0 +1,1 @@
+Redline round 1: fixed in a9eb6a2 (redline: R1-4 word the review body's closing line so it holds when findings sit under Not placed inline (#33)). · decided by: redline

@@ -20,3 +20,6 @@ Every script under `scripts/` is its own documentation and talks to the workflow
 - A script that chooses which part of a file to hash refuses when more than one part qualifies, naming each by line, rather than taking the first: a silent switch moves the hash onto the wrong text and every later check passes against it (#7, R1-6)
 - Never print a token, a header or an environment dump; `redline-gh.sh` leaves authentication to `gh`
 - `jq` reads and writes every JSON value; no hand-built JSON strings in bash
+- A JSON value that grows with the pull request (the anchor positions of `place`, megabytes on a 336-file PR) reaches `jq` through `--slurpfile` or `--rawfile` from a temp file, never `--argjson`, which puts it on the command line and fails with "Argument list too long" (#33)
+- `redline-gh.sh` never calls `gh pr diff` or `gh pr view --json files`: the first refuses a PR over 300 files, the second stops at 100, so the paginated files endpoint (`gh api --paginate --slurp`, gh 2.48.0 or newer, which the script names when an older gh rejects the flag) is the one source of the file list, the diff and the anchor positions (#33)
+- A read subcommand whose answer is a number (`last-round`) prints it as a bare JSON number, `0` for none; one whose answer is yes or no (`has-review`) uses the exit code

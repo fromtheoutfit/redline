@@ -1,0 +1,1 @@
+Redline round 1: fixed in 4c62688 (redline: R1-3 call a patch-less rename unchanged only when GitHub counts no changes, so a changed one reads as binary or too large (#33)). · decided by: redline

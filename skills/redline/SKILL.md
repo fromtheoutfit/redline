@@ -23,7 +23,7 @@ The grammar, in any order, case-insensitive:
 | Typed | Meaning | Default (from `redline.json`, then built in) |
 | --- | --- | --- |
 | `<n>` or `#<n>` | PR number. **Required.** | none: stop with "Usage: /redline:redline <pr> [...]" |
-| `autopilot`, `guided`, `plan`, `review`, `review only` | `interrupt`: the dial, where the run stops for the person (see "The interrupt dial" below). `review only` also sets `reviewOnly = true`: stop after the round 1 review is posted (or written, in a dry run) | saved, else `guided` (step 3) |
+| `autopilot`, `guided`, `plan`, `review`, `review only` | `interrupt`: the dial, where the run stops for the person (see "The interrupt dial" below). `review only` also sets `reviewOnly = true`: stop after the first round's review is posted (or written, in a dry run) | saved, else `guided` (step 3) |
 | `correctness only` | `scope = "correctness"`: the reviewer never looks for nits, and a round without a correctness finding is done, with no final nit pass | saved, else `all` (step 3) |
 | `max <N> rounds`, `max <N> round`, `max <N>` | `maxRounds = N` (revise rounds allowed while correctness bugs remain) | saved, else `maxRounds` in `redline.json`, else 3 (step 3) |
 | `revise fable`, `revise opus` | `models.revise.model`: `claude-fable-5-1` or `claude-opus-5-5` | saved, else ask (step 3) |
@@ -38,8 +38,8 @@ A word that fits none of these stops the launch with one line naming it. Do not 
 - `autopilot`: never asks. At a judgment call the shaper's recommendation becomes the decision and the run goes on; each such decision is attributed `redline (autopilot)` in the spec, the thread and the handoff comment.
 - `guided` (the default): the run ends only when the shaper returns a judgment call (`ask`); you present the calls, record the answers and relaunch.
 - `plan`: after shaping, every round, the run ends with the full disposition list; you present it, the person approves it as-is or changes a disposition or answers an ask, and you relaunch.
-- `review`: the run ends after the round 1 review is posted; you present the findings, the person picks which to act on (and drops the rest, each with a reason), and you relaunch. Later rounds behave as `guided`.
-- `review only`: stop after the round 1 review; nothing is revised.
+- `review`: the run ends after the first round's review is posted; you present the findings, the person picks which to act on (and drops the rest, each with a reason), and you relaunch. Later rounds behave as `guided`.
+- `review only`: stop after the first round's review; nothing is revised.
 
 ## 3. Settle the settings (fresh launches only)
 
@@ -79,21 +79,23 @@ Skip this on a relaunch after a hand-off: the round's spec folder is uncommitted
 
 Run the git commands plainly, from the session's working directory, which section 1 established is inside the checkout: the shared allow rules are `Bash(git status:*)` and `Bash(git rev-parse:*)`, and a `git -C <path> ...` spelling matches neither, so it asks the person before running.
 6. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh login` prints the login Redline posts as: keep it as `login` (every decision the person makes is attributed `@<login>`). When `reviewer` is set, it must not equal `reviewer` (GitHub ignores a review request to the PR's own author).
+7. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh files <n>` prints every changed path as a JSON array (every page of GitHub's files endpoint, where `gh pr view` stops at 100); keep it as `files` for the snapshot in section 5. On exit 2, stop with its one stderr line verbatim (a `gh` older than 2.48.0 does not know `--slurp`). Say the count in one line, `<N> files on GitHub`. Cross-check it against `git diff --shortstat origin/<baseRefName>...HEAD`, run plainly: its one line starts with the local count (`336 files changed`, `1 file changed`; no output means 0), with the same rename handling as GitHub's list, so read the number, never count paths: when the counts differ, warn in one line naming both (`GitHub lists 336 files, the local diff against origin/main 333; the snapshot uses GitHub's list`); when git fails (`origin/<baseRefName>` not fetched), warn and go on. Above 300 files, warn: `over 300 files: GitHub's whole-PR diff is unavailable, so Redline reads per-file patches; a finding in a file whose patch GitHub omits (binary, or too large) goes in the review body behind a marker`. When `redline.json` sets `maxFiles` and the count exceeds it, stop: `<N> files is over maxFiles (<M>) in .claude/redline.json; split the PR`.
+8. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh last-round <n>` prints the highest Redline round already posted on the PR, `0` when none (exit 2 stops the launch with its line). `firstRound` is that number plus one: a PR that already carries rounds 1 and 2 from an earlier run gets round 3 from this one, so every finding of this run gets its own review and threads, and nothing is skipped as already posted (#10). Say it in one line when it is not 1: `rounds 1 to 2 are already posted; this run starts at round 3`.
 
-Any failure stops the launch with one line saying which check failed and what to do (the gate script's own line, `check out <branch>`, `commit or stash your changes`, `pull or push so HEAD matches the PR`, `pick another reviewer`). Never fix the checkout yourself, and never stamp or edit `checks.sh`: a person does that.
+Any failure stops the launch with one line saying which check failed and what to do (the gate script's own line, `check out <branch>`, `commit or stash your changes`, `pull or push so HEAD matches the PR`, `pick another reviewer`, `split the PR`, the gh version line). Never fix the checkout yourself, and never stamp or edit `checks.sh`: a person does that.
 
 ## 5. Write the start snapshot and assemble `args`
 
 1. `launchedAt`: run `date +%Y-%m-%dT%H:%M:%S%z` once and keep the output (for example `2026-10-18T09:30:00-0400`). The workflow derives the spec-folder timestamp `YYYY-MM-DD-HHMM` from it, so the same value must be reused on every relaunch.
-2. `files`: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh files <n>` (a JSON array).
+2. `files`: the JSON array from precheck step 7.
 3. `issue`: the issue number in the head branch (`feature/42-...` gives 42), else the `(#N)` in the PR title, else the PR number.
-4. Write the start snapshot with the Write tool to `<repoRoot>/agent-os/specs/<YYYY-MM-DD-HHMM>-<n>-review-round-1/redline/snapshot-start.json`:
+4. Write the start snapshot with the Write tool to `<repoRoot>/agent-os/specs/<YYYY-MM-DD-HHMM>-<n>-review-round-<firstRound>/redline/snapshot-start.json` (`firstRound` from precheck step 8; `1` on a PR with no posted Redline round):
 
    ```json
    {"pr": 43, "start_sha": "<headRefOid>", "base_ref": "<baseRefName>", "files": ["..."], "plan_paths": []}
    ```
 
-   It sits under `agent-os/specs/`, which every `checks.sh` allowed list includes, and it is committed as the run's record: with round 1's spec folder, or by the run-record commit at Finish when no round committed it.
+   It sits under `agent-os/specs/`, which every `checks.sh` allowed list includes, and it is committed as the run's record: with the first round's spec folder, or by the run-record commit at Finish when no round committed it.
 5. Assemble `args` (every field, every time; the workflow reads nothing else):
 
    ```json
@@ -106,9 +108,10 @@ Any failure stops the launch with one line saying which check failed and what to
      "startSha": "<headRefOid>",
      "files": ["..."],
      "issue": 42,
+     "firstRound": 1,
      "login": "<login>",
      "launchedAt": "2026-10-18T09:30:00-0400",
-     "snapshotPath": "/abs/path/agent-os/specs/2026-10-18-0930-43-review-round-1/redline/snapshot-start.json",
+     "snapshotPath": "/abs/path/agent-os/specs/2026-10-18-0930-43-review-round-<firstRound>/redline/snapshot-start.json",
      "interrupt": "guided",
      "scope": "all",
      "maxRounds": 3,
@@ -131,7 +134,7 @@ Any failure stops the launch with one line saying which check failed and what to
    }
    ```
 
-   `pluginRoot` is the plugin's root exactly as written above; the workflow script has no environment of its own and finds `redline-gh.sh` and the README through it. `interrupt`, `scope`, `maxRounds` and `models.revise.model` are the effective settings from step 3 (`interrupt` is the command-line word, `review only` included; `reviewOnly` is true exactly then). The `models` entries other than `revise` come from `redline.json` verbatim; `models.revise.effort` too, when `redline.json` sets one. On a relaunch, `decisions`, `approvedPlans` and `selected` are added as step 7 says, and nothing else changes.
+   `pluginRoot` is the plugin's root exactly as written above; the workflow script has no environment of its own and finds `redline-gh.sh` and the README through it. `firstRound` is precheck step 8's value: the workflow numbers its rounds from it and never asks GitHub, so a relaunch replays. `interrupt`, `scope`, `maxRounds` and `models.revise.model` are the effective settings from step 3 (`interrupt` is the command-line word, `review only` included; `reviewOnly` is true exactly then). The `models` entries other than `revise` come from `redline.json` verbatim; `models.revise.effort` too, when `redline.json` sets one. On a relaunch, `decisions`, `approvedPlans` and `selected` are added as step 7 says, and nothing else changes.
 
 ## 6. Launch
 
@@ -145,7 +148,7 @@ The workflow returns `{status, rounds, judgmentCalls, deferred, openFindings, de
 
 ### `review-only`
 
-Summarise the round 1 review in a few lines: how many findings by category, the correctness ones by title, and where the review sits (`reviewFile`; in a dry run, say plainly that nothing was posted). Stop.
+Summarise the first round's review (round `firstRound`) in a few lines: how many findings by category, the correctness ones by title, and where the review sits (`reviewFile`; in a dry run, say plainly that nothing was posted). Stop.
 
 ### stopped before a result
 
@@ -165,7 +168,7 @@ Every ask must be answered before the relaunch (an approved round whose ask is s
 
 ### `reviewed` (the `review` dial)
 
-The run stopped after posting the round 1 review (`reviewFile`; in a dry run, written only). `findings` holds every open finding in full (ID, file, line, category, severity, confidence, title, description, proposed fix, needsDecision); `known` the ones already tracked, which need nothing.
+The run stopped after posting the first round's review (`reviewedRound`; `reviewFile`, in a dry run written only). `findings` holds every open finding in full (ID, file, line, category, severity, confidence, title, description, proposed fix, needsDecision); `known` the ones already tracked, which need nothing.
 
 Summarise the review as in `review-only`, then present the findings one at a time, in prose, and let the person pick which to act on. Every finding not picked is dropped **with a reason**, one standalone sentence in the restatement style below (it is posted in the finding's thread and listed in the handoff comment as `decided by: @<login>`); say it back in one line. A finding the person does not mention is dropped with "Not selected for this run." Then confirm with one `AskUserQuestion`, "Relaunch with this selection?" (**Relaunch with this selection** first, **Let me change one** second), save the run record, and relaunch with `args.selected` set to `{"act": ["R1-1", ...], "dropped": {"R1-2": "<reason>", ...}}`. The loop shapes only the selected findings; later rounds hand off their judgment calls as `guided` does.
 
