@@ -1,0 +1,25 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "2744c4b29aaa45635af501214b285359b2a5733b",
+    "to": "dafef60dc6979684cc494c7bc614ba89361231de"
+  },
+  "summary": "The round 1 fixes hold together. Each reply now picks its route (thread, issue-comment or file-only) from whether a review is on GitHub. The skill passes `revise.posted` in through args, so replay is unaffected. The already-posted check looks for the reply's own second line rather than the marker, which the review body also carries. The R1-8 check continues past an agent error only when the review was posted, has an id and accounts for every finding. Everything else still stops the run. The only finding is a loose assertion in the new --help test. This repository has no scheduled commands or queued jobs, so nothing can overlap with the changed paths.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "tests/gh-test.sh",
+      "line": 143,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The --help test says it checks the header's last line but matches a line four lines earlier",
+      "description": "The case is named \"usage: --help prints the writes section to its last line\", but it looks for `update <n> <title|-> <file> [<copy>]`. In scripts/redline-gh.sh that text is on line 42. The header runs on to line 46 (the `$REDLINE_BACKUP_DIR` and `<copy>` continuation lines), and line 47 is the blank line where `sed -n '2,/^$/p'` stops. If a later edit put a blank line inside the `update` entry, or a numeric range came back that stopped between lines 42 and 46, `--help` would drop the end of the header and this case would still pass. R1-2 was exactly that kind of truncation.",
+      "proposedFix": "Match the header's actual last line, e.g. `has \"usage: --help prints the writes section to its last line\" \"$(cat \"$WORK/err\")\" \"unless it already exists (a re-run keeps the first, older body)\"`, or compare the last line of the stderr output (`tail -1`) with that text.",
+      "needsDecision": false,
+      "knownAs": ""
+    }
+  ]
+}

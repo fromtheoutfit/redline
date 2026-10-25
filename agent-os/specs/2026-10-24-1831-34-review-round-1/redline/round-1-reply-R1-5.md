@@ -1,0 +1,1 @@
+Redline round 1: fixed in 2f9ef30 (redline: R1-5 read the precheck's local file count from git diff --shortstat instead of counting paths (#33)). · decided by: redline

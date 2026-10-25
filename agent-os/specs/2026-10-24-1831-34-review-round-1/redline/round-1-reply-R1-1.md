@@ -1,0 +1,1 @@
+Redline round 1: fixed in 0c0fc29 (redline: R1-1 check for a body finding's reply by its own second line, never the marker the review body also carries (#33)). · decided by: redline
