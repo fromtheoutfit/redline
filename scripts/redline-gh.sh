@@ -47,7 +47,7 @@
 
 set -euo pipefail
 
-usage() { sed -n '2,34p' "$0" >&2; exit 2; }
+usage() { sed -n '2,/^$/p' "$0" >&2; exit 2; }
 
 need_file() {
     if [[ ! -f "$1" ]]; then
