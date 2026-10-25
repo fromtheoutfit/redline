@@ -140,7 +140,7 @@ gh last-round x 2>/dev/null; is "usage: last-round with a non-number exits 2" "$
 gh place 7 "$WORK/missing.json" 2>/dev/null; is "usage: place with a missing file exits 2" "$?" "2"
 gh --help 2>"$WORK/err"; code=$?
 is "usage: --help exits 2" "$code" "2"
-has "usage: --help prints the writes section to its last line" "$(cat "$WORK/err")" "update <n> <title|-> <file> [<copy>]"
+has "usage: --help prints the writes section to its last line" "$(grep -v '^$' "$WORK/err" | tail -1)" "unless it already exists (a re-run keeps the first, older body)"
 is "usage: --help stops at the header's end" "$(grep -c 'set -euo pipefail' "$WORK/err")" "0"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
