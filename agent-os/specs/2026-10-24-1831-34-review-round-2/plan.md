@@ -48,3 +48,11 @@ Steps 9 and 10 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 
 - **Step 9, standards retrospective.** The proposed edit is under `## Standards retrospective (proposed)` in `shape.md`. The standards approver approves the list, and the implementer applies it in its own commit, touching only the file the list names: `agent-os/standards/testing/tests.md`. If the approver approves no edit, the implementer records "Standards retrospective: no changes" under Decisions in `shape.md` instead.
 - **Step 10, spec folder.** `plan.md` gets an As built section, and any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Commits, in task order: the spec folder (`5bca2ad`), R2-1 (`72ebef0`), and the standards retrospective (`61f02e2`), which applies the one approved edit, a new bullet in `agent-os/standards/testing/tests.md` after the empty-comparison bullet. Its message names no finding: R2-1's plan in `shape.md` does not send part of its fix through the retrospective, so the edit is a lesson.
+
+Task 2 passed on its first run, as the plan predicted. Proofs: the gate's `gh` check printed `47 passed, 0 failed` with `ok   usage: --help prints the writes section to its last line`; `grep -cF 'older body)"' tests/gh-test.sh` printed 1 and `grep -cF '"update <n> <title|-> <file> [<copy>]"' tests/gh-test.sh` printed 0.
+
+Deviations: none.
