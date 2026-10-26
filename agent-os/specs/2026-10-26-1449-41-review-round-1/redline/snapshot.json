@@ -1,0 +1,41 @@
+{
+  "pr": 41,
+  "start_sha": "4d47c8490a004401b96dc23a01857cd6ed801edc",
+  "base_ref": "main",
+  "files": [
+    ".claude/commands/agent-os/shape-spec.md",
+    ".claude/redline/checks.json",
+    ".claude/redline/checks.sh",
+    "CLAUDE.md",
+    "README.md",
+    "agent-os/product/tech-stack.md",
+    "agent-os/specs/2026-10-26-1409-40-checker-background-gate/plan.md",
+    "agent-os/specs/2026-10-26-1409-40-checker-background-gate/references.md",
+    "agent-os/specs/2026-10-26-1409-40-checker-background-gate/shape.md",
+    "agent-os/specs/2026-10-26-1409-40-checker-background-gate/standards.md",
+    "agent-os/standards/index.yml",
+    "agent-os/standards/process/standards-retrospective.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agents/redline-checker.md",
+    "agents/redline-implementer.md",
+    "scripts/redline-background.sh",
+    "scripts/redline-guard.sh",
+    "skills/redline/SKILL.md",
+    "tests/background-test.sh",
+    "tests/guard-cases.tsv",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "agent-os/product/tech-stack.md",
+    "scripts/redline-background.sh",
+    "tests/background-test.sh",
+    "README.md",
+    "agents/redline-checker.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/specs/2026-10-26-1449-41-review-round-1/"
+  ]
+}

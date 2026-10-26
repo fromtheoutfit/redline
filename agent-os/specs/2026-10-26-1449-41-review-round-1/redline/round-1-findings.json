@@ -1,0 +1,53 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "4d47c8490a004401b96dc23a01857cd6ed801edc",
+    "to": "4d47c8490a004401b96dc23a01857cd6ed801edc"
+  },
+  "summary": "This change gives a long gate a clear start/wait path. The checker still reads no files, the whole foreground prompt is pinned, and every changed surface has its own guard, loop and harness cases, including the 480/481 s boundary and a missing baseline. Both correctness findings are about how `wait` treats a finished run's files. It trusts any `.exit` under the label, which can return a stale result if the wait runs before `start` clears the old files. It also passes through checks.sh codes that collide with its own 3, 4 and 5, and a recorded 3 loops forever. No scheduled or queued work writes `$TMPDIR/redline-background/`; only two runs sharing a launch minute, PR number and agent label would collide there.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agent-os/product/tech-stack.md",
+      "line": 16,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Missing separator before 'the GitHub wrapper' in the harness list",
+      "description": "The edit dropped the 'and' before the GitHub wrapper but added no comma, so two list items now run together: '... the setup script (`tests/setup-test.sh` over `tests/setup-fixtures/`) the GitHub wrapper (`tests/gh-test.sh` ...) and the background runner ...'.",
+      "proposedFix": "Add a comma after the setup script's parenthesis: '... over `tests/setup-fixtures/`), the GitHub wrapper (...) and the background runner (...)'.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-background.sh",
+      "line": 113,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "wait can return an earlier run's result if it runs before start clears the label",
+      "description": "`wait` treats any `<label>.exit` it finds as this run's result (line 113). `start` removes the label's old files only at line 77, after `git rev-parse` and `mkdir -p`, and it runs in a process the harness launched in the background. Nothing guarantees that removal happens before the role's next Bash call. Labels are reused by design. The implementer runs every gate of a pass under `implement-r<n>`. A relaunch reruns a checker label (`check-r1`, `recheck-r1`) whose earlier run left its files behind. Suppose a role sends the start and the wait back to back (two tool calls in one message). If the wait checks before the `rm -f`, it returns the previous run's `.json` and exit code as this gate's result. That is a stale pass or fail, and the checker hands it to the verdict. If an old dead `.pid` is left and there is no `.exit`, the wait exits 5 instead. The test at tests/background-test.sh:131 waits until the old `.exit` is gone before it calls wait, so the harness never tests this ordering. shape.md's claim that 'a rerun under the same label never returns an earlier result' depends on that ordering. The window is short, because the start usually finishes clearing while the guard hook runs on the wait call, hence low severity.",
+      "proposedFix": "Let a finished result be read only once. After wait prints a finished run's result (lines 113-117), remove the label's `.exit`, `.json`, `.err`, `.pid` and `.started`. A later wait then finds no `.pid` and waits out the 10 s grace for the new start to write one. Adjust the 'stdout equals the kept file' case, which reads the kept file after the wait. Add a case that runs `bg again` followed at once by `waitfor again`, with no `within` between them, and asserts exit 1 and the new run's JSON. State the read-once rule in the script header and in the README's `redline-background.sh` table.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "scripts/redline-background.sh",
+      "line": 117,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "A checks.sh exit of 3, 4 or 5 reads as wait's own answer, and a 3 loops forever",
+      "description": "`wait` exits with whatever code `start` recorded (line 117). The header reserves 3, 4 and 5 for wait's own answers, assuming checks.sh only ever exits 0, 1 or 2. But checks.sh runs under `set -euo pipefail` with no exit-code mapping (scripts/checks-template.sh:42). A command that fails outside `run_check` ends checks.sh with its own code: jq, used throughout the template, exits 3 on a compile error and 5 on a runtime error, and a signal gives 128+n. A recorded 3 makes every wait return 3 at once, because the `.exit` branch runs before the limit check at line 131. The checker's and the implementer's prompts say to wait again while it exits 3, and each call counts as activity. So neither the stall watchdog nor `--limit` ever ends the loop. A recorded 4 or 5 is reported as 'past its limit' or 'no result', which hides checks.sh's own failure. A code of 6 or above is outside every instruction the roles get. Triggering this needs checks.sh to exit outside its 0/1/2 contract, hence low severity.",
+      "proposedFix": "In wait's `.exit` branch, pass 0, 1 and 2 through unchanged. For any other recorded code, print checks.sh's stderr and stdout, then a line `redline-background: checks.sh exited <n> without a gate result` on stderr, and exit 5. Add a background-test case whose stub exits 3 and assert that wait exits 5 with that line. Keep the neighbouring exit-2 case passing through. Update the header's exit-code list and the README table.",
+      "needsDecision": false,
+      "knownAs": ""
+    }
+  ]
+}

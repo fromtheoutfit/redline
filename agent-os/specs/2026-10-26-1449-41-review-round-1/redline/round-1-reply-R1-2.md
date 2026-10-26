@@ -1,0 +1,1 @@
+Redline round 1: fixed in b33a94f (redline: R1-2 read a background result once, so a rerun's wait never returns the earlier run's (#40)). · decided by: redline

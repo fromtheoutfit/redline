@@ -1,0 +1,1 @@
+Redline round 1: fixed in 820345d (redline: R1-3 report a checks.sh exit outside 0, 1 and 2 as no result, so a wait cannot loop on 3 (#40)). · decided by: redline

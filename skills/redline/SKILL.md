@@ -119,6 +119,7 @@ Any failure stops the launch with one line saying which check failed and what to
      "reviewer": "handle",
      "checker": "full",
      "checkerStallMs": 300000,
+     "baselineSeconds": 33,
      "push": true,
      "postToGitHub": true,
      "reviewOnly": false,
@@ -134,7 +135,7 @@ Any failure stops the launch with one line saying which check failed and what to
    }
    ```
 
-   `pluginRoot` is the plugin's root exactly as written above; the workflow script has no environment of its own and finds `redline-gh.sh` and the README through it. `firstRound` is precheck step 8's value: the workflow numbers its rounds from it and never asks GitHub, so a relaunch replays. `interrupt`, `scope`, `maxRounds` and `models.revise.model` are the effective settings from step 3 (`interrupt` is the command-line word, `review only` included; `reviewOnly` is true exactly then). The `models` entries other than `revise` come from `redline.json` verbatim; `models.revise.effort` too, when `redline.json` sets one. On a relaunch, `decisions`, `approvedPlans` and `selected` are added as step 7 says, and nothing else changes.
+   `pluginRoot` is the plugin's root exactly as written above; the workflow script has no environment of its own and finds `redline-gh.sh` and the README through it. `firstRound` is precheck step 8's value: the workflow numbers its rounds from it and never asks GitHub, so a relaunch replays. `interrupt`, `scope`, `maxRounds` and `models.revise.model` are the effective settings from step 3 (`interrupt` is the command-line word, `review only` included; `reviewOnly` is true exactly then). The `models` entries other than `revise` come from `redline.json` verbatim; `models.revise.effort` too, when `redline.json` sets one. `baselineSeconds` is `baseline.seconds` from `<repoRoot>/.claude/redline/checks.json` (read it with the Read tool), or `null` when the file, the `baseline` or its `seconds` is absent: over 480, or null, the workflow has the checker and the implementer run the gate in the background, since it will not fit in one foreground Bash call (#40). On a relaunch, `decisions`, `approvedPlans` and `selected` are added as step 7 says, and nothing else changes.
 
 ## 6. Launch
 
