@@ -1010,7 +1010,7 @@ function judge(out, baselineFailing, needCommits, command) {
   if (said && reasons.length) {
     reasons.push(`checker error: ${said.slice(0, 400)}`)
   } else if (said) {
-    warnings.push(`the checker reported "${said.slice(0, 200)}" on a passing gate`)
+    warnings.push(`the checker reported "${said.slice(0, 200)}" on a round that passes`)
   }
   return { pass: reasons.length === 0, stop: null, reasons, warnings, preExisting, diffLines: git.diff_lines }
 }
