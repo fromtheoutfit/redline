@@ -1,0 +1,81 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "d7b7c8630311033a1596c989af45d3279bf597b9",
+    "to": "d7b7c8630311033a1596c989af45d3279bf597b9"
+  },
+  "summary": "The pass descriptor (`passOf`) reaches every prompt cleanly, so a Redline round's prompts stay byte-identical. The whole ingest sits in one jq filter backed by real fixtures, and both made checking easy. Every correctness finding comes down to how a teammate's comment is tied to the Redline reply that answers it. Comments count as answered thread by thread, a review body is never checked for an answer, two comments in one thread share one reply, and the human pass's plan approval uses the same round numbers as its nit pass. No scheduled or queued work touches these files (a CLI plugin with no scheduler), so nothing can run against them at the same time.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "scripts/redline-gh.sh",
+      "line": 275,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A Redline reply at a thread's root marks every earlier comment in that thread answered",
+      "description": "`human-review` counts a comment as answered when any Redline reply with a higher id sits in the same thread. It does not check which comment that reply answered. When a pass over one review replies at the thread root, every earlier comment in that thread now counts as answered. That includes another teammate's reply in the thread, and the same teammate's own follow-up reply if it was posted as a separate review (which `review <id>` and `latest` did not select). Reproduced by running the script's filter, copied to /tmp/redlinerepro/hr.jq, over /tmp/redlinerepro/s2-reviews.json and /tmp/redlinerepro/s3-comments.json. The thread: root 905 by marcamos in review 7, then 911 by sam in review 8, 912 by marcamos in review 10, and a `Redline human review 1:` reply 950 at 905. `@sam` and `latest` both print `comments: [], body: null`, so the skill stops with \"nothing to revise\" and both requests are dropped without notice. The PR's answer for several reviewers, one pass per review, is exactly the path that loses them. Question for the person: how should a Redline reply be tied to the comments it answered?",
+      "proposedFix": "Options for the person: (a) every human-pass reply carries a hidden marker listing the comment ids it answers (for example `<!-- redline:answers 905 -->`), and the filter counts a comment as answered only when a Redline reply in its thread lists its id, falling back to the thread rule for replies without a marker; (b) count as answered only the comment ids the earlier pass's `human-review-<m>.json` record ingested; (c) keep the thread rule and add a Known limits line saying one pass per reviewer can miss comments in shared threads. Regression case for tests/gh-test.sh: a PR fixture shaped like s2-reviews.json plus s3-comments.json, where `human-review <pr> @sam` should list 911 and `@marcamos` should list 912.",
+      "needsDecision": true,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-gh.sh",
+      "line": 286,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The @login selector matches the login case-sensitively",
+      "description": "`@login` selects with an exact match, `.login == $pick.login`, and the body lookup on line 289 does the same. GitHub logins are case-insensitive, so `review @MarcAmos` for user marcamos prints `comments: [], body: null` (reproduced with /tmp/redlinerepro/hr.jq over the s2 fixtures). The skill then stops with \"nothing to revise\" even though the teammate has open comments. The skill also uses the login exactly as typed as the reviewer in every `decided by:` line.",
+      "proposedFix": "Compare `ascii_downcase` on both sides in the comment selection and in the `$with_body` login match. In skills/redline-revise/SKILL.md, take the reviewer login from the script's output (`comments[0].user` or `body.user`) instead of the typed text. gh-test case: `human-review 10 @MarcAmos` prints the same comment ids as `@marcamos`.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "scripts/redline-gh.sh",
+      "line": 288,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "An already-answered review body is ingested again on every later pass",
+      "description": "Nothing checks whether a review body was already answered. `$with_body` takes the review's non-empty body (for `@login`, the newest one) whatever earlier passes did, and `human-review` never reads the PR's issue comments, which is where the reply to a body finding is posted. After a pass that fixed every inline comment and answered the body, `review latest`, `review <id>` and `review @login` still print the old body. Reproduced with /tmp/redlinerepro/hr.jq over /tmp/redlinerepro/s1-reviews.json and s1-comments.json: the output has the body of review 7 and `comments: []`. So the skill's \"nothing to revise\" stop never fires for a review that has a body, and the next pass ingests the body again as H2-k. The shaper then re-shapes an instruction that is already done. If it sorts it as fix, there is no new commit to make, so the gate fails with \"no commit names H2-1\". A second issue comment also answers the body again. A related gap: `@login` takes only the newest body, so an older unanswered body by the same login is never ingested. Question for the person: how should an answered body be detected?",
+      "proposedFix": "Options for the person: (a) put the review id in the body finding's reply header (for example `**H1-4** · from review 7 by @marcamos`, in passOf's bodyHeader and bodyHeaderHint), and have `human-review` also read `issues/<n>/comments` and return `body: null` when an issue comment carries that header for the selected review; (b) treat a body as answered when an earlier committed `human-review-<m>.json` record lists its review id. Either way, also decide whether `@login` should take every unanswered body, not only the newest. Regression case for tests/gh-test.sh: the s1 fixtures plus an issue comment holding the H1-2 body reply; `human-review <pr> latest` and `@marcamos` should both print `comments: [], body: null`.",
+      "needsDecision": true,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "workflows/redline-loop.js",
+      "line": 948,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "likely",
+      "title": "Two findings in one thread: the second reply is skipped as a duplicate",
+      "description": "Two ingested comments can sit in the same thread, for example a teammate's comment and their own later follow-up, both still open. `@login` selects them together: /tmp/redlinerepro/hr.jq over the s2 fixtures prints [id, thread_id] pairs [905,905] and [912,905]. The skill maps both H ids to the same root in `commentIds`, and `revise()` builds two `thread` replies with the same `comment_id`. The push prompt then tells the GitHub agent \"Never reply twice in one thread\", and in a human pass the duplicate check is a reply in that thread opening `Redline human review <n>:`. The first reply has just created exactly that. So the second finding's reply is skipped, or posted against the instruction, depending on how the agent reads it. The workflow never checks `reply_id`, and the summary still says every comment was answered. A Redline round never hits this, because each of its findings has its own root comment.",
+      "proposedFix": "In `revise()`, merge the reply entries that share a non-zero `comment_id` into one entry: one reply file whose body lists each finding's outcome line, prefixed `**H<n>-<k>**`. Alternatively, have the skill fold the open comments of one thread into a single finding. Loop-test check: a human scenario with two findings whose threadId is 900 produces exactly one `thread` reply for 900, and its body names both ids.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "workflows/redline-loop.js",
+      "line": 1899,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "Approving the human pass's plan also approves the nit-pass fix plan when n equals firstRound",
+      "description": "The plan dial records approvals by round number: `revise()` checks `approvedPlans.includes(round)`, and `approveWith` adds `record.round`. The human pass's record is `round: n`. Its final nit pass, and that nit pass's correctness fix, run as round `firstRound`. On a PR Redline has never reviewed, both numbers are 1 (`last-round` and `last-human-review` both print 0). On a PR whose only Redline rounds are earlier human passes' nit passes, they stay equal (n=k, firstRound=k). Approving the human pass's plan (approvedPlans [1]) therefore also counts as approval of the nit-pass fix's plan. On the `plan` dial, `revise(roundRecord, active, 'correctness')` skips the plan stop and shapes, implements and pushes that fix without the person ever seeing its dispositions. Traced through `revise()` and `handoffResult()`. The guard refuses node for this role, so the loop test was not run.",
+      "proposedFix": "Give the human pass its own approval key, for example `pass.tag` (`h1`), checked in `revise()` and returned by `approveWith`. `approvedPlans` would then accept tag strings alongside the round numbers it has today, so existing relaunch args stay valid. Update skills/redline/SKILL.md's plan-dial text to match. Loop-test check: the human scenario with `firstRound: 1`, `interrupt: 'plan'`, `approvedPlans: [1]` and a nit pass that finds R1-1 must end as `handoff (plan)` after `shape r1`. Today it goes on to `implement r1`.",
+      "needsDecision": false,
+      "knownAs": ""
+    }
+  ]
+}
