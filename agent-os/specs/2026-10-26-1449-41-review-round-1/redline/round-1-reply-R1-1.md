@@ -1,0 +1,1 @@
+Redline round 1: fixed in 2f2e9bb (redline: R1-1 separate the setup script and the GitHub wrapper in the harness list (#40)). · decided by: redline
