@@ -85,4 +85,6 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 
 ## As built
 
-(filled in by the implementer)
+- Tasks 1 to 5 built as planned, one commit each. The red runs went through the gate (`checks.sh --baseline`), since the guard admits no role to run a harness on its own: Task 3's four read-once and rerun cases failed against the old script (the rerun's wait returned the earlier run's exit 0 and JSON, reproducing R1-2's race), and Task 4's two exit-3 cases failed against the Task 3 script (wait exited 3). Both went green after the fix: `tests/background-test.sh` 39 passed, 0 failed.
+- Task 3, README wording: per the plan approver's note, the paragraph says "a returned result is never returned again, not even to a rerun's wait sent under the same label before that rerun's start has cleared the label" instead of the plan's "a rerun under the same label never returns the earlier run's", which promised more than read-once gives (an unread result left by a stopped role). The script header says the same, and names the unread case.
+- Task 5, `testing/tests.md` polling bullet: the approved text was appended after "(#40)" with a period between them ("(#40). A harness never waits ..."), as the file's other multi-sentence bullets read.
