@@ -109,8 +109,12 @@ const personLabel = login ? `@${login}` : 'the author'
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
-// plan dial: the rounds whose disposition list the person approved (relaunch carries them all).
-const approvedPlans = Array.isArray(A.approvedPlans) ? A.approvedPlans.map(Number).filter((n) => Number.isInteger(n)) : []
+// plan dial: the passes whose disposition list the person approved (relaunch carries them all):
+// a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
+// its final nit pass never share a key when their numbers are equal (#38, R1-5).
+const approvedPlans = Array.isArray(A.approvedPlans)
+  ? A.approvedPlans.map((key) => (typeof key === 'string' && /^h\d+$/.test(key) ? key : Number(key))).filter((key) => typeof key === 'string' || Number.isInteger(key))
+  : []
 // review dial: after the round 1 review the person picks the findings to act on; the rest are
 // dropped, each with a reason. {act: [ids], dropped: {id: reason}}.
 const selected = A.selected && typeof A.selected === 'object' && !Array.isArray(A.selected)
@@ -176,7 +180,7 @@ function passOf(record) {
   if (record.human) {
     const reviewer = `@${record.human.reviewer}`
     return {
-      human: true, round: n, tag: `h${n}`, name: `human review ${n}`, title: `Redline human review ${n}`, idPrefix: `H${n}`, reviewer,
+      human: true, round: n, tag: `h${n}`, planKey: `h${n}`, name: `human review ${n}`, title: `Redline human review ${n}`, idPrefix: `H${n}`, reviewer,
       replyFile: (id) => `${record.specFolder}/redline/human-review-${n}-reply-${id}.md`,
       bodyHeader: (f) => `**${f.id}** · from the review by ${reviewer}`,
       bodyHeaderHint: `\`**<id>** · from the review by ${reviewer}\``,
@@ -184,7 +188,7 @@ function passOf(record) {
     }
   }
   return {
-    human: false, round: n, tag: `r${n}`, name: `round ${n}`, title: `Redline round ${n}`, idPrefix: `R${n}`, reviewer: '',
+    human: false, round: n, tag: `r${n}`, planKey: n, name: `round ${n}`, title: `Redline round ${n}`, idPrefix: `R${n}`, reviewer: '',
     replyFile: (id) => `${record.specFolder}/redline/round-${n}-reply-${id}.md`,
     bodyHeader: (f) => `**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${n} review body`,
     bodyHeaderHint: `\`**<id>** · ... · from the Redline round ${n} review body\``,
@@ -1247,7 +1251,7 @@ function result(status, extra) {
     warnings,
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans with this round added, plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}).',
     },
     ...extra,
   }
@@ -1484,9 +1488,9 @@ async function revise(record, inScope, reviewedKind) {
   // on the relaunch whatever the dial says.
   //
   // plan: the person sees every disposition before anything is planned further. The run ends
-  // here each round until the relaunch carries this round in args.approvedPlans, with any ask
+  // here each round until the relaunch carries this pass's key in args.approvedPlans, with any ask
   // answered and any disposition changed under args.decisions.
-  if (interrupt === 'plan' && !approvedPlans.includes(round)) {
+  if (interrupt === 'plan' && !approvedPlans.includes(pass.planKey)) {
     const pendingCalls = shaped.judgmentCalls.filter((call) => !decisions[call.id])
     return { handoff: true, kind: 'plan', pending: pendingCalls, calls: shaped.judgmentCalls, shaped }
   }
@@ -1897,7 +1901,7 @@ function handoffResult(record, outcome) {
       judgmentCalls,
       unresolved: [],
       decisionsNeeded: outcome.pending.map((call) => call.id),
-      approveWith: { approvedPlans: unique(approvedPlans.concat(record.round)) },
+      approveWith: { approvedPlans: unique(approvedPlans.concat(passOf(record).planKey)) },
     })
   }
   log(`round ${record.round}: ${outcome.pending.length} judgment call(s) for the person; the run ends here and resumes on relaunch`)
