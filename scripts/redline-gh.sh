@@ -29,7 +29,8 @@
 #                                  or is already answered by a Redline reply later in its thread
 #                                  (thread_id is in_reply_to_id, else the comment's own id). An id
 #                                  keeps that review's open comments and its body when not empty;
-#                                  @login keeps every open comment by that login, replies inside
+#                                  @login keeps every open comment by that login
+#                                  (matched in any case, as GitHub matches logins), replies inside
 #                                  Redline threads included, and the body of their newest review
 #                                  that has one; latest is the newest review that is not Redline's
 #                                  and not by the gh user (the author running Redline) with an open
@@ -279,14 +280,14 @@ case "$cmd" in
                    | map(select((.user.login // "") != $me and ((.body // "") != "" or (.id as $r | any($open[]; .pull_request_review_id == $r)))))
                    | sort_by(.submitted_at, .id) | last) as $r
                   | if $r == null then null else {kind: "id", id: $r.id} end
-               elif ($selector | startswith("@")) then {kind: "login", login: $selector[1:]}
+               elif ($selector | startswith("@")) then {kind: "login", login: ($selector[1:] | ascii_downcase)}
                else {kind: "id", id: ($selector | tonumber)} end) as $pick
             | if $pick == null then {selector: $selector, reviews: [], body: null, comments: []} else
               (if $pick.kind == "id" then ($open | map(select(.pull_request_review_id == $pick.id)))
-               else ($open | map(select(.login == $pick.login))) end
+               else ($open | map(select((.login | ascii_downcase) == $pick.login))) end
                | sort_by(.path, (.line // .original_line // 0), .id)) as $picked
               | (if $pick.kind == "id" then ($humans | map(select(.id == $pick.id and (.body // "") != "")) | first)
-                 else ($humans | map(select((.user.login // "") == $pick.login and (.body // "") != "")) | sort_by(.submitted_at, .id) | last) end) as $with_body
+                 else ($humans | map(select(((.user.login // "") | ascii_downcase) == $pick.login and (.body // "") != "")) | sort_by(.submitted_at, .id) | last) end) as $with_body
               | ([$picked[].pull_request_review_id] + (if $with_body == null then [] else [$with_body.id] end) | unique) as $ids
               | {
                   selector: $selector,

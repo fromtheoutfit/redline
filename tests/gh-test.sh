@@ -159,6 +159,7 @@ is "human-review @login: the comment a Redline human review reply answered is le
 is "human-review @login: the body is the newest non-empty review body by that login" "$(jq -c '.body' <<<"$hr")" '{"review_id":7,"user":"marcamos","text":"Two things inline, one general: the empty case needs a test somewhere."}'
 is "human-review @login: reviews lists the ones the comments and body came from" "$(jq -c '[.reviews[] | [.id, .user, .state]]' <<<"$hr")" '[[5,"marcamos","COMMENTED"],[7,"marcamos","COMMENTED"],[8,"marcamos","COMMENTED"]]'
 is "human-review @login: the selector is echoed" "$(jq -r '.selector' <<<"$hr")" "@marcamos"
+is "human-review @login: the login matches in any case, and the owner is GitHub's spelling" "$(gh human-review 10 @MarcAmos | jq -c '[[.comments[].id], .body.review_id, .body.user, .selector]')" '[[904,907,905,909],7,"marcamos","@MarcAmos"]'
 byid="$(gh human-review 10 7)"
 is "human-review <id>: that review's un-replied comments and its body" "$(jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]' <<<"$byid")" "[[907,905],7,[7]]"
 latest="$(gh human-review 10 latest)"
