@@ -372,12 +372,16 @@ const IMPLEMENT_SCHEMA = {
 
 const CHECKER_SCHEMA = {
   type: 'object',
-  required: ['exit', 'result', 'error'],
+  required: ['exit', 'status', 'reason', 'result', 'error'],
   properties: {
     exit: int,
+    // read: the tool showed the script's whole JSON. result_unreadable: it did not, and reason
+    // says why; the loop stops on it (#9).
+    status: { type: 'string', enum: ['read', 'result_unreadable'] },
+    reason: { type: 'string', enum: ['', 'spilled', 'not_json', 'no_git_block'] },
     error: str,
     result: {
-      type: 'object',
+      type: ['object', 'null'],
       properties: {
         mode: str,
         ok: bool,
@@ -819,7 +823,7 @@ Return only the JSON your instructions specify.`
 function checkerPrompt(command) {
   return `${RUN_LINE}
 
-Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say:
+Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool shows you no complete JSON (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say.
 
 ${command}`
 }
@@ -917,25 +921,56 @@ Return only the JSON your instructions specify, with operation "record-commit" a
 }
 
 // ---------------------------------------------------------------------------
-// The checker's verdict. The script decides, never an agent.
+// The checker's verdict. The script decides, never an agent. It decides from the gate's own
+// fields (ok, exit, the checks, the git block); the checker's error field is text. A result the
+// implementer cannot change (unreadable, missing, a usage error, no git block) stops the run at
+// check instead of starting a repair pass that would hit the same wall (#9).
 // ---------------------------------------------------------------------------
+
+// The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
+// failed a passing gate on error: '""').
+function errorText(out) {
+  const text = typeof out.error === 'string' ? out.error.trim() : ''
+  return ['""', "''", 'null'].includes(text) ? '' : text
+}
+
+// Why the run stops on this result, naming the cause and the fix, or null when judge() decides.
+// needGit is false for the baseline, whose git block is null by design.
+function stopReason(out, command, needGit) {
+  const said = errorText(out)
+  const suffix = said ? `; the checker said: ${said.slice(0, 400)}` : ''
+  const byHand = `; run ${command} by hand and read its output`
+  if (out.status === 'result_unreadable') {
+    const cause = {
+      spilled: "checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in scripts/checks-template.sh",
+      not_json: `checks.sh printed something that is not one JSON object${byHand}`,
+      no_git_block: `the JSON checks.sh printed has no git block, so the output was cut or the script is broken${byHand}`,
+    }[out.reason] || `reason ${JSON.stringify(out.reason)}${byHand}`
+    return `the checker could not read checks.sh's result: ${cause}${suffix}`
+  }
+  if (out.exit === 2) {
+    return `checks.sh exited 2 (usage error)${suffix}${byHand}`
+  }
+  if (!out.result) {
+    return `the checker returned no result${suffix}${byHand}`
+  }
+  if (needGit && !out.result.git) {
+    return `the checker result has no git block${suffix}${byHand}`
+  }
+  return null
+}
 
 function failingNames(out) {
   const checks = out && out.result && Array.isArray(out.result.checks) ? out.result.checks : []
   return checks.filter((check) => !check.recorded && check.exit !== 0).map((check) => check.name)
 }
 
-function judge(out, baselineFailing, needCommits) {
+function judge(out, baselineFailing, needCommits, command) {
+  const stop = stopReason(out, command, true)
+  if (stop) {
+    return { pass: false, stop, reasons: [], warnings: [], preExisting: [], diffLines: null }
+  }
   const reasons = []
-  if (!out || !out.result) {
-    return { pass: false, reasons: ['the checker returned no result'], preExisting: [], diffLines: null }
-  }
-  if (out.error) {
-    reasons.push(`checker error: ${out.error.slice(0, 400)}`)
-  }
-  if (out.exit === 2) {
-    reasons.push('checks.sh exited 2 (usage error)')
-  }
   const result = out.result
   const checks = Array.isArray(result.checks) ? result.checks : []
   if (checkerMode === 'full' && checks.length === 0) {
@@ -948,31 +983,35 @@ function judge(out, baselineFailing, needCommits) {
     reasons.push(`failing checks: ${newFailures.join(', ')}`)
   }
   const git = result.git
-  if (!git) {
-    reasons.push('the checker result has no git block')
-  } else {
-    const unexpected = git.unexpected_files || []
-    if (unexpected.length) {
-      reasons.push(`files outside the approved plan changed: ${unexpected.join(', ')}`)
-    }
-    const uncommitted = git.uncommitted || []
-    if (uncommitted.length) {
-      reasons.push(`uncommitted changes outside the spec folders, which the push would leave behind: ${uncommitted.join(', ')}`)
-    }
-    const commits = git.commits || []
-    const unprefixed = commits.filter((commit) => !/^redline:/.test(commit.message || ''))
-    if (unprefixed.length) {
-      reasons.push(`commits without the redline: prefix: ${unprefixed.map((commit) => short(commit.sha)).join(', ')}`)
-    }
-    const missing = needCommits.filter((id) => !commits.some((commit) => mentions(commit.message, id)))
-    if (missing.length) {
-      reasons.push(`no commit names ${missing.join(', ')}`)
-    }
+  const unexpected = git.unexpected_files || []
+  if (unexpected.length) {
+    reasons.push(`files outside the approved plan changed: ${unexpected.join(', ')}`)
+  }
+  const uncommitted = git.uncommitted || []
+  if (uncommitted.length) {
+    reasons.push(`uncommitted changes outside the spec folders, which the push would leave behind: ${uncommitted.join(', ')}`)
+  }
+  const commits = git.commits || []
+  const unprefixed = commits.filter((commit) => !/^redline:/.test(commit.message || ''))
+  if (unprefixed.length) {
+    reasons.push(`commits without the redline: prefix: ${unprefixed.map((commit) => short(commit.sha)).join(', ')}`)
+  }
+  const missing = needCommits.filter((id) => !commits.some((commit) => mentions(commit.message, id)))
+  if (missing.length) {
+    reasons.push(`no commit names ${missing.join(', ')}`)
+  }
+  // The checker's error is text: part of the reason on a failing gate, a warning on a passing one.
+  const said = errorText(out)
+  const warnings = []
+  if (said && (result.ok !== true || out.exit !== 0)) {
+    reasons.push(`checker error: ${said.slice(0, 400)}`)
+  } else if (said) {
+    warnings.push(`the checker reported "${said.slice(0, 200)}" on a passing gate`)
   }
   if (out.exit !== 0 && reasons.length === 0 && preExisting.length === 0) {
     reasons.push(`checks.sh exited ${out.exit}`)
   }
-  return { pass: reasons.length === 0, reasons, preExisting, diffLines: git ? git.diff_lines : null }
+  return { pass: reasons.length === 0, stop: null, reasons, warnings, preExisting, diffLines: git.diff_lines }
 }
 
 function failingExcerpt(out) {
@@ -1371,6 +1410,10 @@ async function revise(record, inScope, reviewedKind) {
   if (!baseline) {
     phase('Check')
     baseline = await checker('--baseline', snapshotStart, false, 'baseline')
+    const baselineStop = stopReason(baseline, checkerCommand('--baseline', snapshotStart, false), false)
+    if (baselineStop) {
+      throw stageError('check', `baseline: ${baselineStop}`, { checker: baseline })
+    }
     baselineFailing = failingNames(baseline)
     if (baselineFailing.length) {
       warnings.push(`baseline: ${baselineFailing.join(', ')} already failing before the first implement step`)
@@ -1391,6 +1434,8 @@ async function revise(record, inScope, reviewedKind) {
   let implemented = null
   let checked = null
   let verdict = null
+  const checkFlag = checkerMode === 'git-only' ? '--git-only' : ''
+  const checkCommand = checkerCommand(checkFlag, snapshotPath, octane)
   for (let attempt = 0; attempt < 2; attempt++) {
     phase('Implement')
     implemented = await run('implement', implementPrompt(round, ctx), {
@@ -1400,15 +1445,24 @@ async function revise(record, inScope, reviewedKind) {
       throw stageError('implement', `the implementer is blocked in round ${round}`, { blocked: implemented.blocked })
     }
     phase('Check')
-    checked = await checker(checkerMode === 'git-only' ? '--git-only' : '', snapshotPath, octane, `${attempt ? 'recheck' : 'check'} r${round}`)
-    verdict = judge(checked, baselineFailing, unique(needCommits))
-    log(`round ${round}: checker ${verdict.pass ? 'passed' : `failed (${verdict.reasons.join('; ')})`}`)
+    const checkLabel = `${attempt ? 'recheck' : 'check'} r${round}`
+    checked = await checker(checkFlag, snapshotPath, octane, checkLabel)
+    verdict = judge(checked, baselineFailing, unique(needCommits), checkCommand)
+    log(`round ${round}: checker ${verdict.pass ? 'passed' : verdict.stop ? `stopped (${verdict.stop})` : `failed (${verdict.reasons.join('; ')})`}`)
+    for (const warning of verdict.warnings) {
+      warnings.push(`round ${round}: ${warning}`)
+    }
+    if (verdict.stop) {
+      // Nothing the implementer could change: stop now, keeping what the checker returned.
+      record.check = { pass: false, stop: verdict.stop, reasons: [], preExisting: [], diffLines: null }
+      throw stageError('check', `round ${round} ${checkLabel}: ${verdict.stop}`, { checker: checked })
+    }
     if (verdict.pass) {
       break
     }
     ctx.repair = `${verdict.reasons.join('\n')}\n${failingExcerpt(checked)}`
   }
-  record.check = { pass: verdict.pass, reasons: verdict.reasons, preExisting: verdict.preExisting, diffLines: verdict.diffLines }
+  record.check = { pass: verdict.pass, stop: null, reasons: verdict.reasons, preExisting: verdict.preExisting, diffLines: verdict.diffLines }
   if (!verdict.pass) {
     throw stageError('check', `checks.sh still fails after one repair pass in round ${round}: ${verdict.reasons.join('; ')}`)
   }
