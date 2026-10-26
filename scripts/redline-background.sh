@@ -22,6 +22,10 @@
 #       stderr and its stdout to stdout, as checks.sh printed them, and exits with checks.sh's
 #       exit code. --limit bounds the whole run, counted from <label>.started: the workflow passes
 #       the checker's stall window, which the repeated waits would otherwise keep from firing.
+#       A finished result is read once: the wait that returns it removes the label's files, so a
+#       later wait under the label waits for the next start's pid and a returned result is never
+#       returned again (#41, R1-2). A run stopped before any wait read it leaves a pid and no exit
+#       code; a wait sent before the next start clears them exits 5.
 #
 # Files live under ${TMPDIR:-/tmp}/redline-background/. A label is letters, digits, dots,
 # underscores and hyphens, starting with a letter or digit; the workflow builds it from the launch
@@ -114,6 +118,8 @@ while :; do
         code="$(cat "$base.exit")"
         [[ -f "$base.err" ]] && cat "$base.err" >&2
         [[ -f "$base.json" ]] && cat "$base.json"
+        # Read once: a later wait under the label waits for the next start's pid instead (#41, R1-2).
+        rm -f "$base.json" "$base.json.part" "$base.err" "$base.exit" "$base.exit.part" "$base.pid" "$base.started"
         exit "$code"
     fi
     now="$(date +%s)"

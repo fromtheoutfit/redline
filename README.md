@@ -261,12 +261,12 @@ The hash covers every backticked span and every fenced block in the gate's secti
 
 ## `redline-background.sh`
 
-The two commands a role runs for a long gate (see "Long gates" under `checks.sh`). It is in the guard's `checks` group, beside `checks.sh`, so only the checker and the implementer run it, only from the plugin, and only `start` and `wait`. `start` runs nothing but the repository's own `.claude/redline/checks.sh`. Its files live under `$TMPDIR/redline-background/<label>.*`, and the workflow names each run `<launch stamp>-<pr>-<agent label>` (`2026-10-26-1304-790-baseline`, `...-check-r1`, `...-implement-r1`), so a relaunch builds the same prompts. Its header is the reference; in short:
+The two commands a role runs for a long gate (see "Long gates" under `checks.sh`). It is in the guard's `checks` group, beside `checks.sh`, so only the checker and the implementer run it, only from the plugin, and only `start` and `wait`. `start` runs nothing but the repository's own `.claude/redline/checks.sh`. Its files live under `$TMPDIR/redline-background/<label>.*` until a wait has returned the run's result: each result is read once, so a returned result is never returned again, not even to a rerun's wait sent under the same label before that rerun's start has cleared the label (#41, R1-2). The workflow names each run `<launch stamp>-<pr>-<agent label>` (`2026-10-26-1304-790-baseline`, `...-check-r1`, `...-implement-r1`), so a relaunch builds the same prompts. Its header is the reference; in short:
 
 | subcommand | does | exit |
 | --- | --- | --- |
 | `start <label> [--baseline \| --git-only] [<snapshot>]` | removes the label's earlier files, then runs `checks.sh` with the remaining arguments and this environment (`REDLINE_OCTANE=1` passes through), keeping its stdout, stderr and exit code; prints `{label, exit}`. Run with `run_in_background`, so the harness stops it when the role finishes | `checks.sh`'s; 2 a bad label, no repository, no `checks.sh` |
-| `wait <label> [--limit <s>] [--slice <s>]` | waits up to `--slice` seconds (default 240, under the tool's cap and the 300 s floor of `checkerStallMs`); when the run is done, prints its stderr and stdout as `checks.sh` printed them | `checks.sh`'s 0, 1 or 2; 3 still running, run it again; 4 running longer than `--limit`; 5 the run ended without a result, or never started |
+| `wait <label> [--limit <s>] [--slice <s>]` | waits up to `--slice` seconds (default 240, under the tool's cap and the 300 s floor of `checkerStallMs`); when the run is done, prints its stderr and stdout as `checks.sh` printed them, then removes the label's files | `checks.sh`'s 0, 1 or 2; 3 still running, run it again; 4 running longer than `--limit`; 5 the run ended without a result, or never started |
 
 ## `redline-setup.sh`
 

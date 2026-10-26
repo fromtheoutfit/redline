@@ -62,7 +62,9 @@ waitfor pass0
 same "exit 0: stdout is the gate's JSON, verbatim" "$out" '{"mode":"stub","ok":true,"args":"--baseline snap.json","octane":"","checks":[],"git":null}'
 same "exit 0: wait exits 0" "$code" "0"
 has "exit 0: stderr carries the gate's progress lines" "$err" "checks.sh: running the stub gate"
-same "exit 0: stdout equals the kept file" "$out" "$(cat "$FILES/pass0.json")"
+same "a returned result is read once: the label's files are gone" "$(ls "$FILES" | grep -c '^pass0\.')" "0"
+waitfor pass0 --slice 2
+same "a wait on a label whose result was read exits 5" "$code" "5"
 
 STUB_EXIT=1 bg fail1 snap.json
 waitfor fail1
@@ -128,9 +130,9 @@ STUB_EXIT=0 bg again
 waitfor again
 same "first run under the label passes" "$code" "0"
 STUB_SLEEP=2 STUB_EXIT=1 bg again
-within 5 ! -f "$FILES/again.exit" || bad "a rerun removes the label's earlier result" "$FILES/again.exit still there after 5 s"
 waitfor again
 same "a rerun's wait returns the new result, not the earlier one" "$code" "1"
+same "a rerun's wait prints the new run's JSON" "$(jq -r '.ok' <<<"$out")" "false"
 
 echo "# usage"
 (cd "$REPO" && "$BG" start ../escape) >/dev/null 2>&1; code=$?
