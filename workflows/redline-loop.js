@@ -662,6 +662,25 @@ function mergeThreadReplies(pass, entries) {
   })
 }
 
+// A human-pass thread reply names the comments it answers (#38, R1-1): its last line is a hidden
+// <!-- redline:answers <ids> --> with each of its findings' own commentId, so redline-gh.sh
+// human-review counts a comment in a shared thread as answered only when a reply names it. A
+// body reply (no thread) and a Redline round's replies carry no such line; the script answers
+// a reply without it by the thread rule.
+function withAnswers(pass, findings, entries) {
+  if (!pass.human) {
+    return entries
+  }
+  const commentOf = Object.fromEntries(findings.map((f) => [f.id, Number(f.commentId) || 0]))
+  return entries.map((entry) => {
+    if (!entry.comment_id) {
+      return entry
+    }
+    const ids = unique((entry.findings || [entry.finding]).map((id) => commentOf[id] || entry.comment_id))
+    return { ...entry, body: `${entry.body}\n\n<!-- redline:answers ${ids.join(' ')} -->` }
+  })
+}
+
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
 // the plan sent part of the fix through the retrospective.
 function replyBody(pass, outcome) {
@@ -1703,7 +1722,7 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))).concat(droppedReplies(record))
+  const replies = withAnswers(pass, inScope, mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)))).concat(droppedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,

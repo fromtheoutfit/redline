@@ -26,16 +26,19 @@
 #                                  in_reply_to_id, created_at}]}. A comment is left out when it
 #                                  belongs to a Redline review (body "Redline round N"), is a
 #                                  Redline reply ("Redline round N:" or "Redline human review N:"),
-#                                  or is already answered by a Redline reply later in its thread
-#                                  (thread_id is in_reply_to_id, else the comment's own id). An id
-#                                  keeps that review's open comments and its body when not empty;
-#                                  @login keeps every open comment by that login
-#                                  (matched in any case, as GitHub matches logins), replies inside
-#                                  Redline threads included, and the body of their newest review
-#                                  that has one; latest is the newest review that is not Redline's
-#                                  and not by the gh user (the author running Redline) with an open
-#                                  comment or a body, then as its id. Comments are ordered by path,
-#                                  line, id; a null line (an outdated comment) is original_line.
+#                                  or is already answered by a Redline reply in its thread
+#                                  (thread_id is in_reply_to_id, else the comment's own id): a
+#                                  reply whose body carries <!-- redline:answers <ids> --> answers
+#                                  only the comments it names, and one without that line answers
+#                                  every comment before it. An id keeps that review's open comments
+#                                  and its body when not empty; @login keeps every open comment by
+#                                  that login (matched in any case, as GitHub matches logins),
+#                                  replies inside Redline threads included, and the body of their
+#                                  newest review that has one; latest is the newest review that is
+#                                  not Redline's and not by the gh user (the author running
+#                                  Redline) with an open comment or a body, then as its id.
+#                                  Comments are ordered by path, line, id; a null line (an outdated
+#                                  comment) is original_line.
 #                                  Exit 2 on a gh error or a selector of another shape
 #   last-human-review <n>          the highest "Redline human review N" among the PR's review
 #                                  comments and issue comments as a JSON number, 0 when none;
@@ -267,13 +270,15 @@ case "$cmd" in
         jq -n --slurpfile reviews "$reviews_file" --slurpfile comments "$comments_file" --arg selector "$selector" --arg me "$me" '
             def redline_review: (.body // "") | test("^Redline round [0-9]+");
             def redline_reply: (.body // "") | test("^Redline (round|human review) [0-9]+");
+            def answers: ([(.body // "") | match("<!-- redline:answers ([0-9 ]+) -->") | .captures[0].string] | first) as $s
+                | if $s == null then null else [$s | splits(" +") | select(. != "") | tonumber] end;
             ($reviews[0] | map(select(redline_review) | .id)) as $redline_ids
             | ($comments[0] | map(. + {thread_id: (.in_reply_to_id // .id), login: (.user.login // "")})) as $all
-            | ($all | map(select(redline_reply))) as $replies
+            | ($all | map(select(redline_reply) | . + {answers: answers})) as $replies
             | ($all | map(select(
                   (.pull_request_review_id as $r | $redline_ids | index($r) | not)
                   and (redline_reply | not)
-                  and (. as $c | any($replies[]; .thread_id == $c.thread_id and .id > $c.id) | not)))) as $open
+                  and (. as $c | any($replies[]; .thread_id == $c.thread_id and (if .answers == null then .id > $c.id else any(.answers[]; . == $c.id) end)) | not)))) as $open
             | ($reviews[0] | map(select(redline_review | not))) as $humans
             | (if $selector == "latest" then
                   ($humans
