@@ -182,8 +182,8 @@ function passOf(record) {
     return {
       human: true, round: n, tag: `h${n}`, planKey: `h${n}`, name: `human review ${n}`, title: `Redline human review ${n}`, idPrefix: `H${n}`, reviewer,
       replyFile: (id) => `${record.specFolder}/redline/human-review-${n}-reply-${id}.md`,
-      bodyHeader: (f) => `**${f.id}** · from the review by ${reviewer}`,
-      bodyHeaderHint: `\`**<id>** · from the review by ${reviewer}\``,
+      bodyHeader: (f) => `**${f.id}** · from review ${f.reviewId} by ${reviewer}`,
+      bodyHeaderHint: `\`**<id>** · from review <review id> by ${reviewer}\``,
       deferredNote: 'The full fix is deferred: ',
     }
   }
@@ -610,7 +610,9 @@ function andList(items) {
 // - 'file-only': no review is on GitHub (a dry run, or a revise over a review that was only
 //   written), so the reply file is written and nothing is posted.
 // In a human review pass the body finding (the review's own text, no thread) takes the same route,
-// with a header naming the teammate's review instead of a Redline round's body.
+// with a header naming the teammate's review (`from review <id> by @<login>`), which
+// `redline-gh.sh human-review` reads back so it never takes an answered body again (#38, R1-3),
+// instead of a Redline round's body.
 function replyEntry(pass, f, outcome, commentId, reviewPosted) {
   const body = replyBody(pass, outcome)
   // A dry run posts nothing, whatever threads exist (a human review's threads are real even then).

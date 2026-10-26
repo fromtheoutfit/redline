@@ -31,14 +31,17 @@
 #                                  reply whose body carries <!-- redline:answers <ids> --> answers
 #                                  only the comments it names, and one without that line answers
 #                                  every comment before it. An id keeps that review's open comments
-#                                  and its body when not empty; @login keeps every open comment by
-#                                  that login (matched in any case, as GitHub matches logins),
-#                                  replies inside Redline threads included, and the body of their
-#                                  newest review that has one; latest is the newest review that is
-#                                  not Redline's and not by the gh user (the author running
-#                                  Redline) with an open comment or a body, then as its id.
-#                                  Comments are ordered by path, line, id; a null line (an outdated
-#                                  comment) is original_line.
+#                                  and its body when not empty and not answered (an issue comment
+#                                  opening <!-- redline:H<n>-<k> --> whose next line is
+#                                  **H<n>-<k>** · from review <id> by @<login> answers that
+#                                  review's body); @login keeps every open comment by that login
+#                                  (matched in any case, as GitHub matches logins), replies inside
+#                                  Redline threads included, and the body of their newest review
+#                                  that has one not answered (one body per pass); latest is the
+#                                  newest review that is not Redline's and not by the gh user (the
+#                                  author running Redline) with an open comment or an unanswered
+#                                  body, then as its id. Comments are ordered by path, line, id; a
+#                                  null line (an outdated comment) is original_line.
 #                                  Exit 2 on a gh error or a selector of another shape
 #   last-human-review <n>          the highest "Redline human review N" among the PR's review
 #                                  comments and issue comments as a JSON number, 0 when none;
@@ -261,19 +264,23 @@ case "$cmd" in
                 fi
                 ;;
         esac
-        # Both lists grow with the PR, so they reach jq through files, never the command line.
+        # The three lists grow with the PR, so they reach jq through files, never the command line.
         reviews_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         comments_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$reviews_file" "$comments_file"' EXIT
+        issues_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -f "$reviews_file" "$comments_file" "$issues_file"' EXIT
         gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/reviews" | jq '[.[][]]' > "$reviews_file" || exit 2
         gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/comments" | jq '[.[][]]' > "$comments_file" || exit 2
-        jq -n --slurpfile reviews "$reviews_file" --slurpfile comments "$comments_file" --arg selector "$selector" --arg me "$me" '
+        gh api --paginate --slurp "repos/{owner}/{repo}/issues/$1/comments" | jq '[.[][]]' > "$issues_file" || exit 2
+        jq -n --slurpfile reviews "$reviews_file" --slurpfile comments "$comments_file" --slurpfile issues "$issues_file" --arg selector "$selector" --arg me "$me" '
             def redline_review: (.body // "") | test("^Redline round [0-9]+");
             def redline_reply: (.body // "") | test("^Redline (round|human review) [0-9]+");
             def answers: ([(.body // "") | match("<!-- redline:answers ([0-9 ]+) -->") | .captures[0].string] | first) as $s
                 | if $s == null then null else [$s | splits(" +") | select(. != "") | tonumber] end;
             ($reviews[0] | map(select(redline_review) | .id)) as $redline_ids
-            | ($comments[0] | map(. + {thread_id: (.in_reply_to_id // .id), login: (.user.login // "")})) as $all
+            | ([$issues[0][] | (.body // "") | capture("^<!-- redline:H[0-9]+-[0-9]+ -->\\s+\\*\\*H[0-9]+-[0-9]+\\*\\* · from review (?<id>[0-9]+) by @") | .id | tonumber] | unique) as $answered_bodies
+            | def open_body: (.body // "") != "" and (.id as $r | $answered_bodies | index($r) | not);
+            ($comments[0] | map(. + {thread_id: (.in_reply_to_id // .id), login: (.user.login // "")})) as $all
             | ($all | map(select(redline_reply) | . + {answers: answers})) as $replies
             | ($all | map(select(
                   (.pull_request_review_id as $r | $redline_ids | index($r) | not)
@@ -282,7 +289,7 @@ case "$cmd" in
             | ($reviews[0] | map(select(redline_review | not))) as $humans
             | (if $selector == "latest" then
                   ($humans
-                   | map(select((.user.login // "") != $me and ((.body // "") != "" or (.id as $r | any($open[]; .pull_request_review_id == $r)))))
+                   | map(select((.user.login // "") != $me and (open_body or (.id as $r | any($open[]; .pull_request_review_id == $r)))))
                    | sort_by(.submitted_at, .id) | last) as $r
                   | if $r == null then null else {kind: "id", id: $r.id} end
                elif ($selector | startswith("@")) then {kind: "login", login: ($selector[1:] | ascii_downcase)}
@@ -291,8 +298,8 @@ case "$cmd" in
               (if $pick.kind == "id" then ($open | map(select(.pull_request_review_id == $pick.id)))
                else ($open | map(select((.login | ascii_downcase) == $pick.login))) end
                | sort_by(.path, (.line // .original_line // 0), .id)) as $picked
-              | (if $pick.kind == "id" then ($humans | map(select(.id == $pick.id and (.body // "") != "")) | first)
-                 else ($humans | map(select(((.user.login // "") | ascii_downcase) == $pick.login and (.body // "") != "")) | sort_by(.submitted_at, .id) | last) end) as $with_body
+              | (if $pick.kind == "id" then ($humans | map(select(.id == $pick.id and open_body)) | first)
+                 else ($humans | map(select(((.user.login // "") | ascii_downcase) == $pick.login and open_body)) | sort_by(.submitted_at, .id) | last) end) as $with_body
               | ([$picked[].pull_request_review_id] + (if $with_body == null then [] else [$with_body.id] end) | unique) as $ids
               | {
                   selector: $selector,

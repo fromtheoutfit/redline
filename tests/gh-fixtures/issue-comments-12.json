@@ -1,0 +1,5 @@
+[
+  {"id": 60, "user": {"login": "author"}, "body": "<!-- redline:H1-2 -->\n**H1-2** · from review 7 by @marcamos\n\nRedline human review 1: fixed in 2345678 (redline: H1-2 test the empty case). · decided by: @marcamos"},
+  {"id": 61, "user": {"login": "author"}, "body": "Redline human review 1 · review by @marcamos: fixed H1-1 and H1-2 in 2 commits (pushed)."},
+  {"id": 62, "user": {"login": "marcamos"}, "body": "**H1-9** · from review 6 by @marcamos is how Redline would head it; this comment is not one."}
+]

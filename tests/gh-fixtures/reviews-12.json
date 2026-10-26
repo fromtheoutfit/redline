@@ -1,0 +1,5 @@
+[
+  {"id": 6, "user": {"login": "marcamos"}, "state": "COMMENTED", "body": "Older note: document the new flag in the README.", "submitted_at": "2026-10-20T09:00:00Z"},
+  {"id": 7, "user": {"login": "marcamos"}, "state": "COMMENTED", "body": "One general thing: the empty case needs a test somewhere.", "submitted_at": "2026-10-21T09:00:00Z"},
+  {"id": 20, "user": {"login": "author"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-22T09:00:00Z"}
+]

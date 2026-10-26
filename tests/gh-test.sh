@@ -14,7 +14,10 @@
 # reply inside a Redline thread, their single comment outside a review, the author's hand reply, and
 # one Redline human review summary among the issue comments. PR 11 is a thread two teammates share
 # (#38, R1-1): under a teammate's comment, a Redline human review reply that names the one comment
-# it answered, a second teammate's comment and the first teammate's follow-up.
+# it answered, a second teammate's comment and the first teammate's follow-up. PR 12 is an answered
+# review body (#38, R1-3): a teammate's review whose comment and body a Redline human review pass
+# answered, the body by an issue comment whose header names the review, beside an older review of
+# theirs whose body is still open and a comment of theirs that quotes the header without the marker.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -38,7 +41,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -79,6 +82,10 @@ case "$endpoint" in
     "repos/{owner}/{repo}/issues/10/comments") pages=("$PAGES/issue-comments-10.json") ;;
     "repos/{owner}/{repo}/pulls/11/reviews") pages=("$PAGES/reviews-11.json") ;;
     "repos/{owner}/{repo}/pulls/11/comments") pages=("$PAGES/comments-11.json") ;;
+    "repos/{owner}/{repo}/issues/11/comments") pages=("$PAGES/issue-comments-11.json") ;;
+    "repos/{owner}/{repo}/pulls/12/reviews") pages=("$PAGES/reviews-12.json") ;;
+    "repos/{owner}/{repo}/pulls/12/comments") pages=("$PAGES/comments-12.json") ;;
+    "repos/{owner}/{repo}/issues/12/comments") pages=("$PAGES/issue-comments-12.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -176,6 +183,10 @@ is "human-review 11 @login: a comment in another teammate's thread is open when 
 is "human-review 11 @login: the follow-up is open, the comment the reply names is answered" "$(gh human-review 11 @marcamos | jq -c '[[.comments[].id], .body, [.reviews[].id]]')" '[[912],null,[10]]'
 is "human-review 11 latest: the newest review with a comment no Redline reply names" "$(gh human-review 11 latest | jq -c '[[.comments[].id], .body, [.reviews[].id]]')" '[[912],null,[10]]'
 is "human-review 11 <id>: the review whose comment the reply names has nothing open" "$(gh human-review 11 7 | jq -c '[.comments, .body, .reviews]')" '[[],null,[]]'
+is "human-review 12 <id>: a body a Redline human review comment names as answered is not taken again" "$(gh human-review 12 7 | jq -c '[.comments, .body, .reviews]')" '[[],null,[]]'
+is "human-review 12 @login: the newest body not yet answered, from an older review" "$(gh human-review 12 @marcamos | jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]')" '[[],6,[6]]'
+is "human-review 12 latest: skips the review whose body is answered" "$(gh human-review 12 latest | jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]')" '[[],6,[6]]'
+is "human-review 12 <id>: a comment that quotes the header without the marker answers nothing" "$(gh human-review 12 6 | jq -r '.body.text')" "Older note: document the new flag in the README."
 is "last-human-review: the highest Redline human review N across replies and issue comments" "$(gh last-human-review 10)" "1"
 is "last-human-review: a JSON number" "$(gh last-human-review 10 | jq -r 'type')" "number"
 is "last-human-review: 0 when none" "$(gh last-human-review 8)" "0"
