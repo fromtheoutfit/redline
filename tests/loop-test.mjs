@@ -578,6 +578,11 @@ function samePrefix(name, first, second, n) {
   run = await go('human: the shaper writes the wrong owner on a fix', humanArgs([h('H1-1')]), { reviews: [[]], shaperOwner: 'redline', commitIds: [['H1-1']] })
   check('human: the fix is still the reviewer\'s, with a warning', run.res.status === 'done' && replyFor(run.calls, 'push and reply h1', 'H1-1').endsWith('· decided by: @marcamos') && run.res.warnings.includes('human review 1: the shaper marked H1-1 as decided by redline; a fix from @marcamos\'s comment is theirs'), [run.res.warnings, replyFor(run.calls, 'push and reply h1', 'H1-1')])
 
+  run = await go('human: two comments in one thread', humanArgs([h('H1-1'), h('H1-2', { commentId: 912, description: 'Also rename baz.' })]), { reviews: [[]], commitIds: [['H1-1', 'H1-2']] })
+  const shared = replies(run.calls, 'push and reply h1')
+  check('human: two findings in one thread get one reply that names both', run.res.status === 'done' && shared.length === 1 && shared[0].comment_id === 900 && shared[0].route === 'thread' && JSON.stringify(shared[0].findings) === '["H1-1","H1-2"]' && shared[0].file === `/r/${folder}/redline/human-review-1-reply-H1-1-H1-2.md` && shared[0].body === 'Redline human review 1:\n\n**H1-1**: fixed in 1bbbbbb (redline: H1-1 fix). · decided by: @marcamos\n\n**H1-2**: fixed in 2bbbbbb (redline: H1-2 fix). · decided by: @marcamos', shared)
+  check('human: the push prompt says one entry can answer several findings', pick(run.calls, 'push and reply h1').prompt.includes('One entry may answer several findings of one thread (its findings list names them); it is still one reply.'))
+
   run = await go('human: dry run', humanArgs(four, {}, { postToGitHub: false, decisions: decided.decisions }), scenario)
   const dry = replies(run.calls, 'push and reply h1')
   check('human: a dry run writes the replies and the summary only', run.res.status === 'done' && dry.every((r) => r.route === 'file-only') && replyFor(run.calls, 'push and reply h1', 'H1-1').includes('Committed locally; not pushed. · decided by: @marcamos') && pick(run.calls, 'summary comment').prompt.includes('This is a dry run: post nothing') && comment(run.calls, 'summary comment').includes('(not pushed)'), [run.res.status, dry.map((r) => r.route)])

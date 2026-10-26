@@ -620,6 +620,44 @@ function replyEntry(pass, f, outcome, commentId, reviewPosted) {
   }
 }
 
+// A thread gets one reply per pass (#38, R1-4). In a human review pass two open comments of one
+// thread (a teammate's comment and their own follow-up) are two findings with one root, so their
+// entries merge: one reply that opens with the pass's title and gives each finding's outcome on
+// its own line. A Redline round's findings each have their own root, so it never merges.
+function mergeThreadReplies(pass, entries) {
+  if (!pass.human) {
+    return entries
+  }
+  const groups = []
+  const byThread = new Map()
+  for (const entry of entries) {
+    const group = entry.comment_id ? byThread.get(entry.comment_id) : null
+    if (group) {
+      group.push(entry)
+      continue
+    }
+    const fresh = [entry]
+    groups.push(fresh)
+    if (entry.comment_id) {
+      byThread.set(entry.comment_id, fresh)
+    }
+  }
+  return groups.map((group) => {
+    if (group.length === 1) {
+      return group[0]
+    }
+    const ids = group.map((entry) => entry.finding)
+    return {
+      finding: ids[0],
+      findings: ids,
+      comment_id: group[0].comment_id,
+      route: group[0].route,
+      file: abs(pass.replyFile(ids.join('-'))),
+      body: `${pass.title}:\n\n${group.map((entry) => `**${entry.finding}**: ${entry.body.slice(pass.title.length + 2)}`).join('\n\n')}`,
+    }
+  })
+}
+
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
 // the plan sent part of the fix through the retrospective.
 function replyBody(pass, outcome) {
@@ -945,7 +983,7 @@ function pushReplyPrompt(pass, specFolder, replies, doPush) {
     ? `the finding is the body of ${pass.reviewer}'s review, which has no thread, and its file already starts with a <!-- redline:<id> --> marker`
     : 'the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker'
   const twice = pass.human
-    ? ` A thread of ${pass.reviewer}'s may already hold a Redline round's reply; that is not a duplicate. The duplicate check is a reply in that thread opening \`${pass.title}:\`.`
+    ? ` A thread of ${pass.reviewer}'s may already hold a Redline round's reply; that is not a duplicate. The duplicate check is a reply in that thread opening \`${pass.title}:\`. One entry may answer several findings of one thread (its findings list names them); it is still one reply.`
     : ''
   const step2 = postToGitHub
     ? `then act on its route. Route "thread": run \`${GH} reply ${pr} <comment_id> <file>\`. Route "issue-comment": ${where}, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (${pass.bodyHeaderHint}), never for the marker, which ${pass.human ? 'only the reply carries here but a Redline round\'s review body also carries' : 'the review body also carries'}. Route "file-only": no review is on GitHub for it (a dry run, or a review that was never posted), so write the file, post nothing and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.${twice}`
@@ -1661,7 +1699,7 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(droppedReplies(record))
+  const replies = mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))).concat(droppedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
