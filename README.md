@@ -59,9 +59,12 @@ Check out the PR's branch, clean, at the pushed head, and type the command from 
 /redline:redline 21 plan correctness only
 /redline:redline 21 review
 /redline:redline 21 dry run review only
+/redline:redline-revise 21 review @sam
 ```
 
 The words can come in any order. `dry run` posts and pushes nothing: every body is written under the round's spec folder instead, and the PR may be closed (a seed). The first launch in a repository asks for the settings it was not given on the command line, and later launches confirm the remembered ones in one question; see "Settings". `/redline:redline-review` and `/redline:redline-revise` are the two halves on their own, for debugging.
+
+`/redline:redline-revise <pr> review <id | @login | latest>` is the pass after the hand-off: a teammate's review comments become the findings (`H<n>-<k>`, one pass per launch, numbered after the `Redline human review` passes already on the PR). `review @login` takes every inline comment by that login that no Redline reply has answered yet, replies inside Redline threads included, plus the body of their newest review that has one; `review <id>` takes that review's unanswered comments and body; `latest` is the newest review that is not Redline's and not the author's. A clear instruction is fixed, `decided by: @<login>`; a question, a disagreement or a comment the shaper cannot turn into one change comes back to you as a judgment call with the comment quoted, and the reply says what you decided; a comment that asks for nothing gets "no change requested". Nothing a teammate asked for is deferred by Redline on its own. After the fixes are pushed and every thread answered, the reviewer reads the fix diff once as the next `Redline round`, a correctness bug it finds gets one more fix pass, and the pass ends with one summary line on the PR: no handoff comment, no review request, the teammate is already there. The interrupt dial applies; the scope does not.
 
 ## Settings
 
@@ -106,17 +109,18 @@ Every decision is posted with its owner. Each Decision in a round's `shape.md`, 
 
 - `decided by: redline`: the shaper settled it from the evidence (a fix, a defer, an answer the PR description or the code already gave);
 - `decided by: @<login>`: a person decided it at a hand-off (the login `redline-gh.sh login` prints), with their reasoning restated in one sentence;
-- `decided by: redline (autopilot)`: the run took the shaper's recommendation on autopilot.
+- `decided by: redline (autopilot)`: the run took the shaper's recommendation on autopilot;
+- `decided by: @<reviewer login>`: a teammate asked for the change in their review, and a human review pass (`/redline:redline-revise <pr> review ...`) made it as asked.
 
-The handoff comment lists every decision of the run, not only the human ones. The shaper's JSON carries `decidedBy` per finding (`redline` or `pending`); the workflow fills `@<login>` from `args.login` for the answers a person gave.
+The handoff comment lists every decision of the run, not only the human ones. The shaper's JSON carries `decidedBy` per finding (`redline` or `pending`; `reviewer` for a fix in a human review pass); the workflow fills `@<login>` from `args.login` for the answers a person gave and `@<reviewer login>` for the teammate's instructions.
 
 ## Files
 
 | Path in the plugin | What |
 | --- | --- |
-| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first, then the template version), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
+| `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first, then the template version), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` beside it is the review half on its own; `redline-revise` is the revise half on its own and, with `review <selector>`, the human review pass |
 | `skills/setup/SKILL.md` | `/redline:setup`: walks a repository through the contract in conversation, in the thirteen steps of #6; see "Set up a repository" |
-| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, the pass/fail decision from the checker's JSON, and the stop on a checker result the implementer cannot change. Runs as `redline:redline-loop` |
+| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, the pass/fail decision from the checker's JSON, the stop on a checker result the implementer cannot change, and the human review pass (`args.revise.kind: "human"`). Runs as `redline:redline-loop` |
 | `agents/redline-*.md` | The eight roles: reviewer, shaper, resolve, plan-approver, standards-approver, implementer, checker, github. They load as `redline:redline-<role>` |
 | `hooks/hooks.json` | One `PreToolUse` hook on Bash, Write, Edit, MultiEdit and NotebookEdit, calling the guard |
 | `scripts/redline-guard.sh` | The per-role guard; see below |
@@ -127,8 +131,8 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 | `scripts/checks-template.sh` | What `checks.sh` is generated from (and the starting point for a hand copy) |
 | `templates/` | The per-repository files above |
 | `tests/guard-test.sh`, `tests/guard-cases.tsv` | The guard's regression table |
-| `tests/gh-test.sh`, `tests/gh-fixtures/` | The unit test of `redline-gh.sh`'s read subcommands (`files`, `diff`, `place`, `last-round`, `has-review`) against a fake `gh` that serves the fixtures, with a two-page, 150-file PR and a 60,000-line patch |
-| `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners, the replay rule and the run-record commit (`node tests/loop-test.mjs`) |
+| `tests/gh-test.sh`, `tests/gh-fixtures/` | The unit test of `redline-gh.sh`'s read subcommands (`files`, `diff`, `place`, `last-round`, `has-review`, `human-review`, `last-human-review`) against a fake `gh` that serves the fixtures, with a two-page, 150-file PR, a 60,000-line patch and a PR with a teammate's review |
+| `tests/loop-test.mjs` | A mock harness for the workflow: runs `redline-loop.js` with scripted agents and checks each dial level, the scope, the owners, the replay rule, the run-record commit and the human review pass (`node tests/loop-test.mjs`) |
 | `tests/prefs-test.sh` | The unit test of the settings merge rules |
 | `tests/gate-test.sh`, `tests/gate-fixtures/` | The unit test of the gate stamp, on one synthetic `shape-spec.md` per gate shape seen so far; its last case checks this repository's own stamp |
 | `tests/setup-test.sh`, `tests/setup-fixtures/` | The unit test of `redline-setup.sh`; its last cases regenerate this repository's own `checks.sh` from its `checks.json` and compare |
@@ -157,7 +161,7 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 
 These apply when the prompt says the session is a Redline run. Outside a Redline run the repo's CLAUDE.md Git section stands unchanged: never commit, push or stage.
 
-1. **One commit per finding.** Each finding fixed in a round is its own commit. The standards retrospective, when it changes anything, is one more commit on its own. The spec folder (`agent-os/specs/<ts>-<pr>-review-round-<n>/`) is committed in the round's first commit or on its own; never mixed into a finding's commit. Its As built notes land in the round's last commit. So a round makes the spec commit, one commit per finding, the standards commit when there is one, and the as-built commit: three findings make six commits. A run that finishes (handed off or capped) then makes one more, the run-record commit: after the handoff or cap-hit comment (and the PR description, when one was posted), the GitHub agent stages, by name, every file under each round's `<specFolder>/redline/` that no commit holds yet (the replies, the closing comment, the description's backup, and the review and findings of a round that had no revise pass), plus `snapshot-start.json` if it is untracked, and commits them as `redline: record the run's replies, reviews and handoff for PR #<pr> (#<issue>)`. When nothing is left to stage there is no commit.
+1. **One commit per finding.** Each finding fixed in a round is its own commit. The standards retrospective, when it changes anything, is one more commit on its own. The spec folder (`agent-os/specs/<ts>-<pr>-review-round-<n>/`, or `<ts>-<pr>-human-review-<n>/` for a human review pass) is committed in the round's first commit or on its own; never mixed into a finding's commit. Its As built notes land in the round's last commit. So a round makes the spec commit, one commit per finding, the standards commit when there is one, and the as-built commit: three findings make six commits. A run that finishes (handed off or capped) then makes one more, the run-record commit: after the handoff or cap-hit comment (and the PR description, when one was posted), the GitHub agent stages, by name, every file under each round's `<specFolder>/redline/` that no commit holds yet (the replies, the closing comment or a human review pass's summary, the description's backup, the ingested human review, and the review and findings of a round that had no revise pass), plus `snapshot-start.json` if it is untracked, and commits them as `redline: record the run's replies, reviews and handoff for PR #<pr> (#<issue>)`. When nothing is left to stage there is no commit.
 2. **Stage files by name.** `git add <path> [<path>...]` only. Never `git add -A`, `git add .`, `git add -u` or `git commit -a`. A file that is not named in the plan task is not staged.
 3. **`redline:` prefix.** Every commit message starts with `redline: ` followed by one sentence naming the finding and the change, for example `redline: R1-2 reject a status outside the enum (#42)`. Reference the PR's issue number the way the repo's other commits do.
 4. **No AI attribution.** No `Co-Authored-By`, no "Generated with", no model or vendor names, in commits, PR bodies, comments, issues or spec files. Redline labels its own work as Redline (`Redline round 2`, `Redline handoff`, `redline:`), which is a tool name, not vendor attribution.
@@ -281,6 +285,8 @@ Read-only (reviewer, gather, precheck):
 | `review-comments <n>` | `GET /pulls/<n>/comments`, paginated | JSON `[{id, path, line, side, body, in_reply_to_id, pull_request_review_id}]`; replies carry `in_reply_to_id` |
 | `has-review <n> <round>` | reviews list, body starts `Redline round <round>` | nothing; exit 0 found, 1 none, 2 gh error |
 | `last-round <n>` | reviews list, the highest `Redline round N` | a JSON number, `0` when none (the precheck's `firstRound` minus one); exit 2 gh error |
+| `human-review <n> <id \| @login \| latest>` | reviews list and `GET /pulls/<n>/comments`, both paginated; `gh api user` for `latest` | JSON `{selector, reviews: [{id, user, state, body, submitted_at}], body: {review_id, user, text} \| null, comments: [{id, thread_id, review_id, user, path, line, side, body, in_reply_to_id, created_at}]}`: the selection's comments that no Redline reply (`Redline round N:` or `Redline human review N:`, later in the same thread) has answered, never a Redline review's own comments, in path, line, id order, `thread_id` the root comment the reply goes to, a null `line` read from `original_line`. An id keeps that review's open comments and its body when not empty; `@login` keeps every open comment by that login, replies inside Redline threads included, and the body of their newest review that has one; `latest` is the newest review that is not Redline's and not the gh user's with an open comment or a body, then as its id; exit 2 gh error or a selector of another shape |
+| `last-human-review <n>` | `GET /pulls/<n>/comments` and `GET /issues/<n>/comments`, the highest `Redline human review N` | a JSON number, `0` when none (the human review pass's `n` minus one); exit 2 gh error |
 | `files <n>` | `GET /pulls/<n>/files`, paginated (`gh pr view --json files` stops at 100) | JSON array of paths (the start snapshot's `files`) |
 | `login` | `gh api user` | the login Redline posts as (the precheck's reviewer test) |
 | `place <n> <json-file>` | `GET /pulls/<n>/files`, each file's patch parsed into the positions GitHub can anchor (added, removed and context lines of each hunk; a context line on both sides) | the review file as `post-review` would send it: `{body, comments, moved}`, with every comment off a hunk moved into `body` under "Not placed inline" behind `<!-- redline:<id> -->`; `moved` is `[{id, path, line, side}]` |
@@ -307,7 +313,7 @@ Rules the agent follows around these:
 
 Two kinds, both under `agent-os/specs/` (inside every allowed list, and committed as the run's record: with the round's spec folder, or by the run-record commit at Finish):
 
-- **Start snapshot**, `<first round's spec folder>/redline/snapshot-start.json`, written by the `/redline:redline` skill after the precheck from `redline-gh.sh pr <n>` and `redline-gh.sh files <n>`, with `plan_paths: []`. The checker's `--baseline` run reads it.
+- **Start snapshot**, `<first round's spec folder>/redline/snapshot-start.json`, written by the `/redline:redline` skill after the precheck from `redline-gh.sh pr <n>` and `redline-gh.sh files <n>`, with `plan_paths: []`. The checker's `--baseline` run reads it. A human review pass writes `human-review-<n>.json` beside it (the selector, the reviewer, the reviews, the body and the findings as ingested): the record of what the teammate found, for a later run to compare with what the rounds missed.
 - **Round snapshot**, `<round N spec folder>/redline/snapshot.json`, written by the GitHub agent after the plan approver passes, with `plan_paths` set to every path approved so far in the run plus the round's spec folder. Cumulative, because the git block measures from `start_sha` and an earlier round's files are still changed later. The implementer's and checker's full runs read it.
 
 ```json

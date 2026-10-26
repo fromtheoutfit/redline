@@ -18,6 +18,27 @@
 #   has-review <n> <round>         exit 0 if a review body starts "Redline round <round>", 1 if none, 2 on error
 #   last-round <n>                 the highest posted "Redline round N" as a JSON number, 0 when
 #                                  none; exit 2 on a gh error
+#   human-review <n> <selector>    a teammate's review comments as one list, for a revise pass over
+#                                  a human review (#36). <selector> is a review id, @login or
+#                                  latest. Prints {selector, reviews: [{id, user, state, body,
+#                                  submitted_at}], body: {review_id, user, text} | null, comments:
+#                                  [{id, thread_id, review_id, user, path, line, side, body,
+#                                  in_reply_to_id, created_at}]}. A comment is left out when it
+#                                  belongs to a Redline review (body "Redline round N"), is a
+#                                  Redline reply ("Redline round N:" or "Redline human review N:"),
+#                                  or is already answered by a Redline reply later in its thread
+#                                  (thread_id is in_reply_to_id, else the comment's own id). An id
+#                                  keeps that review's open comments and its body when not empty;
+#                                  @login keeps every open comment by that login, replies inside
+#                                  Redline threads included, and the body of their newest review
+#                                  that has one; latest is the newest review that is not Redline's
+#                                  and not by the gh user (the author running Redline) with an open
+#                                  comment or a body, then as its id. Comments are ordered by path,
+#                                  line, id; a null line (an outdated comment) is original_line.
+#                                  Exit 2 on a gh error or a selector of another shape
+#   last-human-review <n>          the highest "Redline human review N" among the PR's review
+#                                  comments and issue comments as a JSON number, 0 when none;
+#                                  exit 2 on a gh error
 #   files <n>                      the PR's changed file paths as a JSON array, every page of the
 #                                  files endpoint (gh pr view --json files stops at 100)
 #   login                          the gh login Redline posts as
@@ -219,6 +240,69 @@ case "$cmd" in
         need_int "$1" "pr number"
         reviews="$(gh api --paginate "repos/{owner}/{repo}/pulls/$1/reviews" --jq '.[].body')" || exit 2
         { grep -o '^Redline round [0-9][0-9]*' <<<"$reviews" || true; } | awk '{ if ($3 + 0 > last) last = $3 + 0 } END { print last + 0 }'
+        ;;
+
+    human-review)
+        [[ $# -eq 2 ]] || usage
+        need_int "$1" "pr number"
+        selector="$2"
+        me=""
+        case "$selector" in
+            latest) me="$(gh api user --jq .login)" || exit 2 ;;
+            @?*) ;;
+            *)
+                if ! [[ "$selector" =~ ^[0-9]+$ ]]; then
+                    echo "redline-gh.sh: the selector must be a review id, @login or latest, got: $selector" >&2
+                    exit 2
+                fi
+                ;;
+        esac
+        # Both lists grow with the PR, so they reach jq through files, never the command line.
+        reviews_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        comments_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -f "$reviews_file" "$comments_file"' EXIT
+        gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/reviews" | jq '[.[][]]' > "$reviews_file" || exit 2
+        gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/comments" | jq '[.[][]]' > "$comments_file" || exit 2
+        jq -n --slurpfile reviews "$reviews_file" --slurpfile comments "$comments_file" --arg selector "$selector" --arg me "$me" '
+            def redline_review: (.body // "") | test("^Redline round [0-9]+");
+            def redline_reply: (.body // "") | test("^Redline (round|human review) [0-9]+");
+            ($reviews[0] | map(select(redline_review) | .id)) as $redline_ids
+            | ($comments[0] | map(. + {thread_id: (.in_reply_to_id // .id), login: (.user.login // "")})) as $all
+            | ($all | map(select(redline_reply))) as $replies
+            | ($all | map(select(
+                  (.pull_request_review_id as $r | $redline_ids | index($r) | not)
+                  and (redline_reply | not)
+                  and (. as $c | any($replies[]; .thread_id == $c.thread_id and .id > $c.id) | not)))) as $open
+            | ($reviews[0] | map(select(redline_review | not))) as $humans
+            | (if $selector == "latest" then
+                  ($humans
+                   | map(select((.user.login // "") != $me and ((.body // "") != "" or (.id as $r | any($open[]; .pull_request_review_id == $r)))))
+                   | sort_by(.submitted_at, .id) | last) as $r
+                  | if $r == null then null else {kind: "id", id: $r.id} end
+               elif ($selector | startswith("@")) then {kind: "login", login: $selector[1:]}
+               else {kind: "id", id: ($selector | tonumber)} end) as $pick
+            | if $pick == null then {selector: $selector, reviews: [], body: null, comments: []} else
+              (if $pick.kind == "id" then ($open | map(select(.pull_request_review_id == $pick.id)))
+               else ($open | map(select(.login == $pick.login))) end
+               | sort_by(.path, (.line // .original_line // 0), .id)) as $picked
+              | (if $pick.kind == "id" then ($humans | map(select(.id == $pick.id and (.body // "") != "")) | first)
+                 else ($humans | map(select((.user.login // "") == $pick.login and (.body // "") != "")) | sort_by(.submitted_at, .id) | last) end) as $with_body
+              | ([$picked[].pull_request_review_id] + (if $with_body == null then [] else [$with_body.id] end) | unique) as $ids
+              | {
+                  selector: $selector,
+                  reviews: ($humans | map(select(.id as $r | $ids | index($r) != null)) | sort_by(.id) | map({id, user: (.user.login // ""), state, body: (.body // ""), submitted_at})),
+                  body: (if $with_body == null then null else {review_id: $with_body.id, user: ($with_body.user.login // ""), text: $with_body.body} end),
+                  comments: ($picked | map({id, thread_id, review_id: .pull_request_review_id, user: .login, path, line: (.line // .original_line), side: (.side // "RIGHT"), body, in_reply_to_id, created_at}))
+                }
+              end'
+        ;;
+
+    last-human-review)
+        [[ $# -eq 1 ]] || usage
+        need_int "$1" "pr number"
+        replies="$(gh api --paginate "repos/{owner}/{repo}/pulls/$1/comments" --jq '.[].body')" || exit 2
+        comments="$(gh api --paginate "repos/{owner}/{repo}/issues/$1/comments" --jq '.[].body')" || exit 2
+        { grep -o '^Redline human review [0-9][0-9]*' <<<"$replies"$'\n'"$comments" || true; } | awk '{ if ($4 + 0 > last) last = $4 + 0 } END { print last + 0 }'
         ;;
 
     post-review)

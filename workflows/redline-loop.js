@@ -13,7 +13,7 @@ export const meta = {
     { title: 'Implement', detail: 'one commit per finding (revise model)' },
     { title: 'Check', detail: 'checks.sh by the checker; the script judges' },
     { title: 'Push and reply', detail: 'push when allowed, reply in every finding thread' },
-    { title: 'Finish', detail: 'PR description from pr-body.md, handoff comment and review request, or the cap-hit comment; then the run-record commit' },
+    { title: 'Finish', detail: 'PR description from pr-body.md, handoff comment and review request, the cap-hit comment, or the human review summary; then the run-record commit' },
   ],
 }
 
@@ -123,6 +123,34 @@ const models = A.models && typeof A.models === 'object' ? A.models : {}
 if (!models.revise || typeof models.revise.model !== 'string') {
   fail('args.models.revise.model is required: the revise model picked at launch')
 }
+// /redline:redline-revise <pr> review <selector> (#36): a revise pass over a teammate's review. The
+// skill ingested the comments (redline-gh.sh human-review), numbered them H<n>-k and passes them
+// here with the pass number n (last-human-review plus one), so a relaunch replays.
+let humanRevise = null
+if (A.revise && typeof A.revise === 'object' && A.revise.kind === 'human') {
+  const n = Number(A.revise.n)
+  if (!Number.isInteger(n) || n <= 0 || !Array.isArray(A.revise.findings)) {
+    fail('args.revise (kind human) needs n (the pass number, last-human-review plus one) and findings (from <specFolder>/redline/human-review-<n>.json)')
+  }
+  const reviewer = typeof A.revise.reviewer === 'string' ? A.revise.reviewer.trim().replace(/^@/, '') : ''
+  if (reviewer === '') {
+    fail('args.revise.reviewer must be the login of the teammate whose review this pass reads')
+  }
+  const badIds = A.revise.findings.filter((f) => !new RegExp(`^H${n}-\\d+$`).test(f.id)).map((f) => f.id)
+  if (badIds.length) {
+    fail(`args.revise.findings ids must be H${n}-<k>; got ${JSON.stringify(badIds)}`)
+  }
+  humanRevise = {
+    n,
+    reviewer,
+    reviewIds: Array.isArray(A.revise.reviewIds) ? A.revise.reviewIds.map(Number).filter((id) => Number.isInteger(id)) : [],
+    body: typeof A.revise.body === 'string' ? A.revise.body : '',
+    findings: A.revise.findings,
+    specFolder: typeof A.revise.specFolder === 'string' && A.revise.specFolder !== '' ? A.revise.specFolder.replace(/\/+$/, '') : '',
+    commentIds: A.revise.commentIds && typeof A.revise.commentIds === 'object' ? A.revise.commentIds : {},
+    posted: A.revise.posted !== false,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Fixed strings and small helpers.
@@ -135,8 +163,34 @@ const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operat
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
-// One scratch Pest file per role and round, so the shaper can read the reviewer's reproduction.
-const scratchTest = (role, round) => `/tmp/redlinerepro/${role}-r${round}-ReproTest.php`
+const humanFolderFor = (n) => `agent-os/specs/${stamp}-${pr}-human-review-${n}`
+// One scratch Pest file per role and pass, so the shaper can read the reviewer's reproduction.
+const scratchTest = (role, tag) => `/tmp/redlinerepro/${role}-${tag}-ReproTest.php`
+
+// What a revise pass is called. A Redline round is "Redline round N" (ids R<N>-k); a pass over a
+// teammate's review (#36) is "Redline human review N" (ids H<N>-k), decided by that teammate where
+// their comment was a clear instruction. Every label, reply, file name and log line comes from here,
+// so a Redline round's prompts stay byte-identical to what they were before human passes existed.
+function passOf(record) {
+  const n = record.round
+  if (record.human) {
+    const reviewer = `@${record.human.reviewer}`
+    return {
+      human: true, round: n, tag: `h${n}`, name: `human review ${n}`, title: `Redline human review ${n}`, idPrefix: `H${n}`, reviewer,
+      replyFile: (id) => `${record.specFolder}/redline/human-review-${n}-reply-${id}.md`,
+      bodyHeader: (f) => `**${f.id}** · from the review by ${reviewer}`,
+      bodyHeaderHint: `\`**<id>** · from the review by ${reviewer}\``,
+      deferredNote: 'The full fix is deferred: ',
+    }
+  }
+  return {
+    human: false, round: n, tag: `r${n}`, name: `round ${n}`, title: `Redline round ${n}`, idPrefix: `R${n}`, reviewer: '',
+    replyFile: (id) => `${record.specFolder}/redline/round-${n}-reply-${id}.md`,
+    bodyHeader: (f) => `**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${n} review body`,
+    bodyHeaderHint: `\`**<id>** · ... · from the Redline round ${n} review body\``,
+    deferredNote: 'The full fix is deferred and listed in the Redline handoff: ',
+  }
+}
 const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
@@ -283,10 +337,14 @@ const SHAPE_SCHEMA = {
         required: ['id', 'disposition', 'decidedBy', 'recommendation'],
         properties: {
           id: str,
-          disposition: { type: 'string', enum: ['fix', 'defer', 'ask'] },
+          // A Redline round sorts into fix, defer or ask. A human review pass sorts into fix, ask or
+          // none (a comment that asks for nothing); never defer, since nothing a teammate asked for
+          // is deferred by Redline on its own. The workflow refuses the other pass's values.
+          disposition: { type: 'string', enum: ['fix', 'defer', 'ask', 'none'] },
           // "redline" for a fix or defer settled from the evidence; "pending" for an ask, which
-          // the workflow fills with the person's login or "redline (autopilot)".
-          decidedBy: { type: 'string', enum: ['redline', 'pending'] },
+          // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
+          // fix a teammate's comment asked for, which the workflow maps to their login.
+          decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
           // One sentence: the change planned for a fix, the mitigation for a defer, the
           // recommended option for an ask. The plan dial shows it to the person.
           recommendation: str,
@@ -469,13 +527,15 @@ function findingLine(f) {
   return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}`
 }
 
-function reviewBody(round, reviewed, range, review, active, known) {
+// `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
+// fixes of a human review pass, #36); empty for a Redline round's nit fixes.
+function reviewBody(round, reviewed, range, review, active, known, source) {
   const earlier = firstRound === 2 ? ' Round 1 is already on this PR' : ` Rounds 1 to ${firstRound - 1} are already on this PR`
   const scope = reviewed === 'pr'
     ? `Reviewed the whole pull request.${firstRound > 1 ? `${earlier}; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
       ? `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
-      : `Final nit pass: reviewed only the nit fixes (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
+      : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
   const correctness = active.filter((f) => f.category === 'correctness').length
   const lines = [`Redline round ${round}`, '', scope, '', review.summary.trim(), '']
   if (active.length === 0) {
@@ -545,35 +605,40 @@ function andList(items) {
 //   the finding; the GitHub agent posts it with `comment` instead of `reply`.
 // - 'file-only': no review is on GitHub (a dry run, or a revise over a review that was only
 //   written), so the reply file is written and nothing is posted.
-function replyEntry(round, specFolder, f, outcome, commentId, reviewPosted) {
-  const body = replyBody(round, outcome)
-  const route = commentId ? 'thread' : reviewPosted ? 'issue-comment' : 'file-only'
+// In a human review pass the body finding (the review's own text, no thread) takes the same route,
+// with a header naming the teammate's review instead of a Redline round's body.
+function replyEntry(pass, f, outcome, commentId, reviewPosted) {
+  const body = replyBody(pass, outcome)
+  // A dry run posts nothing, whatever threads exist (a human review's threads are real even then).
+  const route = !postToGitHub ? 'file-only' : commentId ? 'thread' : reviewPosted ? 'issue-comment' : 'file-only'
   return {
     finding: f.id,
     comment_id: commentId,
     route,
-    file: abs(`${specFolder}/redline/round-${round}-reply-${f.id}.md`),
-    body: route === 'issue-comment' ? `<!-- redline:${f.id} -->\n**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${round} review body\n\n${body}` : body,
+    file: abs(pass.replyFile(f.id)),
+    body: route === 'issue-comment' ? `<!-- redline:${f.id} -->\n${pass.bodyHeader(f)}\n\n${body}` : body,
   }
 }
 
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
 // the plan sent part of the fix through the retrospective.
-function replyBody(round, outcome) {
+function replyBody(pass, outcome) {
   const local = push ? '' : ' Committed locally; not pushed.'
   const commits = andList(outcome.commits.map((c) => `${short(c.sha)} (${c.message})`))
   const owner = decidedBy(outcome.decidedBy)
   switch (outcome.kind) {
     case 'fixed':
-      return `Redline round ${round}: fixed in ${commits}.${local}${owner}`
+      return `${pass.title}: fixed in ${commits}.${local}${owner}`
     case 'deferred':
-      return `Redline round ${round}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. The full fix is deferred and listed in the Redline handoff: ${outcome.fullFix}${commits ? local : ''}${owner}`
+      return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
     case 'decided':
-      return `Redline round ${round}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+      return `${pass.title}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
     case 'dropped':
-      return `Redline round ${round}: not acted on in this run. ${outcome.reason}${owner}`
+      return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
+    case 'none':
+      return `${pass.title}: no change requested. ${outcome.why}${owner}`
     default:
-      return `Redline round ${round}: not changed in this round. ${outcome.why}${owner}`
+      return `${pass.title}: not changed in this ${pass.human ? 'pass' : 'round'}. ${outcome.why}${owner}`
   }
 }
 
@@ -587,10 +652,12 @@ function gatherPrompt(round) {
 Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its fields exactly as printed, with error set to "". If the script fails, return its stderr in error and empty values elsewhere. Run nothing else.`
 }
 
-function reviewPrompt(round, reviewed, range, facts, history) {
+// `source` names the pass whose fixes a final nit pass reads when it is not the previous round.
+function reviewPrompt(round, reviewed, range, facts, history, source) {
   const diff = reviewed === 'pr'
     ? `the whole pull request: \`${GH} diff ${pr}\``
     : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
+  const after = reviewed === 'pr' ? ` (${startSha})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
   const lines = [
     RUN_LINE,
     '',
@@ -598,13 +665,13 @@ function reviewPrompt(round, reviewed, range, facts, history) {
     '',
     'Run facts:',
     `- PR #${pr}: ${facts.title}`,
-    `- Head branch ${headRef}, base ${baseRef}; the working tree is the PR's head${round > firstRound ? ` after the round ${round - 1} fixes (HEAD ${range.to})` : ` (${startSha})`}.`,
+    `- Head branch ${headRef}, base ${baseRef}; the working tree is the PR's head${after}.`,
     `- The diff to review: ${diff}. Inline comments must sit on lines of the PR's diff on GitHub (\`${GH} diff ${pr}\`).`,
     ...(reviewed === 'pr'
       ? [`- That diff is built from GitHub's per-file patches. A file GitHub sent no patch for (built assets, lockfiles, generated code, binaries) shows as a header and one \`(no patch: ...)\` line; open such a file in the tree only when a finding points there, never as a pass over all of them.`]
       : []),
     `- Reviewed: ${reviewed}`,
-    `- Your scratch Pest test, if you write one: ${scratchTest('reviewer', round)}`,
+    `- Your scratch Pest test, if you write one: ${scratchTest('reviewer', `r${round}`)}`,
     '',
     'PR description:',
     '<<<',
@@ -616,7 +683,7 @@ function reviewPrompt(round, reviewed, range, facts, history) {
   }
   lines.push(
     '',
-    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/. A known finding goes in knownAs.`,
+    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.`,
   )
   if (reviewed === 'final-nit-pass') {
     lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce.')
@@ -671,7 +738,7 @@ Run facts:
 - Launch timestamp: ${stamp}
 - Spec folder to write: ${abs(specFolder)}/ (this exact path; do not derive a name from the clock). Its redline/ subfolder holds Redline's own files (the review as posted, the findings, later the snapshot); leave it alone.
 - Snapshot for the gate: ${abs(specFolder)}/redline/snapshot.json. The workflow writes it after the plan is approved; the Verification Gate task names it as the argument to ${CHECKS}.
-- Your scratch Pest test, if you write one: ${scratchTest('shaper', round)}. The reviewer's reproduction for this round, if it wrote one: ${scratchTest('reviewer', round)}.
+- Your scratch Pest test, if you write one: ${scratchTest('shaper', `r${round}`)}. The reviewer's reproduction for this round, if it wrote one: ${scratchTest('reviewer', `r${round}`)}.
 ${nitNote}
 ${description}
 
@@ -683,12 +750,51 @@ Sort each finding into fix, defer or ask per the unattended-mode section and you
 Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix and defer or "pending" for ask, and recommendation in one sentence: the change planned for a fix, the mitigation for a defer, the option you recommend for an ask), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn).`
 }
 
-function reshapePrompt(round, specFolder, inScope, adjustments, attempt) {
+// A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
+// theirs to decide, an unclear one goes to the author, and nothing is deferred by Redline on its own.
+function humanShapePrompt(pass, record, inScope) {
+  const human = record.human
+  const body = human.body.trim() !== ''
+    ? `The review's body, as ${pass.reviewer} wrote it (when it is a finding below, that finding has no file and no line):\n<<<\n${human.body.trim()}\n>>>`
+    : 'The review has no body text; every finding is an inline comment.'
   return `This is a Redline run; follow shape-spec in unattended mode.
 
 ${RUN_LINE}
 
-You are the shaper for round ${round}, called again because the plan approver bounced the plan (adjustment ${attempt} of at most ${maxPlanAdjustments}). The spec folder ${abs(specFolder)}/ already exists: read plan.md, shape.md, standards.md and references.md and correct them in place with Write. Do not create a second folder and do not touch its redline/ subfolder. Your scratch Pest test, if you need one: ${scratchTest('shaper', round)}.
+Read ${repoRoot}/.claude/commands/agent-os/shape-spec.md in full, including its section "Unattended mode (Redline)", and follow it with the differences below. You are the shaper for ${pass.title}: a revise pass whose findings are the review comments ${pass.reviewer} left on this pull request, not a Redline reviewer's. Finding IDs are ${pass.idPrefix}-<k>.
+
+Run facts:
+- PR: #${pr}, head branch ${headRef}; commits reference issue #${issue}
+- Pass: ${pass.title}, over review${human.reviewIds.length === 1 ? '' : 's'} ${human.reviewIds.join(', ')} by ${pass.reviewer}
+- Launch timestamp: ${stamp}
+- Spec folder to write: ${abs(record.specFolder)}/ (this exact path; do not derive a name from the clock, and do not use the review-round name). Its redline/ subfolder holds Redline's own files (the ingested review, later the snapshot); leave it alone.
+- Snapshot for the gate: ${abs(record.specFolder)}/redline/snapshot.json. The workflow writes it after the plan is approved; the Verification Gate task names it as the argument to ${CHECKS}.
+- Your scratch Pest test, if you write one: ${scratchTest('shaper', pass.tag)}.
+
+PR description: read it with \`${GH} pr ${pr}\` (the body field).
+
+${body}
+
+Findings for this pass, as JSON (description is the comment verbatim; source is who wrote it):
+${json(inScope)}
+
+What differs from a Redline round:
+- Sort each finding into fix, ask or none; never defer. A clear instruction ("rename this", "this leaks the id", "add a test for the empty case") is fix, decided by ${pass.reviewer}: its decidedBy is "reviewer", and its entry under Decisions in shape.md ends with the line \`Decided by: ${pass.reviewer}\`. A question, a disagreement with the design, a comment you cannot turn into one change, or an instruction whose fix is out of proportion to the comment is ask, returned to the author: the story quotes the comment and gives your reading of it, and the options are what the author can choose. A comment that asks for nothing (praise, thanks, an acknowledgement, a body that only points at the inline comments) is none, decided by redline, with recommendation saying why nothing is asked; when in doubt it is ask. Nothing a teammate asked for is deferred by Redline on its own; if the author wants a mitigation instead of the full fix, they say so at the hand-off.
+- Every finding is in scope, whatever its size or category; the proportionality rule only ever turns a fix into an ask here.
+- Each fix task's commit message names its finding id (${pass.idPrefix}-<k>) as a Redline round's names R<n>-<k>.
+- The spec folder's shape.md records the pass as "${pass.title}", the reviewer, and the review ids above.
+
+Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
+
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn).`
+}
+
+function reshapePrompt(pass, specFolder, inScope, adjustments, attempt) {
+  return `This is a Redline run; follow shape-spec in unattended mode.
+
+${RUN_LINE}
+
+You are the shaper for ${pass.name}, called again because the plan approver bounced the plan (adjustment ${attempt} of at most ${maxPlanAdjustments}). The spec folder ${abs(specFolder)}/ already exists: read plan.md, shape.md, standards.md and references.md and correct them in place with Write. Do not create a second folder and do not touch its redline/ subfolder. Your scratch Pest test, if you need one: ${scratchTest('shaper', pass.tag)}.${pass.human ? ` This is a pass over ${pass.reviewer}'s review: dispositions stay fix, ask or none, never defer, and a fix is decided by ${pass.reviewer} (decidedBy "reviewer").` : ''}
 
 The approver's adjustments, as JSON:
 ${json(adjustments)}
@@ -701,13 +807,13 @@ Apply each adjustment, or record in shape.md why it cannot be applied. Every tas
 Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
-function resolvePrompt(round, specFolder, calls, roundDecisions, overrides) {
+function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   const callDecisions = Object.fromEntries(calls.map((call) => [call.id, roundDecisions[call.id]]).filter(([, d]) => d))
   const overrideDecisions = Object.fromEntries(overrides.map((f) => [f.id, roundDecisions[f.id]]))
   const lines = [
     RUN_LINE,
     '',
-    `You are the resolve agent for round ${round}. The judgment calls below were decided outside the shaper (by the person in their session, or by the autopilot taking the shaper's recommendation); write the decisions into the spec folder exactly as given.`,
+    `You are the resolve agent for ${pass.name}. The judgment calls below were decided outside the shaper (by the person in their session, or by the autopilot taking the shaper's recommendation); write the decisions into the spec folder exactly as given.`,
     '',
     `- Spec folder: ${abs(specFolder)}/`,
     `- Each decision carries the date it was made (date); use it, or ${launchDate} when it is missing.`,
@@ -740,16 +846,19 @@ function resolvePrompt(round, specFolder, calls, roundDecisions, overrides) {
   return lines.join('\n')
 }
 
-function planPrompt(round, specFolder, inScope, shaped, roundDecisions, adjustment, earlierPaths) {
+function planPrompt(pass, specFolder, inScope, shaped, roundDecisions, adjustment, earlierPaths) {
+  const humanNote = pass.human
+    ? `\nThis is a pass over ${pass.reviewer}'s review (#36): every finding is one of their comments, a fix is decided by them (decidedBy "reviewer"), a none finding asks for nothing and has no task, and no finding is deferred by the shaper; a disposition of defer here is a bounce.\n`
+    : ''
   return `${RUN_LINE}
 
-You are the plan approver for round ${round}. Adjustment number ${adjustment} (the workflow allows at most ${maxPlanAdjustments} bounces).
+You are the plan approver for ${pass.name}. Adjustment number ${adjustment} (the workflow allows at most ${maxPlanAdjustments} bounces).
 
 - Spec folder: ${abs(specFolder)}/
 - The PR's files at launch: ${json(prFiles)}
 - Paths approved in earlier rounds of this run (already allowed): ${json(earlierPaths)}
-
-The round's findings, as JSON:
+${humanNote}
+The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(inScope)}
 
 The shaper's dispositions and deferred list, as JSON:
@@ -762,20 +871,20 @@ Check the plan per your instructions. ${NEVER_DECIDE} A task that turns a still-
 Return only the JSON your instructions specify.`
 }
 
-function standardsPrompt(round, specFolder) {
+function standardsPrompt(pass, specFolder) {
   return `${RUN_LINE}
 
-You are the standards approver for round ${round}. Spec folder: ${abs(specFolder)}/. Read its shape.md section "Standards retrospective (proposed)" and decide each proposed edit per your instructions.
+You are the standards approver for ${pass.name}. Spec folder: ${abs(specFolder)}/. Read its shape.md section "Standards retrospective (proposed)" and decide each proposed edit per your instructions.
 
 ${NEVER_DECIDE} A proposed edit that depends on a pending decision is returned under deferred.
 
 Return only the JSON your instructions specify.`
 }
 
-function snapshotPrompt(round, path, content) {
+function snapshotPrompt(pass, path, content) {
   return `${RUN_LINE}
 
-Operation: snapshot (round ${round}). Write this JSON with the Write tool, byte for byte, to ${path} (overwrite it if it exists). No GitHub call, no other file.
+Operation: snapshot (${pass.name}). Write this JSON with the Write tool, byte for byte, to ${path} (overwrite it if it exists). No GitHub call, no other file.
 
 \`\`\`json
 ${content}
@@ -788,10 +897,10 @@ function checkerCommand(flag, snapshot, octane) {
   return `${octane ? 'REDLINE_OCTANE=1 ' : ''}${CHECKS}${flag ? ` ${flag}` : ''} ${snapshot}`
 }
 
-function implementPrompt(round, ctx) {
+function implementPrompt(pass, ctx) {
   return `${RUN_LINE}
 
-You are the implementer for round ${round}. The plan in the spec folder was approved; build exactly it, commit it Redline's way, and leave the gate green.
+You are the implementer for ${pass.name}. The plan in the spec folder was approved; build exactly it, commit it Redline's way, and leave the gate green.
 
 Run facts:
 - PR #${pr}, head branch ${headRef}; commit messages reference (#${issue})
@@ -799,10 +908,10 @@ Run facts:
 - The gate: \`${checkerCommand('', ctx.snapshotPath, ctx.octane)}\` (run it with timeout: 600000 on the Bash call; it outlasts the tool's two-minute default)
 - Checks that already failed before this run started (baseline): ${ctx.baselineFailing.length ? ctx.baselineFailing.join(', ') : 'none'}. A check that was already failing is not yours to fix unless a task says so.
 
-The round's findings, as JSON:
+The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(ctx.inScope)}
 
-Dispositions and deferred items (a defer task ships only the mitigation), as JSON:
+Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : ''}), as JSON:
 ${json({ findings: ctx.shaped.findings, deferred: ctx.deferred })}
 
 Decisions made outside the shaper (already in the spec; decidedBy names the owner, the person or the autopilot): ${Object.keys(ctx.roundDecisions).length ? json(ctx.roundDecisions) : 'none'}
@@ -812,7 +921,7 @@ Allowed paths (the checker refuses anything else): ${json(ctx.allowed)}
 
 Approved standards edits (apply only these, in their own commit after the finding commits), as JSON:
 ${json(ctx.standards.approved.filter((edit) => !edit.alreadyCovered))}
-The standards commit's message names every finding whose fix one of these edits carries, as shape.md's plan for that finding says (for example \`redline: record the round ${round} review lessons in the standards, finishing R${round}-1 (#${issue})\`), so that finding's reply names both of its commits. An edit that is only a lesson names no finding.
+The standards commit's message names every finding whose fix one of these edits carries, as shape.md's plan for that finding says (for example \`redline: record the ${pass.name} ${pass.human ? '' : 'review '}lessons in the standards, finishing ${pass.idPrefix}-1 (#${issue})\`), so that finding's reply names both of its commits. An edit that is only a lesson names no finding.
 ${ctx.standards.approved.length === 0 || ctx.standards.noChanges ? 'Nothing approved: record "Standards retrospective: no changes" under Decisions in shape.md.' : ''}
 
 ${NEVER_DECIDE} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
@@ -828,16 +937,22 @@ Run this command line with Bash, exactly as given, once, with timeout: 600000 on
 ${command}`
 }
 
-function pushReplyPrompt(round, specFolder, replies, doPush) {
+function pushReplyPrompt(pass, specFolder, replies, doPush) {
   const step1 = doPush
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
     : `Step 1. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}).`
+  const where = pass.human
+    ? `the finding is the body of ${pass.reviewer}'s review, which has no thread, and its file already starts with a <!-- redline:<id> --> marker`
+    : 'the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker'
+  const twice = pass.human
+    ? ` A thread of ${pass.reviewer}'s may already hold a Redline round's reply; that is not a duplicate. The duplicate check is a reply in that thread opening \`${pass.title}:\`.`
+    : ''
   const step2 = postToGitHub
-    ? `then act on its route. Route "thread": run \`${GH} reply ${pr} <comment_id> <file>\`. Route "issue-comment": the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (\`**<id>** · ... · from the Redline round ${round} review body\`), never for the marker, which the review body also carries. Route "file-only": no review is on GitHub for it (a dry run, or a review that was never posted), so write the file, post nothing and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.`
+    ? `then act on its route. Route "thread": run \`${GH} reply ${pr} <comment_id> <file>\`. Route "issue-comment": ${where}, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (${pass.bodyHeaderHint}), never for the marker, which ${pass.human ? 'only the reply carries here but a Redline round\'s review body also carries' : 'the review body also carries'}. Route "file-only": no review is on GitHub for it (a dry run, or a review that was never posted), so write the file, post nothing and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.${twice}`
     : 'and run nothing else (dry run).'
   return `${RUN_LINE}
 
-Operation: push and reply for round ${round}. PR #${pr}, head branch ${headRef}. Spec folder: ${abs(specFolder)}. postToGitHub: ${postToGitHub}. push: ${doPush}.
+Operation: push and reply for ${pass.name}. PR #${pr}, head branch ${headRef}. Spec folder: ${abs(specFolder)}. postToGitHub: ${postToGitHub}. push: ${doPush}.
 
 ${step1}
 
@@ -868,9 +983,12 @@ function finishPrompt(kind, specFolder, file, content) {
   const request = kind === 'handoff' && postToGitHub && teammate
     ? `Step 3. Run \`${GH} request-review ${pr} ${teammate}\` and set reviewRequested true.`
     : 'Step 3. Request no review; set reviewRequested false.'
+  const operation = kind === 'handoff'
+    ? 'comment (the Redline handoff) and request-review'
+    : kind === 'cap-hit' ? 'comment (the cap-hit comment)' : 'comment (the Redline human review summary; the reviewer is already on the PR, so no handoff and no review request)'
   return `${RUN_LINE}
 
-Operation: ${kind === 'handoff' ? 'comment (the Redline handoff) and request-review' : 'comment (the cap-hit comment)'}. PR #${pr}. Spec folder: ${abs(specFolder)}. postToGitHub: ${postToGitHub}. Do not touch the PR description; it is not part of this operation.
+Operation: ${operation}. PR #${pr}. Spec folder: ${abs(specFolder)}. postToGitHub: ${postToGitHub}. Do not touch the PR description; it is not part of this operation.
 
 Step 1. Write this file with the Write tool, byte for byte: ${abs(file)}
 
@@ -1078,6 +1196,7 @@ function result(status, extra) {
       outcomes: record.outcomes || null,
       dropped: (record.dropped || []).map((f) => ({ id: f.id, reason: f.reason })),
       files: record.files || [],
+      human: record.human || null,
     })),
     judgmentCalls: [],
     deferred: deferredAll,
@@ -1117,13 +1236,15 @@ async function gather(round) {
   return facts
 }
 
-async function review(round, reviewed, range, facts) {
-  const key = round === firstRound ? 'reviewerFirstRound' : 'reviewerLaterRounds'
-  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history()), {
+async function review(round, reviewed, range, facts, source) {
+  // What is reviewed, not the round number, picks the model and the label: a human review pass's
+  // final nit pass carries the run's first round number and is still a nit pass (#36).
+  const key = reviewed === 'pr' ? 'reviewerFirstRound' : 'reviewerLaterRounds'
+  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history(), source), {
     agentType: 'redline:redline-reviewer',
     ...modelOpts(key),
-    label: `${round === firstRound ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
-    phase: round === firstRound ? 'Review' : 'Re-review',
+    label: `${reviewed === 'pr' ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
+    phase: reviewed === 'pr' ? 'Review' : 'Re-review',
     schema: REVIEW_SCHEMA,
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
@@ -1136,11 +1257,11 @@ async function review(round, reviewed, range, facts) {
   return out
 }
 
-async function post(round, reviewed, range, specFolder, reviewOut, active, known) {
+async function post(round, reviewed, range, specFolder, reviewOut, active, known, source) {
   const reviewFile = {
     path: `${specFolder}/redline/round-${round}-review.json`,
     content: json({
-      body: reviewBody(round, reviewed, range, reviewOut, active, known),
+      body: reviewBody(round, reviewed, range, reviewOut, active, known, source),
       comments: active.map((f) => ({ path: f.file, line: f.line, side: f.side, body: commentBody(f) })),
     }),
   }
@@ -1182,10 +1303,23 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   return { posted, commentIds, files: [reviewFile.path, findingsFile.path] }
 }
 
-function outcomesFor(inScope, shaped, deferred, roundDecisions, commits) {
+// The owner a shaper's decidedBy stands for: "reviewer" is the teammate whose review a human pass
+// reads (the workflow owns the attribution, as it does for a person's decisions).
+function shaperOwner(decidedBy, pass) {
+  if (decidedBy === 'pending') {
+    return ''
+  }
+  if (decidedBy === 'reviewer') {
+    return pass.reviewer || REDLINE
+  }
+  return decidedBy || REDLINE
+}
+
+function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits) {
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
-  const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, f.decidedBy === 'pending' ? '' : f.decidedBy || REDLINE]))
+  const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
+  const recommendations = Object.fromEntries(shaped.findings.map((f) => [f.id, (f.recommendation || '').trim()]))
   for (const f of inScope) {
     const named = commits.filter((c) => c.finding === f.id || mentions(c.message, f.id))
     const decision = roundDecisions[f.id]
@@ -1195,6 +1329,8 @@ function outcomesFor(inScope, shaped, deferred, roundDecisions, commits) {
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
       outcomes[f.id] = { kind: 'deferred', commits: named, fullFix: deferredItem.fullFix, mitigation: deferredItem.mitigation, decidedBy: owner }
+    } else if (dispositions[f.id] === 'none') {
+      outcomes[f.id] = { kind: 'none', why: recommendations[f.id] || 'The comment asks for no change.', commits: named, decidedBy: REDLINE }
     } else if (named.length) {
       outcomes[f.id] = { kind: 'fixed', commits: named, decidedBy: owner }
     } else {
@@ -1215,8 +1351,34 @@ function describeOutcome(outcome) {
       return `${decisionSentence(outcome)}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
+    case 'none':
+      return `no change requested: ${outcome.why}${owner}`
     default:
       return `not changed${owner}`
+  }
+}
+
+// A human review pass sorts into fix, ask or none; a Redline round into fix, defer or ask. The
+// shaper's JSON is checked here, so a value from the other kind of pass stops the run at shape
+// rather than reaching a plan.
+function checkDispositions(pass, shaped) {
+  const bad = pass.human
+    ? shaped.findings.filter((f) => f.disposition === 'defer')
+    : shaped.findings.filter((f) => f.disposition === 'none' || f.decidedBy === 'reviewer')
+  if (bad.length) {
+    const ids = bad.map((f) => f.id).join(', ')
+    throw stageError('shape', pass.human
+      ? `the shaper deferred ${ids}; in a human review pass a comment is fix, ask or none, never defer, since nothing a teammate asked for is deferred by Redline on its own`
+      : `the shaper sorted ${ids} with a human review pass's values (none, or decidedBy reviewer) in a Redline round`)
+  }
+  // A fix in a human pass is the teammate's instruction, whatever the shaper wrote as its owner.
+  if (pass.human) {
+    for (const f of shaped.findings) {
+      if (f.disposition === 'fix' && f.decidedBy !== 'reviewer') {
+        warnings.push(`${pass.name}: the shaper marked ${f.id} as decided by ${f.decidedBy}; a fix from ${pass.reviewer}'s comment is theirs`)
+        f.decidedBy = 'reviewer'
+      }
+    }
   }
 }
 
@@ -1233,7 +1395,7 @@ function droppedReplies(record) {
     const outcome = { kind: 'dropped', reason: f.reason, commits: [], decidedBy: personLabel }
     record.outcomes[f.id] = describeOutcome(outcome)
     decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
-    return replyEntry(record.round, record.specFolder, f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
+    return replyEntry(passOf(record), f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
   })
 }
 
@@ -1245,8 +1407,9 @@ async function replyDropped(record) {
     return
   }
   phase('Push and reply')
-  const pushed = await run('push-and-reply', pushReplyPrompt(record.round, record.specFolder, replies, false), {
-    agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply r${record.round}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
+  const pass = passOf(record)
+  const pushed = await run('push-and-reply', pushReplyPrompt(pass, record.specFolder, replies, false), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
   })
   if (pushed.error) {
     throw stageError('push-and-reply', `replies failed in round ${record.round}: ${pushed.error}`)
@@ -1263,18 +1426,20 @@ async function checker(flag, snapshot, octane, label) {
 // One revise pass for a round: Shape, hand-off, Resolve, Approve, Implement, Check, Push and reply.
 async function revise(record, inScope, reviewedKind) {
   const { round, specFolder } = record
+  const pass = passOf(record)
 
   phase('Shape')
-  let shaped = await run('shape', shapePrompt(round, specFolder, reviewedKind, inScope, record.prBody), {
-    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape r${round}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+  let shaped = await run('shape', pass.human ? humanShapePrompt(pass, record, inScope) : shapePrompt(round, specFolder, reviewedKind, inScope, record.prBody), {
+    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: SHAPE_SCHEMA,
   })
   if (shaped.specFolder.replace(/\/+$/, '') !== specFolder) {
-    warnings.push(`round ${round}: shaper reported spec folder ${shaped.specFolder}, expected ${specFolder}`)
+    warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${specFolder}`)
   }
   const unsorted = inScope.filter((f) => !shaped.findings.some((s) => s.id === f.id)).map((f) => f.id)
   if (unsorted.length) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
+  checkDispositions(pass, shaped)
   record.dispositions = shaped.findings
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
@@ -1298,7 +1463,7 @@ async function revise(record, inScope, reviewedKind) {
     if (interrupt === 'autopilot') {
       for (const call of open) {
         decisions[call.id] = autopilotDecision(call)
-        log(`round ${round}: autopilot decided ${call.id} (${decisions[call.id].choice})`)
+        log(`${pass.name}: autopilot decided ${call.id} (${decisions[call.id].choice})`)
       }
       return false
     }
@@ -1319,8 +1484,8 @@ async function revise(record, inScope, reviewedKind) {
     for (const id of newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))) {
       roundDecisions[id] = withOwner(decisions[id])
     }
-    const out = await run('resolve', resolvePrompt(round, specFolder, newCalls, roundDecisions, newOverrides), {
-      agentType: 'redline:redline-resolve', ...modelOpts('revise'), label: `resolve r${round}${suffix}`, phase: 'Resolve', schema: RESOLVE_SCHEMA,
+    const out = await run('resolve', resolvePrompt(pass, specFolder, newCalls, roundDecisions, newOverrides), {
+      agentType: 'redline:redline-resolve', ...modelOpts('revise'), label: `resolve ${pass.tag}${suffix}`, phase: 'Resolve', schema: RESOLVE_SCHEMA,
     })
     if (out.unresolved.length) {
       const ids = out.unresolved.map((item) => item.id)
@@ -1352,28 +1517,29 @@ async function revise(record, inScope, reviewedKind) {
   for (let adjustment = 0; ; adjustment++) {
     const suffix = adjustment ? ` #${adjustment + 1}` : ''
     const approvals = await parallel([
-      () => run('approve', planPrompt(round, specFolder, inScope, { findings: effectiveDispositions(), deferred }, roundDecisions, adjustment, approvedPaths), {
-        agentType: 'redline:redline-plan-approver', ...modelOpts('planApprover'), label: `plan approver r${round}${suffix}`, phase: 'Approve', schema: PLAN_SCHEMA,
+      () => run('approve', planPrompt(pass, specFolder, inScope, { findings: effectiveDispositions(), deferred }, roundDecisions, adjustment, approvedPaths), {
+        agentType: 'redline:redline-plan-approver', ...modelOpts('planApprover'), label: `plan approver ${pass.tag}${suffix}`, phase: 'Approve', schema: PLAN_SCHEMA,
       }),
-      () => run('approve', standardsPrompt(round, specFolder), {
-        agentType: 'redline:redline-standards-approver', ...modelOpts('standardsApprover'), label: `standards approver r${round}${suffix}`, phase: 'Approve', schema: STANDARDS_SCHEMA,
+      () => run('approve', standardsPrompt(pass, specFolder), {
+        agentType: 'redline:redline-standards-approver', ...modelOpts('standardsApprover'), label: `standards approver ${pass.tag}${suffix}`, phase: 'Approve', schema: STANDARDS_SCHEMA,
       }),
     ])
     plan = approvals[0]
     standards = approvals[1]
     if (!plan || !standards) {
-      throw stageError('approve', `the ${!plan ? 'plan' : 'standards'} approver returned nothing in round ${round}`)
+      throw stageError('approve', `the ${!plan ? 'plan' : 'standards'} approver returned nothing in ${pass.name}`)
     }
     if (plan.approved) {
       break
     }
     if (adjustment >= maxPlanAdjustments) {
-      throw stageError('approve', `the plan approver did not approve the round ${round} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes })
+      throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes })
     }
-    log(`round ${round}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
-    shaped = await run('shape', reshapePrompt(round, specFolder, inScope, plan.adjustments, adjustment + 1), {
-      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape r${round} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+    log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
+    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
+      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
     })
+    checkDispositions(pass, shaped)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
@@ -1400,8 +1566,8 @@ async function revise(record, inScope, reviewedKind) {
   approvedPaths = unique(approvedPaths.concat(planPaths, [`${specFolder}/`]))
   const snapshotPath = abs(`${specFolder}/redline/snapshot.json`)
   const snapshot = { pr, start_sha: startSha, base_ref: baseRef, files: prFiles, plan_paths: approvedPaths }
-  const written = await run('snapshot', snapshotPrompt(round, snapshotPath, json(snapshot)), {
-    agentType: 'redline:redline-github', ...modelOpts('github'), label: `snapshot r${round}`, phase: 'Approve', schema: FILE_OP_SCHEMA,
+  const written = await run('snapshot', snapshotPrompt(pass, snapshotPath, json(snapshot)), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `snapshot ${pass.tag}`, phase: 'Approve', schema: FILE_OP_SCHEMA,
   })
   if (written.error) {
     throw stageError('snapshot', `writing ${snapshotPath} failed: ${written.error}`)
@@ -1439,24 +1605,24 @@ async function revise(record, inScope, reviewedKind) {
   const checkCommand = checkerCommand(checkFlag, snapshotPath, octane)
   for (let attempt = 0; attempt < 2; attempt++) {
     phase('Implement')
-    implemented = await run('implement', implementPrompt(round, ctx), {
-      agentType: 'redline:redline-implementer', ...modelOpts('revise'), label: `${attempt ? 'repair' : 'implement'} r${round}`, phase: 'Implement', schema: IMPLEMENT_SCHEMA,
+    implemented = await run('implement', implementPrompt(pass, ctx), {
+      agentType: 'redline:redline-implementer', ...modelOpts('revise'), label: `${attempt ? 'repair' : 'implement'} ${pass.tag}`, phase: 'Implement', schema: IMPLEMENT_SCHEMA,
     })
     if (implemented.blocked.length) {
-      throw stageError('implement', `the implementer is blocked in round ${round}`, { blocked: implemented.blocked })
+      throw stageError('implement', `the implementer is blocked in ${pass.name}`, { blocked: implemented.blocked })
     }
     phase('Check')
-    const checkLabel = `${attempt ? 'recheck' : 'check'} r${round}`
+    const checkLabel = `${attempt ? 'recheck' : 'check'} ${pass.tag}`
     checked = await checker(checkFlag, snapshotPath, octane, checkLabel)
     verdict = judge(checked, baselineFailing, unique(needCommits), checkCommand)
-    log(`round ${round}: checker ${verdict.pass ? 'passed' : verdict.stop ? `stopped (${verdict.stop})` : `failed (${verdict.reasons.join('; ')})`}`)
+    log(`${pass.name}: checker ${verdict.pass ? 'passed' : verdict.stop ? `stopped (${verdict.stop})` : `failed (${verdict.reasons.join('; ')})`}`)
     for (const warning of verdict.warnings) {
-      warnings.push(`round ${round}: ${warning}`)
+      warnings.push(`${pass.name}: ${warning}`)
     }
     if (verdict.stop) {
       // Nothing the implementer could change: stop now, keeping what the checker returned.
       record.check = { pass: false, stop: verdict.stop, reasons: [], preExisting: [], diffLines: null }
-      throw stageError('check', `round ${round} ${checkLabel}: ${verdict.stop}`, { checker: checked })
+      throw stageError('check', `${pass.name} ${checkLabel}: ${verdict.stop}`, { checker: checked })
     }
     if (verdict.pass) {
       break
@@ -1465,10 +1631,10 @@ async function revise(record, inScope, reviewedKind) {
   }
   record.check = { pass: verdict.pass, stop: null, reasons: verdict.reasons, preExisting: verdict.preExisting, diffLines: verdict.diffLines }
   if (!verdict.pass) {
-    throw stageError('check', `checks.sh still fails after one repair pass in round ${round}: ${verdict.reasons.join('; ')}`)
+    throw stageError('check', `checks.sh still fails after one repair pass in ${pass.name}: ${verdict.reasons.join('; ')}`)
   }
   if (verdict.preExisting.length) {
-    warnings.push(`round ${round}: ${verdict.preExisting.join(', ')} still failing, as at baseline`)
+    warnings.push(`${pass.name}: ${verdict.preExisting.join(', ')} still failing, as at baseline`)
   }
 
   const gitCommits = (checked.result.git && checked.result.git.commits) || []
@@ -1487,20 +1653,21 @@ async function revise(record, inScope, reviewedKind) {
     deferredAll.push({ ...item, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[item.id] || 0 })
   }
 
-  const outcomes = outcomesFor(inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits)
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits)
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome)])))
+  record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
   for (const f of inScope) {
     decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id]), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '' })
   }
 
   phase('Push and reply')
-  const replies = inScope.map((f) => replyEntry(round, specFolder, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(droppedReplies(record))
+  const replies = inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(droppedReplies(record))
   const doPush = push && roundCommits.length > 0
-  const pushed = await run('push-and-reply', pushReplyPrompt(round, specFolder, replies, doPush), {
-    agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply r${round}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
+  const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
   })
   if (pushed.error) {
-    throw stageError('push-and-reply', `push or replies failed in round ${round}: ${pushed.error}`)
+    throw stageError('push-and-reply', `push or replies failed in ${pass.name}: ${pushed.error}`)
   }
   record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
   record.pushed = pushed.pushed
@@ -1554,6 +1721,44 @@ function handoffComment(lastFixUnreviewed, prBody) {
   return lines.join('\n')
 }
 
+// One line for the PR after a human review pass: what was fixed, what went back to the author as a
+// question, what asked for nothing, and what the final nit pass found. The reviewer is already on
+// the PR, so there is no handoff and no review request.
+function humanSummary(record, nitPass) {
+  const pass = passOf(record)
+  const kinds = record.outcomeKinds || {}
+  const ids = (kind) => record.findings.map((f) => f.id).filter((id) => kinds[id] === kind)
+  const plural = (list, one, many) => (list.length === 1 ? one : many)
+  const parts = []
+  const fixed = ids('fixed')
+  const commits = (record.commits || []).length
+  parts.push(fixed.length
+    ? `fixed ${andList(fixed)} in ${commits} commit${commits === 1 ? '' : 's'} (${push ? 'pushed' : 'not pushed'})`
+    : 'nothing to fix')
+  const decided = ids('decided')
+  if (decided.length) {
+    parts.push(`${andList(decided)} ${plural(decided, 'was a question', 'were questions')} for ${personLabel}, answered in ${plural(decided, 'its thread', 'their threads')}`)
+  }
+  const deferred = ids('deferred')
+  if (deferred.length) {
+    parts.push(`${andList(deferred)} deferred with a mitigation`)
+  }
+  const none = ids('none')
+  if (none.length) {
+    parts.push(`${andList(none)} asked for nothing`)
+  }
+  const rest = ids('not-changed')
+  if (rest.length) {
+    parts.push(`${andList(rest)} not changed`)
+  }
+  const nit = !nitPass
+    ? 'No commits, so no final nit pass.'
+    : nitPass.found === 0
+      ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
+      : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
+  return `${pass.title} · review by ${pass.reviewer}: ${parts.join('; ')}. ${nit}`
+}
+
 function capComment(open) {
   return [
     'Redline stopped at the round cap',
@@ -1567,10 +1772,12 @@ function capComment(open) {
 }
 
 // The description goes first, in a call of its own, so the handoff comment can say whether it was
-// replaced. compose(prBody) returns the comment's text.
+// replaced. compose(prBody) returns the comment's text. A human review pass finishes with its
+// summary comment only: no description, no review request (#36).
 async function finish(kind, record, compose) {
   phase('Finish')
-  const file = `${record.specFolder}/redline/${kind === 'handoff' ? 'handoff' : 'cap-hit'}.md`
+  const names = { handoff: 'handoff.md', 'cap-hit': 'cap-hit.md', 'human-summary': `human-review-${record.round}-summary.md` }
+  const file = `${record.specFolder}/redline/${names[kind]}`
   let prBody = { file: '', updated: false, backup: '', copy: '' }
   if (kind === 'handoff' && postToGitHub) {
     // The review-fix standard redrafts a stale description as pr-body.md in a round's spec folder;
@@ -1588,8 +1795,9 @@ async function finish(kind, record, compose) {
       record.files.push(copy)
     }
   }
+  const labels = { handoff: 'handoff comment', 'cap-hit': 'cap-hit comment', 'human-summary': 'summary comment' }
   const out = await run('finish', finishPrompt(kind, record.specFolder, file, compose(prBody)), {
-    agentType: 'redline:redline-github', ...modelOpts('github'), label: kind === 'handoff' ? 'handoff comment' : 'cap-hit comment', phase: 'Finish', schema: FINISH_SCHEMA,
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: labels[kind], phase: 'Finish', schema: FINISH_SCHEMA,
   })
   if (out.error) {
     throw stageError('finish', `the ${kind} comment failed: ${out.error}`)
@@ -1646,7 +1854,7 @@ function handoffResult(record, outcome) {
       handoffKind: 'plan',
       handoffRound: record.round,
       specFolder: record.specFolder,
-      plan: outcome.shaped.findings.map((s) => ({ ...s, finding: findingOf(s.id), decidedBy: s.decidedBy === 'pending' ? '' : s.decidedBy })),
+      plan: outcome.shaped.findings.map((s) => ({ ...s, finding: findingOf(s.id), decidedBy: shaperOwner(s.decidedBy, passOf(record)) })),
       deferredPlanned: outcome.shaped.deferred,
       judgmentCalls,
       unresolved: [],
@@ -1680,6 +1888,64 @@ function reviewedResult(record, active, known, files) {
 }
 
 try {
+  // /redline:redline-revise <pr> review <selector>: one revise pass over a teammate's review (#36).
+  // The skill ingested the comments (redline-gh.sh human-review) and numbered them H<n>-k; the
+  // reviewer owns every clear instruction, the author answers the rest, the fix diff gets one final
+  // nit pass as a Redline round, and the pass ends with one summary comment: no handoff.
+  if (humanRevise) {
+    const { n, reviewer } = humanRevise
+    const specFolder = humanRevise.specFolder || humanFolderFor(n)
+    const record = {
+      round: n, reviewed: 'human-review', specFolder, range: null, findings: humanRevise.findings, files: [],
+      commentIds: humanRevise.commentIds, reviewPosted: humanRevise.posted,
+      human: { n, reviewer, reviewIds: humanRevise.reviewIds, body: humanRevise.body },
+    }
+    rounds.push(record)
+    const outcome = await revise(record, record.findings, 'human')
+    if (outcome.handoff) {
+      return handoffResult(record, outcome)
+    }
+    let nitPass = null
+    let lastFixUnreviewed = false
+    if (outcome.newHead) {
+      // The final nit pass over the human fixes, as a Redline round: the next unposted number.
+      const round = firstRound
+      const range = { from: startSha, to: outcome.newHead }
+      const source = passOf(record).title
+      phase('Gather')
+      const facts = await gather(round)
+      if (push && facts.headRefOid !== range.to) {
+        warnings.push(`round ${round}: GitHub head ${short(facts.headRefOid)} differs from local ${short(range.to)} after the push`)
+      }
+      phase('Re-review')
+      const reviewOut = await review(round, 'final-nit-pass', range, facts, source)
+      const considered = reviewOut.findings.filter((f) => f.category === 'correctness')
+      const droppedNits = reviewOut.findings.length - considered.length
+      const known = considered.filter((f) => f.knownAs)
+      const active = considered.filter((f) => !f.knownAs)
+      log(`round ${round} (final nit pass over ${source}): ${active.length} correctness, ${known.length} already tracked, ${droppedNits} nit(s) dropped`)
+      phase('Post')
+      const roundFolder = specFolderFor(round)
+      const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered }, active, known, source)
+      const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+      rounds.push(roundRecord)
+      nitPass = { round, found: active.length }
+      if (active.length) {
+        const fix = await revise(roundRecord, active, 'correctness')
+        if (fix.handoff) {
+          return handoffResult(roundRecord, fix)
+        }
+        lastFixUnreviewed = true
+      }
+    }
+    const finished = await finish('human-summary', record, () => humanSummary(record, nitPass))
+    return result('done', {
+      humanReview: { n, reviewer, reviewIds: record.human.reviewIds, specFolder, summaryPosted: finished.posted, summaryFile: `${specFolder}/redline/human-review-${n}-summary.md`, nitPassRound: nitPass ? nitPass.round : 0 },
+      lastFixUnreviewed,
+      note: 'One revise pass over a human review; the summary comment replaces the handoff, and no review was requested.',
+    })
+  }
+
   // /redline:redline-revise: one revise pass over findings an earlier review already posted.
   if (A.revise && typeof A.revise === 'object') {
     const round = Number(A.revise.round)

@@ -223,4 +223,4 @@ Report `stage`, `error` and anything useful in `detail` (blocked tasks, the appr
 ## Variants
 
 - `/redline:redline-review <pr> [...]` is `/redline:redline <pr> review only [...]` (see `${CLAUDE_PLUGIN_ROOT}/skills/redline-review/SKILL.md`).
-- `/redline:redline-revise <pr> [...]` runs one revise pass over a review already on file (see `${CLAUDE_PLUGIN_ROOT}/skills/redline-revise/SKILL.md`).
+- `/redline:redline-revise <pr> [...]` runs one revise pass over a review already on file, or, with `review <id|@login|latest>`, over a teammate's review comments (see `${CLAUDE_PLUGIN_ROOT}/skills/redline-revise/SKILL.md`).

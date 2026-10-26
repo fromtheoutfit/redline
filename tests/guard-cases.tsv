@@ -138,6 +138,15 @@ redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+# human-review and last-human-review (#36): read subcommands beside last-round; the roles with gh-read may run them, the rest may not.
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 @marcamos
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 latest
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 7
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 @marcamos
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh diff 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh login
 redline:redline-reviewer	allow	Write	/tmp/redlinerepro/reviewer-r1-ReproTest.php

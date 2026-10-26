@@ -64,7 +64,7 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # (vendor/bin/pest, ./vendor/bin/pest, <repo>/vendor/bin/pest), and in no other. So is
 # artisan after php (php artisan, php ./artisan, php <repo>/artisan).
 #   checks     the repository's .claude/redline/checks.sh
-#   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | last-round | files | login | place
+#   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | last-round | files | login | place | human-review | last-human-review
 #   gh-all     the plugin's scripts/redline-gh.sh, every subcommand
 #   git-read   read-only git alone (status, log, rev-parse, ...), without the file tools of read
 #   git-add    git add <paths>  (never -A, --all, -u, ., *)
@@ -459,7 +459,7 @@ ARTISAN_NEVER = {"tinker", "db:wipe", "migrate:fresh", "migrate:reset"}
 COMPOSER_BUILD = {"check", "fix", "lint", "test", "test:octane", "test:explain", "dump-autoload", "dumpautoload",
                   "validate", "show", "--version"}
 VENDOR_BIN = {"pint", "phpstan", "rector", "pest"}
-GH_READ = {"pr", "diff", "pr-comments", "issues-search", "review-comments", "has-review", "last-round", "files", "login", "place"}
+GH_READ = {"pr", "diff", "pr-comments", "issues-search", "review-comments", "has-review", "last-round", "files", "login", "place", "human-review", "last-human-review"}
 ATTRIBUTION = re.compile(r"co-authored-by|generated with|claude|anthropic|🤖", re.IGNORECASE)
 # The path spellings a commit may name without tripping the attribution filter.
 PATH_SPELLINGS = re.compile(r"\.claude/|CLAUDE\.md")

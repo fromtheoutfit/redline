@@ -83,21 +83,26 @@ function mock(scenario) {
       return { round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], summary: 'S' }
     }
     if (t === 'redline:redline-shaper') {
-      const ids = [...new Set([...prompt.matchAll(/"id": "(R\d+-\d+)"/g)].map((m) => m[1]))]
+      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))]
       const ask = scenario.ask || []
       const defer = scenario.defer || []
-      const disposition = (id) => (ask.includes(id) ? 'ask' : defer.includes(id) ? 'defer' : 'fix')
+      const none = scenario.none || []
+      // A human review pass (#36): a fix is the reviewer's (decidedBy "reviewer"), unless the
+      // scenario scripts another owner (scenario.shaperOwner) to prove the workflow corrects it.
+      const human = prompt.includes('a revise pass whose findings are the review comments')
+      const disposition = (id) => (ask.includes(id) ? 'ask' : defer.includes(id) ? 'defer' : none.includes(id) ? 'none' : 'fix')
+      const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
-        findings: ids.map((id) => ({ id, disposition: disposition(id), decidedBy: disposition(id) === 'ask' ? 'pending' : 'redline', recommendation: `${disposition(id)} ${id} this way` })),
+        findings: ids.map((id) => ({ id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way` })),
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: 'a guard clause', fullFix: 'a lock' })),
         judgmentCalls: ids.filter((id) => ask.includes(id)).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
       }
     }
     if (t === 'redline:redline-resolve') {
-      const ids = [...new Set([...prompt.matchAll(/"(R\d+-\d+)": \{/g)].map((m) => m[1]))]
+      const ids = [...new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{/g)].map((m) => m[1]))]
       // An accepted override has no files to touch; everything else gets a task with a file.
-      const accepted = new Set([...prompt.matchAll(/"(R\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]))
+      const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]))
       return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: accepted.has(id) ? `Accepted, no change: ${id}` : `t ${id}`, files: accepted.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
@@ -148,7 +153,7 @@ async function go(name, args, scenario) {
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
   // Every run that reaches Finish ends with the run-record commit, after the closing comment.
-  if (!thrown && (res.status === 'capped' || 'handoffPosted' in res) && !scenario.recordFiles) {
+  if (!thrown && (res.status === 'capped' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
     const tail = calls.slice(-3).map((c) => c.label)
     check(`${name}: the run-record commit is the last call, after the closing comment`, /comment$/.test(tail[0]) && tail[1] === 'record files' && tail[2] === 'record commit' && res.recordCommit && res.recordCommit.committed, tail)
   }
@@ -494,6 +499,98 @@ function samePrefix(name, first, second, n) {
   check('stop: a result with no git block stops, no repair', stopped(run) && run.res.error.includes('the checker result has no git block') && run.res.error.includes(`run ${command} by hand`), brief(run))
   run = await go('checker: baseline with no result', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? { exit: 1, status: 'read', reason: '', result: null, error: 'killed' } : null) })
   check('stop: a baseline with no result stops instead of passing silently', stopped(run) && !pick(run.calls, 'implement r1') && run.res.error.startsWith('baseline: the checker returned no result; the checker said: killed'), [brief(run), labels(run.calls)])
+}
+
+// ---------------------------------------------------------------------------
+// 10. A human review pass (#36): the findings are a teammate's comments (H<n>-k), a clear
+//     instruction is theirs, a question goes to the author, a comment that asks for nothing is
+//     none, the fix diff gets one final nit pass as a Redline round, and the pass ends with one
+//     summary comment: no handoff, no PR description, no review request.
+// ---------------------------------------------------------------------------
+{
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const folder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
+  const humanArgs = (findings, extra, argExtra) => ({
+    ...baseArgs,
+    firstRound: 3,
+    ...(argExtra || {}),
+    revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: 'Two things inline, one general.', specFolder: folder, findings, commentIds: Object.fromEntries(findings.filter((f) => f.threadId).map((f) => [f.id, f.threadId])), posted: true, ...(extra || {}) },
+  })
+  const four = [h('H1-1'), h('H1-2', { threadId: 901, commentId: 901, description: 'Is this the right default?' }), h('H1-3', { threadId: 902, commentId: 902, description: 'Nice.' }), h('H1-4', { file: '', line: 0, threadId: 0, commentId: 0, description: 'The empty case needs a test somewhere.' })]
+  const scenario = { reviews: [[]], ask: ['H1-2'], none: ['H1-3'], commitIds: [['H1-1', 'H1-2', 'H1-4']] }
+  const sequence = 'shape h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|summary comment|record files|record commit'
+
+  const first = await go('human: an ask stops for the author', humanArgs(four), scenario)
+  check('human: status handoff (decisions) after the shaper', first.res.status === 'handoff' && first.res.handoffKind === 'decisions' && labels(first.calls).join('|') === 'shape h1', [first.res.status, labels(first.calls)])
+  check('human: the call is for the author, with the comment in the finding', first.res.judgmentCalls.length === 1 && first.res.judgmentCalls[0].id === 'H1-2' && first.res.judgmentCalls[0].finding.id === 'H1-2' && first.res.specFolder === folder, first.res.judgmentCalls)
+  const shape = pick(first.calls, 'shape h1').prompt
+  check('human: the shape prompt names the pass, the reviewer, the ids and the rules', ['You are the shaper for Redline human review 1', 'Finding IDs are H1-<k>.', 'over review 7 by @marcamos', 'Sort each finding into fix, ask or none; never defer', 'Decided by: @marcamos', 'Two things inline, one general.', 'do not use the review-round name', `Spec folder to write: /r/${folder}/`, '/tmp/redlinerepro/shaper-h1-ReproTest.php'].every((s) => shape.includes(s)), shape.slice(0, 1200))
+  check('human: the shape prompt never mentions a decision', !shape.includes('"H1-2": {'))
+
+  const decided = humanArgs(four, {}, { decisions: { 'H1-2': { choice: 'Keep it', notes: 'The author keeps the default because the board already shows it.', date: '2026-10-20' } } })
+  const second = await go('human: relaunch with the author\'s answer', decided, scenario)
+  check('human: finishes', second.res.status === 'done' && second.res.humanReview && second.res.humanReview.n === 1 && second.res.humanReview.reviewer === 'marcamos' && second.res.humanReview.nitPassRound === 3 && second.res.humanReview.summaryPosted === true, [second.res.status, second.res.humanReview])
+  samePrefix('human', first.calls, second.calls, 1)
+  check('human: the call sequence, with the nit pass as round 3 and the summary in place of the handoff', labels(second.calls).join('|') === sequence, labels(second.calls))
+  check('human: no PR description, no handoff comment, no review request', !labels(second.calls).some((l) => l === 'PR description' || l === 'handoff comment') && pick(second.calls, 'summary comment').prompt.includes('Request no review') && !pick(second.calls, 'summary comment').prompt.includes('request-review 114'), labels(second.calls))
+  const rs = replies(second.calls, 'push and reply h1')
+  check('human: a fix is decided by the reviewer', replyFor(second.calls, 'push and reply h1', 'H1-1') === 'Redline human review 1: fixed in 1bbbbbb (redline: H1-1 fix). · decided by: @marcamos', replyFor(second.calls, 'push and reply h1', 'H1-1'))
+  check('human: an answered ask is decided by the author', replyFor(second.calls, 'push and reply h1', 'H1-2') === 'Redline human review 1: The author keeps the default because the board already shows it. Applied in 2bbbbbb (redline: H1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply h1', 'H1-2'))
+  check('human: a comment that asks for nothing says so, decided by redline', replyFor(second.calls, 'push and reply h1', 'H1-3') === 'Redline human review 1: no change requested. none H1-3 this way · decided by: redline', replyFor(second.calls, 'push and reply h1', 'H1-3'))
+  check('human: the body finding is an issue comment headed by the reviewer\'s name', rs.find((r) => r.finding === 'H1-4').route === 'issue-comment' && replyFor(second.calls, 'push and reply h1', 'H1-4').startsWith('<!-- redline:H1-4 -->\n**H1-4** · from the review by @marcamos\n\nRedline human review 1: fixed in 3bbbbbb'), replyFor(second.calls, 'push and reply h1', 'H1-4'))
+  check('human: the inline replies go to their threads', rs.filter((r) => r.finding !== 'H1-4').every((r) => r.route === 'thread') && rs.find((r) => r.finding === 'H1-2').comment_id === 901, rs)
+  check('human: reply files carry the pass name', rs.every((r) => r.file === `/r/${folder}/redline/human-review-1-reply-${r.finding}.md`), rs.map((r) => r.file))
+  const pushPrompt = pick(second.calls, 'push and reply h1').prompt
+  check('human: the push prompt names the pass, the header line and the duplicate rule', ['Operation: push and reply for human review 1.', 'the finding is the body of @marcamos\'s review, which has no thread', '`**<id>** · from the review by @marcamos`', 'may already hold a Redline round\'s reply; that is not a duplicate', 'opening `Redline human review 1:`'].every((s) => pushPrompt.includes(s)), pushPrompt)
+  check('human: resolve and approvers are told it is the human pass', pick(second.calls, 'resolve h1').prompt.includes('You are the resolve agent for human review 1.') && pick(second.calls, 'plan approver h1').prompt.includes('a fix is decided by them (decidedBy "reviewer")') && pick(second.calls, 'plan approver h1').prompt.includes('a disposition of defer here is a bounce') && pick(second.calls, 'implement h1').prompt.includes('You are the implementer for human review 1.') && pick(second.calls, 'implement h1').prompt.includes('finishing H1-1 (#114)'), pick(second.calls, 'implement h1').prompt.slice(-900))
+  const nit = pick(second.calls, 'final nit pass r3')
+  check('human: the nit pass is a round-3 final nit pass over the human fixes', nit.prompt.includes('Finding IDs are R3-<n>.') && nit.prompt.includes("after the Redline human review 1 fixes (HEAD 3bbbbbbb") && nit.prompt.includes('This is the final nit pass') && nit.prompt.includes('git diff aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..3bbbbbbb') && nit.opts.phase === 'Re-review', nit.prompt.slice(0, 900))
+  check('human: the nit pass sees the human findings and their outcomes', nit.prompt.includes('"id": "H1-1"') && nit.prompt.includes('"outcome": "fixed in 1bbbbbb · decided by: @marcamos"') && nit.prompt.includes('"outcome": "no change requested: none H1-3 this way · decided by: redline"'), nit.prompt)
+  check('human: the nit pass reviewer checks both spec folder patterns', nit.prompt.includes('*-114-review-round-*/ and /r/agent-os/specs/*-114-human-review-*/'))
+  const postNit = pick(second.calls, 'post r3').prompt
+  check('human: the nit pass posts as Redline round 3 over the human fixes, in a round-3 folder', postNit.includes('Redline round 3\\n\\nFinal nit pass: reviewed only the fixes from Redline human review 1 (aaaaaaa..3bbbbbb) for correctness bugs they introduced.') && postNit.includes('agent-os/specs/2026-10-20-1600-114-review-round-3/redline/round-3-review.json') && postNit.includes('has-review 114 3`'), postNit.slice(0, 1200))
+  check('human: the summary is one line', comment(second.calls, 'summary comment') === 'Redline human review 1 · review by @marcamos: fixed H1-1 and H1-4 in 3 commits (pushed); H1-2 was a question for @author, answered in its thread; H1-3 asked for nothing. Final nit pass (Redline round 3): no correctness bugs.', comment(second.calls, 'summary comment'))
+  check('human: the summary file sits in the human folder', pick(second.calls, 'summary comment').prompt.includes(`/r/${folder}/redline/human-review-1-summary.md`) && second.res.humanReview.summaryFile === `${folder}/redline/human-review-1-summary.md`)
+  check('human: the record commit covers both folders', pick(second.calls, 'record files').prompt.includes(`-- ${folder}/redline/ agent-os/specs/2026-10-20-1600-114-review-round-3/redline/ agent-os/specs/x/redline/snapshot-start.json`), pick(second.calls, 'record files').prompt)
+  check('human: the result records the pass and the owners', second.res.rounds[0].reviewed === 'human-review' && second.res.rounds[0].human.reviewIds[0] === 7 && second.res.rounds[1].reviewed === 'final-nit-pass' && second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'H1-1=@marcamos,H1-2=@author,H1-3=redline,H1-4=@marcamos', [second.res.rounds.map((r) => r.reviewed), second.res.decided])
+  check('human: the snapshot names the human folder', pick(second.calls, 'snapshot h1').prompt.includes(`"${folder}/"`) && pick(second.calls, 'snapshot h1').prompt.includes('Operation: snapshot (human review 1).'))
+
+  let run = await go('human: the nit pass finds a correctness bug', decided, { ...scenario, reviews: [[f('R3-1', 'correctness')]], commitIds: [['H1-1', 'H1-2', 'H1-4'], ['R3-1']] })
+  check('human: one more fix pass as round 3, not re-reviewed, then the summary', run.res.status === 'done' && run.res.lastFixUnreviewed === true && labels(run.calls).join('|') === 'shape h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|shape r3|plan approver r3|standards approver r3|snapshot r3|implement r3|check r3|push and reply r3|summary comment|record files|record commit', labels(run.calls))
+  check('human: the summary names the bug', comment(run.calls, 'summary comment').endsWith('Final nit pass (Redline round 3): 1 correctness bug in the fixes, fixed in one more pass that was not re-reviewed.'), comment(run.calls, 'summary comment'))
+  check('human: the round-3 fix reply is a Redline round reply', replyFor(run.calls, 'push and reply r3', 'R3-1') === 'Redline round 3: fixed in 4bbbbbb (redline: R3-1 fix). · decided by: redline', replyFor(run.calls, 'push and reply r3', 'R3-1'))
+
+  run = await go('human: nothing to commit', humanArgs([h('H1-1', { description: 'Nice.' })]), { reviews: [], none: ['H1-1'], commitIds: [[]] })
+  check('human: no commits, no nit pass, still the summary', run.res.status === 'done' && labels(run.calls).join('|') === 'shape h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|summary comment|record files|record commit' && run.res.humanReview.nitPassRound === 0, labels(run.calls))
+  check('human: the summary says so', comment(run.calls, 'summary comment') === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 asked for nothing. No commits, so no final nit pass.', comment(run.calls, 'summary comment'))
+  check('human: the push prompt does not push', pick(run.calls, 'push and reply h1').prompt.includes('push: false'))
+
+  run = await go('human: autopilot', humanArgs(four, {}, { interrupt: 'autopilot' }), scenario)
+  check('human: autopilot takes the shaper\'s reading and the reply says so', run.res.status === 'done' && replyFor(run.calls, 'push and reply h1', 'H1-2') === 'Redline human review 1: Autopilot took the shaper\'s recommendation: Keep it. Applied in 2bbbbbb (redline: H1-2 fix). · decided by: redline (autopilot)', replyFor(run.calls, 'push and reply h1', 'H1-2'))
+  check('human: the autopilot summary counts the answer as a question', comment(run.calls, 'summary comment').includes('H1-2 was a question for @author, answered in its thread'), comment(run.calls, 'summary comment'))
+
+  run = await go('human: plan dial', humanArgs(four, {}, { interrupt: 'plan' }), scenario)
+  check('human: the plan dial lists the fix as the reviewer\'s', run.res.status === 'handoff' && run.res.handoffKind === 'plan' && run.res.plan.find((p) => p.id === 'H1-1').decidedBy === '@marcamos' && run.res.plan.find((p) => p.id === 'H1-2').decidedBy === '' && run.res.plan.find((p) => p.id === 'H1-3').decidedBy === 'redline', run.res.plan)
+
+  run = await go('human: the shaper defers', humanArgs([h('H1-1')]), { reviews: [], defer: ['H1-1'], commitIds: [[]] })
+  check('human: a defer stops the run at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper deferred H1-1') && run.res.error.includes('never defer') && labels(run.calls).join('|') === 'shape h1', [run.res.status, run.res.error, labels(run.calls)])
+
+  run = await go('human: the shaper writes the wrong owner on a fix', humanArgs([h('H1-1')]), { reviews: [[]], shaperOwner: 'redline', commitIds: [['H1-1']] })
+  check('human: the fix is still the reviewer\'s, with a warning', run.res.status === 'done' && replyFor(run.calls, 'push and reply h1', 'H1-1').endsWith('· decided by: @marcamos') && run.res.warnings.includes('human review 1: the shaper marked H1-1 as decided by redline; a fix from @marcamos\'s comment is theirs'), [run.res.warnings, replyFor(run.calls, 'push and reply h1', 'H1-1')])
+
+  run = await go('human: dry run', humanArgs(four, {}, { postToGitHub: false, decisions: decided.decisions }), scenario)
+  const dry = replies(run.calls, 'push and reply h1')
+  check('human: a dry run writes the replies and the summary only', run.res.status === 'done' && dry.every((r) => r.route === 'file-only') && replyFor(run.calls, 'push and reply h1', 'H1-1').includes('Committed locally; not pushed. · decided by: @marcamos') && pick(run.calls, 'summary comment').prompt.includes('This is a dry run: post nothing') && comment(run.calls, 'summary comment').includes('(not pushed)'), [run.res.status, dry.map((r) => r.route)])
+
+  run = await go('round: the shaper uses human values', baseArgs, { reviews: [[f('R1-1', 'nit')]], none: ['R1-1'] })
+  check('round: none in a Redline round stops at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('human review pass\'s values'), [run.res.status, run.res.error])
+
+  run = await go('human: wrong ids', humanArgs([f('R1-1', 'nit')]), { reviews: [] })
+  check('human: an id outside H<n>- is refused before any agent runs', run.thrown && /args.revise.findings ids must be H1-/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+  run = await go('human: no reviewer', humanArgs([h('H1-1')], { reviewer: '' }), { reviews: [] })
+  check('human: a missing reviewer is refused', run.thrown && /args.revise.reviewer must be/.test(run.thrown.message), run.thrown && run.thrown.message)
+  run = await go('human: no n', humanArgs([h('H1-1')], { n: undefined }), { reviews: [] })
+  check('human: a missing n is refused', run.thrown && /needs n/.test(run.thrown.message), run.thrown && run.thrown.message)
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

@@ -9,7 +9,7 @@ You are the reviewer in a Redline run: an unattended review/revise loop on a pul
 
 ## What you receive
 
-The invoking prompt gives you the repository root (use absolute paths), the PR number, the round number, the diff to review (the whole PR in round 1; only the fix diff in later rounds), the PR title and body, and for a final nit pass the instruction to report only correctness bugs introduced by that diff. When the prompt says the scope is correctness only, do not look for nits at all: report no naming, clarity, docblock or test-tightness findings, and spend that time reproducing the correctness candidates you have. Treat the current working tree as the PR's head.
+The invoking prompt gives you the repository root (use absolute paths), the PR number, the round number, the diff to review (the whole PR in round 1; only the fix diff in later rounds), the PR title and body, and for a final nit pass the instruction to report only correctness bugs introduced by that diff (after a human review pass, that diff is the fixes a teammate's comments asked for, and the history lists those findings as `H<n>-<k>` with their outcomes). When the prompt says the scope is correctness only, do not look for nits at all: report no naming, clarity, docblock or test-tightness findings, and spend that time reproducing the correctness candidates you have. Treat the current working tree as the PR's head.
 
 ## Check for known findings first
 
@@ -17,7 +17,7 @@ Before you report anything, look for what is already tracked, and report such a 
 
 1. Open issues: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh issues-search "<keywords>"` for each candidate finding.
 2. Prior review comments on this PR: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh review-comments <pr>` (inline threads, including replies that declined or deferred a finding) and `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr-comments <pr>` (review bodies and issue comments).
-3. This PR's earlier review rounds: the spec folders `agent-os/specs/*-<pr>-review-round-*/`, whose `shape.md` lists Decisions, Deferred items and declined findings.
+3. This PR's earlier review rounds and human review passes: the spec folders `agent-os/specs/*-<pr>-review-round-*/` and `agent-os/specs/*-<pr>-human-review-*/`, whose `shape.md` lists Decisions, Deferred items and declined findings.
 
 A finding an earlier round declined or deferred is not raised again.
 
