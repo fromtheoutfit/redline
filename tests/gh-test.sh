@@ -8,7 +8,16 @@
 # GH_FAKE_OLD=1, rejects --slurp the way a gh before 2.48.0 does. PR 7 has 150 files over two
 # pages (100 generated, then 44 generated and the six special files in files-7-special.json:
 # two hunks, no patch, a rename with a patch, a patch-less rename with no text changes, a
-# patch-less rename that changed, a removal) and five reviews; PR 8 has one human review.
+# patch-less rename that changed, a removal) and five reviews; PR 8 has one human review. PR 10 is
+# the human-review fixture (#36): a Redline round with its replies, a teammate's submitted review of
+# three comments (one already answered by a Redline human review reply, one with a null line), their
+# reply inside a Redline thread, their single comment outside a review, the author's hand reply, and
+# one Redline human review summary among the issue comments. PR 11 is a thread two teammates share
+# (#38, R1-1): under a teammate's comment, a Redline human review reply that names the one comment
+# it answered, a second teammate's comment and the first teammate's follow-up. PR 12 is an answered
+# review body (#38, R1-3): a teammate's review whose comment and body a Redline human review pass
+# answered, the body by an issue comment whose header names the review, beside an older review of
+# theirs whose body is still open and a comment of theirs that quotes the header without the marker.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -32,7 +41,11 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$WORK/pages/"
+# PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
+echo '[]' > "$WORK/pages/comments-8.json"
+echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
+echo '{"login": "author"}' > "$WORK/pages/user.json"
 # PR 9: one generated file of 60,000 added lines, so the positions list runs to megabytes, past
 # what a command-line argument may carry (Losers League #778, 336 files, hit that limit).
 jq -n '[{filename: "public/build/vendor.js", status: "added", previous_filename: null, patch: ("@@ -0,0 +1,60000 @@\n" + ([range(60000) | "+line \(.)"] | join("\n")))}]' > "$WORK/pages/files-9-page1.json"
@@ -62,6 +75,18 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/7/reviews") pages=("$PAGES/reviews-7.json") ;;
     "repos/{owner}/{repo}/pulls/9/files") pages=("$PAGES/files-9-page1.json") ;;
     "repos/{owner}/{repo}/pulls/8/reviews") pages=("$PAGES/reviews-8.json") ;;
+    "repos/{owner}/{repo}/pulls/8/comments") pages=("$PAGES/comments-8.json") ;;
+    "repos/{owner}/{repo}/issues/8/comments") pages=("$PAGES/issue-comments-8.json") ;;
+    "repos/{owner}/{repo}/pulls/10/reviews") pages=("$PAGES/reviews-10.json") ;;
+    "repos/{owner}/{repo}/pulls/10/comments") pages=("$PAGES/comments-10.json") ;;
+    "repos/{owner}/{repo}/issues/10/comments") pages=("$PAGES/issue-comments-10.json") ;;
+    "repos/{owner}/{repo}/pulls/11/reviews") pages=("$PAGES/reviews-11.json") ;;
+    "repos/{owner}/{repo}/pulls/11/comments") pages=("$PAGES/comments-11.json") ;;
+    "repos/{owner}/{repo}/issues/11/comments") pages=("$PAGES/issue-comments-11.json") ;;
+    "repos/{owner}/{repo}/pulls/12/reviews") pages=("$PAGES/reviews-12.json") ;;
+    "repos/{owner}/{repo}/pulls/12/comments") pages=("$PAGES/comments-12.json") ;;
+    "repos/{owner}/{repo}/issues/12/comments") pages=("$PAGES/issue-comments-12.json") ;;
+    "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
 if [[ "$slurp" == 1 ]]; then
@@ -134,7 +159,42 @@ gh has-review 7 3 >/dev/null; is "has-review: round 3 is not (exit 1)" "$?" "1"
 gh has-review 7 9 >/dev/null; is "has-review: 'Redline roundabout 9' is not round 9" "$?" "1"
 gh has-review 8 1 >/dev/null; is "has-review: no Redline review at all (exit 1)" "$?" "1"
 
+echo "# human-review and last-human-review"
+hr="$(gh human-review 10 @marcamos)"; code=$?
+is "human-review @login: exits 0" "$code" "0"
+is "human-review @login: every un-replied comment by that login, in path, line, id order" "$(jq -c '[.comments[].id]' <<<"$hr")" "[904,907,905,909]"
+is "human-review @login: a reply inside a Redline thread carries its root as thread_id" "$(jq -c '.comments[0] | [.thread_id, .in_reply_to_id, .review_id, .user, .path, .line]' <<<"$hr")" '[902,902,5,"marcamos","app/b.php",9]'
+is "human-review @login: a top-level comment is its own thread" "$(jq -c '.comments[2] | [.thread_id, .in_reply_to_id]' <<<"$hr")" "[905,null]"
+is "human-review @login: a null line falls back to original_line, side as given" "$(jq -c '.comments[1] | [.line, .side, .body]' <<<"$hr")" '[1,"LEFT","Nice."]'
+is "human-review @login: the comment a Redline human review reply answered is left out" "$(jq -c '[.comments[].id] | index(906)' <<<"$hr")" "null"
+is "human-review @login: the body is the newest non-empty review body by that login" "$(jq -c '.body' <<<"$hr")" '{"review_id":7,"user":"marcamos","text":"Two things inline, one general: the empty case needs a test somewhere."}'
+is "human-review @login: reviews lists the ones the comments and body came from" "$(jq -c '[.reviews[] | [.id, .user, .state]]' <<<"$hr")" '[[5,"marcamos","COMMENTED"],[7,"marcamos","COMMENTED"],[8,"marcamos","COMMENTED"]]'
+is "human-review @login: the selector is echoed" "$(jq -r '.selector' <<<"$hr")" "@marcamos"
+is "human-review @login: the login matches in any case, and the owner is GitHub's spelling" "$(gh human-review 10 @MarcAmos | jq -c '[[.comments[].id], .body.review_id, .body.user, .selector]')" '[[904,907,905,909],7,"marcamos","@MarcAmos"]'
+byid="$(gh human-review 10 7)"
+is "human-review <id>: that review's un-replied comments and its body" "$(jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]' <<<"$byid")" "[[907,905],7,[7]]"
+latest="$(gh human-review 10 latest)"
+is "human-review latest: the newest review not Redline's and not the gh user's, with a comment or a body" "$(jq -c '[[.comments[].id], .body, [.reviews[].id]]' <<<"$latest")" "[[909],null,[8]]"
+author="$(gh human-review 10 @author)"
+is "human-review @author: Redline's own comments and replies never appear; a hand reply does; no non-empty body" "$(jq -c '[[.comments[].id], .body]' <<<"$author")" "[[910],null]"
+is "human-review <id> of a Redline review: nothing" "$(jq -c '[.comments, .body, .reviews]' <<<"$(gh human-review 10 2)")" "[[],null,[]]"
+is "human-review: a login with no comment is empty, exit 0" "$(gh human-review 10 @nobody | jq -c '[.comments, .body]')" "[[],null]"
+is "human-review 11 @login: a comment in another teammate's thread is open when the Redline reply there does not name it" "$(gh human-review 11 @sam | jq -c '[[.comments[].id], .comments[0].thread_id, .body, [.reviews[].id]]')" '[[911],905,null,[8]]'
+is "human-review 11 @login: the follow-up is open, the comment the reply names is answered" "$(gh human-review 11 @marcamos | jq -c '[[.comments[].id], .body, [.reviews[].id]]')" '[[912],null,[10]]'
+is "human-review 11 latest: the newest review with a comment no Redline reply names" "$(gh human-review 11 latest | jq -c '[[.comments[].id], .body, [.reviews[].id]]')" '[[912],null,[10]]'
+is "human-review 11 <id>: the review whose comment the reply names has nothing open" "$(gh human-review 11 7 | jq -c '[.comments, .body, .reviews]')" '[[],null,[]]'
+is "human-review 12 <id>: a body a Redline human review comment names as answered is not taken again" "$(gh human-review 12 7 | jq -c '[.comments, .body, .reviews]')" '[[],null,[]]'
+is "human-review 12 @login: the newest body not yet answered, from an older review" "$(gh human-review 12 @marcamos | jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]')" '[[],6,[6]]'
+is "human-review 12 latest: skips the review whose body is answered" "$(gh human-review 12 latest | jq -c '[[.comments[].id], .body.review_id, [.reviews[].id]]')" '[[],6,[6]]'
+is "human-review 12 <id>: a comment that quotes the header without the marker answers nothing" "$(gh human-review 12 6 | jq -r '.body.text')" "Older note: document the new flag in the README."
+is "last-human-review: the highest Redline human review N across replies and issue comments" "$(gh last-human-review 10)" "1"
+is "last-human-review: a JSON number" "$(gh last-human-review 10 | jq -r 'type')" "number"
+is "last-human-review: 0 when none" "$(gh last-human-review 8)" "0"
+
 echo "# usage"
+gh human-review 10 2>/dev/null; is "usage: human-review without a selector exits 2" "$?" "2"
+gh human-review 10 seven 2>/dev/null; is "usage: human-review with a selector that is not an id, @login or latest exits 2" "$?" "2"
+gh last-human-review 2>/dev/null; is "usage: last-human-review without a number exits 2" "$?" "2"
 gh files 2>/dev/null; is "usage: files without a number exits 2" "$?" "2"
 gh last-round x 2>/dev/null; is "usage: last-round with a non-number exits 2" "$?" "2"
 gh place 7 "$WORK/missing.json" 2>/dev/null; is "usage: place with a missing file exits 2" "$?" "2"

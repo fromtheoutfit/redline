@@ -1,0 +1,8 @@
+[
+  {"id": 2, "user": {"login": "author"}, "state": "COMMENTED", "body": "Redline round 1\n\nReviewed the whole pull request.", "submitted_at": "2026-10-20T10:00:00Z"},
+  {"id": 3, "user": {"login": "author"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-20T12:00:00Z"},
+  {"id": 5, "user": {"login": "marcamos"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-21T08:30:00Z"},
+  {"id": 7, "user": {"login": "marcamos"}, "state": "COMMENTED", "body": "Two things inline, one general: the empty case needs a test somewhere.", "submitted_at": "2026-10-21T09:00:00Z"},
+  {"id": 8, "user": {"login": "marcamos"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-21T10:00:00Z"},
+  {"id": 9, "user": {"login": "author"}, "state": "COMMENTED", "body": "", "submitted_at": "2026-10-21T11:00:00Z"}
+]

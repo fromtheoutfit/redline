@@ -1,0 +1,12 @@
+[
+  {"id": 901, "pull_request_review_id": 2, "user": {"login": "author"}, "path": "app/a.php", "line": 5, "side": "RIGHT", "body": "**R1-1** · correctness · high · confirmed\n\n**Missing status filter**", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:00Z"},
+  {"id": 902, "pull_request_review_id": 2, "user": {"login": "author"}, "path": "app/b.php", "line": 9, "side": "RIGHT", "body": "**R1-2** · nit · low · likely\n\n**Name says the wrong thing**", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:01Z"},
+  {"id": 903, "pull_request_review_id": 3, "user": {"login": "author"}, "path": "app/a.php", "line": 5, "side": "RIGHT", "body": "Redline round 1: fixed in 1234567 (redline: R1-1 add the filter). · decided by: redline", "in_reply_to_id": 901, "created_at": "2026-10-20T12:00:00Z"},
+  {"id": 904, "pull_request_review_id": 5, "user": {"login": "marcamos"}, "path": "app/b.php", "line": 9, "side": "RIGHT", "body": "Also rename this while you're at it.", "in_reply_to_id": 902, "created_at": "2026-10-21T08:30:00Z"},
+  {"id": 905, "pull_request_review_id": 7, "user": {"login": "marcamos"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "Rename `foo` to `bar`.", "in_reply_to_id": null, "created_at": "2026-10-21T09:00:00Z"},
+  {"id": 906, "pull_request_review_id": 7, "user": {"login": "marcamos"}, "path": "app/a.php", "line": 20, "side": "RIGHT", "body": "Does this handle the empty case?", "in_reply_to_id": null, "created_at": "2026-10-21T09:00:01Z"},
+  {"id": 907, "pull_request_review_id": 7, "user": {"login": "marcamos"}, "path": "app/c.php", "line": null, "original_line": 1, "side": "LEFT", "body": "Nice.", "in_reply_to_id": null, "created_at": "2026-10-21T09:00:02Z"},
+  {"id": 908, "pull_request_review_id": 3, "user": {"login": "author"}, "path": "app/a.php", "line": 20, "side": "RIGHT", "body": "Redline human review 1: fixed in 2345678 (redline: H1-1 test the empty case). · decided by: @marcamos", "in_reply_to_id": 906, "created_at": "2026-10-21T09:30:00Z"},
+  {"id": 909, "pull_request_review_id": 8, "user": {"login": "marcamos"}, "path": "app/d.php", "line": 2, "side": "RIGHT", "body": "This leaks the id.", "in_reply_to_id": null, "created_at": "2026-10-21T10:00:00Z"},
+  {"id": 910, "pull_request_review_id": 9, "user": {"login": "author"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "Will do.", "in_reply_to_id": 905, "created_at": "2026-10-21T11:00:00Z"}
+]

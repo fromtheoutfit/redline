@@ -1,0 +1,1 @@
+Redline round 2: fixed in 24ecd55 (redline: R2-1 describe the human review body selection as built in the README paragraph (#36)). · decided by: redline

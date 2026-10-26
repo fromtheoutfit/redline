@@ -1,0 +1,4 @@
+[
+  {"id": 905, "pull_request_review_id": 7, "user": {"login": "marcamos"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "Rename foo to bar.", "in_reply_to_id": null, "created_at": "2026-10-21T09:00:00Z"},
+  {"id": 950, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "Redline human review 1: fixed in 1234567 (redline: H1-1 rename foo). · decided by: @marcamos\n\n<!-- redline:answers 905 -->", "in_reply_to_id": 905, "created_at": "2026-10-22T09:00:00Z"}
+]

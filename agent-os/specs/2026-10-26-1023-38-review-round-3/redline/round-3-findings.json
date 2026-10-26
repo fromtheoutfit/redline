@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "5365811ccfb1cd6230035e77083b4b7261676e1a",
+    "to": "4f948c2eef8376e01e5ad70a00083da5c5ce69af"
+  },
+  "summary": "The round 2 fix diff changes only documentation. It rewords the README paragraph on `/redline:redline-revise <pr> review` and adds one line to the bash conventions standard. I checked the new README text against the `human-review` jq in scripts/redline-gh.sh (lines 275-310). It now matches what was built: logins match in any case, one unanswered body per pass, an id's body is skipped once a Redline human review comment names that review, and `latest` needs an open comment or an unanswered body. The diff adds no correctness bug.",
+  "findings": []
+}

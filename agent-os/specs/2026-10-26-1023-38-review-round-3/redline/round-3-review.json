@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 3\n\nFinal nit pass: reviewed only the nit fixes (5365811..4f948c2) for correctness bugs they introduced.\n\nThe round 2 fix diff changes only documentation. It rewords the README paragraph on `/redline:redline-revise <pr> review` and adds one line to the bash conventions standard. I checked the new README text against the `human-review` jq in scripts/redline-gh.sh (lines 275-310). It now matches what was built: logins match in any case, one unanswered body per pass, an id's body is skipped once a Redline human review comment names that review, and `latest` needs an open comment or an unanswered body. The diff adds no correctness bug.\n\nNo findings.",
+  "comments": []
+}
