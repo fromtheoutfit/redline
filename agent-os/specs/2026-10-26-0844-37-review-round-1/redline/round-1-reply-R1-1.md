@@ -1,0 +1,1 @@
+Redline round 1: fixed in 9a7ad95 (redline: R1-1 name a usage error as exit 2 before the unreadable status (#9)). · decided by: redline

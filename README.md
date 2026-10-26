@@ -116,7 +116,7 @@ The handoff comment lists every decision of the run, not only the human ones. Th
 | --- | --- |
 | `skills/redline/SKILL.md` | `/redline:redline`: parses the arguments, settles and saves the settings, prechecks (the gate stamp first, then the template version), writes the start snapshot, launches `redline:redline-loop`, handles hand-offs (decisions, a plan to approve, findings to pick) and the deferred list. `redline-review` and `redline-revise` beside it are the debug variants |
 | `skills/setup/SKILL.md` | `/redline:setup`: walks a repository through the contract in conversation, in the thirteen steps of #6; see "Set up a repository" |
-| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, and the pass/fail decision from the checker's JSON. Runs as `redline:redline-loop` |
+| `workflows/redline-loop.js` | The loop: phases, done rule, final nit pass, cap, the interrupt dial's stopping points, decision owners, the pass/fail decision from the checker's JSON, and the stop on a checker result the implementer cannot change. Runs as `redline:redline-loop` |
 | `agents/redline-*.md` | The eight roles: reviewer, shaper, resolve, plan-approver, standards-approver, implementer, checker, github. They load as `redline:redline-<role>` |
 | `hooks/hooks.json` | One `PreToolUse` hook on Bash, Write, Edit, MultiEdit and NotebookEdit, calling the guard |
 | `scripts/redline-guard.sh` | The per-role guard; see below |
@@ -223,7 +223,7 @@ Environment: the workflow sets `REDLINE_OCTANE=1` when the approved plan touches
 - `diff_lines` is insertions plus deletions versus `start_sha`, plus the line count of untracked files.
 - `commits` lists `start_sha..HEAD` in `git log` order, newest first.
 
-**Exit code:** `0` when every check with `recorded: false` exited 0 and `unexpected_files` and `uncommitted` are both empty; `1` otherwise; `2` for a usage error (no snapshot, a file that is not a snapshot, a `start_sha` that is not a commit here). The workflow reads `ok` and the git block; the implementer reads the failing check's output.
+**Exit code:** `0` when every check with `recorded: false` exited 0 and `unexpected_files` and `uncommitted` are both empty; `1` otherwise; `2` for a usage error (no snapshot, a file that is not a snapshot, a `start_sha` that is not a commit here). The workflow reads each check's `exit`, the exit code and the git block; the implementer reads the failing check's output. The checker's own `error` field is text and never decides the verdict: it is a warning in the run's `warnings` on a round that passes, a round whose only failing checks were failing at baseline included, and detail added to the reasons on one the checks, the git block or the exit code already failed; `""` counts as empty (#34 round 2 failed a green gate on it; #37, R1-3). A result the implementer cannot change stops the run at stage `check`, naming the cause and the fix, with no repair pass: one the checker could not read (`status: result_unreadable`, with `reason` `spilled` when the output went over the Bash tool's inline limit and was saved to a file, `not_json`, or `no_git_block`), a missing result, exit 2, or a result with no `git` block (#9). The run's `detail.checker` keeps whatever the checker returned. The implementer repairs only failing checks and git-block findings.
 
 **Baseline.** The checker runs `--baseline` once before the first implement step of a run. "Tests pass" in later runs means no failure the baseline did not already have.
 

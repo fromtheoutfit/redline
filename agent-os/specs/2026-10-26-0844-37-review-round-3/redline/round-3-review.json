@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 3\n\nFinal nit pass: reviewed only the nit fixes (8ddffc7..4d84e3a) for correctness bugs they introduced.\n\nThe round 2 fix changes the checker-text warning in judge() from \"on a passing gate\" to \"on a round that passes\". That now matches R1-3's decision, which lets the warning fire when the gate exited 1 only on checks that were already failing at baseline. Both loop-test checks that pin the text were updated in the same commit, and the standards bullet records the lesson. The change adds no correctness bugs: no code branches on the warning string, and no other caller matches it.\n\nNo findings.",
+  "comments": []
+}

@@ -1,0 +1,1 @@
+Redline round 1: fixed in 0f46709 (redline: R1-2 name the checks template by its absolute plugin path in the spilled stop (#9)). · decided by: redline

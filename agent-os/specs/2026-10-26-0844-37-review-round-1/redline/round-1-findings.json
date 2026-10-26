@@ -1,0 +1,53 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "71c2e17a508d8e89d300019d9ac8c054f5f38341",
+    "to": "71c2e17a508d8e89d300019d9ac8c054f5f38341"
+  },
+  "summary": "The loop now decides from the gate's own fields. Results the implementer cannot change, the baseline included, stop the run at check with no repair pass and a message naming the cause and the fix, and section 9 tests each of these paths, written to fail first. The three findings are at the edges of the new rules: checker text still decides the verdict through checks.sh's `ok` and `exit`, so a round whose only failures were already failing at baseline fails on it (a judgment call for the person); the checker's instructions send a usage error to `result_unreadable` before the exit-2 rule; and the spilled stop gives the template's path relative to the plugin. The changed files are not shared with any scheduled or queued work, so there is no concurrent writer to consider.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agents/redline-checker.md",
+      "line": 24,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "A usage error is routed to result_unreadable before the exit-2 rule",
+      "description": "shape.md says `result_unreadable` is only for output the script printed and the checker could not read, and says exit 2 returns `status: read` with `result: null`. The checker's own instructions say something else. Step 3 (\"If it did not\" show one JSON object, return `result_unreadable`) comes before step 4 (the exit-2 rule). The sentence this PR adds to `checkerPrompt` (workflows/redline-loop.js:826) points the same way: \"If the tool shows you no complete JSON ... return status result_unreadable\". On exit 2, stdout is empty, so a checker that follows the steps in order returns `not_json`. `stopReason()` tests `status === 'result_unreadable'` (line 943) before `exit === 2` (line 951), so the stop message says \"checks.sh printed something that is not one JSON object\" instead of \"checks.sh exited 2 (usage error)\". The run still stops with no repair pass and the stderr text follows it, so the only thing wrong is the cause the message names. Section 9's exit-2 case mocks `status: 'read'`, which is not the shape the prompt steers the checker to, so the test does not catch this.",
+      "proposedFix": "In `stopReason()`, test `out.exit === 2` before `out.status === 'result_unreadable'`. In agents/redline-checker.md, put the exit-2 rule before step 3, or open step 3 with \"Unless the script exited 2\". Add \"(a usage error, exit 2, is status read)\" to the `checkerPrompt` sentence. Add a section 9 case returning `{ exit: 2, status: 'result_unreadable', reason: 'not_json', result: null, error: 'checks.sh: a snapshot file is required unless --baseline is given' }` on `check r1`, asserting the error includes `checks.sh exited 2 (usage error)` and that no repair pass ran.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "workflows/redline-loop.js",
+      "line": 945,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The spilled stop gives the template's path relative to the plugin",
+      "description": "The stop message for `spilled` gives its fix as \"see emit_checks in scripts/checks-template.sh\". That path is relative to the plugin, but the message is about the repository under review. On any other repository the person reading the run's error finds no `scripts/checks-template.sh`, because the file lives only in the plugin. The loop already has `pluginRoot` (line 43) and builds `GH` from it (line 131), so it can give the absolute path.",
+      "proposedFix": "Change the message to `see emit_checks in ${pluginRoot}/scripts/checks-template.sh`, and change the section 9 assertion in tests/loop-test.mjs to `emit_checks in /p/scripts/checks-template.sh` (baseArgs.pluginRoot is `/p`).",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1006,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "Checker text fails a round whose only failures were already failing at baseline",
+      "description": "`judge()` makes the checker's `error` text a reason whenever `result.ok !== true || out.exit !== 0`. In a repository whose baseline already fails a check, every full check returns `ok: false` and exit 1 even when nothing new broke. With no error text, `judge()` passes that round: the exit fallback is guarded by `preExisting.length === 0`, and the README's Baseline paragraph says tests pass when there is \"no failure the baseline did not already have\". With any non-empty text (for example the checker writing `checks.sh exited 1`), the round fails with `checker error: ...`. It then gets a repair pass that cannot change the checker's text, and stops with \"checks.sh still fails after one repair pass\". That is the #34 round 2 failure again, on the one gate shape the spec's definition of a passing gate (`ok` true, `exit` 0) leaves out. This is also the only case where the text being a reason changes the verdict. Every other failing gate already has a reason from the checks, the git block or the `checks.sh exited N` fallback. Traced by reading the code; node is not available to the reviewer, so the scenario below was not run. Question for the person: should the error-text rule use the workflow's own verdict (no reason from the checks or the git block, with baseline failures allowed) instead of checks.sh's `ok`/`exit`? Or should the text never be a reason, only context added to reasons the gate's own fields already gave?",
+      "proposedFix": "Options: (a) Apply the error-text rule after the other reasons are built. When the checks, the git block and the exit fallback gave no reason, record the text as a warning. Otherwise add it to the existing reasons as context. (b) Keep the spec's ok/exit definition, and document in the README and `workflow/agents.md` that a repository with baseline failures fails a round on any checker text. A regression scenario for section 9 of tests/loop-test.mjs, which should fail today: `const guardFails = (out) => ({ ...out, exit: 1, error: 'checks.sh exited 1', result: { ...out.result, ok: false, checks: [{ name: 'guard', cmd: 'tests/guard-test.sh', exit: 1, recorded: false, stdout: '1 mismatched', stderr: '' }] } }); run = await go('checker: baseline failure with checker text', baseArgs, { ...base, checker: (label, out) => guardFails(out) }); check('checker: text on a gate whose only failure was failing at baseline is not a reason', run.res.status === 'done' && !repaired(run), [brief(run), labels(run.calls)])`.",
+      "needsDecision": true,
+      "knownAs": ""
+    }
+  ]
+}

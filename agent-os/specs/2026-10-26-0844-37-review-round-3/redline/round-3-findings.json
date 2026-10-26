@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "8ddffc7f2f6add5c0f11d621fe7c8396c405199b",
+    "to": "4d84e3ac5e7ba0f0b7678336f3f2452945564c0a"
+  },
+  "summary": "The round 2 fix changes the checker-text warning in judge() from \"on a passing gate\" to \"on a round that passes\". That now matches R1-3's decision, which lets the warning fire when the gate exited 1 only on checks that were already failing at baseline. Both loop-test checks that pin the text were updated in the same commit, and the standards bullet records the lesson. The change adds no correctness bugs: no code branches on the warning string, and no other caller matches it.",
+  "findings": []
+}
