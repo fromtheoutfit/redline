@@ -7,7 +7,7 @@
 #
 #   tests/background-test.sh
 #
-# The stub reads STUB_SLEEP (seconds) and STUB_EXIT (0, 1 or 2) from the environment start passes
+# The stub reads STUB_SLEEP (seconds) and STUB_EXIT (0, 1, 2, or 3 for a checks.sh that left its contract) from the environment start passes
 # it, and prints one JSON object echoing its arguments and REDLINE_OCTANE. REDLINE_BACKGROUND_POLL
 # is set to 0.2 so the waits finish fast; the slice, limit and grace cases take a few seconds each.
 
@@ -76,6 +76,11 @@ waitfor usage2
 same "exit 2: wait exits 2" "$code" "2"
 same "exit 2: stdout is empty" "$out" ""
 has "exit 2: the usage reason is on stderr" "$err" "a snapshot file is required"
+
+STUB_EXIT=3 bg exit3 snap.json
+waitfor exit3
+same "exit 3 from checks.sh: wait exits 5, not still running" "$code" "5"
+has "exit 3 from checks.sh: says checks.sh gave no gate result" "$err" "checks.sh exited 3 without a gate result"
 
 echo "# start"
 REDLINE_OCTANE=1 bg octane --git-only snap.json

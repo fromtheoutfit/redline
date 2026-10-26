@@ -20,7 +20,7 @@
 #       tool's 600 s cap and the 300 s floor setup gives the checker's stall window, so no one
 #       call is long enough to trip either). When the run has finished, prints its stderr to
 #       stderr and its stdout to stdout, as checks.sh printed them, and exits with checks.sh's
-#       exit code. --limit bounds the whole run, counted from <label>.started: the workflow passes
+#       exit code when that is 0, 1 or 2. --limit bounds the whole run, counted from <label>.started: the workflow passes
 #       the checker's stall window, which the repeated waits would otherwise keep from firing.
 #       A finished result is read once: the wait that returns it removes the label's files, so a
 #       later wait under the label waits for the next start's pid and a returned result is never
@@ -41,8 +41,9 @@
 #            line on stderr.
 #   3        still running after --slice seconds: run the same wait again
 #   4        the run has gone on longer than --limit seconds
-#   5        no result will come: the run ended without recording one (stopped or killed), or no
-#            run under the label started
+#   5        no result will come: the run ended without recording one (stopped or killed), no
+#            run under the label started, or checks.sh exited with a code other than 0, 1 or 2
+#            (a command failing under its set -e, a signal), named on stderr (#41, R1-3)
 # start exits with checks.sh's exit code, or 2 for its own usage errors (a bad label, no git
 # repository, no executable .claude/redline/checks.sh). Needs jq.
 
@@ -120,7 +121,13 @@ while :; do
         [[ -f "$base.json" ]] && cat "$base.json"
         # Read once: a later wait under the label waits for the next start's pid instead (#41, R1-2).
         rm -f "$base.json" "$base.json.part" "$base.err" "$base.exit" "$base.exit.part" "$base.pid" "$base.started"
-        exit "$code"
+        # Only checks.sh's documented codes pass through: a 3, 4 or 5 would read as wait's own
+        # answer, and a 3 would loop the role (#41, R1-3).
+        case "$code" in
+            0 | 1 | 2) exit "$code" ;;
+        esac
+        echo "redline-background: checks.sh exited $code without a gate result" >&2
+        exit 5
     fi
     now="$(date +%s)"
     elapsed=$(( now - begin ))

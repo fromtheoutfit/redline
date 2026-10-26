@@ -22,7 +22,7 @@ possibly preceded by `REDLINE_OCTANE=1`.
 **A start command and a wait command**, when the recorded baseline says the gate takes longer than the Bash tool allows in the foreground (over 480 s), or no baseline is recorded:
 
 - `<plugin>/scripts/redline-background.sh start <label> [--baseline] <snapshot>`, possibly preceded by `REDLINE_OCTANE=1`: runs that same `checks.sh` and keeps what it prints
-- `<plugin>/scripts/redline-background.sh wait <label> --limit <seconds>`: waits up to four minutes, then prints what `checks.sh` printed and exits with its exit code, or says it is still running
+- `<plugin>/scripts/redline-background.sh wait <label> --limit <seconds>`: waits up to four minutes, then prints what `checks.sh` printed and exits with its exit code when that is 0, 1 or 2, or says it is still running, past its limit or without a result
 
 ## What you do
 
