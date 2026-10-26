@@ -65,3 +65,11 @@ Steps 9 and 10 stay as written in `.claude/commands/agent-os/shape-spec.md`:
 Proof (step 9, when item 1 is approved):
 - `grep -c "#37, R2-1" agent-os/standards/workflow/agents.md` prints 1.
 - `grep -c "^# " agent-os/standards/workflow/agents.md` prints 1 (the file's only heading is unchanged).
+
+## As built
+
+- **Task 1.** The four spec files committed on their own; `redline/` left to the workflow.
+- **Task 2, red.** With only the two assertions changed, the gate's `loop` check printed `163 checks passed, 2 failed`, the two failing checks being `checker: text on a passing gate is a warning, not a reason` and `checker: text on a round whose only failure was failing at baseline is a warning, no repair` (each still saw `... on a passing gate` in `warnings`).
+- **Task 2, green.** After the one-string change at `workflows/redline-loop.js:1013`, the `loop` check printed `165 checks passed, 0 failed`, and every gate check exited 0. The four grep proofs print 1, 0, 2 and 0.
+- **Task 3.** The approved bullet landed in `agent-os/standards/workflow/agents.md` after the `pluginRoot` bullet, in its own commit naming no finding; its two grep proofs print 1 and 1.
+- **No deviations.** One note on the shaping record, from the plan approver: the `grep -rn "passing gate"` in `shape.md` prints six lines, not five; the sixth, `agent-os/standards/testing/tests.md:8`, describes a gate that really passes and stays as it is.
