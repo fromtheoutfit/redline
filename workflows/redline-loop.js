@@ -823,7 +823,7 @@ Return only the JSON your instructions specify.`
 function checkerPrompt(command) {
   return `${RUN_LINE}
 
-Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool shows you no complete JSON (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say.
+Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool shows you no complete JSON (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say. A usage error (exit 2) is status read with result null, never result_unreadable.
 
 ${command}`
 }
@@ -940,6 +940,9 @@ function stopReason(out, command, needGit) {
   const said = errorText(out)
   const suffix = said ? `; the checker said: ${said.slice(0, 400)}` : ''
   const byHand = `; run ${command} by hand and read its output`
+  if (out.exit === 2) {
+    return `checks.sh exited 2 (usage error)${suffix}${byHand}`
+  }
   if (out.status === 'result_unreadable') {
     const cause = {
       spilled: "checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in scripts/checks-template.sh",
@@ -947,9 +950,6 @@ function stopReason(out, command, needGit) {
       no_git_block: `the JSON checks.sh printed has no git block, so the output was cut or the script is broken${byHand}`,
     }[out.reason] || `reason ${JSON.stringify(out.reason)}${byHand}`
     return `the checker could not read checks.sh's result: ${cause}${suffix}`
-  }
-  if (out.exit === 2) {
-    return `checks.sh exited 2 (usage error)${suffix}${byHand}`
   }
   if (!out.result) {
     return `the checker returned no result${suffix}${byHand}`

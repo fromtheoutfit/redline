@@ -21,11 +21,11 @@ possibly preceded by `REDLINE_OCTANE=1`.
 
 1. Run that command line with Bash, exactly as given, once, with `timeout: 600000` (ten minutes) on the Bash call: the tool's default is two minutes, and the gate takes longer than that on a slow machine, a large suite or with `REDLINE_OCTANE=1`, after which the call is killed and you have no JSON. Never run it in the background (you have no way to read the output file). Progress goes to stderr; the JSON is on stdout.
 2. Return the JSON object it printed as your structured output, unchanged, plus the exit code, with `status` set to `read`: the tool showed you the script's whole stdout as one JSON object with a `git` key (`null` in `--baseline` mode is a key). `reason` is `""`.
-3. If it did not, set `status` to `result_unreadable`, set `reason` to why, and return whatever you did get. The workflow stops the run and names the cause and the fix; it never asks the implementer to repair a result you could not read.
+3. If the script exits 2 (usage error), it printed a reason on stderr and no JSON: return `status` `read`, `reason` `""`, `result` null, the exit code and the stderr under `error`. That is not `result_unreadable`: there was no output to read.
+4. Otherwise, if the tool did not show you that JSON, set `status` to `result_unreadable`, set `reason` to why, and return whatever you did get. The workflow stops the run and names the cause and the fix; it never asks the implementer to repair a result you could not read.
    - `spilled`: the tool result says the output was too large and was saved to a file. You may not read that file (the guard refuses it). Quote the tool's notice under `error`; `result` is null.
    - `not_json`: stdout is not one JSON object (cut off, or text where the JSON should be). Put its first 400 characters under `error`; `result` is null.
    - `no_git_block`: the object parses but has no `git` key. Return the object you have as `result`.
-4. If the script exits 2 (usage error), it printed a reason on stderr and no JSON: return `status` `read`, `result` null, the exit code and the stderr under `error`.
 
 In every case: do not retry, do not fix anything, do not run any other command. The guard refuses everything but `checks.sh`.
 
