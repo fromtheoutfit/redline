@@ -149,3 +149,13 @@ Proof (step 9, when items 4 and 5 are approved):
 - `grep -c "never .ok. and never the checker's error text" agent-os/standards/workflow/agents.md` prints 1.
 - `grep -c "never a verdict input" agent-os/standards/workflow/agents.md` prints 1.
 - `grep -c "the workflow reads fields, never text" agent-os/standards/workflow/agents.md` prints 1.
+
+## As built
+
+Built as planned, with no deviation. Every count and every proof grep came out as the plan expected.
+
+- **Task 1:** the four spec files committed on their own; `redline/` left to the workflow's run-record commit.
+- **Task 2 (R1-1):** red run `160 checks passed, 2 failed`, failing `stop: a usage error the checker called unreadable still names exit 2, no repair` (the stop named "not one JSON object") and `stop: the checker prompt says a usage error is status read`. Green after the fix: `162 checks passed, 0 failed`.
+- **Task 3 (R1-2):** red run `161 checks passed, 1 failed`, failing `unreadable: stops at check with the cause and the fix, no repair` (the message still named `scripts/checks-template.sh`). Green after the fix: `162 checks passed, 0 failed`.
+- **Task 4 (R1-3):** red run `163 checks passed, 1 failed`, failing `checker: text on a round whose only failure was failing at baseline is a warning, no repair` (the round went to `repair r1` and `recheck r1` and ended in error); its neighbour `checker: a new failure with text fails on the check, the text added, after one repair pass` passed before and after. Green after the fix: `165 checks passed, 0 failed`, the third new check being `go()`'s record-commit check for `checker: baseline failure with text`.
+- **Task 5:** retrospective items 1 to 5 applied as approved in one commit (`agent-os/standards/workflow/agents.md`, `agent-os/standards/testing/tests.md`); the message names no finding, as the plan says. The gate's eight checks exit 0 with an empty `unexpected_files` and `uncommitted` on the final run.
