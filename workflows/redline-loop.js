@@ -945,7 +945,7 @@ function stopReason(out, command, needGit) {
   }
   if (out.status === 'result_unreadable') {
     const cause = {
-      spilled: "checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in scripts/checks-template.sh",
+      spilled: `checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in ${pluginRoot}/scripts/checks-template.sh`,
       not_json: `checks.sh printed something that is not one JSON object${byHand}`,
       no_git_block: `the JSON checks.sh printed has no git block, so the output was cut or the script is broken${byHand}`,
     }[out.reason] || `reason ${JSON.stringify(out.reason)}${byHand}`
