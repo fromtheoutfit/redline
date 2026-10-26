@@ -922,8 +922,8 @@ Return only the JSON your instructions specify, with operation "record-commit" a
 
 // ---------------------------------------------------------------------------
 // The checker's verdict. The script decides, never an agent. It decides from the gate's own
-// fields (ok, exit, the checks, the git block); the checker's error field is text. A result the
-// implementer cannot change (unreadable, missing, a usage error, no git block) stops the run at
+// fields (each check's exit against the baseline, the exit code, the git block); the checker's
+// error field is text. A result the implementer cannot change (unreadable, missing, a usage error, no git block) stops the run at
 // check instead of starting a repair pass that would hit the same wall (#9).
 // ---------------------------------------------------------------------------
 
@@ -1000,16 +1000,17 @@ function judge(out, baselineFailing, needCommits, command) {
   if (missing.length) {
     reasons.push(`no commit names ${missing.join(', ')}`)
   }
-  // The checker's error is text: part of the reason on a failing gate, a warning on a passing one.
+  if (out.exit !== 0 && reasons.length === 0 && preExisting.length === 0) {
+    reasons.push(`checks.sh exited ${out.exit}`)
+  }
+  // The checker's error is text, never a verdict input (#37, R1-3): detail on a failure the
+  // checks, the git block or the exit code already established, a warning otherwise.
   const said = errorText(out)
   const warnings = []
-  if (said && (result.ok !== true || out.exit !== 0)) {
+  if (said && reasons.length) {
     reasons.push(`checker error: ${said.slice(0, 400)}`)
   } else if (said) {
     warnings.push(`the checker reported "${said.slice(0, 200)}" on a passing gate`)
-  }
-  if (out.exit !== 0 && reasons.length === 0 && preExisting.length === 0) {
-    reasons.push(`checks.sh exited ${out.exit}`)
   }
   return { pass: reasons.length === 0, stop: null, reasons, warnings, preExisting, diffLines: git.diff_lines }
 }

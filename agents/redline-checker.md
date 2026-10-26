@@ -41,4 +41,4 @@ In every case: do not retry, do not fix anything, do not run any other command. 
 }
 ```
 
-`result` is the script's JSON verbatim. Never summarise it, never drop a field, never add commentary. `error` holds what you saw and could not return as `result`, or nothing: an empty string, never the two characters `""`. The workflow decides from `result` (`ok`, `exit`, the checks, the git block); on a passing gate, text in `error` is at most a warning.
+`result` is the script's JSON verbatim. Never summarise it, never drop a field, never add commentary. `error` holds what you saw and could not return as `result`, or nothing: an empty string, never the two characters `""`. The workflow decides from `result` (each check's `exit` against the baseline, the exit code, the git block); on a passing gate, text in `error` is at most a warning.
