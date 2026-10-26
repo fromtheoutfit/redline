@@ -85,3 +85,12 @@ Proof (step 9, when item 1 is approved):
 - `grep -c "#38, R2-1" agent-os/standards/scripts/bash-conventions.md` prints 1.
 - `grep -c "^# " agent-os/standards/scripts/bash-conventions.md` prints 1, because the file's only heading is unchanged.
 - `grep -c "^- " agent-os/standards/scripts/bash-conventions.md` prints 23 (22 bullets before the edit).
+
+## As built
+
+Built as planned, with no deviation, so `shape.md` gets no new Decision.
+
+- **Task 1.** The four spec files were committed on their own (`79da417`). `redline/` was left to the workflow.
+- **Task 2, R2-1.** `README.md:67` now carries the planned sentence, and the rest of the line is unchanged (`24ecd55`). Before the edit, the two old phrases counted 1 each, "matched in any case" counted 1, the table-row phrase counted 1, and `wc -l` printed 336. After the edit, every Task 2 proof prints what the plan says: 0, 0, 1, 1, 1, 1, 2, 1, and `336 README.md`.
+- **Task 3, step 9.** The standards approver approved the one proposed bullet. It went into `agent-os/standards/scripts/bash-conventions.md` after the line 9 bullet, word for word, in its own commit that names no finding (`0481cd4`). Proofs: `#38, R2-1` counts 1, the `# ` heading count stays 1, and the bullet count goes from 22 to 23.
+- **Task 3, steps 1 to 8.** `checks.sh` with the round 2 snapshot exited 0 on its first run: syntax, validate, guard `374 passed, 0 mismatched`, loop `219 checks passed, 0 failed`, prefs `44 passed, 0 failed`, gate `117 passed, 0 failed`, setup `240 passed, 0 failed`, gh `76 passed, 0 failed`. The git block listed no `unexpected_files` and nothing `uncommitted`. The gh and loop counts match round 1's As built, as a README-only change should.
