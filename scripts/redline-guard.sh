@@ -63,7 +63,8 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # A vendor/bin tool is accepted in any spelling that resolves to the repository's own copy
 # (vendor/bin/pest, ./vendor/bin/pest, <repo>/vendor/bin/pest), and in no other. So is
 # artisan after php (php artisan, php ./artisan, php <repo>/artisan).
-#   checks     the repository's .claude/redline/checks.sh
+#   checks     the repository's .claude/redline/checks.sh, and the plugin's scripts/redline-background.sh
+#              start | wait, which runs that checks.sh in the background for a long gate (#40)
 #   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | last-round | files | login | place | human-review | last-human-review
 #   gh-all     the plugin's scripts/redline-gh.sh, every subcommand
 #   git-read   read-only git alone (status, log, rev-parse, ...), without the file tools of read
@@ -459,6 +460,7 @@ ARTISAN_NEVER = {"tinker", "db:wipe", "migrate:fresh", "migrate:reset"}
 COMPOSER_BUILD = {"check", "fix", "lint", "test", "test:octane", "test:explain", "dump-autoload", "dumpautoload",
                   "validate", "show", "--version"}
 VENDOR_BIN = {"pint", "phpstan", "rector", "pest"}
+BACKGROUND = {"start", "wait"}
 GH_READ = {"pr", "diff", "pr-comments", "issues-search", "review-comments", "has-review", "last-round", "files", "login", "place", "human-review", "last-human-review"}
 ATTRIBUTION = re.compile(r"co-authored-by|generated with|claude|anthropic|🤖", re.IGNORECASE)
 # The path spellings a commit may name without tripping the attribution filter.
@@ -472,9 +474,11 @@ def non_options(args):
 
 def script_name(word, cur):
     """The script's name when word resolves to the one copy of a Redline script a role may run
-    (the repository's .claude/redline/checks.sh, the plugin's scripts/redline-gh.sh),
-    'bad-path:<name>' for any other file by that name (a copy under /tmp, say), else None."""
-    homes = {"checks.sh": os.path.join(REPO, ".claude", "redline"), "redline-gh.sh": os.path.join(PLUGIN, "scripts")}
+    (the repository's .claude/redline/checks.sh, the plugin's scripts/redline-gh.sh and
+    scripts/redline-background.sh), 'bad-path:<name>' for any other file by that name (a copy
+    under /tmp, say), else None."""
+    homes = {"checks.sh": os.path.join(REPO, ".claude", "redline"), "redline-gh.sh": os.path.join(PLUGIN, "scripts"),
+             "redline-background.sh": os.path.join(PLUGIN, "scripts")}
     for name, home in homes.items():
         if word == name or word.endswith("/" + name):
             wanted = os.path.realpath(os.path.join(home, name))
@@ -587,10 +591,14 @@ def check_simple(words, writes, nested, cur):
         if name == "bad-path:checks.sh":
             return f"'{cmd}' is not the repository's .claude/redline/checks.sh", cur
         if name.startswith("bad-path:"):
-            return f"'{cmd}' is not the Redline plugin's scripts/redline-gh.sh", cur
+            return f"'{cmd}' is not the Redline plugin's scripts/{name[len('bad-path:'):]}", cur
         if name == "checks.sh":
             return (None if "checks" in GROUPS else f"checks.sh is not available to the {ROLE}"), cur
         sub = args[0] if args else ""
+        if name == "redline-background.sh":
+            if "checks" in GROUPS and sub in BACKGROUND:
+                return None, cur
+            return f"redline-background.sh {sub or '<none>'} is not available to the {ROLE}", cur
         if "gh-all" in GROUPS:
             return None, cur
         if "gh-read" in GROUPS and sub in GH_READ:

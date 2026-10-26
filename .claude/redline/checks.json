@@ -7,9 +7,9 @@
   "formatter": null,
   "octane": null,
   "baseline": {
-    "seconds": 33,
-    "date": "2026-10-22",
-    "note": "almost all of it the guard table (361 rows at about 60 ms each) and the four other harnesses"
+    "seconds": 78,
+    "date": "2026-10-26",
+    "note": "most of it the guard table (389 rows at about 60 ms each); the background harness waits about 11 s on its slice, limit and grace cases"
   },
   "steps": [
     {
@@ -67,6 +67,13 @@
       "recorded": 0,
       "title": "GitHub wrapper",
       "cmd": "tests/gh-test.sh"
+    },
+    {
+      "step": 9,
+      "name": "background",
+      "recorded": 0,
+      "title": "Background",
+      "cmd": "tests/background-test.sh"
     }
   ]
 }

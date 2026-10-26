@@ -13,7 +13,7 @@
 
 ## Tests
 
-- Bash harnesses for the guard (`tests/guard-test.sh` over `tests/guard-cases.tsv`), the saved settings (`tests/prefs-test.sh`), the gate stamp (`tests/gate-test.sh` over `tests/gate-fixtures/`), the setup script (`tests/setup-test.sh` over `tests/setup-fixtures/`) and the GitHub wrapper (`tests/gh-test.sh` over `tests/gh-fixtures/`, with a fake `gh`); Node, ESM, no dependencies, for the workflow (`tests/loop-test.mjs`)
+- Bash harnesses for the guard (`tests/guard-test.sh` over `tests/guard-cases.tsv`), the saved settings (`tests/prefs-test.sh`), the gate stamp (`tests/gate-test.sh` over `tests/gate-fixtures/`), the setup script (`tests/setup-test.sh` over `tests/setup-fixtures/`) the GitHub wrapper (`tests/gh-test.sh` over `tests/gh-fixtures/`, with a fake `gh`) and the background runner (`tests/background-test.sh`, with a stub `checks.sh`); Node, ESM, no dependencies, for the workflow (`tests/loop-test.mjs`)
 - No framework, no package manager, no lockfile, no build step, no CI yet
 
 ## Planner and host

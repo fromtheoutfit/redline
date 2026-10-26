@@ -350,6 +350,24 @@ redline:redline-github	deny	Bash	git -C REPO/ stash
 redline:redline-github	deny	Bash	cat REPO/agent-os/specs/x/plan.md
 redline:redline-github	deny	Bash	git -C REPO/ add -- .claude/redline.local.json
 
+# #40: a gate longer than the Bash tool's foreground cap runs through the plugin's
+# scripts/redline-background.sh: start (in the background), then wait, for the two roles that run
+# the gate. start runs only the repository's own checks.sh, so the script joins the checks group;
+# the checker still reads no file and writes nothing, and a copy elsewhere is not the script.
+redline:redline-checker	allow	Bash	PLUGIN/scripts/redline-background.sh start 2026-10-26-1304-790-baseline --baseline REPO/agent-os/specs/x/redline/snapshot-start.json
+redline:redline-checker	allow	Bash	REDLINE_OCTANE=1 PLUGIN/scripts/redline-background.sh start 2026-10-26-1304-790-check-r1 REPO/agent-os/specs/x/redline/snapshot.json
+redline:redline-checker	allow	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline --limit 1500
+redline:redline-implementer	allow	Bash	PLUGIN/scripts/redline-background.sh start 2026-10-26-1304-790-implement-r1 REPO/agent-os/specs/x/redline/snapshot.json
+redline:redline-implementer	allow	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-implement-r1 --limit 1500
+redline:redline-reviewer	deny	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline
+redline:redline-github	deny	Bash	PLUGIN/scripts/redline-background.sh start 2026-10-26-1304-790-baseline --baseline /tmp/s.json
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-background.sh run 2026-10-26-1304-790-baseline
+redline:redline-checker	deny	Bash	/tmp/redline-background.sh start 2026-10-26-1304-790-baseline --baseline /tmp/s.json
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline > /tmp/out.json
+redline:redline-checker	deny	Bash	cat /tmp/redline-background/2026-10-26-1304-790-baseline.json
+redline:redline-implementer	deny	Edit	PLUGIN/scripts/redline-background.sh
+-	inert	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline
+
 # The repository is the plugin: Redline loaded in place from its own checkout, reviewing itself
 # (issue #4). The plugin's source is repository content under the roles' usual prefixes; .claude/'s
 # Redline files stay refused, and so do the guard and the hook that registers it, for every role.
@@ -411,4 +429,6 @@ redline:redline-github	allow	Bash	git push origin feature/4-agent-os
 redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh post-review 5 agent-os/specs/2026-10-21-1200-5-review-round-1/redline/round-1.json
 redline:redline-github	deny	Bash	cp /tmp/x.sh scripts/redline-gh.sh
 redline:redline-checker	allow	Bash	.claude/redline/checks.sh /tmp/snapshot.json
+redline:redline-checker	allow	Bash	PLUGIN/scripts/redline-background.sh start 2026-10-26-1304-41-baseline --baseline /tmp/snapshot.json
+redline:redline-implementer	allow	Edit	scripts/redline-background.sh
 # @cwd REPO

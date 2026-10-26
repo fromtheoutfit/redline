@@ -82,6 +82,13 @@ const maxPlanAdjustments = Number.isInteger(A.maxPlanAdjustments) && A.maxPlanAd
 const teammate = typeof A.reviewer === 'string' ? A.reviewer.replace(/^@/, '') : ''
 const checkerMode = A.checker === 'git-only' ? 'git-only' : 'full'
 const checkerStallMs = Number.isInteger(A.checkerStallMs) && A.checkerStallMs > 0 ? A.checkerStallMs : 300000
+// Whether the gate fits in one foreground Bash call, from the recorded baseline (checks.json's
+// baseline.seconds, which the skill passes). The tool's foreground cap is 600 s and 480 leaves a
+// fifth for a slow day. Over it, or unknown, the checker and the implementer run the gate through
+// redline-background.sh's start and wait (#40).
+const baselineSeconds = Number.isInteger(A.baselineSeconds) && A.baselineSeconds >= 0 ? A.baselineSeconds : null
+const FOREGROUND_MAX_S = 480
+const backgroundGate = baselineSeconds === null || baselineSeconds > FOREGROUND_MAX_S
 const postToGitHub = A.postToGitHub !== false
 const push = A.push !== false && postToGitHub
 // The interrupt dial: where a run stops for the person. Each level is a stopping point the loop
@@ -162,6 +169,7 @@ if (A.revise && typeof A.revise === 'object' && A.revise.kind === 'human') {
 
 const GH = `${pluginRoot}/scripts/redline-gh.sh`
 const CHECKS = `${repoRoot}/.claude/redline/checks.sh`
+const BACKGROUND = `${pluginRoot}/scripts/redline-background.sh`
 const README_URL = 'https://github.com/fromtheoutfit/redline/blob/main/README.md'
 const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (the launch command, or on a relaunch their last line in the session) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
@@ -438,9 +446,10 @@ const CHECKER_SCHEMA = {
   properties: {
     exit: int,
     // read: the tool showed the script's whole JSON. result_unreadable: it did not, and reason
-    // says why; the loop stops on it (#9).
+    // says why; the loop stops on it (#9). backgrounded: the tool moved a foreground run to the
+    // background; no_result: a background run's wait reported no result coming (#40).
     status: { type: 'string', enum: ['read', 'result_unreadable'] },
-    reason: { type: 'string', enum: ['', 'spilled', 'not_json', 'no_git_block'] },
+    reason: { type: 'string', enum: ['', 'spilled', 'not_json', 'no_git_block', 'backgrounded', 'no_result'] },
     error: str,
     result: {
       type: ['object', 'null'],
@@ -960,7 +969,35 @@ function checkerCommand(flag, snapshot, octane) {
   return `${octane ? 'REDLINE_OCTANE=1 ' : ''}${CHECKS}${flag ? ` ${flag}` : ''} ${snapshot}`
 }
 
-function implementPrompt(pass, ctx) {
+// A long gate's start and wait commands for one run (#40), or null when the gate fits in the
+// foreground. A --git-only check runs no command, so it always fits. The run is named from the launch
+// stamp, the PR and the agent's label, so a relaunch builds the same prompt; the wait's limit is the
+// checker's stall window, which the repeated waits keep from firing.
+function gateRun(flag, snapshot, octane, label) {
+  if (!backgroundGate || flag === '--git-only') {
+    return null
+  }
+  const id = `${stamp}-${pr}-${label.replace(/\s+/g, '-')}`
+  return {
+    start: `${octane ? 'REDLINE_OCTANE=1 ' : ''}${BACKGROUND} start ${id}${flag ? ` ${flag}` : ''} ${snapshot}`,
+    wait: `${BACKGROUND} wait ${id} --limit ${Math.ceil(checkerStallMs / 1000)}`,
+  }
+}
+
+const baselineNote = baselineSeconds === null
+  ? 'no baseline is recorded in .claude/redline/checks.json, and a gate of unknown length runs in the background'
+  : `recorded baseline: ${baselineSeconds} s; over ${FOREGROUND_MAX_S} s it runs in the background`
+
+// The implementer's line for the gate: the one command line, or the start/wait pair.
+function gateLine(ctx, label) {
+  const bg = gateRun('', ctx.snapshotPath, ctx.octane, label)
+  if (!bg) {
+    return `- The gate: \`${checkerCommand('', ctx.snapshotPath, ctx.octane)}\` (run it with timeout: 600000 on the Bash call; it outlasts the tool's two-minute default)`
+  }
+  return `- The gate takes longer than the Bash tool allows in the foreground (${baselineNote}), so run it in two steps every time: start it with run_in_background: true on the Bash call, \`${bg.start}\`, then wait for it in the foreground with timeout: 600000 on the Bash call, \`${bg.wait}\`, running the same wait again while it exits 3 (still running; ignore the start's own completion notice). When the wait exits 0, 1 or 2, its output and exit code are the gate's. Exit 4 (past its limit) or 5 (the run ended without a result) means the gate gave no result: report it under blocked with the wait's line. Never run checks.sh itself in the background.`
+}
+
+function implementPrompt(pass, ctx, label) {
   return `${RUN_LINE}
 
 You are the implementer for ${pass.name}. The plan in the spec folder was approved; build exactly it, commit it Redline's way, and leave the gate green.
@@ -968,7 +1005,7 @@ You are the implementer for ${pass.name}. The plan in the spec folder was approv
 Run facts:
 - PR #${pr}, head branch ${headRef}; commit messages reference (#${issue})
 - Spec folder: ${abs(ctx.specFolder)}/
-- The gate: \`${checkerCommand('', ctx.snapshotPath, ctx.octane)}\` (run it with timeout: 600000 on the Bash call; it outlasts the tool's two-minute default)
+${gateLine(ctx, label)}
 - Checks that already failed before this run started (baseline): ${ctx.baselineFailing.length ? ctx.baselineFailing.join(', ') : 'none'}. A check that was already failing is not yours to fix unless a task says so.
 
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
@@ -992,12 +1029,28 @@ ${ctx.repair ? `\nThis is a repair pass. The checker's independent run of checks
 Return only the JSON your instructions specify.`
 }
 
-function checkerPrompt(command) {
+function checkerPrompt(flag, snapshot, octane, label) {
+  const bg = gateRun(flag, snapshot, octane, label)
+  if (!bg) {
+    return `${RUN_LINE}
+
+Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool moves the command to the background instead, return status result_unreadable with reason backgrounded and its notice under error. If the tool shows you no complete JSON otherwise (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say. A usage error (exit 2) is status read with result null, never result_unreadable.
+
+${checkerCommand(flag, snapshot, octane)}`
+  }
   return `${RUN_LINE}
 
-Run this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool shows you no complete JSON (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say. A usage error (exit 2) is status read with result null, never result_unreadable.
+The gate takes longer than the Bash tool allows in the foreground (${baselineNote}), so run it in two steps with Bash, each command exactly as given.
 
-${command}`
+1. Start it once, with run_in_background: true on the Bash call:
+${bg.start}
+
+2. Then wait for it in the foreground, with timeout: 600000 on the Bash call:
+${bg.wait}
+
+Each wait returns within four minutes. Exit 3 means the gate is still running: run the same wait again, as often as it takes. Ignore the start command's own completion notice; the wait carries the result.
+
+When the wait exits 0, 1 or 2, its output and exit code are the gate's: return them as your instructions say for the gate's command line (a usage error, exit 2, is status read with result null, never result_unreadable; output that is not one complete JSON object with a git key is result_unreadable with the reason). When it exits 4 (the gate ran past its limit) or 5 (the run ended without a result), return status result_unreadable with reason no_result and the wait's line under error. If the start command is refused or fails to start, return status result_unreadable with reason no_result and what the tool said under error.`
 }
 
 function pushReplyPrompt(pass, specFolder, replies, doPush) {
@@ -1129,6 +1182,8 @@ function stopReason(out, command, needGit) {
       spilled: `checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in ${pluginRoot}/scripts/checks-template.sh`,
       not_json: `checks.sh printed something that is not one JSON object${byHand}`,
       no_git_block: `the JSON checks.sh printed has no git block, so the output was cut or the script is broken${byHand}`,
+      backgrounded: `the gate took longer than the Bash tool allows in the foreground; the checker must background it (recorded baseline: ${baselineSeconds === null ? 'none' : `${baselineSeconds} s`}). Record the gate's current time in baseline.seconds in ${repoRoot}/.claude/redline/checks.json (the baseline step of /redline:setup does it); over ${FOREGROUND_MAX_S} s the checker runs the gate in the background`,
+      no_result: `the gate run in the background gave no result${byHand}`,
     }[out.reason] || `reason ${JSON.stringify(out.reason)}${byHand}`
     return `the checker could not read checks.sh's result: ${cause}${suffix}`
   }
@@ -1481,7 +1536,7 @@ async function replyDropped(record) {
 }
 
 async function checker(flag, snapshot, octane, label) {
-  return run('check', checkerPrompt(checkerCommand(flag, snapshot, octane)), {
+  return run('check', checkerPrompt(flag, snapshot, octane, label), {
     agentType: 'redline:redline-checker', ...modelOpts('checker'), label, phase: 'Check', schema: CHECKER_SCHEMA, stallMs: checkerStallMs,
   })
 }
@@ -1639,6 +1694,9 @@ async function revise(record, inScope, reviewedKind) {
 
   if (!baseline) {
     phase('Check')
+    if (backgroundGate) {
+      log(`the gate runs in the background: ${baselineNote}`)
+    }
     baseline = await checker('--baseline', snapshotStart, false, 'baseline')
     const baselineStop = stopReason(baseline, checkerCommand('--baseline', snapshotStart, false), false)
     if (baselineStop) {
@@ -1668,8 +1726,9 @@ async function revise(record, inScope, reviewedKind) {
   const checkCommand = checkerCommand(checkFlag, snapshotPath, octane)
   for (let attempt = 0; attempt < 2; attempt++) {
     phase('Implement')
-    implemented = await run('implement', implementPrompt(pass, ctx), {
-      agentType: 'redline:redline-implementer', ...modelOpts('revise'), label: `${attempt ? 'repair' : 'implement'} ${pass.tag}`, phase: 'Implement', schema: IMPLEMENT_SCHEMA,
+    const implementLabel = `${attempt ? 'repair' : 'implement'} ${pass.tag}`
+    implemented = await run('implement', implementPrompt(pass, ctx, implementLabel), {
+      agentType: 'redline:redline-implementer', ...modelOpts('revise'), label: implementLabel, phase: 'Implement', schema: IMPLEMENT_SCHEMA,
     })
     if (implemented.blocked.length) {
       throw stageError('implement', `the implementer is blocked in ${pass.name}`, { blocked: implemented.blocked })

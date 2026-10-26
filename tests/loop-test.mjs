@@ -135,7 +135,7 @@ const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIG
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
-  models: { revise: { model: 'claude-opus-5-5' } },
+  models: { revise: { model: 'claude-opus-5-5' } }, baselineSeconds: 33,
 }
 
 async function go(name, args, scenario) {
@@ -499,6 +499,74 @@ function samePrefix(name, first, second, n) {
   check('stop: a result with no git block stops, no repair', stopped(run) && run.res.error.includes('the checker result has no git block') && run.res.error.includes(`run ${command} by hand`), brief(run))
   run = await go('checker: baseline with no result', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? { exit: 1, status: 'read', reason: '', result: null, error: 'killed' } : null) })
   check('stop: a baseline with no result stops instead of passing silently', stopped(run) && !pick(run.calls, 'implement r1') && run.res.error.startsWith('baseline: the checker returned no result; the checker said: killed'), [brief(run), labels(run.calls)])
+}
+
+// ---------------------------------------------------------------------------
+// 9b. A gate longer than the Bash tool's foreground cap (#40). Over 480 s of recorded baseline, or
+//     none, the checker and the implementer get the start/wait pair of redline-background.sh; 480 s
+//     or less, and a --git-only check, which runs no command, keep the one command line. A
+//     foreground run the tool moved to the background stops as backgrounded, a background run that
+//     gave no result as no_result, neither repaired.
+// ---------------------------------------------------------------------------
+{
+  const base = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
+  const snap = '/r/agent-os/specs/2026-10-20-1600-114-review-round-1/redline/snapshot.json'
+  const startSnap = '/r/agent-os/specs/x/redline/snapshot-start.json'
+  const BG = '/p/scripts/redline-background.sh'
+  const background = (p) => p.includes(`${BG} start`) && p.includes(`${BG} wait`)
+  const repaired = (run) => labels(run.calls).some((l) => l.startsWith('repair'))
+  const stopped = (run) => run.res.status === 'error' && run.res.stage === 'check' && !repaired(run)
+  const brief = (run) => [run.res.status, run.res.stage, run.res.error]
+
+  let r = await go('long gate: 732 s', { ...baseArgs, baselineSeconds: 732, checkerStallMs: 1500000 }, base)
+  const baseline = pick(r.calls, 'baseline').prompt
+  check('long gate: the baseline starts in the background, with its own label', baseline.includes(`run_in_background: true on the Bash call:\n${BG} start 2026-10-20-1600-114-baseline --baseline ${startSnap}\n`), baseline)
+  check('long gate: the wait runs in the foreground, the stall window its limit', baseline.includes(`timeout: 600000 on the Bash call:\n${BG} wait 2026-10-20-1600-114-baseline --limit 1500\n`), baseline)
+  check('long gate: the prompt carries the recorded baseline', baseline.includes('recorded baseline: 732 s'), baseline)
+  check('long gate: exit 3 is wait again, exit 4 or 5 is no_result', baseline.includes('Exit 3 means the gate is still running: run the same wait again') && baseline.includes('exits 4 (the gate ran past its limit) or 5 (the run ended without a result), return status result_unreadable with reason no_result'), baseline)
+  check('long gate: exit 0, 1 or 2 is the gate\'s own result', baseline.includes('When the wait exits 0, 1 or 2, its output and exit code are the gate\'s'), baseline)
+  const checkP = pick(r.calls, 'check r1').prompt
+  check('long gate: the round check runs the round snapshot under its own label', checkP.includes(`${BG} start 2026-10-20-1600-114-check-r1 ${snap}\n`) && checkP.includes(`${BG} wait 2026-10-20-1600-114-check-r1 --limit 1500\n`), checkP)
+  const impl = pick(r.calls, 'implement r1').prompt
+  check('long gate: the implementer gets its own pair and the baseline', impl.includes(`\`${BG} start 2026-10-20-1600-114-implement-r1 ${snap}\``) && impl.includes(`\`${BG} wait 2026-10-20-1600-114-implement-r1 --limit 1500\``) && impl.includes('recorded baseline: 732 s'), impl)
+  check('long gate: the implementer is not given the foreground gate', !impl.includes('- The gate: `/r/.claude/redline/checks.sh'), impl)
+  check('long gate: the run completes', r.res.status === 'done', brief(r))
+
+  r = await go('long gate: a repair pass', { ...baseArgs, baselineSeconds: 732 }, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, exit: 1, result: { ...out.result, ok: false, checks: [{ name: 'guard', exit: 1, recorded: false }] } } : null) })
+  check('long gate: the repair pass and the recheck get their own labels', pick(r.calls, 'repair r1').prompt.includes(`${BG} start 2026-10-20-1600-114-repair-r1 ${snap}`) && pick(r.calls, 'recheck r1').prompt.includes(`${BG} start 2026-10-20-1600-114-recheck-r1 ${snap}\n`), labels(r.calls))
+
+  r = await go('long gate: git-only', { ...baseArgs, baselineSeconds: 732, checker: 'git-only' }, base)
+  check('long gate, git-only: the baseline still runs every command, in the background', pick(r.calls, 'baseline').prompt.includes(`${BG} start 2026-10-20-1600-114-baseline --baseline ${startSnap}\n`), pick(r.calls, 'baseline').prompt)
+  check('long gate, git-only: the round check runs no command, so it stays in the foreground', !background(pick(r.calls, 'check r1').prompt) && pick(r.calls, 'check r1').prompt.split('\n').pop() === `/r/.claude/redline/checks.sh --git-only ${snap}`, pick(r.calls, 'check r1').prompt)
+  check('long gate, git-only: the implementer runs the full gate in the background', background(pick(r.calls, 'implement r1').prompt), pick(r.calls, 'implement r1').prompt)
+
+  r = await go('boundary: 480 s', { ...baseArgs, baselineSeconds: 480 }, base)
+  check('boundary: 480 s is the one command line, in the foreground', !background(pick(r.calls, 'baseline').prompt) && pick(r.calls, 'baseline').prompt.split('\n').pop() === `/r/.claude/redline/checks.sh --baseline ${startSnap}` && !background(pick(r.calls, 'implement r1').prompt), pick(r.calls, 'baseline').prompt)
+  r = await go('boundary: 481 s', { ...baseArgs, baselineSeconds: 481 }, base)
+  check('boundary: 481 s is the start/wait pair', background(pick(r.calls, 'baseline').prompt) && background(pick(r.calls, 'check r1').prompt) && background(pick(r.calls, 'implement r1').prompt) && pick(r.calls, 'baseline').prompt.includes('recorded baseline: 481 s'), pick(r.calls, 'baseline').prompt)
+  const noBaseline = { ...baseArgs }
+  delete noBaseline.baselineSeconds
+  r = await go('unknown: no recorded baseline', noBaseline, base)
+  check('unknown: a run with no recorded baseline backgrounds and says so', background(pick(r.calls, 'baseline').prompt) && pick(r.calls, 'baseline').prompt.includes('no baseline is recorded') && background(pick(r.calls, 'implement r1').prompt), pick(r.calls, 'baseline').prompt)
+  r = await go('unknown: a baseline that is not a number', { ...baseArgs, baselineSeconds: '732' }, base)
+  check('unknown: a baseline that is not an integer counts as none', background(pick(r.calls, 'baseline').prompt) && pick(r.calls, 'baseline').prompt.includes('no baseline is recorded'), pick(r.calls, 'baseline').prompt)
+
+  r = await go('long gate: octane', { ...baseArgs, baselineSeconds: 732, octane: true }, base)
+  check('octane: REDLINE_OCTANE=1 prefixes the round start, not the wait', pick(r.calls, 'check r1').prompt.includes(`\nREDLINE_OCTANE=1 ${BG} start 2026-10-20-1600-114-check-r1 ${snap}\n`) && pick(r.calls, 'check r1').prompt.includes(`\n${BG} wait 2026-10-20-1600-114-check-r1 --limit 300\n`), pick(r.calls, 'check r1').prompt)
+  check('octane: the baseline start carries no prefix', pick(r.calls, 'baseline').prompt.includes(`\n${BG} start 2026-10-20-1600-114-baseline --baseline`), pick(r.calls, 'baseline').prompt)
+
+  r = await go('short gate: 33 s', baseArgs, base)
+  const fg = pick(r.calls, 'check r1').prompt
+  check('short gate: the checker prompt is the one command line, in the foreground', fg.endsWith(`\n\nRun this command line with Bash, exactly as given, once, with timeout: 600000 on the Bash call (the gate outlasts the tool's two-minute default), and return its JSON as your instructions say. If the tool moves the command to the background instead, return status result_unreadable with reason backgrounded and its notice under error. If the tool shows you no complete JSON otherwise (the output was saved to a file, is not one JSON object, or has no git key), return status result_unreadable with the reason, as your instructions say. A usage error (exit 2) is status read with result null, never result_unreadable.\n\n/r/.claude/redline/checks.sh ${snap}`), fg)
+  check('short gate: the implementer runs the gate in the foreground', pick(r.calls, 'implement r1').prompt.includes(`- The gate: \`/r/.claude/redline/checks.sh ${snap}\` (run it with timeout: 600000 on the Bash call; it outlasts the tool's two-minute default)`) && !background(pick(r.calls, 'implement r1').prompt), pick(r.calls, 'implement r1').prompt)
+
+  r = await go('backgrounded', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 0, status: 'result_unreadable', reason: 'backgrounded', result: null, error: 'Command did not complete within its 600s timeout and was moved to the background' } : null) })
+  check('backgrounded: stops with the issue\'s sentence and the recorded baseline, no repair', stopped(r) && r.res.error.includes('the gate took longer than the Bash tool allows in the foreground; the checker must background it (recorded baseline: 33 s)') && r.res.error.includes('/r/.claude/redline/checks.json') && r.res.error.includes('the checker said: Command did not complete'), brief(r))
+  check('backgrounded: not the spilled message', !r.res.error.includes('inline limit') && r.res.detail.checker.reason === 'backgrounded', brief(r))
+  r = await go('no_result', { ...baseArgs, baselineSeconds: 732 }, { ...base, checker: (label) => (label === 'check r1' ? { exit: 4, status: 'result_unreadable', reason: 'no_result', result: null, error: 'redline-background: the run under 2026-10-20-1600-114-check-r1 has gone on 301 s, past the limit of 300 s' } : null) })
+  check('no_result: stops with the wait\'s line and the command to run by hand, no repair', stopped(r) && r.res.error.includes('the gate run in the background gave no result') && r.res.error.includes('past the limit of 300 s') && r.res.error.includes(`run /r/.claude/redline/checks.sh ${snap} by hand`), brief(r))
+  r = await go('no_result at baseline', { ...baseArgs, baselineSeconds: 732 }, { ...base, checker: (label) => (label === 'baseline' ? { exit: 5, status: 'result_unreadable', reason: 'no_result', result: null, error: 'redline-background: no run under 2026-10-20-1600-114-baseline; start it first' } : null) })
+  check('no_result: a baseline with no result stops before implement', stopped(r) && !pick(r.calls, 'implement r1') && r.res.error.startsWith('baseline: the checker could not read checks.sh\'s result: the gate run in the background gave no result'), [brief(r), labels(r.calls)])
 }
 
 // ---------------------------------------------------------------------------

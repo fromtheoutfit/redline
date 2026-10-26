@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Redline gate for the Redline plugin's own repository. Runs the runnable part of the Verification
-# Gate (.claude/commands/agent-os/shape-spec.md, steps 1 to 8) plus the git-state checks, and emits
+# Gate (.claude/commands/agent-os/shape-spec.md, steps 1 to 9) plus the git-state checks, and emits
 # exactly one JSON object on stdout. Progress goes to stderr. Nothing in it is new policy; the gate
 # text stays the source.
 #
@@ -14,17 +14,18 @@
 #   REDLINE_OCTANE=1   set by the workflow when the approved plan touches app/Providers/,
 #                      bootstrap/ or config/octane.php. Ignored here: no long-lived-process suite.
 #
-# The eight checks, in the gate's order:
-#   syntax    ls scripts/*.sh | xargs -n1 bash -n && jq -e . hooks/hooks.json >/dev/null  (gate step 1: Syntax)
-#   validate  claude plugin validate .  (gate step 2: Manifest)
-#   guard     tests/guard-test.sh  (gate step 3: Guard)
-#   loop      node tests/loop-test.mjs  (gate step 4: Loop)
-#   prefs     tests/prefs-test.sh  (gate step 5: Prefs)
-#   gate      tests/gate-test.sh  (gate step 6: Gate stamp)
-#   setup     tests/setup-test.sh  (gate step 7: Setup)
-#   gh        tests/gh-test.sh  (gate step 8: GitHub wrapper)
+# The nine checks, in the gate's order:
+#   syntax      ls scripts/*.sh | xargs -n1 bash -n && jq -e . hooks/hooks.json >/dev/null  (gate step 1: Syntax)
+#   validate    claude plugin validate .  (gate step 2: Manifest)
+#   guard       tests/guard-test.sh  (gate step 3: Guard)
+#   loop        node tests/loop-test.mjs  (gate step 4: Loop)
+#   prefs       tests/prefs-test.sh  (gate step 5: Prefs)
+#   gate        tests/gate-test.sh  (gate step 6: Gate stamp)
+#   setup       tests/setup-test.sh  (gate step 7: Setup)
+#   gh          tests/gh-test.sh  (gate step 8: GitHub wrapper)
+#   background  tests/background-test.sh  (gate step 9: Background)
 # No formatter, so there is no recorded "fix" step.
-# Baseline on 2026-10-22: 33 seconds, almost all of it the guard table (361 rows at about 60 ms each) and the four other harnesses, so `checker: full` is the right mode.
+# Baseline on 2026-10-26: 78 seconds, most of it the guard table (389 rows at about 60 ms each); the background harness waits about 11 s on its slice, limit and grace cases, so `checker: full` is the right mode.
 #
 # Snapshot: {"pr", "start_sha", "base_ref", "files": [...], "plan_paths": [...]}.
 # Allowed changes are files + plan_paths + agent-os/specs/ + agent-os/standards/; anything else that
@@ -40,7 +41,7 @@
 # unnoticed. After bringing checks.json up to date with a changed gate, regenerate and restamp:
 # scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 # redline-template: checks-template.sh v1
-# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-8 sha256:6e173ef1eefa668a5484bc1841c3735cfa26d23e7d431da5b02ed63fabc81eef
+# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-9 sha256:3ec7834b146cf5413ccbd7d319251cbda86845f2d4977f44f89e715c8a1bb9c2
 
 set -euo pipefail
 
@@ -226,6 +227,9 @@ if [[ "$mode" != "git-only" ]]; then
 
     # 8. GitHub wrapper.
     run_check gh 0 "tests/gh-test.sh"
+
+    # 9. Background.
+    run_check background 0 "tests/background-test.sh"
 fi
 
 git_json="null"
