@@ -1,0 +1,37 @@
+{
+  "pr": 46,
+  "start_sha": "57f7c19e3bd9b24658be7ce9d820f500c76646c3",
+  "base_ref": "main",
+  "files": [
+    "README.md",
+    "agent-os/specs/2026-10-27-1345-35-carry-forward-undispositioned-findings/plan.md",
+    "agent-os/specs/2026-10-27-1345-35-carry-forward-undispositioned-findings/references.md",
+    "agent-os/specs/2026-10-27-1345-35-carry-forward-undispositioned-findings/shape.md",
+    "agent-os/specs/2026-10-27-1345-35-carry-forward-undispositioned-findings/standards.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/workflow/replay.md",
+    "agents/redline-github.md",
+    "agents/redline-reviewer.md",
+    "scripts/redline-gh.sh",
+    "scripts/redline-guard.sh",
+    "skills/redline-revise/SKILL.md",
+    "skills/redline/SKILL.md",
+    "tests/gh-fixtures/comments-14.json",
+    "tests/gh-fixtures/issue-comments-14.json",
+    "tests/gh-fixtures/reviews-14.json",
+    "tests/gh-test.sh",
+    "tests/guard-cases.tsv",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "workflows/redline-loop.js",
+    "tests/loop-test.mjs",
+    "README.md",
+    "agents/redline-reviewer.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/specs/2026-10-27-1441-46-review-round-1/"
+  ]
+}

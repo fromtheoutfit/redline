@@ -1,0 +1,86 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "57f7c19e3bd9b24658be7ce9d820f500c76646c3",
+    "to": "57f7c19e3bd9b24658be7ce9d820f500c76646c3"
+  },
+  "summary": "The change makes the Redline reply the evidence of a disposition, carries undispositioned findings into the first round with an accounting the loop enforces, and pins `prior-findings` with a fixture PR that covers every disposition. The open findings sit at the edges of that accounting. It trusts reviewer fields it does not check (`knownAs` alongside `carriedFrom`, `carriedFrom` outside the first round, gapped ids), and two outputs for an earlier thread read the wrong signal (a carried finding placed in the body, a finding carried by line whose thread is stale). Every path was traced by reading the workflow, because `node` is refused for the reviewer role.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "workflows/redline-loop.js",
+      "line": 1493,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "carriedFrom is kept on re-review and final-nit-pass findings",
+      "description": "`review()` trims `carriedFrom` on every finding. For any review other than the first round's `pr` review, it then resets only `out.carried` and `out.resolved`. A `carriedFrom` on a fix-diff or final-nit-pass finding stays on the finding. The spec says it defaults to \"\" there (plan decision 10). Since `history()` now passes each finding's `carriedFrom` to later reviewers, a round-3 reviewer that re-raises R2-1 can easily copy its `carriedFrom: \"R1-2\"`. Traced with `firstRound: 2`, round 2 carrying R1-2 as R2-1 and round 3 returning R3-1 with `carriedFrom: \"R1-2\"`, three things go wrong. (1) `reviewBody` puts R3-1 under `### Carried forward from earlier rounds` with `first reported as R1-2`, and `commentBody` adds `First reported as R1-2 in Redline round 1.` (2) `revise()` → `carriedReplies` posts a second `Redline round 3: carried forward as R3-1; ...` in R1-2's thread. That thread already holds round 2's `carried forward as R2-1; fixed in ...`, so the two replies contradict each other. (3) The round-3 reply is not among round 2's sweep ids for that thread. `resolve-threads` therefore skips it as `last comment ... is not Redline's`, and the handoff calls it `a reply after Redline's`, as if a teammate had written it.",
+      "proposedFix": "In `review()`'s else branch, clear `carriedFrom` on every finding, with a warning when one was set. For example: `for (const f of out.findings) { if (f.carriedFrom) { warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom}, but only the first round carries; cleared`); f.carriedFrom = '' } }`. Pin it in `tests/loop-test.mjs`: `go('carry: a re-review never carries', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' })], [f('R3-1', 'correctness', { carriedFrom: 'R1-2' })], []], commitIds: [['R2-1'], ['R3-1']] })`. Then check that `post r3` has no `Carried forward` heading and that `replies(run.calls, 'push and reply r3')` has no entry with `finding: 'R1-2'`.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "workflows/redline-loop.js",
+      "line": 1517,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A carried finding with knownAs counts as accounted for but is skipped as known",
+      "description": "`reconcilePrior` counts any finding with a valid `carriedFrom` as carrying that earlier id and never looks at `knownAs`. The main loop then removes every finding with a non-empty `knownAs` from `active`. Traced with `priorFindings: [R1-2 none, comment 12]` and the reviewer returning R2-1 with `carriedFrom: 'R1-2'` and `knownAs: 'R1-2'`. Because R1-2 counts as carried, there is no fallback carry and no warning. R2-1 is listed only under `### Already tracked` (`- **R2-1** title R2-1: R1-2`), with no `first reported as` suffix and no inline comment. No revise pass runs and R1-2's thread gets no reply. The handoff still says `carried forward as R2-1`, and the sweep leaves R1-2 open as `not settled`. So a re-verified correctness bug is dropped as already reported, which is the #35 failure, now through the one field the accounting does not check. Because the body line has no suffix, the next run's `prior-findings` reads R1-2 as `none` again and the cycle repeats. A `knownAs` that names an open issue (`#41`, which the reviewer's own known-finding rule asks for) has the same downstream effect: no reply in the earlier thread, no suffix, carried again every run.",
+      "proposedFix": "In `reconcilePrior`, when a finding has a valid `carriedFrom` and its `knownAs` names a Redline id (`/\\bR\\d+-\\d+\\b/`), clear `knownAs` with a warning (`round N: the reviewer marked R2-1, carried from R1-2, as known (R1-2); a carried finding is not known; cleared`). This matches how a `carriedFrom` naming a tracked id is already cleared. For a `knownAs` naming an issue or a teammate's comment, make the outcome explicit. Either the earlier thread is answered (`carried forward as R2-1; already tracked in #41`) and the Already tracked line ends with the suffix, or the finding is carried regardless. Regression test: `go('carry: carried and known', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', knownAs: 'R1-2' })], []], commitIds: [['R2-1']] })`. Check that `post r2` contains `first reported as R1-2` and that `replyFor(run.calls, 'push and reply r2', 'R1-2')` starts `Redline round 2: carried forward as R2-1;`.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1533,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The fallback carry's id can duplicate a reviewer id",
+      "description": "The fallback finding's id is `R${round}-${out.findings.length + 1}`, which assumes the reviewer numbered its findings with no gaps. `review()` renames only ids without the round prefix, so a gapped list such as `R2-1, R2-3` (a candidate the reviewer removed after numbering) is kept as is. With one carry-forward id unaccounted, the fallback becomes `R2-3`, a second finding with an id already in use. Every map keyed by finding id then mixes the two up: `commentIds` from the post, the shaper's dispositions, `outcomes`/`outcomeKinds`, `replyIds`, and `record.carried`. One finding's thread gets the other's reply, and one outcome is lost.",
+      "proposedFix": "Number the fallback after the highest id in use instead of the count: `let next = Math.max(0, ...out.findings.map((x) => Number(x.id.split('-')[1]) || 0))` before the loop, and `const id = `R${round}-${++next}`` inside it. Loop-test: `reviews: [[f('R2-1', 'correctness'), f('R2-3', 'nit')], []]` with `priorFindings: [prior('R1-2', 'none', { comment_id: 12 })]`. Expect the fallback to be `R2-4` and every id in `run.res.rounds[0].findings` to be distinct.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "workflows/redline-loop.js",
+      "line": 2177,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "An earlier thread stays open when its carried finding sits in the review body",
+      "description": "The earlier thread's candidate counts as settled only when `replyIds[newId] > 0`. A carried finding that the post could not anchor inline is answered by an issue comment, and an issue comment reports `reply_id` 0, so `keepReplyIds` never records it. The likeliest case is the fallback carry, whose old `file:line` may no longer fall in a hunk. Traced with R2-1 (`carriedFrom: 'R1-2'`) in `movedToBody`: R1-2's thread gets its `carried forward as R2-1; fixed in ...` reply (`replyIds['R1-2']` is set), but the candidate is unsettled with reason `no reply posted`. No `resolve threads` call is made, and the handoff reports `1 left open: R1-2 (no reply posted)`, which is untrue: the reply was posted and the finding was fixed.",
+      "proposedFix": "For the earlier thread, require the new finding's thread reply only when the new finding has a thread: `['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])`. Loop-test: the 8c carry scenario with `moved: ['R2-1']`. Expect the `resolve threads` prompt to name `- R1-2 (round 1): comments 12, <reply>` and `run.res.threads.open` not to list R1-2.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "workflows/redline-loop.js",
+      "line": 2210,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The handoff calls a carried finding 'already handled' and quotes its stale reply",
+      "description": "`earlierRoundsLines` prefers `p.reply.body` over `p.carried_to` for a tracked finding. Take a finding marked `carried` only by a later round's `first reported as` line, while its thread still holds its own round's `not changed` reply. This is R1-5 in the PR's own `gh-fixtures` PR 14, which is the hand-off or error-after-post chain this PR targets. The handoff line reads `- **R1-5** Streak one short: already handled in round 1: not changed in this round. Disposition fix; no commit names it. · decided by: redline`. That contradicts itself and hides where the finding went (R2-2, in round 2).",
+      "proposedFix": "Check `carried` first: `p.disposition === 'carried' && p.carried_to ? `carried forward as ${p.carried_to} in an earlier run` : `already handled in round ${p.round}: ${p.reply ? p.reply.body : p.disposition}``.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    }
+  ]
+}
