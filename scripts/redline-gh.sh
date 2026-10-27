@@ -18,6 +18,28 @@
 #   has-review <n> <round>         exit 0 if a review body starts "Redline round <round>", 1 if none, 2 on error
 #   last-round <n>                 the highest posted "Redline round N" as a JSON number, 0 when
 #                                  none; exit 2 on a gh error
+#   prior-findings <n>             every finding Redline's posted rounds list, with its disposition,
+#                                  for the next run's known-finding check (#35): [{id, round,
+#                                  review_id, category, severity, confidence, file, line, title,
+#                                  comment_id, body, reply, carried_from, carried_to, disposition}],
+#                                  by round then number, [] when no Redline review exists. A
+#                                  finding is a review body line "- **R<n>-<k>** · <category> ·
+#                                  <severity> · <confidence> · `<file>:<line>` · <title>" (an
+#                                  "Already tracked" line has no such fields and is not one);
+#                                  " · needs a decision" and " · first reported as R<n>-<k>"
+#                                  (carried_from) are stripped from the title. comment_id and body
+#                                  are the root inline comment opening **<id>** · , 0 and "" for a
+#                                  finding in the review body. reply is the newest "Redline round
+#                                  N: " reply in that thread, else the issue comment opening
+#                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
+#                                  the Redline round <n> review body, as {id, body} with the text
+#                                  after the prefix, or null. disposition reads the reply's first
+#                                  words: "fixed in" fixed, "mitigated" deferred, "not acted on in
+#                                  this run." dropped, "not changed in this round." not-changed,
+#                                  "carried forward as R<n>-<k>;" carried (carried_to), any other
+#                                  reply decided, no reply none; a finding a later round's line
+#                                  names as first reported is carried (carried_to that id)
+#                                  whatever its thread says. Exit 2 on a gh error
 #   human-review <n> <selector>    a teammate's review comments as one list, for a revise pass over
 #                                  a human review (#36). <selector> is a review id, @login or
 #                                  latest. Prints {selector, reviews: [{id, user, state, body,
@@ -78,8 +100,9 @@
 #                                  (default $TMPDIR/redline-backups). <copy> also gets the backup,
 #                                  unless it already exists (a re-run keeps the first, older body)
 #   resolve-threads <n> <id>...    resolve the review threads the ids name, where every id is a
-#                                  review comment Redline posted in this run (a finding's inline
-#                                  comment and the reply in its thread). A thread is resolved only
+#                                  review comment Redline posted (a finding's inline comment and
+#                                  the replies in its thread, this run's or, for an earlier round's
+#                                  finding this run carried forward, that round's). A thread is resolved only
 #                                  when it is open and every comment in it is in the list, so a
 #                                  thread a teammate opened or commented in, wherever the comment
 #                                  sits, is never resolved whatever ids are given; one
@@ -286,6 +309,54 @@ case "$cmd" in
         need_int "$1" "pr number"
         reviews="$(gh api --paginate "repos/{owner}/{repo}/pulls/$1/reviews" --jq '.[].body')" || exit 2
         { grep -o '^Redline round [0-9][0-9]*' <<<"$reviews" || true; } | awk '{ if ($3 + 0 > last) last = $3 + 0 } END { print last + 0 }'
+        ;;
+
+    prior-findings)
+        [[ $# -eq 1 ]] || usage
+        need_int "$1" "pr number"
+        # The three lists grow with the PR, so they reach jq through files, never the command line.
+        reviews_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        comments_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        issues_file="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -f "$reviews_file" "$comments_file" "$issues_file"' EXIT
+        gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/reviews" | jq '[.[][]]' > "$reviews_file" || exit 2
+        gh api --paginate --slurp "repos/{owner}/{repo}/pulls/$1/comments" | jq '[.[][]]' > "$comments_file" || exit 2
+        gh api --paginate --slurp "repos/{owner}/{repo}/issues/$1/comments" | jq '[.[][]]' > "$issues_file" || exit 2
+        jq -n --slurpfile reviews "$reviews_file" --slurpfile comments "$comments_file" --slurpfile issues "$issues_file" '
+            def redline_review: (.body // "") | test("^Redline round [0-9]+");
+            def round_of: (.body // "") | capture("^Redline round (?<n>[0-9]+)") | .n | tonumber;
+            # The finding lines of a review body, whatever heading they sit under (reviewBody in the workflow).
+            def finding_lines: [(.body // "") | split("\n")[]
+                | capture("^- \\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\* · (?<category>correctness|nit) · (?<severity>high|medium|low) · (?<confidence>confirmed|likely|unsure) · `(?<file>[^`]+):(?<line>[0-9]+)` · (?<tail>.*)$")];
+            # The disposition a reply states, by the fixed wording replyBody in the workflow writes.
+            def classify:
+                if startswith("fixed in ") then "fixed"
+                elif startswith("mitigated") then "deferred"
+                elif startswith("not acted on in this run.") then "dropped"
+                elif startswith("not changed in this round.") then "not-changed"
+                elif startswith("carried forward as R") then "carried"
+                else "decided" end;
+            ($comments[0]) as $all
+            | ($issues[0]) as $issue_comments
+            | [$reviews[0][] | select(redline_review) | . as $r | round_of as $n
+                | finding_lines[] | . as $f
+                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?$")) as $t
+                | ($all | map(select(.in_reply_to_id == null and ((.body // "") | startswith("**" + $f.id + "** · ")))) | first) as $root
+                | ($root.id // 0) as $cid
+                | (if $cid > 0
+                   then ($all | map(select(.in_reply_to_id == $cid and ((.body // "") | test("^Redline round [0-9]+: ")))) | sort_by(.id) | last)
+                   else ($issue_comments | map(select((.body // "") | test("^<!-- redline:" + $f.id + " -->\n\\*\\*" + $f.id + "\\*\\* · [^\n]*from the Redline round " + ($n | tostring) + " review body\n"))) | sort_by(.id) | last)
+                   end) as $reply
+                | {id: $f.id, round: $n, review_id: $r.id, category: $f.category, severity: $f.severity, confidence: $f.confidence,
+                   file: $f.file, line: ($f.line | tonumber), title: $t.title, comment_id: $cid, body: ($root.body // ""),
+                   reply: (if $reply == null then null else {id: $reply.id, body: ($reply.body | sub("^Redline round [0-9]+: "; "") | sub("^[\\s\\S]*?Redline round [0-9]+: "; ""))} end),
+                   carried_from: ($t.from // ""), carried_to: "", disposition: ""}] as $list
+            | $list | map(. as $p
+                | ($list | map(select(.carried_from == $p.id)) | first) as $later
+                | (if $p.reply == null then "none" else ($p.reply.body | classify) end) as $d
+                | .carried_to = (if $later != null then $later.id elif $d == "carried" then ($p.reply.body | capture("carried forward as (?<to>R[0-9]+-[0-9]+)") | .to) else "" end)
+                | .disposition = (if $later != null then "carried" else $d end))
+            | sort_by(.round, (.id | capture("-(?<k>[0-9]+)$") | .k | tonumber))'
         ;;
 
     human-review)

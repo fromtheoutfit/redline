@@ -1,0 +1,5 @@
+[
+  {"id": 60, "user": {"login": "author"}, "body": "<!-- redline:R1-4 -->\n**R1-4** · `public/build/vendor.js:7` · from the Redline round 1 review body\n\nRedline round 1: mitigated in 3456789 (redline: R1-4 guard the missing key). The full fix is deferred and listed in the Redline handoff: regenerate the asset. · decided by: redline"},
+  {"id": 61, "user": {"login": "marcamos"}, "body": "Looks fine."},
+  {"id": 62, "user": {"login": "author"}, "body": "Redline handoff\n\nRedline ran 1 review round; the last one found no correctness bugs.\n\n### Decisions\n\n- **R1-1** Missing status filter: fixed in 1234567 · decided by: redline"}
+]

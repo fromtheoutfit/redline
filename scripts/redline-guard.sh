@@ -65,7 +65,7 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # artisan after php (php artisan, php ./artisan, php <repo>/artisan).
 #   checks     the repository's .claude/redline/checks.sh, and the plugin's scripts/redline-background.sh
 #              start | wait, which runs that checks.sh in the background for a long gate (#40)
-#   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | last-round | files | login | place | human-review | last-human-review | threads
+#   gh-read    the plugin's scripts/redline-gh.sh pr | diff | pr-comments | issues-search | review-comments | has-review | last-round | prior-findings | files | login | place | human-review | last-human-review | threads
 #   gh-all     the plugin's scripts/redline-gh.sh, every subcommand
 #   git-read   read-only git alone (status, log, rev-parse, ...), without the file tools of read
 #   git-add    git add <paths>  (never -A, --all, -u, ., *)
@@ -461,7 +461,7 @@ COMPOSER_BUILD = {"check", "fix", "lint", "test", "test:octane", "test:explain",
                   "validate", "show", "--version"}
 VENDOR_BIN = {"pint", "phpstan", "rector", "pest"}
 BACKGROUND = {"start", "wait"}
-GH_READ = {"pr", "diff", "pr-comments", "issues-search", "review-comments", "has-review", "last-round", "files", "login", "place", "human-review", "last-human-review", "threads"}
+GH_READ = {"pr", "diff", "pr-comments", "issues-search", "review-comments", "has-review", "last-round", "prior-findings", "files", "login", "place", "human-review", "last-human-review", "threads"}
 ATTRIBUTION = re.compile(r"co-authored-by|generated with|claude|anthropic|🤖", re.IGNORECASE)
 # The path spellings a commit may name without tripping the attribution filter.
 PATH_SPELLINGS = re.compile(r"\.claude/|CLAUDE\.md")

@@ -138,6 +138,11 @@ redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh last-round 42
+# prior-findings (#35): a read subcommand beside last-round, run by the skill at launch; the roles with gh-read may run it, the rest may not.
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh prior-findings 42
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh prior-findings 42
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh prior-findings 42
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh prior-findings 42
 # human-review and last-human-review (#36): read subcommands beside last-round; the roles with gh-read may run them, the rest may not.
 redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 @marcamos
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh human-review 42 latest
