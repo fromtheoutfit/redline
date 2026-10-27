@@ -703,8 +703,8 @@ function samePrefix(name, first, second, n) {
 // 11. The thread sweep (#39): at a handoff, the settled findings' threads (fixed, deferred,
 //     decided, each with its reply posted) are resolved through one resolve-threads call before
 //     the handoff comment, which says how many and what stayed open; a body finding has no
-//     thread; dropped and not-changed findings stay open; a dry run, no push, a capped run, a
-//     hand-off and review only sweep nothing.
+//     thread; dropped and not-changed findings stay open; a thread already resolved is in
+//     neither count; a dry run, no push, a capped run, a hand-off and review only sweep nothing.
 // ---------------------------------------------------------------------------
 {
   const four = [f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness', { needsDecision: true }), f('R1-4', 'nit')]
@@ -722,6 +722,8 @@ function samePrefix(name, first, second, n) {
 
   run = await go('threads: a teammate replied after Redline', args, { ...scenario, threadsSkipped: { 101: "last comment 202 is not Redline's" } })
   check('threads: a thread the script skipped stays open with the reason', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 1 left open: R1-2 (a reply after Redline\'s).\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[{"id":"R1-2","reason":"a reply after Redline\'s"}]}', [comment(run.calls, 'handoff comment'), run.res.threads])
+  run = await go('threads: the author resolved one by hand', args, { ...scenario, threadsSkipped: { 101: 'already resolved' } })
+  check('threads: a thread already resolved is neither resolved by the sweep nor left open', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 0 left open.\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[]}', [comment(run.calls, 'handoff comment'), run.res.threads])
 
   const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1']] }
   run = await go('threads: a dropped finding', { ...baseArgs, interrupt: 'review', selected: { act: ['R1-1'], dropped: { 'R1-2': 'Fine as it is.' } } }, two)

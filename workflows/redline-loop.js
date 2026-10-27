@@ -2016,7 +2016,9 @@ function threadCandidates() {
 // the ids, so a teammate's thread is never resolved whatever is passed. Only a handoff or a human
 // summary sweeps, and only when the replies and commits are on GitHub (not a dry run, not
 // `no push`); a capped run leaves every thread open. Returns null when no sweep ran, otherwise
-// {resolved: [ids], open: [{id, reason}]} for the closing comment and the result.
+// {resolved: [ids], open: [{id, reason}]} for the closing comment and the result. A thread the
+// script reports already resolved (resolved by hand before Finish) is in neither list: this sweep
+// did not resolve it, and it is not open.
 async function sweepThreads(kind) {
   if (!(kind === 'handoff' || kind === 'human-summary') || !postToGitHub || !push) {
     return null
@@ -2044,20 +2046,21 @@ async function sweepThreads(kind) {
     }
     for (const s of out.skipped || []) {
       const c = byComment[s.id]
-      const reason = /^last comment/.test(s.reason) ? 'a reply after Redline\'s' : /^already resolved/.test(s.reason) ? 'already resolved' : /^opened by/.test(s.reason) ? 'not Redline\'s thread' : 'no thread'
-      if (c) {
-        c.reason = reason
-      } else {
+      if (!c) {
         warnings.push(`finish: resolve-threads skipped comment ${s.id}, which no finding of this run posted: ${s.reason}`)
+      } else if (/^already resolved/.test(s.reason)) {
+        c.alreadyResolved = true
+      } else {
+        c.reason = /^last comment/.test(s.reason) ? 'a reply after Redline\'s' : /^opened by/.test(s.reason) ? 'not Redline\'s thread' : 'no thread'
       }
     }
     for (const c of settled) {
-      if (!c.resolved && !c.reason) {
+      if (!c.resolved && !c.alreadyResolved && !c.reason) {
         c.reason = 'not resolved'
       }
     }
   }
-  const open = candidates.filter((c) => !c.resolved).map((c) => ({ id: c.id, reason: c.reason }))
+  const open = candidates.filter((c) => !c.resolved && !c.alreadyResolved).map((c) => ({ id: c.id, reason: c.reason }))
   threadSweep = { resolved, open }
   return threadSweep
 }
