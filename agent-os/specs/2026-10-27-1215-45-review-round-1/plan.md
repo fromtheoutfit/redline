@@ -130,3 +130,28 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 
 10. **Standards retrospective**: Task 5, from the proposed list in `shape.md`, as the standards approver approved it.
 11. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+Commits, in order:
+
+- `64429fa` redline: save review round 1 spec for PR #45 (#39)
+- `ab6d1f8` redline: R1-1 give the GitHub agent's return block one skipped key (#39)
+- `8a57ef8` redline: R1-3 leave a thread already resolved out of the handoff's left open list (#39)
+- `bec2673` redline: R1-2 keep a thread open when any comment in it is not Redline's (#39)
+- `568d179` redline: record the round 1 review lessons in the standards, finishing R1-2 (#39)
+- the As built commit that holds these notes
+
+Red before green, through `checks.sh --baseline` (the guard refuses `node` and `claude` to the implementer):
+
+- Task 3: `loop` read `286 checks passed, 1 failed`, the failure the new case with the line `Resolved 2 threads; 1 left open: R1-2 (already resolved).`; after the fix `287 checks passed, 0 failed`. The same run's `validate` passed with Task 2's change, which was committed after it.
+- Task 4: `loop` read `288 checks passed, 1 failed` (the new case, reason mapped to `no thread`) and `gh` `93 passed, 2 failed` (exactly the two new cases); after the fix `289 checks passed, 0 failed` and `95 passed, 0 failed`.
+- The full gate with the round's snapshot exits 0: nine checks at 0, no unexpected or uncommitted file.
+
+Deviations from the plan:
+
+- Task 2: the new `skipped` sentence sits at line 65 of `agents/redline-github.md`, not 66, because the deleted line 54 is above it. The text is as planned, and `grep -c '"skipped"'` prints `1`.
+- Task 4: the `resolve-threads` header in `scripts/redline-gh.sh` is wrapped so its last line stays `mutation after the ones already sent, 2 on usage or a failed read`. The gh harness's case "usage: --help prints the writes section to its last line" pins that line; a first wrap moved it and the case went red, so the header was re-wrapped instead of changing that neighbouring case. The header's words are as planned.
+- Task 5: the standards commit's message names R1-2 (`..., finishing R1-2 (#39)`), since option (A) in `shape.md` sends two standards lines of R1-2's fix through the retrospective and Task 4's proof leaves `agent-os/standards/` to Task 5. The R1-1 and R1-3 edits are lessons, so the message does not name those findings.
+
+Noted, not changed: `agent-os/standards/workflow/replay.md` line 12 says the sweep asks GitHub "which threads are open, and who spoke last in them". Since R1-2 the script reads every comment's id. No approved edit covers that line, so it is left for a later retrospective.

@@ -51,6 +51,9 @@ Round 1 of the Redline review of PR #45 (issue #39, "Resolve the threads Redline
 - **R1-2: should a thread with a comment that is not Redline's anywhere in it stay open?** Decided 2026-10-27: **(A) Every comment must be Redline's.** The author chose to keep a thread open whenever any comment in it is not Redline's, because a teammate's comment anywhere in the thread is a human's and folding it away would break the promise that Redline never resolves a human's thread. `plan.md` Task 4, after Task 3. The story, the options and the recommendation the author saw are under Judgment calls below.
   Decided by: @michaelfromtheoutfit
 
+- **As built deviations.** Three small ones, listed in `plan.md` under As built. The `resolve-threads` header is wrapped so the line the gh harness's `--help` case pins stays last. The standards commit names R1-2, whose fix sends two standards lines through the retrospective. The R1-1 sentence sits one line higher than the plan's line number. None changes behaviour or scope.
+  Decided by: redline
+
 ### Judgment calls
 
 - **R1-2: should a thread with a comment that is not Redline's anywhere in it stay open?**
