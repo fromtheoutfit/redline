@@ -43,6 +43,9 @@ Round 1 of the Redline review of PR #43 (issue #42, "Normalize every agent's err
 - **No fix or defer this round.** The round's only finding is a judgment call, so the plan carries no code change until it is decided, and nothing is deferred.
   Decided by: redline
 
+- **As built: the standards commit names R1-1.** `plan.md` Task 2 sends part of R1-1's fix (the empty-text rule written for the checker only at `agent-os/standards/workflow/agents.md:17`, which the finding names) through Task 3, so the standards commit is `redline: record the round 1 review lessons in the standards, finishing R1-1 (#42)` and R1-1's reply names both of its commits. No code or file list changed.
+  Decided by: redline
+
 ### Judgment calls
 
 - **R1-1: Normalize the error once in `run()`, or keep `errorText` at each check?**

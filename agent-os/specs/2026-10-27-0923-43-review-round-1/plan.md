@@ -53,3 +53,11 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 
 10. **Standards retrospective** — Task 3, from the proposed list in `shape.md`, as the standards approver approved it.
 11. **Spec folder** — `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md` (the As built notes land in the round's last commit).
+
+## As built
+
+- **Task 1** as planned: the four spec files in their own commit; `redline/` left to the workflow.
+- **Task 2** as planned. `errorText` and its docblock sit just above `run()`, after `stageError`; `run()` returns `{ ...out, error: errorText(out) }` when the result is an object with an `error` key, and `out` otherwise. The nine checks read `.error`, and `stopReason` and `judge` read `out.error`, so `errorText` has one caller (`grep -c "if (errorText(" workflows/redline-loop.js` prints `0`). The push mock takes `scenario.pushError`; the three cases sit where the plan put them. `README.md:232` carries both phrases.
+  - The guard refuses `node` to the implementer, so the loop test ran through the gate. With only the test edits in place the `loop` check printed `260 checks passed, 1 failed`, the one failure the new `checker: a stop keeps the checker's error normalized in the record` (`detail.checker.error` was `'""'`); the post and push-and-reply `'""'` cases were green against the per-check form, as the plan expected. After the fix it printed `261 checks passed, 0 failed`.
+- **Task 3**: the three approved edits, two in `agent-os/standards/workflow/agents.md` and one in `agent-os/standards/testing/tests.md`, with no heading changed. Deviation: the commit message is `redline: record the round 1 review lessons in the standards, finishing R1-1 (#42)`, not the message above, because Task 2 sends part of R1-1's fix (the empty-text rule the finding names at `agents.md:17`) through this commit, so R1-1's reply names both commits. Recorded under Decisions in `shape.md`.
+- **Task 4**: the gate green; its JSON is the evidence.
