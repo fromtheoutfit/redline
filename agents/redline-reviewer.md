@@ -63,7 +63,7 @@ Raw JSON, no prose around it:
 }
 ```
 
-IDs are `R<round>-<n>`, numbered in file order. A finding already tracked goes in `knownAs` (`#41`, `review comment 1234567890`, `R1-2: fixed`) and is listed so the workflow can skip it. `carriedFrom` is the id of the earlier finding this one re-verifies and carries forward, from the prompt's second list, or `""`. `resolved` lists the ids from that list the current head no longer has, each with why; `[]` when the prompt gave no list or every one still holds. An empty `findings` array is a valid, good result.
+IDs are `R<round>-<n>`, numbered in file order. A finding already tracked goes in `knownAs` (`#41`, `review comment 1234567890`, `R1-2: fixed`) and is listed so the workflow can skip it. `carriedFrom` is the id of the earlier finding this one re-verifies and carries forward, from the prompt's second list, or `""`. On a carried finding, `knownAs` names only an issue or a teammate's comment that already tracks it (`#41`), never a Redline id: the workflow clears a Redline id there with a warning and carries the finding, and answers the earlier thread of one an issue tracks with `carried forward as R2-1; already tracked in #41`. `resolved` lists the ids from that list the current head no longer has, each with why; `[]` when the prompt gave no list or every one still holds. An empty `findings` array is a valid, good result.
 
 ## Attribution
 

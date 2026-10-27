@@ -616,7 +616,7 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
     lines.push('', '### Resolved from earlier rounds', '', ...resolved.map((r) => `- **${r.id}** ${priorById[r.id] ? priorById[r.id].title : ''}: ${r.why}`))
   }
   if (known.length) {
-    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}`))
+    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
   }
   if (active.length) {
     lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
@@ -1510,7 +1510,9 @@ async function review(round, reviewed, range, facts, source) {
 // a warning, so the shaper investigates it: a stale line is moved into the body by place, never
 // lost. A carriedFrom or a resolved entry naming a tracked or unknown id is cleared or ignored.
 // A fallback id is numbered after the highest id in use, since the reviewer's ids may skip a
-// number (#46, R1-3).
+// number (#46, R1-3). A carried finding is never known by a Redline id, so a knownAs naming one is
+// cleared; one naming an issue or a teammate's comment stays, and the finding's earlier thread is
+// answered as already tracked (#46, R1-2).
 function reconcilePrior(round, out) {
   const carryIds = new Set(carryList.map((p) => p.id))
   const carried = {}
@@ -1525,6 +1527,10 @@ function reconcilePrior(round, out) {
       continue
     }
     carried[f.carriedFrom] = f.id
+    if (/\bR\d+-\d+\b/.test(f.knownAs || '')) {
+      warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom} and as known by ${JSON.stringify(f.knownAs)}, which names a Redline finding; knownAs cleared, so it is carried`)
+      f.knownAs = ''
+    }
   }
   const resolved = []
   for (const r of out.resolved) {
@@ -1713,10 +1719,28 @@ function resolvedReplies(record) {
     .map((r) => priorReplyEntry(pass, priorById[r.id], `resolved; first reported as ${r.id} in Redline round ${priorById[r.id].round}. ${r.why}${decidedBy(REDLINE)}`, record.reviewPosted))
 }
 
+// The earlier findings this round carried that an issue or a teammate's comment already tracks
+// (#46, R1-2): the finding stays known and is not shaped, and its earlier thread hears once where
+// it went, so the next run reads it as carried.
+function knownCarriedReplies(record) {
+  if (record.knownCarriedRecorded) {
+    return []
+  }
+  const pass = passOf(record)
+  const entries = record.findings
+    .filter((f) => f.knownAs && f.carriedFrom && priorById[f.carriedFrom])
+    .map((f) => priorReplyEntry(pass, priorById[f.carriedFrom], `carried forward as ${f.id}; already tracked in ${f.knownAs}${decidedBy(REDLINE)}`, record.reviewPosted))
+  if (entries.length) {
+    record.knownCarriedRecorded = true
+  }
+  return entries
+}
+
 // A first round that ends without a revise pass (nothing selected on the review dial, or no
-// finding at all): the drops and the resolved earlier findings still get their replies.
+// finding at all): the drops, the resolved earlier findings and a carried finding an issue tracks
+// still get their replies.
 async function replyStandalone(record) {
-  const replies = droppedReplies(record).concat(resolvedReplies(record))
+  const replies = droppedReplies(record).concat(resolvedReplies(record), knownCarriedReplies(record))
   if (!replies.length) {
     return
   }
@@ -1995,7 +2019,7 @@ async function revise(record, inScope, reviewedKind) {
 
   phase('Push and reply')
   const replies = withAnswers(pass, inScope, mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))))
-    .concat(carriedReplies(pass, record, inScope, outcomes), droppedReplies(record), resolvedReplies(record))
+    .concat(carriedReplies(pass, record, inScope, outcomes), droppedReplies(record), resolvedReplies(record), knownCarriedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
@@ -2178,16 +2202,19 @@ function threadCandidates() {
     // with the finding that carries it; a resolved one with its reply. The ids are the earlier
     // root, any earlier Redline reply in it, and this round's reply, so the script's every-comment
     // rule holds and a teammate's comment keeps the thread open. A carrying finding in the review
-    // body has no thread, so its earlier thread settles on its own reply (#46, R1-4).
+    // body has no thread, so its earlier thread settles on its own reply (#46, R1-4). A carried
+    // finding an issue or a teammate's comment tracks has no outcome: its earlier thread is
+    // answered but left open as already tracked (#46, R1-2).
     const ids = new Set(record.findings.map((f) => f.id))
     for (const [priorId, newId] of Object.entries(record.carried || {})) {
       const prior = priorById[priorId]
       if (!prior || !prior.comment_id || !ids.has(newId)) {
         continue
       }
+      const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
       const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
-      const reason = settled ? '' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
     for (const r of record.resolvedPrior || []) {
@@ -2213,10 +2240,13 @@ function earlierRoundsLines() {
   return priorFindings.map((p) => {
     const newId = (record.carried || {})[p.id]
     const resolved = (record.resolvedPrior || []).find((r) => r.id === p.id)
+    const carrier = newId ? record.findings.find((f) => f.id === newId) : null
     const what = newId
       ? !ids.has(newId)
         ? `carried forward as ${newId}, out of scope (correctness only)`
-        : record.outcomes && record.outcomes[newId] ? `carried forward as ${newId}: ${record.outcomes[newId]}` : `carried forward as ${newId}`
+        : carrier.knownAs
+          ? `carried forward as ${newId}: already tracked in ${carrier.knownAs}`
+          : record.outcomes && record.outcomes[newId] ? `carried forward as ${newId}: ${record.outcomes[newId]}` : `carried forward as ${newId}`
       : resolved
         ? `resolved: ${resolved.why}${decidedBy(REDLINE)}`
         // The disposition before the reply text: one a later round's line carried is named by its
