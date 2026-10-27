@@ -1,0 +1,53 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "ec9fc5a580c8d62537bc3ae0bafae04a0484c86f",
+    "to": "ec9fc5a580c8d62537bc3ae0bafae04a0484c86f"
+  },
+  "summary": "The sweep is well built. The wrapper enforces the safety rule by itself, whatever ids the loop sends. Both GraphQL documents are fixed strings with only `-F` variables. Both harnesses cover the absences: dry run, no push, cap, hand-off and review only. A live `redline-gh.sh threads 43` returned real review-comment ids above 2^31 intact. Both correctness findings concern how the sweep reads a thread's state: the resolve rule never looks at the comments between Redline's root and its reply, and the handoff line counts an already-resolved thread as left open. This repository has no scheduler or queue. The only overlap is a teammate replying in the seconds between the `threads` read and the mutation, which would be resolved over; that window is small enough to accept.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agents/redline-github.md",
+      "line": 54,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The GitHub agent's return contract now has two `skipped` keys of different types",
+      "description": "The JSON block under \"What you return\" keeps `\"skipped\": \"\"` on line 50, which is post-review's `already posted` string, and adds `\"skipped\": [{\"id\": 0, \"reason\": \"\"}]` on line 54 for resolve-threads. When an object repeats a key, only the last one counts, so the role's contract now reads as if `skipped` were always an array. The post-review step (line 25) and the workflow's POST_SCHEMA still expect a string. The per-call schema rejects a wrong type, but the agent file is the role's own contract and it now contradicts itself in one object.",
+      "proposedFix": "Keep one `skipped` line (`\"skipped\": \"\"`) and add one sentence under the block: for resolve-threads, `skipped` is the script's list `[{id, reason}]` as printed; for post-review, it is the string `already posted`.",
+      "needsDecision": false,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-gh.sh",
+      "line": 476,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A thread holding a teammate's comment between Redline's root and Redline's reply is resolved",
+      "description": "`resolve-threads` resolves an open thread when `.comments[0]` and `.comments[-1]` are both in the id list. It never checks the comments between them. Redline replies in a thread only after the round's shape, implement and check steps, which can take hours when the review, plan or decisions dial stops the run. A teammate's comment posted in that window, or the author's own hand comment (same login, different id), lands between the root and Redline's reply, for example \"this is intended, please don't change it\". The thread then reads [Redline 100, teammate 150, Redline 200], both ends match, and the sweep resolves it. The comment is collapsed even though Redline's reply never read or answered it. The PR's stated guarantee is \"never a human's\", and the README's Known limits line says a thread a human \"last spoke in\" is never resolved. This case satisfies the wording but hides a human's comment. The PR 13 fixture has no thread like this, so nothing pins the behaviour either way. The spec (shape.md, Decisions) chose \"both ends\" over \"last comment only\" and over two lists. \"Every comment Redline's\" was not one of the options. Question for the person: should a thread with a non-Redline comment anywhere in it stay open?",
+      "proposedFix": "Option A, keep both ends: add a fixture thread [1311 Redline, 1312 teammate, 1313 Redline] and a gh-test case that pins it as resolved, and widen the Known limits line to say a comment in the middle of a Redline thread is resolved with it. Option B, every comment Redline's: in the plan's jq, replace the two end checks with `all(.comments[]; mine)`. Skip with the reason `comment <first non-matching id> is not Redline's`, keeping `opened by ...` for a foreign root. Map the reason in `sweepThreads` (e.g. \"a comment that is not Redline's\"), and add the same fixture thread with a case where `resolve-threads 13 1311 1313` leaves it skipped and logs no mutation for it.",
+      "needsDecision": true,
+      "knownAs": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "workflows/redline-loop.js",
+      "line": 2060,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A thread that is already resolved is listed under \"left open\" in the handoff line",
+      "description": "When the script skips a thread as `already resolved`, `sweepThreads` sets the candidate's reason to 'already resolved' (line 2047) but never marks it resolved. `open = candidates.filter((c) => !c.resolved)` (line 2060) then puts it under left open. The handoff comment says, for example, `Resolved 2 threads; 1 left open: R1-2 (already resolved).`. `result().threads.open` carries the same entry, and the skill's `done` report repeats it to the person as a thread left open. This happens whenever the author resolves a Redline thread by hand between its reply and Finish, the habit #39 was written to replace. A stop at the review, plan or decisions dial gives them that window. It also happens on a fresh re-run of the sweep after a partial one, since the script exits 1 after the mutations it already sent. The line then contradicts itself and sends the teammate looking for an open thread that is not there.",
+      "proposedFix": "In `sweepThreads`, mark an `already resolved` skip separately (e.g. `c.alreadyResolved = true`) and leave it out of `open`. Optionally `threadsLine` adds `; k already resolved` so the count still accounts for every thread. Add a loop-test case with `threadsSkipped: { 101: 'already resolved' }` that asserts the handoff line does not list R1-2 under left open (e.g. `Resolved 2 threads; 0 left open.`) and that `run.res.threads.open` is empty.",
+      "needsDecision": false,
+      "knownAs": ""
+    }
+  ]
+}
