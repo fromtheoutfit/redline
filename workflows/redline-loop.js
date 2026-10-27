@@ -1509,6 +1509,8 @@ async function review(round, reviewed, range, facts, source) {
 // the loop never lets one drop. One the reviewer did not account for is carried as reported, with
 // a warning, so the shaper investigates it: a stale line is moved into the body by place, never
 // lost. A carriedFrom or a resolved entry naming a tracked or unknown id is cleared or ignored.
+// A fallback id is numbered after the highest id in use, since the reviewer's ids may skip a
+// number (#46, R1-3).
 function reconcilePrior(round, out) {
   const carryIds = new Set(carryList.map((p) => p.id))
   const carried = {}
@@ -1534,11 +1536,12 @@ function reconcilePrior(round, out) {
     }
     resolved.push({ id, why: (r.why || '').trim() })
   }
+  let next = Math.max(0, ...out.findings.map((x) => Number(x.id.split('-')[1]) || 0))
   for (const p of carryList) {
     if (carried[p.id] || resolved.some((x) => x.id === p.id)) {
       continue
     }
-    const id = `R${round}-${out.findings.length + 1}`
+    const id = `R${round}-${++next}`
     warnings.push(`round ${round}: the reviewer did not account for ${p.id} (carried forward from round ${p.round}); carried as reported`)
     const body = (p.body || '').split('\n').slice(1).join('\n').trim()
     out.findings.push({
