@@ -237,7 +237,7 @@ Ready to start? (approve / adjust)
 
 Run in this order:
 
-1. **Syntax** — `ls scripts/*.sh | xargs -n1 bash -n` parses every script (`bash -n` reads only its first file, so each gets its own), and `jq -e . hooks/hooks.jsonx` parses the hook registration (`hooks/` holds only that JSON file, so `bash -n` is the wrong check for it). Nothing here mutates a file: there is no formatter in this repository.
+1. **Syntax** — `ls scripts/*.sh | xargs -n1 bash -n` parses every script (`bash -n` reads only its first file, so each gets its own), and `jq -e . hooks/hooks.json` parses the hook registration (`hooks/` holds only that JSON file, so `bash -n` is the wrong check for it). Nothing here mutates a file: there is no formatter in this repository.
 2. **Manifest** — `claude plugin validate .` passes. It checks `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`, the agents, the skills and the commands. The plugin directory's icon warning is known and is not a failure; `--strict` is not used.
 3. **Guard** — `tests/guard-test.sh` prints `N passed, 0 mismatched`. Every change to `scripts/redline-guard.sh` adds or changes a row in `tests/guard-cases.tsv` in the same commit, and keeps a row for the neighbouring decision that must not change. From this checkout the harness uses the empty repository under `~/.cache/redline/` for the rows that need a repository that is not the plugin, and the checkout itself for the `# @cwd PLUGIN` rows.
 4. **Loop** — `node tests/loop-test.mjs` prints `N checks passed, 0 failed`. A change to `workflows/redline-loop.js` that alters which agents run, in what order, with what prompt text, or what the script returns, adds a check.
