@@ -18,6 +18,12 @@
 # review body (#38, R1-3): a teammate's review whose comment and body a Redline human review pass
 # answered, the body by an issue comment whose header names the review, beside an older review of
 # theirs whose body is still open and a comment of theirs that quotes the header without the marker.
+# PR 13 is the review-thread fixture (#39), two GraphQL pages served to `threads` and
+# `resolve-threads`: a Redline thread with its reply, one a teammate replied in after Redline, one a
+# teammate opened, one already resolved, and one Redline thread with no reply yet. The shim is the
+# one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
+# mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
+# which threads were resolved and that the mutation is the script's fixed string.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -41,7 +47,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -59,6 +65,37 @@ if [[ "${1:-}" == "--version" ]]; then echo "gh version 2.40.0 (2023-12-01)"; ec
 if [[ "${1:-}" == "pr" && "${2:-}" == "diff" ]]; then echo "could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of files (300). Consider using 'List pull requests files' API or locally cloning the repository instead." >&2; exit 1; fi
 if [[ "${1:-}" != "api" ]]; then echo "fake gh: unexpected call: $*" >&2; exit 1; fi
 shift
+# GraphQL (#39): the one call that carries fields. A query is served from the PR's thread pages; a
+# mutation is logged (thread id, tab, the query text) and answered as GitHub would.
+if [[ "${1:-}" == "graphql" ]]; then
+    shift
+    query=""; number=""; thread=""; slurp=0
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --paginate) shift ;;
+            --slurp) slurp=1; shift ;;
+            -f) [[ "$2" == query=* ]] || { echo "fake gh: unexpected field $2" >&2; exit 1; }; query="${2#query=}"; shift 2 ;;
+            -F) case "$2" in
+                    number=*) number="${2#number=}" ;;
+                    threadId=*) thread="${2#threadId=}" ;;
+                    owner=\{owner\}|name=\{repo\}) ;;
+                    *) echo "fake gh: unexpected variable $2" >&2; exit 1 ;;
+                esac; shift 2 ;;
+            *) echo "fake gh: unexpected graphql argument $1" >&2; exit 1 ;;
+        esac
+    done
+    if [[ "$query" == mutation* ]]; then
+        printf '%s\t%s\n' "$thread" "$query" >> "$PAGES/resolved.log"
+        jq -n --arg id "$thread" '{data: {resolveReviewThread: {thread: {id: $id, isResolved: true}}}}'
+        exit 0
+    fi
+    case "$number" in
+        13) pages=("$PAGES/threads-13-page1.json" "$PAGES/threads-13-page2.json") ;;
+        *) echo "fake gh: no thread fixture for PR $number" >&2; exit 1 ;;
+    esac
+    if [[ "$slurp" == 1 ]]; then jq -s '.' "${pages[@]}"; else cat "${pages[@]}"; fi
+    exit 0
+fi
 paginate=0; slurp=0; filter=""; endpoint=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -191,7 +228,30 @@ is "last-human-review: the highest Redline human review N across replies and iss
 is "last-human-review: a JSON number" "$(gh last-human-review 10 | jq -r 'type')" "number"
 is "last-human-review: 0 when none" "$(gh last-human-review 8)" "0"
 
+echo "# threads and resolve-threads"
+rm -f "$WORK/pages/resolved.log"
+th="$(gh threads 13)"; code=$?
+is "threads: exits 0" "$code" "0"
+is "threads: every thread of both pages, in path, line, first comment order" "$(jq -c '[.[].id]' <<<"$th")" '["PRRT_1","PRRT_2","PRRT_3","PRRT_4","PRRT_5"]'
+is "threads: a thread carries its state, place and each comment's id and login" "$(jq -c '.[1] | [.resolved, .path, .line, [.comments[] | [.id, .user]]]' <<<"$th")" '[false,"app/b.php",9,[[1303,"author"],[1304,"author"],[1305,"marcamos"]]]'
+is "threads: a resolved thread says so, a null line stays null" "$(jq -c '[.[3].resolved, .[4].line]' <<<"$th")" "[true,null]"
+is "threads: reads nothing but the query (no mutation logged)" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
+rt="$(gh resolve-threads 13 1301 1302 1303 1304 1307 1308 1309 1399)"; code=$?
+is "resolve-threads: exits 0" "$code" "0"
+is "resolve-threads: resolves the thread whose first and last comments are both in the list" "$(jq -c '.resolved' <<<"$rt")" '[{"id":1301,"thread":"PRRT_1"}]'
+is "resolve-threads: skips a thread a human last spoke in, one a human opened (only its reply is Redline's), one already resolved and an id in no thread, each with its reason" "$(jq -c '.skipped' <<<"$rt")" '[{"id":1303,"reason":"last comment 1305 is not Redline'\''s"},{"id":1306,"reason":"opened by comment 1306, not Redline'\''s"},{"id":1308,"reason":"already resolved"},{"id":1399,"reason":"no thread holds comment 1399"}]'
+is "resolve-threads: a thread none of the ids name is not touched or listed" "$(jq -c '[.resolved[].id, .skipped[].id] | index(1310)' <<<"$rt")" "null"
+is "resolve-threads: one mutation, for the resolved thread only" "$(cut -f1 "$WORK/pages/resolved.log")" "PRRT_1"
+is "resolve-threads: the mutation is the pinned string, parameterised by the thread id alone" "$(cut -f2 "$WORK/pages/resolved.log")" 'mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { id isResolved } } }'
+rm -f "$WORK/pages/resolved.log"
+is "resolve-threads: a root given without its reply id is skipped, since the last comment is not in the list" "$(gh resolve-threads 13 1301 | jq -c '[.resolved, .skipped]')" '[[],[{"id":1301,"reason":"last comment 1302 is not Redline'\''s"}]]'
+is "resolve-threads: nothing resolved means no mutation sent" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
+is "resolve-threads: the reply id alone names its thread too, and the thread is handled once" "$(gh resolve-threads 13 1302 1301 1302 | jq -c '[.resolved, .skipped]')" '[[{"id":1301,"thread":"PRRT_1"}],[]]'
+
 echo "# usage"
+gh threads 2>/dev/null; is "usage: threads without a number exits 2" "$?" "2"
+gh resolve-threads 13 2>/dev/null; is "usage: resolve-threads without an id exits 2" "$?" "2"
+gh resolve-threads 13 1301 x 2>/dev/null; is "usage: resolve-threads with an id that is not a number exits 2" "$?" "2"
 gh human-review 10 2>/dev/null; is "usage: human-review without a selector exits 2" "$?" "2"
 gh human-review 10 seven 2>/dev/null; is "usage: human-review with a selector that is not an id, @login or latest exits 2" "$?" "2"
 gh last-human-review 2>/dev/null; is "usage: last-human-review without a number exits 2" "$?" "2"
@@ -200,7 +260,7 @@ gh last-round x 2>/dev/null; is "usage: last-round with a non-number exits 2" "$
 gh place 7 "$WORK/missing.json" 2>/dev/null; is "usage: place with a missing file exits 2" "$?" "2"
 gh --help 2>"$WORK/err"; code=$?
 is "usage: --help exits 2" "$code" "2"
-has "usage: --help prints the writes section to its last line" "$(grep -v '^$' "$WORK/err" | tail -1)" "unless it already exists (a re-run keeps the first, older body)"
+has "usage: --help prints the writes section to its last line" "$(grep -v '^$' "$WORK/err" | tail -1)" "mutation after the ones already sent, 2 on usage or a failed read"
 is "usage: --help stops at the header's end" "$(grep -c 'set -euo pipefail' "$WORK/err")" "0"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"

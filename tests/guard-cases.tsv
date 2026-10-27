@@ -147,6 +147,15 @@ redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh last-human-review
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
 redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh last-human-review 42
+# threads and resolve-threads (#39): threads is a read subcommand beside last-round; resolve-threads is a write, the github role's alone. The resolveReviewThread mutation reaches GitHub only through the wrapper: raw gh stays refused for every role, the github role included.
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh threads 42
+redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh threads 42
+redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh threads 42
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh threads 42
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
+redline:redline-reviewer	deny	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
+redline:redline-github	deny	Bash	gh api graphql -f query='mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { id isResolved } } }' -F threadId=PRRT_1
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh diff 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh login
 redline:redline-reviewer	allow	Write	/tmp/redlinerepro/reviewer-r1-ReproTest.php

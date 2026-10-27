@@ -54,6 +54,11 @@
 #                                  placed inline", each behind a marker <!-- redline:<finding> -->
 #                                  (the id read from the comment body's leading **R1-2**), with a
 #                                  `moved` list [{id, path, line, side}]. Nothing is posted
+#   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
+#                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
+#                                  id is the thread's node id (what resolveReviewThread takes),
+#                                  each comment's id its review-comment id (what `reply` takes),
+#                                  threads in path, line, first-comment order; exit 2 on a gh error
 #
 # Needs gh 2.48.0 or newer (gh api --slurp); an older gh stops every subcommand that lists the
 # PR's files with one line naming the installed version, exit 2.
@@ -72,8 +77,26 @@
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
 #                                  (default $TMPDIR/redline-backups). <copy> also gets the backup,
 #                                  unless it already exists (a re-run keeps the first, older body)
+#   resolve-threads <n> <id>...    resolve the review threads the ids name, where every id is a
+#                                  review comment Redline posted in this run (a finding's inline
+#                                  comment and the reply in its thread). A thread is resolved only
+#                                  when it is open and its first and its last comment are both in
+#                                  the list, so a thread a teammate opened, or one they replied in
+#                                  after Redline, is never resolved whatever ids are given; one
+#                                  resolveReviewThread mutation per thread (#39). Prints
+#                                  {resolved: [{id, thread}], skipped: [{id, reason}]}: id is the
+#                                  thread's first comment (the finding's), thread its node id,
+#                                  reason one of "already resolved", "opened by comment <id>, not
+#                                  Redline's", "last comment <id> is not Redline's", "no thread
+#                                  holds comment <id>". Nothing retries: exit 1 on a failed
+#                                  mutation after the ones already sent, 2 on usage or a failed read
 
 set -euo pipefail
+
+# The two GraphQL documents, fixed strings parameterised by -F variables only (owner, name, number,
+# endCursor; threadId), never built from an argument. --paginate follows pageInfo through $endCursor.
+THREADS_QUERY='query($owner: String!, $name: String!, $number: Int!, $endCursor: String) { repository(owner: $owner, name: $name) { pullRequest(number: $number) { reviewThreads(first: 100, after: $endCursor) { pageInfo { hasNextPage endCursor } nodes { id isResolved path line comments(first: 100) { nodes { databaseId author { login } } } } } } } }'
+RESOLVE_MUTATION='mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { id isResolved } } }'
 
 usage() { sed -n '2,/^$/p' "$0" >&2; exit 2; }
 
@@ -171,6 +194,21 @@ place_comments() {
             moved: ($moved | map({id: id, path, line, side: (.side // "RIGHT")}))
           }' "$2"
     rm -f "$positions"
+}
+
+# Every review thread of PR $1 as the `threads` list: the pages slurped into a temp file (a PR of
+# hundreds of threads is megabytes), one jq pass. Returns 1 when gh fails, with gh's own error.
+review_threads() {
+    local pages
+    pages="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    if ! gh api graphql --paginate --slurp -F owner='{owner}' -F name='{repo}' -F number="$1" -f query="$THREADS_QUERY" > "$pages"; then
+        rm -f "$pages"
+        return 1
+    fi
+    jq '[.[].data.repository.pullRequest.reviewThreads.nodes[]
+         | {id, resolved: .isResolved, path, line, comments: [.comments.nodes[] | {id: .databaseId, user: (.author.login // "")}]}]
+        | sort_by(.path, (.line // 0), .comments[0].id)' "$pages"
+    rm -f "$pages"
 }
 
 cd "$(git rev-parse --show-toplevel)"
@@ -310,6 +348,12 @@ case "$cmd" in
               end'
         ;;
 
+    threads)
+        [[ $# -eq 1 ]] || usage
+        need_int "$1" "pr number"
+        review_threads "$1" || exit 2
+        ;;
+
     last-human-review)
         [[ $# -eq 1 ]] || usage
         need_int "$1" "pr number"
@@ -410,6 +454,40 @@ case "$cmd" in
             exit 1
         fi
         jq -n --arg backup "$backup" --arg copy "$copy" --argjson after "$after" '{title: $after.title, body_bytes: ($after.body | length), backup: $backup, copy: $copy}'
+        ;;
+
+    resolve-threads)
+        [[ $# -ge 2 ]] || usage
+        need_int "$1" "pr number"
+        pr_n="$1"
+        shift
+        for id in "$@"; do need_int "$id" "comment id"; done
+        threads="$(review_threads "$pr_n")" || exit 2
+        ids="$(jq -cn '$ARGS.positional | map(tonumber)' --args "$@")"
+        # Which threads the ids name, and which of those to resolve: open, opened by one of the ids
+        # and last spoken in by one of the ids. The rest are skipped with the reason; an id in no
+        # thread is skipped last.
+        plan="$(jq -c --argjson ids "$ids" '
+            ($ids | map({key: tostring, value: true}) | from_entries) as $given
+            | def mine: $given[(.id | tostring)] == true;
+            [.[] | select(any(.comments[]; mine))] as $hit
+            | ($hit | map(.comments[].id)) as $covered
+            | {
+                resolve: [$hit[] | select((.resolved | not) and (.comments[0] | mine) and (.comments[-1] | mine)) | {id: .comments[0].id, thread: .id}],
+                skipped: ([$hit[] | select(.resolved or ((.comments[0] | mine) | not) or ((.comments[-1] | mine) | not))
+                           | {id: .comments[0].id, reason: (
+                               if .resolved then "already resolved"
+                               elif (.comments[0] | mine | not) then "opened by comment \(.comments[0].id), not Redline'"'"'s"
+                               else "last comment \(.comments[-1].id) is not Redline'"'"'s" end)}]
+                          + [$ids[] | select(. as $i | $covered | index($i) | not) | {id: ., reason: "no thread holds comment \(.)"}])
+              }' <<<"$threads")"
+        resolved='[]'
+        while IFS=$'\t' read -r cid tid; do
+            [[ -n "$tid" ]] || continue
+            gh api graphql -f query="$RESOLVE_MUTATION" -F threadId="$tid" >/dev/null || exit 1
+            resolved="$(jq --argjson cid "$cid" --arg tid "$tid" '. + [{id: $cid, thread: $tid}]' <<<"$resolved")"
+        done <<<"$(jq -r '.resolve[] | "\(.id)\t\(.thread)"' <<<"$plan")"
+        jq -n --argjson resolved "$resolved" --argjson skipped "$(jq '.skipped' <<<"$plan")" '{resolved: $resolved, skipped: $skipped}'
         ;;
 
     -h|--help|help)
