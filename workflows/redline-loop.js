@@ -2177,7 +2177,8 @@ function threadCandidates() {
     // The earlier rounds' threads this round answered (#35): a carried finding's thread is settled
     // with the finding that carries it; a resolved one with its reply. The ids are the earlier
     // root, any earlier Redline reply in it, and this round's reply, so the script's every-comment
-    // rule holds and a teammate's comment keeps the thread open.
+    // rule holds and a teammate's comment keeps the thread open. A carrying finding in the review
+    // body has no thread, so its earlier thread settles on its own reply (#46, R1-4).
     const ids = new Set(record.findings.map((f) => f.id))
     for (const [priorId, newId] of Object.entries(record.carried || {})) {
       const prior = priorById[priorId]
@@ -2185,7 +2186,7 @@ function threadCandidates() {
         continue
       }
       const kind = kinds[newId] || ''
-      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[newId] > 0 && replyIds[priorId] > 0
+      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
       const reason = settled ? '' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
