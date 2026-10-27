@@ -2219,7 +2219,11 @@ function earlierRoundsLines() {
         : record.outcomes && record.outcomes[newId] ? `carried forward as ${newId}: ${record.outcomes[newId]}` : `carried forward as ${newId}`
       : resolved
         ? `resolved: ${resolved.why}${decidedBy(REDLINE)}`
-        : `already handled in round ${p.round}: ${p.reply ? p.reply.body : p.carried_to ? `carried forward as ${p.carried_to}` : p.disposition}`
+        // The disposition before the reply text: one a later round's line carried is named by its
+        // new id, whatever its own thread's last reply says (#46, R1-5).
+        : p.disposition === 'carried' && p.carried_to
+          ? `carried forward as ${p.carried_to} in round ${p.carried_to.slice(1).split('-')[0]}`
+          : `already handled in round ${p.round}: ${p.reply ? p.reply.body : p.disposition}`
     return `- **${p.id}** ${p.title}: ${what}`
   })
 }
