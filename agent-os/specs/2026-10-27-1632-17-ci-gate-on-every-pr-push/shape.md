@@ -22,7 +22,8 @@ The eight decisions in the shaping prompt stand as given. The ones made while sh
 7. **Workflow hygiene**: `permissions: contents: read`; `concurrency` group per workflow and ref, cancelling only `pull_request` runs (pushes to `main` queue, so a merge is never half-checked); `persist-credentials: false` on checkout; `fail-fast: false` so a macOS-only failure still reports; job timeout 20 minutes with the gate step capped at 15 so a hung background test fails inside the job; a step-summary table of check and result built with `jq` from the gate's JSON; the JSON uploaded from `$RUNNER_TEMP` on failure, one artifact per leg, kept 14 days.
 8. **`tech-stack.md` drive-by**: while retiring line 17's "no CI yet", line 12's "eight steps" becomes "nine steps" (stale since #40 added the background check). Line 5's "proven on" list is left alone.
 9. **The red proof is a throwaway commit on this PR** (Task 7): one backticked word in the gate list of `shape-spec.md` without a restamp turns both legs red at the gate step and again at the stamp step, and produces both artifacts. The person drops the commit afterwards.
-10. **Not in scope**: running Redline in CI; Chalkboard and LL CI; making shellcheck required; pinning runner images to a version; `workflow_dispatch`.
+10. **As built, Task 7**: the red run fails once, at the gate step, not twice as the plan said; a failing step ends the job, so the stamp step runs only after a green gate. The workflow stays as shaped: the stamp step is for a repository whose gate test does not check its own stamp. Run URLs are under "As built" in `plan.md`.
+11. **Not in scope**: running Redline in CI; Chalkboard and LL CI; making shellcheck required; pinning runner images to a version; `workflow_dispatch`.
 
 ## Context
 

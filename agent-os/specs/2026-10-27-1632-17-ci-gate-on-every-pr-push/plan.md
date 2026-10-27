@@ -202,7 +202,14 @@ End to end: Task 6 locally, Task 7 on the PR (green on both OSes, then a deliber
 
 ## As built (2026-10-27)
 
-Tasks 1 to 6 and 8 landed as shaped, with no deviation. Task 7 (the first CI run and the red proof) and Task 9 (branch protection, the follow-up issue) are the person's, after the push; their run URLs go here.
+Tasks 1 to 8 landed as shaped, with one deviation recorded below. Task 9 (branch protection, the follow-up issue) is the person's, after merge.
+
+Task 7, the first CI runs on PR #47 (2026-10-27):
+
+- Green, at 4643123: https://github.com/fromtheoutfit/redline/actions/runs/40582008174. `gate (ubuntu)`, `gate (macos)` and `shellcheck` all passed. The macOS leg's "Tool versions" step printed `/bin/bash`, GNU bash 3.2.57 (arm64-apple-darwin25), jq 1.7.1, Python 3.9.6 (Apple's, once `/usr/bin` leads PATH), node 22.23.3; the Ubuntu leg bash 5.2.21. shellcheck reported no findings on its first pass.
+- Red, at 0fc7c54 (one backticked word of gate step 1 in `shape-spec.md` changed, not restamped; reverted in the next commit): https://github.com/fromtheoutfit/redline/actions/runs/40582801684. Both `gate (...)` legs failed at "Gate, as the checker runs it" and the artifacts `gate-ubuntu` and `gate-macos` were uploaded.
+
+Deviation from the shaped Task 7: the plan expected the red run to fail "twice over", at the gate step and again at the stamp step. A failing step ends the job, so the stamp step never ran; the stamp check stands on its own only when the gate passes, which is the case it is for (a `checks.sh` whose gate test does not cover the stamp). Recorded under Decisions in `shape.md`.
 
 Local verification (Task 6), from this checkout on macOS, bash 3.2.57, Claude Code 2.1.312, node 22.23.2, jq 1.8.2, python 3.14.7:
 
