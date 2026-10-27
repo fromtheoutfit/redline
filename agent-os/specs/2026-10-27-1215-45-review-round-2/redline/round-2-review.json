@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 2\n\nReviewed only the fix diff from round 1 (ec9fc5a..17b410a).\n\nThe round 1 fixes do what was decided. resolve-threads now resolves a thread only when every comment in it is Redline's, using `all(.comments[]; mine)`. It reports the first comment that isn't Redline's as `comment <id> is not Redline's`, and a run of the same `first(...).id` jq form returned the expected id. sweepThreads keeps an already resolved thread out of both counts, and the GitHub agent's return block has a single `skipped` key whose two types match POST_SCHEMA and SWEEP_SCHEMA. The README, the agent file, the standards, the script header and the workflow prompt all describe the same rule. The new fixture thread and the loop-test cases cover both changes, though the guard would not let this pass run the gh and loop harnesses itself. This repository has no scheduled commands or queued jobs, so nothing can overlap with the sweep.\n\nNo findings.",
+  "comments": []
+}

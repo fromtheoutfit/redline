@@ -59,9 +59,21 @@ function mock(scenario) {
       if (opts.label.startsWith('snapshot')) {
         return { operation: 'snapshot', files: [], error: '' }
       }
-      // scenario.pushError is the agent's error on a push and replies that went through.
+      // scenario.pushError is the agent's error on a push and replies that went through. The
+      // replies answer as the real agent does: one entry per entry in the prompt, reply_id 200+i
+      // for a thread reply and 0 where nothing was posted (#39).
       if (opts.label.startsWith('push')) {
-        return { operation: 'push-and-reply', dryRun: false, pushed: true, replies: [], files: [], error: scenario.pushError || '' }
+        const entries = JSON.parse(prompt.slice(prompt.indexOf('Replies, as JSON:\n[') + 18, prompt.lastIndexOf(']') + 1))
+        const replies = entries.map((r, i) => ({ finding: r.finding, comment_id: r.comment_id, reply_id: r.route === 'thread' ? 200 + i : 0 }))
+        return { operation: 'push-and-reply', dryRun: false, pushed: true, replies, files: [], error: scenario.pushError || '' }
+      }
+      // The sweep (#39): every given inline id resolves unless scenario.threadsSkipped names it with
+      // the script's reason; scenario.resolveError is the agent's error.
+      if (opts.label === 'resolve threads') {
+        const ids = prompt.slice(prompt.indexOf('resolve-threads 114 ') + 20).split('\n')[0].split(' ').map(Number)
+        const skipped = scenario.threadsSkipped || {}
+        const roots = ids.filter((id) => id < 200)
+        return { operation: 'resolve-threads', resolved: roots.filter((id) => !skipped[id]).map((id) => ({ id, thread: `PRRT_${id}` })), skipped: roots.filter((id) => skipped[id]).map((id) => ({ id, reason: skipped[id] })), error: scenario.resolveError || '' }
       }
       // scenario.updateError is the agent's error on an update that ran nothing (no pr-body.md).
       if (opts.label === 'PR description') {
@@ -344,7 +356,7 @@ function samePrefix(name, first, second, n) {
   const start = 'agent-os/specs/x/redline/snapshot-start.json'
   const scenario = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
   let run = await go('record: two rounds, pushed', baseArgs, scenario)
-  check('record: after the description and the handoff comment', labels(run.calls).slice(-4).join('|') === 'PR description|handoff comment|record files|record commit', labels(run.calls).slice(-4))
+  check('record: after the description, the sweep and the handoff comment', labels(run.calls).slice(-5).join('|') === 'PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls).slice(-5))
   const status = pick(run.calls, 'record files').prompt
   check('record: status covers every round folder and the start snapshot', status.includes(`git -C /r status --porcelain --untracked-files=all -- ${folder1} ${folder2} ${start}\n`), status)
   const commit = pick(run.calls, 'record commit').prompt
@@ -355,7 +367,7 @@ function samePrefix(name, first, second, n) {
   check('record: the handoff comment is composed before the commit, so it lists only the fix commits', !comment(run.calls, 'handoff comment').includes('record the run'))
 
   run = await go('record: description error \'""\'', baseArgs, { ...scenario, updateError: '""' })
-  check('record: \'""\' from the description update is empty; the handoff and the record follow', run.res.status === 'done' && labels(run.calls).slice(-4).join('|') === 'PR description|handoff comment|record files|record commit', [run.res.status, run.res.error, labels(run.calls).slice(-4)])
+  check('record: \'""\' from the description update is empty; the sweep, the handoff and the record follow', run.res.status === 'done' && labels(run.calls).slice(-5).join('|') === 'PR description|resolve threads|handoff comment|record files|record commit', [run.res.status, run.res.error, labels(run.calls).slice(-5)])
   run = await go('record: description error text', baseArgs, { ...scenario, updateError: 'gh: HTTP 422' })
   check('record: a real description error stops the run at finish, before the handoff', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('gh: HTTP 422') && !labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error])
   run = await go('record: push-and-reply error \'""\'', baseArgs, { ...scenario, pushError: '""' })
@@ -638,8 +650,9 @@ function samePrefix(name, first, second, n) {
   check('human: the snapshot names the human folder', pick(second.calls, 'snapshot h1').prompt.includes(`"${folder}/"`) && pick(second.calls, 'snapshot h1').prompt.includes('Operation: snapshot (human review 1).'))
 
   let run = await go('human: the nit pass finds a correctness bug', decided, { ...scenario, reviews: [[f('R3-1', 'correctness')]], commitIds: [['H1-1', 'H1-2', 'H1-4'], ['R3-1']] })
-  check('human: one more fix pass as round 3, not re-reviewed, then the summary', run.res.status === 'done' && run.res.lastFixUnreviewed === true && labels(run.calls).join('|') === 'shape h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|shape r3|plan approver r3|standards approver r3|snapshot r3|implement r3|check r3|push and reply r3|summary comment|record files|record commit', labels(run.calls))
-  check('human: the summary names the bug', comment(run.calls, 'summary comment').endsWith('Final nit pass (Redline round 3): 1 correctness bug in the fixes, fixed in one more pass that was not re-reviewed.'), comment(run.calls, 'summary comment'))
+  check('human: one more fix pass as round 3, not re-reviewed, then the summary', run.res.status === 'done' && run.res.lastFixUnreviewed === true && labels(run.calls).join('|') === 'shape h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|shape r3|plan approver r3|standards approver r3|snapshot r3|implement r3|check r3|push and reply r3|resolve threads|summary comment|record files|record commit', labels(run.calls))
+  check('human: the summary names the bug and the sweep of the nit-pass thread', comment(run.calls, 'summary comment').endsWith('Final nit pass (Redline round 3): 1 correctness bug in the fixes, fixed in one more pass that was not re-reviewed. Resolved 1 thread; 0 left open.'), comment(run.calls, 'summary comment'))
+  check('human: the sweep names only the nit-pass thread, never the teammate\'s', pick(run.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && !/ 90[0-9]\b/.test(pick(run.calls, 'resolve threads').prompt), pick(run.calls, 'resolve threads').prompt)
   check('human: the round-3 fix reply is a Redline round reply', replyFor(run.calls, 'push and reply r3', 'R3-1') === 'Redline round 3: fixed in 4bbbbbb (redline: R3-1 fix). · decided by: redline', replyFor(run.calls, 'push and reply r3', 'R3-1'))
 
   run = await go('human: nothing to commit', humanArgs([h('H1-1', { description: 'Nice.' })]), { reviews: [], none: ['H1-1'], commitIds: [[]] })
@@ -684,6 +697,57 @@ function samePrefix(name, first, second, n) {
   check('human: a missing reviewer is refused', run.thrown && /args.revise.reviewer must be/.test(run.thrown.message), run.thrown && run.thrown.message)
   run = await go('human: no n', humanArgs([h('H1-1')], { n: undefined }), { reviews: [] })
   check('human: a missing n is refused', run.thrown && /needs n/.test(run.thrown.message), run.thrown && run.thrown.message)
+}
+
+// ---------------------------------------------------------------------------
+// 11. The thread sweep (#39): at a handoff, the settled findings' threads (fixed, deferred,
+//     decided, each with its reply posted) are resolved through one resolve-threads call before
+//     the handoff comment, which says how many and what stayed open; a body finding has no
+//     thread; dropped and not-changed findings stay open; a thread already resolved is in
+//     neither count; a thread with a comment that is not Redline's anywhere in it stays open; a
+//     dry run, no push, a capped run, a hand-off and review only sweep nothing.
+// ---------------------------------------------------------------------------
+{
+  const four = [f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness', { needsDecision: true }), f('R1-4', 'nit')]
+  const scenario = { reviews: [four, []], ask: ['R1-3'], defer: ['R1-2'], commitIds: [['R1-1', 'R1-2', 'R1-3', 'R1-4']], moved: ['R1-4'] }
+  const args = { ...baseArgs, decisions: { 'R1-3': { choice: 'Keep it', notes: 'Kept, the board shows it.', date: '2026-10-20' } } }
+  let run = await go('threads: settled findings', args, scenario)
+  let sweep = pick(run.calls, 'resolve threads')
+  check('threads: the sweep runs after the PR description and before the handoff comment', run.res.status === 'done' && labels(run.calls).slice(-5).join('|') === 'PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
+  check('threads: the command names the inline and reply ids of the fixed, deferred and decided findings, in finding order, and nothing of the body finding', sweep.prompt.includes('\n/p/scripts/redline-gh.sh resolve-threads 114 100 200 101 202 102 201\n'), sweep.prompt)
+  check('threads: the prompt lists each settled finding with its round and its two ids', sweep.prompt.includes('- R1-1 (round 1): comments 100, 200\n- R1-2 (round 1): comments 101, 202\n- R1-3 (round 1): comments 102, 201\n') && !sweep.prompt.includes('R1-4'), sweep.prompt)
+  check('threads: the sweep is a Finish call of the GitHub agent, run once and nothing else', sweep.agentType === 'redline:redline-github' && sweep.opts.phase === 'Finish' && sweep.prompt.includes('Operation: resolve-threads. PR #114.') && sweep.prompt.includes('Run this once, exactly as given, and nothing else:'), sweep.opts)
+  check('threads: the handoff line counts the resolved, after the round sentence; a body finding is not a thread', comment(run.calls, 'handoff comment').includes('the last one found no correctness bugs.\n\nResolved 3 threads; 0 left open.\n'), comment(run.calls, 'handoff comment'))
+  check('threads: the result records the sweep', JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-2","R1-3"],"open":[]}', run.res.threads)
+  check('threads: the round record keeps the reply ids, none for the body finding', JSON.stringify(Object.entries(run.res.rounds[0].replyIds).sort()) === '[["R1-1",200],["R1-2",202],["R1-3",201]]', run.res.rounds[0].replyIds)
+
+  run = await go('threads: a teammate replied after Redline', args, { ...scenario, threadsSkipped: { 101: "last comment 202 is not Redline's" } })
+  check('threads: a thread the script skipped stays open with the reason', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 1 left open: R1-2 (a reply after Redline\'s).\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[{"id":"R1-2","reason":"a reply after Redline\'s"}]}', [comment(run.calls, 'handoff comment'), run.res.threads])
+  run = await go('threads: the author resolved one by hand', args, { ...scenario, threadsSkipped: { 101: 'already resolved' } })
+  check('threads: a thread already resolved is neither resolved by the sweep nor left open', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 0 left open.\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[]}', [comment(run.calls, 'handoff comment'), run.res.threads])
+  run = await go('threads: a teammate commented between Redline\'s two', args, { ...scenario, threadsSkipped: { 101: "comment 150 is not Redline's" } })
+  check('threads: a thread with a comment that is not Redline\'s stays open with that reason', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 1 left open: R1-2 (a comment that is not Redline\'s).\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[{"id":"R1-2","reason":"a comment that is not Redline\'s"}]}', [comment(run.calls, 'handoff comment'), run.res.threads])
+
+  const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1']] }
+  run = await go('threads: a dropped finding', { ...baseArgs, interrupt: 'review', selected: { act: ['R1-1'], dropped: { 'R1-2': 'Fine as it is.' } } }, two)
+  check('threads: a dropped finding stays open as the person\'s pick', run.res.status === 'done' && pick(run.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && comment(run.calls, 'handoff comment').includes('\n\nResolved 1 thread; 1 left open: R1-2 (dropped by @author).\n'), comment(run.calls, 'handoff comment'))
+  run = await go('threads: nothing selected', { ...baseArgs, interrupt: 'review', selected: { act: [], dropped: { 'R1-1': 'Known.', 'R1-2': 'Known.' } } }, two)
+  check('threads: nothing settled means no call, and the line still says what stayed open', run.res.status === 'done' && !labels(run.calls).includes('resolve threads') && comment(run.calls, 'handoff comment').includes('\n\nResolved 0 threads; 2 left open: R1-1 (dropped by @author), R1-2 (dropped by @author).\n'), [labels(run.calls), comment(run.calls, 'handoff comment')])
+
+  const one = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
+  for (const [name, a, s, closing] of [
+    ['a dry run', { ...baseArgs, postToGitHub: false }, one, 'handoff comment'],
+    ['no push', { ...baseArgs, push: false }, one, 'handoff comment'],
+    ['a capped run', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] }, 'cap-hit comment'],
+    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness', { needsDecision: true })]], ask: ['R1-1'] }, ''],
+    ['review only', { ...baseArgs, interrupt: 'review only' }, one, ''],
+  ]) {
+    run = await go(`threads: ${name} sweeps nothing`, a, s)
+    check(`threads: ${name} sweeps nothing and says nothing about threads`, !labels(run.calls).includes('resolve threads') && run.res.threads === null && (!closing || !comment(run.calls, closing).includes('Resolved ')), [labels(run.calls), run.res.threads])
+  }
+
+  run = await go('threads: the sweep fails', args, { ...scenario, resolveError: 'gh: HTTP 502' })
+  check('threads: a failed sweep stops the run at finish, before the handoff comment', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('resolving the settled threads failed: gh: HTTP 502') && !labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error, labels(run.calls)])
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

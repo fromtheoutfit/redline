@@ -1,0 +1,18 @@
+{"data": {"repository": {"pullRequest": {"reviewThreads": {
+  "pageInfo": {"hasNextPage": true, "endCursor": "Y3Vyc29yOjM="},
+  "nodes": [
+    {"id": "PRRT_2", "isResolved": false, "path": "app/b.php", "line": 9, "comments": {"nodes": [
+      {"databaseId": 1303, "author": {"login": "author"}},
+      {"databaseId": 1304, "author": {"login": "author"}},
+      {"databaseId": 1305, "author": {"login": "marcamos"}}
+    ]}},
+    {"id": "PRRT_1", "isResolved": false, "path": "app/a.php", "line": 5, "comments": {"nodes": [
+      {"databaseId": 1301, "author": {"login": "author"}},
+      {"databaseId": 1302, "author": {"login": "author"}}
+    ]}},
+    {"id": "PRRT_3", "isResolved": false, "path": "app/c.php", "line": 3, "comments": {"nodes": [
+      {"databaseId": 1306, "author": {"login": "marcamos"}},
+      {"databaseId": 1307, "author": {"login": "author"}}
+    ]}}
+  ]
+}}}}}

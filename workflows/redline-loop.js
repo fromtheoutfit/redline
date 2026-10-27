@@ -13,7 +13,7 @@ export const meta = {
     { title: 'Implement', detail: 'one commit per finding (revise model)' },
     { title: 'Check', detail: 'checks.sh by the checker; the script judges' },
     { title: 'Push and reply', detail: 'push when allowed, reply in every finding thread' },
-    { title: 'Finish', detail: 'PR description from pr-body.md, handoff comment and review request, the cap-hit comment, or the human review summary; then the run-record commit' },
+    { title: 'Finish', detail: 'PR description from pr-body.md, the sweep that resolves the settled threads Redline opened, handoff comment and review request, the cap-hit comment, or the human review summary; then the run-record commit' },
   ],
 }
 
@@ -530,6 +530,17 @@ const FINISH_SCHEMA = {
     comment_url: str,
     reviewRequested: bool,
     files: strings,
+    error: str,
+  },
+}
+
+const SWEEP_SCHEMA = {
+  type: 'object',
+  required: ['operation', 'resolved', 'skipped', 'error'],
+  properties: {
+    operation: str,
+    resolved: { type: 'array', items: { type: 'object', required: ['id', 'thread'], properties: { id: int, thread: str } } },
+    skipped: { type: 'array', items: { type: 'object', required: ['id', 'reason'], properties: { id: int, reason: str } } },
     error: str,
   },
 }
@@ -1129,6 +1140,24 @@ ${request}
 Return only the JSON your instructions specify, with operation "${kind}".`
 }
 
+function resolveThreadsPrompt(settled) {
+  const ids = settled.flatMap((s) => [s.commentId, s.replyId])
+  return `${RUN_LINE}
+
+Operation: resolve-threads. PR #${pr}. postToGitHub: true. push: true.
+
+These findings are settled (fixed, deferred with the mitigation committed, or decided by the person and applied), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and the reply Redline posted in each thread:
+${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${s.commentId}, ${s.replyId}`).join('\n')}
+
+Run this once, exactly as given, and nothing else:
+
+${GH} resolve-threads ${pr} ${ids.join(' ')}
+
+Set resolved and skipped from its JSON as printed. The script decides what it resolves: a thread a teammate opened or commented in is skipped with a reason, which is a result and not an error. If it exits non-zero, set error to its stderr.
+
+Return only the JSON your instructions specify, with operation "resolve-threads".`
+}
+
 function recordStatusPrompt(paths) {
   return `${RUN_LINE}
 
@@ -1275,6 +1304,7 @@ let approvedPaths = []
 let baseline = null
 let baselineFailing = []
 let recordCommit = null
+let threadSweep = null
 
 function compactFinding(f) {
   return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, needsDecision: f.needsDecision, knownAs: f.knownAs }
@@ -1317,6 +1347,7 @@ function result(status, extra) {
       outcomes: record.outcomes || null,
       dropped: (record.dropped || []).map((f) => ({ id: f.id, reason: f.reason })),
       files: record.files || [],
+      replyIds: record.replyIds || {},
       human: record.human || null,
     })),
     judgmentCalls: [],
@@ -1325,6 +1356,7 @@ function result(status, extra) {
     openFindings: [],
     commits: commitsAll,
     recordCommit,
+    threads: threadSweep,
     specFolders: unique(rounds.map((record) => record.specFolder)),
     snapshotStart,
     warnings,
@@ -1536,6 +1568,21 @@ async function replyDropped(record) {
     throw stageError('push-and-reply', `replies failed in round ${record.round}: ${pushed.error}`)
   }
   record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
+  keepReplyIds(record, pushed)
+}
+
+// The reply ids the GitHub agent reports, kept per finding: Finish's sweep names a thread by the
+// inline comment and the reply Redline posted in it (#39). A reply that posted nothing is 0 and
+// is not kept.
+function keepReplyIds(record, pushed) {
+  record.replyIds = record.replyIds || {}
+  for (const reply of pushed.replies || []) {
+    if (reply.reply_id > 0) {
+      for (const id of reply.findings || [reply.finding]) {
+        record.replyIds[id] = reply.reply_id
+      }
+    }
+  }
 }
 
 async function checker(flag, snapshot, octane, label) {
@@ -1796,6 +1843,7 @@ async function revise(record, inScope, reviewedKind) {
   }
   record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
   record.pushed = pushed.pushed
+  keepReplyIds(record, pushed)
   const newHead = roundCommits.length ? roundCommits[roundCommits.length - 1].sha : null
   return { handoff: false, newHead, commits: roundCommits }
 }
@@ -1805,7 +1853,7 @@ function knownLimits() {
   return `[Known limits](${README_URL}#known-limits) in Redline's README`
 }
 
-function handoffComment(lastFixUnreviewed, prBody) {
+function handoffComment(lastFixUnreviewed, prBody, threads) {
   const lines = ['Redline handoff', '']
   const reviews = rounds.length
   const last = rounds[reviews - 1]
@@ -1815,6 +1863,9 @@ function handoffComment(lastFixUnreviewed, prBody) {
     lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`)
   } else {
     lines.push(`Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}; the last one found no correctness bugs.`)
+  }
+  if (threads) {
+    lines.push('', threadsLine(threads))
   }
   if (prBody.updated) {
     const file = prBody.file.startsWith(`${repoRoot}/`) ? prBody.file.slice(repoRoot.length + 1) : prBody.file
@@ -1849,7 +1900,7 @@ function handoffComment(lastFixUnreviewed, prBody) {
 // One line for the PR after a human review pass: what was fixed, what went back to the author as a
 // question, what asked for nothing, and what the final nit pass found. The reviewer is already on
 // the PR, so there is no handoff and no review request.
-function humanSummary(record, nitPass) {
+function humanSummary(record, nitPass, threads) {
   const pass = passOf(record)
   const kinds = record.outcomeKinds || {}
   const ids = (kind) => record.findings.map((f) => f.id).filter((id) => kinds[id] === kind)
@@ -1881,7 +1932,7 @@ function humanSummary(record, nitPass) {
     : nitPass.found === 0
       ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
       : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
-  return `${pass.title} · review by ${pass.reviewer}: ${parts.join('; ')}. ${nit}`
+  return `${pass.title} · review by ${pass.reviewer}: ${parts.join('; ')}. ${nit}${threads ? ` ${threadsLine(threads)}` : ''}`
 }
 
 function capComment(open) {
@@ -1920,8 +1971,9 @@ async function finish(kind, record, compose) {
       record.files.push(copy)
     }
   }
+  const threads = await sweepThreads(kind)
   const labels = { handoff: 'handoff comment', 'cap-hit': 'cap-hit comment', 'human-summary': 'summary comment' }
-  const out = await run('finish', finishPrompt(kind, record.specFolder, file, compose(prBody)), {
+  const out = await run('finish', finishPrompt(kind, record.specFolder, file, compose(prBody, threads)), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: labels[kind], phase: 'Finish', schema: FINISH_SCHEMA,
   })
   if (out.error) {
@@ -1929,7 +1981,99 @@ async function finish(kind, record, compose) {
   }
   record.files.push(file)
   recordCommit = await commitRecord()
-  return { ...out, prBody }
+  return { ...out, prBody, threads }
+}
+
+// The threads Redline opened in this run, each settled or not (#39). A finding with an inline
+// comment is a candidate; a body finding has no thread. Settled means fixed, deferred or decided
+// and a reply posted, so Redline's comment and its reply are both in the list; the rest stay open
+// with a reason.
+// A human review pass's record holds the teammate's threads, which are never candidates.
+function threadCandidates() {
+  const out = []
+  for (const record of rounds) {
+    if (record.human) {
+      continue
+    }
+    const kinds = record.outcomeKinds || {}
+    const replyIds = record.replyIds || {}
+    const dropped = new Set((record.dropped || []).map((f) => f.id))
+    for (const f of record.findings) {
+      const commentId = record.commentIds[f.id] || 0
+      if (!commentId) {
+        continue
+      }
+      const kind = kinds[f.id] || ''
+      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[f.id] > 0
+      const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
+    }
+  }
+  return out
+}
+
+// Finish's sweep: the workflow picks the settled threads and the GitHub agent runs the one
+// resolve-threads call; the script skips any thread with a comment that is not one of the ids,
+// so a teammate's thread is never resolved whatever is passed. Only a handoff or a human
+// summary sweeps, and only when the replies and commits are on GitHub (not a dry run, not
+// `no push`); a capped run leaves every thread open. Returns null when no sweep ran, otherwise
+// {resolved: [ids], open: [{id, reason}]} for the closing comment and the result. A thread the
+// script reports already resolved (resolved by hand before Finish) is in neither list: this sweep
+// did not resolve it, and it is not open.
+async function sweepThreads(kind) {
+  if (!(kind === 'handoff' || kind === 'human-summary') || !postToGitHub || !push) {
+    return null
+  }
+  const candidates = threadCandidates()
+  if (!candidates.length) {
+    return null
+  }
+  const settled = candidates.filter((c) => c.settled)
+  const byComment = Object.fromEntries(candidates.map((c) => [c.commentId, c]))
+  const resolved = []
+  if (settled.length) {
+    const out = await run('finish', resolveThreadsPrompt(settled), {
+      agentType: 'redline:redline-github', ...modelOpts('github'), label: 'resolve threads', phase: 'Finish', schema: SWEEP_SCHEMA,
+    })
+    if (out.error) {
+      throw stageError('finish', `resolving the settled threads failed: ${out.error}`)
+    }
+    for (const r of out.resolved || []) {
+      const c = byComment[r.id]
+      if (c) {
+        c.resolved = true
+        resolved.push(c.id)
+      }
+    }
+    for (const s of out.skipped || []) {
+      const c = byComment[s.id]
+      if (!c) {
+        warnings.push(`finish: resolve-threads skipped comment ${s.id}, which no finding of this run posted: ${s.reason}`)
+      } else if (/^already resolved/.test(s.reason)) {
+        c.alreadyResolved = true
+      } else {
+        c.reason = /^last comment/.test(s.reason) ? 'a reply after Redline\'s' : /^opened by/.test(s.reason) ? 'not Redline\'s thread' : /^comment /.test(s.reason) ? 'a comment that is not Redline\'s' : 'no thread'
+      }
+    }
+    for (const c of settled) {
+      if (!c.resolved && !c.alreadyResolved && !c.reason) {
+        c.reason = 'not resolved'
+      }
+    }
+  }
+  const open = candidates.filter((c) => !c.resolved && !c.alreadyResolved).map((c) => ({ id: c.id, reason: c.reason }))
+  threadSweep = { resolved, open }
+  return threadSweep
+}
+
+// The one line the handoff comment and the human summary carry about the sweep.
+function threadsLine(threads) {
+  if (!threads) {
+    return ''
+  }
+  const n = threads.resolved.length
+  const m = threads.open.length
+  return `Resolved ${n} thread${n === 1 ? '' : 's'}; ${m} left open${m ? `: ${threads.open.map((o) => `${o.id} (${o.reason})`).join(', ')}` : ''}.`
 }
 
 // Finish's last step: commit the run's record, so a finished run leaves a clean tree. The replies
@@ -2063,7 +2207,7 @@ try {
         lastFixUnreviewed = true
       }
     }
-    const finished = await finish('human-summary', record, () => humanSummary(record, nitPass))
+    const finished = await finish('human-summary', record, (prBody, threads) => humanSummary(record, nitPass, threads))
     return result('done', {
       humanReview: { n, reviewer, reviewIds: record.human.reviewIds, specFolder, summaryPosted: finished.posted, summaryFile: `${specFolder}/redline/human-review-${n}-summary.md`, nitPassRound: nitPass ? nitPass.round : 0 },
       lastFixUnreviewed,
@@ -2151,7 +2295,7 @@ try {
       log(`round ${round}: ${personLabel} picked ${active.length} finding(s) to act on, ${record.dropped.length} dropped`)
       if (active.length === 0) {
         await replyDropped(record)
-        const finished = await finish('handoff', record, (prBody) => handoffComment(false, prBody))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'No finding was selected to act on, so there was no revise pass.' })
       }
     }
@@ -2160,7 +2304,7 @@ try {
 
     if (reviewed === 'final-nit-pass') {
       if (correctness.length === 0) {
-        const finished = await finish('handoff', record, (prBody) => handoffComment(false, prBody))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
       }
       // One more fix pass, then stop regardless.
@@ -2168,12 +2312,12 @@ try {
       if (outcome.handoff) {
         return handoffResult(record, outcome)
       }
-      const finished = await finish('handoff', record, (prBody) => handoffComment(true, prBody))
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(true, prBody, threads))
       return result('done', { lastFixUnreviewed: true, handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
     if (correctness.length === 0 && nits.length === 0) {
-      const finished = await finish('handoff', record, (prBody) => handoffComment(false, prBody))
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
@@ -2190,7 +2334,7 @@ try {
     }
     if (!outcome.newHead) {
       // Every finding was settled without a commit (accepted, declined): nothing to re-review.
-      const finished = await finish('handoff', record, (prBody) => handoffComment(false, prBody))
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'The last revise pass made no commits, so there was no fix diff to re-review.' })
     }
     // A round with nits only ends in one final nit pass; under the correctness scope there are

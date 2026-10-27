@@ -1,0 +1,1 @@
+Redline round 1: fixed in 8a57ef8 (redline: R1-3 leave a thread already resolved out of the handoff's left open list (#39)). · decided by: redline
