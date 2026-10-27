@@ -1,0 +1,10 @@
+{
+  "round": 2,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "ca2e96ff6b993dac4a0959ef8d3f16fe977ad74f",
+    "to": "74412bc5dbb24d4fb067c81008cb1eca3118cb2b"
+  },
+  "summary": "The round 1 fix moves errorText next to run() and normalizes every agent's error once, on a copy of the result. It does this only when the result is an object that has an error field, so a missing or non-string error still reads as empty. Every agent() call goes through run(), including the checker helper and the two parallel approvers, and only the GitHub and checker schemas carry an error field, so the plain .error checks in stopReason, judge and the nine GitHub call sites all read normalized text. The new loop-test scenarios pin '\"\"' at post, push-and-reply and a checker stop. The harness could not be run in this pass, so this rests on reading the code. This diff introduced no correctness bugs.",
+  "findings": []
+}

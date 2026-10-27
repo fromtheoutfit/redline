@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 2\n\nFinal nit pass: reviewed only the nit fixes (ca2e96f..74412bc) for correctness bugs they introduced.\n\nThe round 1 fix moves errorText next to run() and normalizes every agent's error once, on a copy of the result. It does this only when the result is an object that has an error field, so a missing or non-string error still reads as empty. Every agent() call goes through run(), including the checker helper and the two parallel approvers, and only the GitHub and checker schemas carry an error field, so the plain .error checks in stopReason, judge and the nine GitHub call sites all read normalized text. The new loop-test scenarios pin '\"\"' at post, push-and-reply and a checker stop. The harness could not be run in this pass, so this rests on reading the code. This diff introduced no correctness bugs.\n\nNo findings.",
+  "comments": []
+}

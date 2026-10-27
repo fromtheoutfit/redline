@@ -224,12 +224,22 @@ function stageError(stage, message, extra) {
   return Object.assign(new Error(message), { stage, extra: extra || {} })
 }
 
+// The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
+// failed a passing gate on error: '""'), and the text is trimmed. run() applies it to every agent's
+// result as it comes back, the GitHub agent's and the checker's alike, so a call site reads .error
+// as it is: Losers League PR #790 stopped at Finish on a PR description update that ran nothing (#42).
+function errorText(out) {
+  const text = typeof out.error === 'string' ? out.error.trim() : ''
+  return ['""', "''", 'null'].includes(text) ? '' : text
+}
+
 async function run(stage, prompt, opts) {
   const out = await agent(prompt, opts)
   if (out === null || out === undefined) {
     throw stageError(stage, `${opts.label} returned nothing (skipped, stalled on every attempt, or died on an API error)`)
   }
-  return out
+  // A copy, so the object agent() handed back is left as it was.
+  return typeof out === 'object' && 'error' in out ? { ...out, error: errorText(out) } : out
 }
 
 function mentions(message, id) {
@@ -1161,17 +1171,10 @@ Return only the JSON your instructions specify, with operation "record-commit" a
 // check instead of starting a repair pass that would hit the same wall (#9).
 // ---------------------------------------------------------------------------
 
-// The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
-// failed a passing gate on error: '""').
-function errorText(out) {
-  const text = typeof out.error === 'string' ? out.error.trim() : ''
-  return ['""', "''", 'null'].includes(text) ? '' : text
-}
-
 // Why the run stops on this result, naming the cause and the fix, or null when judge() decides.
 // needGit is false for the baseline, whose git block is null by design.
 function stopReason(out, command, needGit) {
-  const said = errorText(out)
+  const said = out.error
   const suffix = said ? `; the checker said: ${said.slice(0, 400)}` : ''
   const byHand = `; run ${command} by hand and read its output`
   if (out.exit === 2) {
@@ -1241,7 +1244,7 @@ function judge(out, baselineFailing, needCommits, command) {
   }
   // The checker's error is text, never a verdict input (#37, R1-3): detail on a failure the
   // checks, the git block or the exit code already established, a warning otherwise.
-  const said = errorText(out)
+  const said = out.error
   const warnings = []
   if (said && reasons.length) {
     reasons.push(`checker error: ${said.slice(0, 400)}`)
