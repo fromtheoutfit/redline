@@ -80,15 +80,16 @@
 #   resolve-threads <n> <id>...    resolve the review threads the ids name, where every id is a
 #                                  review comment Redline posted in this run (a finding's inline
 #                                  comment and the reply in its thread). A thread is resolved only
-#                                  when it is open and its first and its last comment are both in
-#                                  the list, so a thread a teammate opened, or one they replied in
-#                                  after Redline, is never resolved whatever ids are given; one
+#                                  when it is open and every comment in it is in the list, so a
+#                                  thread a teammate opened or commented in, wherever the comment
+#                                  sits, is never resolved whatever ids are given; one
 #                                  resolveReviewThread mutation per thread (#39). Prints
 #                                  {resolved: [{id, thread}], skipped: [{id, reason}]}: id is the
 #                                  thread's first comment (the finding's), thread its node id,
 #                                  reason one of "already resolved", "opened by comment <id>, not
-#                                  Redline's", "last comment <id> is not Redline's", "no thread
-#                                  holds comment <id>". Nothing retries: exit 1 on a failed
+#                                  Redline's", "last comment <id> is not Redline's",
+#                                  "comment <id> is not Redline's", "no thread holds comment <id>".
+#                                  Nothing retries: exit 1 on a failed
 #                                  mutation after the ones already sent, 2 on usage or a failed read
 
 set -euo pipefail
@@ -464,21 +465,21 @@ case "$cmd" in
         for id in "$@"; do need_int "$id" "comment id"; done
         threads="$(review_threads "$pr_n")" || exit 2
         ids="$(jq -cn '$ARGS.positional | map(tonumber)' --args "$@")"
-        # Which threads the ids name, and which of those to resolve: open, opened by one of the ids
-        # and last spoken in by one of the ids. The rest are skipped with the reason; an id in no
-        # thread is skipped last.
+        # Which threads the ids name, and which of those to resolve: open and every comment one of
+        # the ids. The rest are skipped with the reason; an id in no thread is skipped last.
         plan="$(jq -c --argjson ids "$ids" '
             ($ids | map({key: tostring, value: true}) | from_entries) as $given
             | def mine: $given[(.id | tostring)] == true;
             [.[] | select(any(.comments[]; mine))] as $hit
             | ($hit | map(.comments[].id)) as $covered
             | {
-                resolve: [$hit[] | select((.resolved | not) and (.comments[0] | mine) and (.comments[-1] | mine)) | {id: .comments[0].id, thread: .id}],
-                skipped: ([$hit[] | select(.resolved or ((.comments[0] | mine) | not) or ((.comments[-1] | mine) | not))
+                resolve: [$hit[] | select((.resolved | not) and all(.comments[]; mine)) | {id: .comments[0].id, thread: .id}],
+                skipped: ([$hit[] | select(.resolved or (all(.comments[]; mine) | not))
                            | {id: .comments[0].id, reason: (
                                if .resolved then "already resolved"
                                elif (.comments[0] | mine | not) then "opened by comment \(.comments[0].id), not Redline'"'"'s"
-                               else "last comment \(.comments[-1].id) is not Redline'"'"'s" end)}]
+                               elif (.comments[-1] | mine | not) then "last comment \(.comments[-1].id) is not Redline'"'"'s"
+                               else "comment \(first(.comments[] | select(mine | not)).id) is not Redline'"'"'s" end)}]
                           + [$ids[] | select(. as $i | $covered | index($i) | not) | {id: ., reason: "no thread holds comment \(.)"}])
               }' <<<"$threads")"
         resolved='[]'

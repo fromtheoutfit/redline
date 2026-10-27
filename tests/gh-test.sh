@@ -20,7 +20,8 @@
 # theirs whose body is still open and a comment of theirs that quotes the header without the marker.
 # PR 13 is the review-thread fixture (#39), two GraphQL pages served to `threads` and
 # `resolve-threads`: a Redline thread with its reply, one a teammate replied in after Redline, one a
-# teammate opened, one already resolved, and one Redline thread with no reply yet. The shim is the
+# teammate opened, one already resolved, and one Redline thread with no reply yet, and one where a
+# teammate commented between Redline's comment and its reply (#45, R1-2). The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
 # which threads were resolved and that the mutation is the script's fixed string.
@@ -232,7 +233,7 @@ echo "# threads and resolve-threads"
 rm -f "$WORK/pages/resolved.log"
 th="$(gh threads 13)"; code=$?
 is "threads: exits 0" "$code" "0"
-is "threads: every thread of both pages, in path, line, first comment order" "$(jq -c '[.[].id]' <<<"$th")" '["PRRT_1","PRRT_2","PRRT_3","PRRT_4","PRRT_5"]'
+is "threads: every thread of both pages, in path, line, first comment order" "$(jq -c '[.[].id]' <<<"$th")" '["PRRT_1","PRRT_2","PRRT_3","PRRT_4","PRRT_5","PRRT_6"]'
 is "threads: a thread carries its state, place and each comment's id and login" "$(jq -c '.[1] | [.resolved, .path, .line, [.comments[] | [.id, .user]]]' <<<"$th")" '[false,"app/b.php",9,[[1303,"author"],[1304,"author"],[1305,"marcamos"]]]'
 is "threads: a resolved thread says so, a null line stays null" "$(jq -c '[.[3].resolved, .[4].line]' <<<"$th")" "[true,null]"
 is "threads: reads nothing but the query (no mutation logged)" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
@@ -247,6 +248,9 @@ rm -f "$WORK/pages/resolved.log"
 is "resolve-threads: a root given without its reply id is skipped, since the last comment is not in the list" "$(gh resolve-threads 13 1301 | jq -c '[.resolved, .skipped]')" '[[],[{"id":1301,"reason":"last comment 1302 is not Redline'\''s"}]]'
 is "resolve-threads: nothing resolved means no mutation sent" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
 is "resolve-threads: the reply id alone names its thread too, and the thread is handled once" "$(gh resolve-threads 13 1302 1301 1302 | jq -c '[.resolved, .skipped]')" '[[{"id":1301,"thread":"PRRT_1"}],[]]'
+rm -f "$WORK/pages/resolved.log"
+is "resolve-threads: a thread with a teammate's comment between Redline's two is skipped with that comment's id" "$(gh resolve-threads 13 1311 1313 | jq -c '[.resolved, .skipped]')" '[[],[{"id":1311,"reason":"comment 1312 is not Redline'\''s"}]]'
+is "resolve-threads: a comment between Redline's two means no mutation sent" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
 
 echo "# usage"
 gh threads 2>/dev/null; is "usage: threads without a number exits 2" "$?" "2"

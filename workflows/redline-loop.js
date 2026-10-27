@@ -1153,7 +1153,7 @@ Run this once, exactly as given, and nothing else:
 
 ${GH} resolve-threads ${pr} ${ids.join(' ')}
 
-Set resolved and skipped from its JSON as printed. The script decides what it resolves: a thread a teammate opened, or replied in after Redline, is skipped with a reason, which is a result and not an error. If it exits non-zero, set error to its stderr.
+Set resolved and skipped from its JSON as printed. The script decides what it resolves: a thread a teammate opened or commented in is skipped with a reason, which is a result and not an error. If it exits non-zero, set error to its stderr.
 
 Return only the JSON your instructions specify, with operation "resolve-threads".`
 }
@@ -1986,7 +1986,8 @@ async function finish(kind, record, compose) {
 
 // The threads Redline opened in this run, each settled or not (#39). A finding with an inline
 // comment is a candidate; a body finding has no thread. Settled means fixed, deferred or decided
-// and a reply posted, so both ends of the thread are Redline's; the rest stay open with a reason.
+// and a reply posted, so Redline's comment and its reply are both in the list; the rest stay open
+// with a reason.
 // A human review pass's record holds the teammate's threads, which are never candidates.
 function threadCandidates() {
   const out = []
@@ -2012,8 +2013,8 @@ function threadCandidates() {
 }
 
 // Finish's sweep: the workflow picks the settled threads and the GitHub agent runs the one
-// resolve-threads call; the script skips any thread whose first or last comment is not one of
-// the ids, so a teammate's thread is never resolved whatever is passed. Only a handoff or a human
+// resolve-threads call; the script skips any thread with a comment that is not one of the ids,
+// so a teammate's thread is never resolved whatever is passed. Only a handoff or a human
 // summary sweeps, and only when the replies and commits are on GitHub (not a dry run, not
 // `no push`); a capped run leaves every thread open. Returns null when no sweep ran, otherwise
 // {resolved: [ids], open: [{id, reason}]} for the closing comment and the result. A thread the
@@ -2051,7 +2052,7 @@ async function sweepThreads(kind) {
       } else if (/^already resolved/.test(s.reason)) {
         c.alreadyResolved = true
       } else {
-        c.reason = /^last comment/.test(s.reason) ? 'a reply after Redline\'s' : /^opened by/.test(s.reason) ? 'not Redline\'s thread' : 'no thread'
+        c.reason = /^last comment/.test(s.reason) ? 'a reply after Redline\'s' : /^opened by/.test(s.reason) ? 'not Redline\'s thread' : /^comment /.test(s.reason) ? 'a comment that is not Redline\'s' : 'no thread'
       }
     }
     for (const c of settled) {
