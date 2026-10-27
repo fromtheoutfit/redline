@@ -59,8 +59,9 @@ function mock(scenario) {
       if (opts.label.startsWith('snapshot')) {
         return { operation: 'snapshot', files: [], error: '' }
       }
+      // scenario.pushError is the agent's error on a push and replies that went through.
       if (opts.label.startsWith('push')) {
-        return { operation: 'push-and-reply', dryRun: false, pushed: true, replies: [], files: [], error: '' }
+        return { operation: 'push-and-reply', dryRun: false, pushed: true, replies: [], files: [], error: scenario.pushError || '' }
       }
       // scenario.updateError is the agent's error on an update that ran nothing (no pr-body.md).
       if (opts.label === 'PR description') {
@@ -357,6 +358,8 @@ function samePrefix(name, first, second, n) {
   check('record: \'""\' from the description update is empty; the handoff and the record follow', run.res.status === 'done' && labels(run.calls).slice(-4).join('|') === 'PR description|handoff comment|record files|record commit', [run.res.status, run.res.error, labels(run.calls).slice(-4)])
   run = await go('record: description error text', baseArgs, { ...scenario, updateError: 'gh: HTTP 422' })
   check('record: a real description error stops the run at finish, before the handoff', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('gh: HTTP 422') && !labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error])
+  run = await go('record: push-and-reply error \'""\'', baseArgs, { ...scenario, pushError: '""' })
+  check('record: \'""\' from push-and-reply is empty; the run goes on to the handoff', run.res.status === 'done' && labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error])
 
   run = await go('record: nothing uncommitted', baseArgs, { ...scenario, recordFiles: [] })
   check('record: no commit when git status lists nothing', run.res.status === 'done' && labels(run.calls).slice(-2).join('|') === 'handoff comment|record files' && run.res.recordCommit.committed === false, labels(run.calls).slice(-3))
@@ -413,6 +416,8 @@ function samePrefix(name, first, second, n) {
   check('posted error: a posted review with no id still stops at post', run.res.status === 'error' && run.res.stage === 'post' && run.res.error.includes('posting the round 1 review failed') && !pick(run.calls, 'shape r1'), run.res)
   run = await go('posted error, a finding in neither list', baseArgs, { ...errorScenario, noInline: false, postDrop: ['R1-2'] })
   check('posted error: a finding in neither list still stops at post', run.res.status === 'error' && run.res.stage === 'post' && run.res.error.includes('posting the round 1 review failed') && !pick(run.calls, 'shape r1'), run.res)
+  run = await go('posted error \'""\', every finding inline', baseArgs, { ...errorScenario, noInline: false, postError: '""' })
+  check('posted error: \'""\' on a consistent review is empty; shape runs and nothing is warned', run.res.status === 'done' && !!pick(run.calls, 'shape r1') && !run.res.warnings.some((w) => w.includes('reported an error')), [run.res.status, run.res.warnings])
   run = await go('one finding moved to the body', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']], moved: ['R1-2'] })
   check('moved: the warning names it', run.res.warnings.includes('round 1: R1-2 could not be placed inline and sit in the review body behind their markers'), run.res.warnings)
   check('moved: the inline reply keeps its thread, the body reply carries the marker', replyFor(run.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in') && replyFor(run.calls, 'push and reply r1', 'R1-2').startsWith('<!-- redline:R1-2 -->') && replies(run.calls, 'push and reply r1').find((r) => r.finding === 'R1-1').comment_id === 100, replies(run.calls, 'push and reply r1'))
@@ -499,6 +504,8 @@ function samePrefix(name, first, second, n) {
   run = await go('checker: exit 2 read as unreadable', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 2, status: 'result_unreadable', reason: 'not_json', result: null, error: 'checks.sh: a snapshot file is required unless --baseline is given' } : null) })
   check('stop: a usage error the checker called unreadable still names exit 2, no repair', stopped(run) && run.res.error.includes('checks.sh exited 2 (usage error)') && !run.res.error.includes('not one JSON object') && run.res.error.includes('the checker said: checks.sh: a snapshot file is required') && run.res.error.includes(`run ${command} by hand`), brief(run))
   check('stop: the checker prompt says a usage error is status read', pick(run.calls, 'check r1').prompt.includes('A usage error (exit 2) is status read with result null, never result_unreadable.'), pick(run.calls, 'check r1').prompt.split('\n').slice(-3))
+  run = await go('checker: exit 2, error \'""\'', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 2, status: 'read', reason: '', result: null, error: '""' } : null) })
+  check('checker: a stop keeps the checker\'s error normalized in the record', stopped(run) && kept(run).error === '', [brief(run), kept(run)])
   run = await go('checker: no result', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 1, status: 'read', reason: '', result: null, error: '' } : null) })
   check('stop: a missing result stops, no repair', stopped(run) && run.res.error.includes('the checker returned no result'), brief(run))
   run = await go('checker: no git block', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, result: { mode: 'full', ok: true, checks: out.result.checks } } : null) })
