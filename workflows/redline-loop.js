@@ -1487,9 +1487,17 @@ async function review(round, reviewed, range, facts, source) {
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
   })
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
+  // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
+  // spec), so any other review clears what a reviewer copied from the history (#46, R1-1).
   if (reviewed === 'pr' && priorFindings.length) {
     reconcilePrior(round, out)
   } else {
+    for (const f of out.findings) {
+      if (f.carriedFrom) {
+        warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom}, but this review has no carry-forward list; cleared`)
+        f.carriedFrom = ''
+      }
+    }
     out.carried = {}
     out.resolved = []
   }

@@ -512,6 +512,14 @@ function samePrefix(name, first, second, n) {
 
   run = await go('carry: none at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit')]], commitIds: [['R1-1']] })
   check('carry: an empty list adds nothing to the prompt', !pick(run.calls, 'review r1').prompt.includes('already handled') && !pick(run.calls, 'review r1').prompt.includes('with no disposition'))
+  // Only the run's first round carries (#46, R1-1): a re-review that copies a carriedFrom from the
+  // history, and a first round with no earlier findings, clear it with a warning.
+  run = await go('carry: a re-review never carries', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' })], [f('R3-1', 'correctness', { carriedFrom: 'R1-2' })], []], commitIds: [['R2-1'], ['R3-1']] })
+  check('carry: a re-review\'s carriedFrom is cleared with a warning', run.res.rounds[1].findings[0].carriedFrom === '' && run.res.warnings.includes('round 3: the reviewer marked R3-1 as carried from R1-2, but this review has no carry-forward list; cleared'), [run.res.rounds[1].findings[0], run.res.warnings])
+  check('carry: a re-review posts no carried heading and no origin note', !pick(run.calls, 'post r3').prompt.includes('### Carried forward') && !pick(run.calls, 'post r3').prompt.includes('irst reported as R1-2'), pick(run.calls, 'post r3').prompt.slice(0, 1500))
+  check('carry: a re-review sends no reply to the earlier thread; the first round\'s reply stands', !replies(run.calls, 'push and reply r3').some((x) => x.finding === 'R1-2') && replyFor(run.calls, 'push and reply r2', 'R1-2').startsWith('Redline round 2: carried forward as R2-1; '), [replies(run.calls, 'push and reply r3'), replyFor(run.calls, 'push and reply r2', 'R1-2')])
+  run = await go('carry: no list at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit', { carriedFrom: 'R0-1' })]], commitIds: [['R1-1']] })
+  check('carry: a first round with no earlier findings clears a carriedFrom with a warning', run.res.rounds[0].findings[0].carriedFrom === '' && !pick(run.calls, 'post r1').prompt.includes('### Carried forward') && run.res.warnings.includes('round 1: the reviewer marked R1-1 as carried from R0-1, but this review has no carry-forward list; cleared'), [run.res.rounds[0].findings[0], run.res.warnings])
   run = await go('carry: bad entry', { ...baseArgs, firstRound: 2, priorFindings: [prior('R2-1', 'none')] }, { reviews: [[]] })
   check('carry: an entry from this run\'s round or later is refused before any agent runs', run.thrown && /args.priorFindings/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
   run = await go('carry: bad disposition', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'done')] }, { reviews: [[]] })
