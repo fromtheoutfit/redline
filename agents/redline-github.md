@@ -51,7 +51,6 @@ Raw JSON, no prose around it:
   "review": {"id": 0, "html_url": "", "comments": [{"id": 0, "finding": "R1-1", "path": "", "line": 0}], "movedToBody": ["R1-2"]},
   "replies": [{"finding": "R1-1", "comment_id": 0, "reply_id": 0}],
   "resolved": [{"id": 0, "thread": ""}],
-  "skipped": [{"id": 0, "reason": ""}],
   "comment_url": "",
   "prBody": {"file": "", "updated": false, "backup": "", "copy": ""},
   "issue_url": "",
@@ -63,4 +62,4 @@ Raw JSON, no prose around it:
 }
 ```
 
-Fill only the fields the operation produced; leave the rest empty.
+Fill only the fields the operation produced; leave the rest empty. `skipped` is the one field two operations fill with different types: post-review sets it to the string `already posted` when the round's review already exists, and resolve-threads sets it to the script's list as printed, `[{"id": <comment id>, "reason": "<reason>"}]`, or `[]` when nothing was skipped.
