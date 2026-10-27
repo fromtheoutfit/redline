@@ -221,3 +221,21 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 
 10. **Standards retrospective**: Task 7, from the proposed list in `shape.md`, as the standards approver approved it.
 11. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+Every task landed as planned, one commit each, and every fix went red through `checks.sh --baseline` before it went green. No task was blocked, and no file outside the plan changed.
+
+- **Task 1**, `ca4b789`: the four spec files. `redline/` stays with the workflow.
+- **Task 2 (R1-1)**, `b08affc`. Red: `336 checks passed, 4 failed`, the four new checks. Green: `340 checks passed, 0 failed`.
+- **Task 3 (R1-3)**, `40f80ce`. Red: `341 checks passed, 1 failed`, with the ids reading `R2-1,R2-3,R2-3`. Green: `342 checks passed, 0 failed`. The existing fallback check (`R2-3` after `R2-1, R2-2`) stayed green.
+- **Task 4 (R1-4)**, `361496c`. Red: `344 checks passed, 1 failed`, the handoff reading `Resolved 3 threads; 1 left open: R1-2 (no reply posted).`. The route neighbour check was green before and after, and R1-2's reply id was `203`, as planned. Green: `345 checks passed, 0 failed`.
+- **Task 5 (R1-5)**, `073dbff`. Red: `346 checks passed, 1 failed`, the line reading `- **R1-5** title R1-5: already handled in round 1: not changed in this round. ...`. Green: `347 checks passed, 0 failed`. `README.md:117` carries the new form.
+- **Task 6 (R1-2)**, `d9048d5`, option (B). Red: `351 checks passed, 6 failed`, the six new checks other than the neighbour, which was green before and after. Green: `357 checks passed, 0 failed`. `already tracked in #41` is at `README.md:117` and `agents/redline-reviewer.md:66`.
+- **Task 7**, `0c30331`: all five approved edits, three to `workflow/agents.md` (two appended to the #35 bullet and one new bullet after it) and two to `testing/tests.md` line 6. Headings unchanged. Every edit is a lesson, so the message names no finding.
+
+Notes, none of them a deviation:
+
+- **Check counts.** `go()` adds a run-record check to every run that finishes, as the plan approver noted. So Task 2 added 6 checks (4 plus 2), Task 3 added 2, Task 4 added 3, Task 5 added 2, and Task 6 added 10 (7 plus 3), from 334 at the round's start to 357.
+- **Comments.** Each new loop-test case has a one-line comment naming its finding. `earlierRoundsLines` has a two-line comment on the new carried branch (#46, R1-5). Neither changes what the plan built.
+- **Wording.** The comment above `replyStandalone()` reads "the drops, the resolved earlier findings and a carried finding an issue tracks still get their replies". A comma replaces the first "and", so the list does not read "and ... and".
