@@ -78,6 +78,29 @@ const firstRound = A.firstRound === undefined ? 1 : A.firstRound
 if (!Number.isInteger(firstRound) || firstRound < 1) {
   fail('args.firstRound must be a positive integer, the last posted Redline round plus one; got ' + JSON.stringify(A.firstRound))
 }
+// The findings of the PR's earlier Redline rounds and their dispositions (#35). The skill reads
+// them (redline-gh.sh prior-findings) after last-round and passes them here, for the same reason
+// as firstRound: the run's own carried-forward replies change the old threads, so nothing inside
+// the workflow may read them. A finding with no reply, or a "not changed" one, is carried into this
+// run's first round; the rest are tracked and never re-raised.
+const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'none', 'not-changed']
+const CARRY = ['none', 'not-changed']
+const priorFindings = A.priorFindings === undefined ? [] : A.priorFindings
+if (!Array.isArray(priorFindings)) {
+  fail('args.priorFindings must be the list redline-gh.sh prior-findings prints, or []; got ' + JSON.stringify(A.priorFindings))
+}
+for (const p of priorFindings) {
+  const m = p && typeof p === 'object' && typeof p.id === 'string' ? /^R(\d+)-\d+$/.exec(p.id) : null
+  if (!m || Number(m[1]) >= firstRound) {
+    fail(`args.priorFindings must list findings of the rounds before ${firstRound}, each with an id R<round>-<n>; got ${JSON.stringify(p && p.id)}`)
+  }
+  if (!PRIOR_DISPOSITIONS.includes(p.disposition) || !Number.isInteger(p.comment_id)) {
+    fail(`args.priorFindings: ${p.id} needs a disposition in ${PRIOR_DISPOSITIONS.join(' | ')} and an integer comment_id; got ${JSON.stringify(p.disposition)}, ${JSON.stringify(p.comment_id)}`)
+  }
+}
+const carryList = priorFindings.filter((p) => CARRY.includes(p.disposition))
+const trackedList = priorFindings.filter((p) => !CARRY.includes(p.disposition))
+const priorById = Object.fromEntries(priorFindings.map((p) => [p.id, p]))
 const maxPlanAdjustments = Number.isInteger(A.maxPlanAdjustments) && A.maxPlanAdjustments >= 0 ? A.maxPlanAdjustments : 2
 const teammate = typeof A.reviewer === 'string' ? A.reviewer.replace(/^@/, '') : ''
 const checkerMode = A.checker === 'git-only' ? 'git-only' : 'full'
@@ -265,7 +288,7 @@ const GATHER_SCHEMA = {
 
 const FINDING_SCHEMA = {
   type: 'object',
-  required: ['id', 'file', 'line', 'side', 'category', 'severity', 'confidence', 'title', 'description', 'proposedFix', 'needsDecision', 'knownAs'],
+  required: ['id', 'file', 'line', 'side', 'category', 'severity', 'confidence', 'title', 'description', 'proposedFix', 'needsDecision', 'knownAs', 'carriedFrom'],
   properties: {
     id: str,
     file: str,
@@ -279,16 +302,18 @@ const FINDING_SCHEMA = {
     proposedFix: str,
     needsDecision: bool,
     knownAs: str,
+    carriedFrom: str,
   },
 }
 
 const REVIEW_SCHEMA = {
   type: 'object',
-  required: ['round', 'reviewed', 'findings', 'summary'],
+  required: ['round', 'reviewed', 'findings', 'resolved', 'summary'],
   properties: {
     round: int,
     reviewed: { type: 'string', enum: ['pr', 'fix-diff', 'final-nit-pass'] },
     findings: { type: 'array', items: FINDING_SCHEMA },
+    resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
   },
 }
@@ -558,7 +583,9 @@ const RECORD_SCHEMA = {
 
 function findingLine(f) {
   const decision = f.needsDecision ? ' · needs a decision' : ''
-  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}`
+  // The suffix redline-gh.sh prior-findings reads back as carried_from (#35); it stays last.
+  const carried = f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''
+  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}${carried}`
 }
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
@@ -570,15 +597,26 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
     : reviewed === 'fix-diff'
       ? `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
-  const correctness = active.filter((f) => f.category === 'correctness').length
+  const fresh = active.filter((f) => !f.carriedFrom)
+  const carried = active.filter((f) => f.carriedFrom)
+  const counts = (list) => `${list.filter((f) => f.category === 'correctness').length} correctness, ${list.filter((f) => f.category === 'nit').length} nit`
   const lines = [`Redline round ${round}`, '', scope, '', review.summary.trim(), '']
   if (active.length === 0) {
     lines.push('No findings.')
-  } else {
-    lines.push(`### Findings (${correctness} correctness, ${active.length - correctness} nit)`, '', ...active.map(findingLine))
+  }
+  if (fresh.length) {
+    lines.push(`### Findings (${counts(fresh)})`, '', ...fresh.map(findingLine))
+  }
+  // Earlier rounds' findings with no disposition, re-verified and carried into this round (#35).
+  if (carried.length) {
+    lines.push(...(fresh.length ? [''] : []), `### Carried forward from earlier rounds (${counts(carried)})`, '', ...carried.map(findingLine))
+  }
+  const resolved = review.resolved || []
+  if (resolved.length) {
+    lines.push('', '### Resolved from earlier rounds', '', ...resolved.map((r) => `- **${r.id}** ${priorById[r.id] ? priorById[r.id].title : ''}: ${r.why}`))
   }
   if (known.length) {
-    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}`))
+    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
   }
   if (active.length) {
     lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
@@ -587,7 +625,11 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
 }
 
 function commentBody(f) {
-  const lines = [`**${f.id}** · ${f.category} · ${f.severity} · ${f.confidence}`, '', `**${f.title}**`, '', f.description.trim()]
+  const lines = [`**${f.id}** · ${f.category} · ${f.severity} · ${f.confidence}`, '', `**${f.title}**`]
+  if (f.carriedFrom) {
+    lines.push('', `First reported as ${f.carriedFrom} in Redline round ${priorById[f.carriedFrom] ? priorById[f.carriedFrom].round : f.carriedFrom.slice(1).split('-')[0]}.`)
+  }
+  lines.push('', f.description.trim())
   if (f.proposedFix && f.proposedFix.trim() !== '') {
     lines.push('', `Proposed fix: ${f.proposedFix.trim()}`)
   }
@@ -654,6 +696,30 @@ function replyEntry(pass, f, outcome, commentId, reviewPosted) {
     file: abs(pass.replyFile(f.id)),
     body: route === 'issue-comment' ? `<!-- redline:${f.id} -->\n${pass.bodyHeader(f)}\n\n${body}` : body,
   }
+}
+
+// The reply in an earlier round's thread for a finding this round carried forward or resolved
+// (#35): one entry per earlier finding, in this round's words, filed under this round. An earlier
+// body finding (no thread) is answered behind its own marker with its own round's header.
+function priorReplyEntry(pass, prior, text, reviewPosted) {
+  const route = !postToGitHub ? 'file-only' : prior.comment_id ? 'thread' : reviewPosted ? 'issue-comment' : 'file-only'
+  const priorPass = passOf({ round: prior.round, specFolder: '' })
+  const body = `${pass.title}: ${text}`
+  return {
+    finding: prior.id,
+    comment_id: prior.comment_id,
+    route,
+    file: abs(pass.replyFile(prior.id)),
+    body: route === 'issue-comment' ? `<!-- redline:${prior.id} -->\n${priorPass.bodyHeader(prior)}\n\n${body}` : body,
+  }
+}
+
+// The carried-forward replies for the findings of this round that carry an earlier one: the
+// earlier thread hears the new id and the same outcome its finding got.
+function carriedReplies(pass, record, findings, outcomes) {
+  return findings
+    .filter((f) => f.carriedFrom && priorById[f.carriedFrom])
+    .map((f) => priorReplyEntry(pass, priorById[f.carriedFrom], `carried forward as ${f.id}; ${replyBody(pass, outcomes[f.id]).slice(pass.title.length + 2)}`, record.reviewPosted))
 }
 
 // A thread gets one reply per pass (#38, R1-4). In a human review pass two open comments of one
@@ -774,9 +840,18 @@ function reviewPrompt(round, reviewed, range, facts, history, source) {
   if (history.length) {
     lines.push('', 'Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one):', json(history))
   }
+  // The PR's earlier Redline rounds, from an earlier run (#35): tracked ones are matched into
+  // knownAs; undispositioned ones are re-verified and carried or resolved, never dropped.
+  const priorBlock = reviewed === 'pr' && priorFindings.length
+  if (priorBlock && trackedList.length) {
+    lines.push('', 'Findings Redline\'s earlier rounds on this PR already handled (a match goes in knownAs as "<id>: <disposition>"; never re-raise one):', json(trackedList.map((p) => ({ id: p.id, round: p.round, category: p.category, title: p.title, file: p.file, line: p.line, disposition: p.disposition, reply: p.reply ? p.reply.body : '' }))))
+  }
+  if (priorBlock && carryList.length) {
+    lines.push('', 'Findings from earlier rounds with no disposition. Re-verify each against the current head, never copy its text: one that still holds is a finding of this round with carriedFrom set to its id (a fresh description, file and line); one the code no longer has goes in resolved with why. Every id here appears in exactly one of the two:', json(carryList.map((p) => ({ id: p.id, round: p.round, category: p.category, severity: p.severity, title: p.title, file: p.file, line: p.line, body: p.body }))))
+  }
   lines.push(
     '',
-    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.`,
+    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${priorBlock ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
   )
   if (reviewed === 'final-nit-pass') {
     lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce.')
@@ -1083,7 +1158,7 @@ function pushReplyPrompt(pass, specFolder, replies, doPush) {
     : 'the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker'
   const twice = pass.human
     ? ` A thread of ${pass.reviewer}'s may already hold a Redline round's reply; that is not a duplicate. The duplicate check is a reply in that thread opening \`${pass.title}:\`. One entry may answer several findings of one thread (its findings list names them); it is still one reply.`
-    : ''
+    : ` The duplicate check is a reply in that thread opening \`${pass.title}:\`: an earlier round's reply in the thread of a finding carried forward from it is not one.`
   const step2 = postToGitHub
     ? `then act on its route. Route "thread": run \`${GH} reply ${pr} <comment_id> <file>\`. Route "issue-comment": ${where}, so run \`${GH} comment ${pr} <file>\` once for it instead of reply and report reply_id 0. To check whether it is already posted, look in \`${GH} pr-comments ${pr}\` for its second line (${pass.bodyHeaderHint}), never for the marker, which ${pass.human ? 'only the reply carries here but a Redline round\'s review body also carries' : 'the review body also carries'}. Route "file-only": no review is on GitHub for it (a dry run, or a review that was never posted), so write the file, post nothing and report reply_id 0. Never reply twice in one thread, and never post a body finding's comment twice.${twice}`
     : 'and run nothing else (dry run).'
@@ -1141,13 +1216,14 @@ Return only the JSON your instructions specify, with operation "${kind}".`
 }
 
 function resolveThreadsPrompt(settled) {
-  const ids = settled.flatMap((s) => [s.commentId, s.replyId])
+  const all = (s) => [s.commentId, ...(s.extraIds || []), s.replyId]
+  const ids = settled.flatMap(all)
   return `${RUN_LINE}
 
 Operation: resolve-threads. PR #${pr}. postToGitHub: true. push: true.
 
-These findings are settled (fixed, deferred with the mitigation committed, or decided by the person and applied), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and the reply Redline posted in each thread:
-${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${s.commentId}, ${s.replyId}`).join('\n')}
+These findings are settled (fixed, deferred with the mitigation committed, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
+${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${all(s).join(', ')}`).join('\n')}
 
 Run this once, exactly as given, and nothing else:
 
@@ -1307,7 +1383,7 @@ let recordCommit = null
 let threadSweep = null
 
 function compactFinding(f) {
-  return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, needsDecision: f.needsDecision, knownAs: f.knownAs }
+  return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, needsDecision: f.needsDecision, knownAs: f.knownAs, carriedFrom: f.carriedFrom || '' }
 }
 
 function history() {
@@ -1346,6 +1422,8 @@ function result(status, extra) {
       check: record.check || null,
       outcomes: record.outcomes || null,
       dropped: (record.dropped || []).map((f) => ({ id: f.id, reason: f.reason })),
+      carried: record.carried || {},
+      resolvedPrior: record.resolvedPrior || [],
       files: record.files || [],
       replyIds: record.replyIds || {},
       human: record.human || null,
@@ -1406,8 +1484,80 @@ async function review(round, reviewed, range, facts, source) {
       warnings.push(`round ${round}: reviewer returned id ${JSON.stringify(f.id)}; renamed R${round}-${index + 1}`)
       f.id = `R${round}-${index + 1}`
     }
+    f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
   })
+  out.resolved = Array.isArray(out.resolved) ? out.resolved : []
+  // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
+  // spec), so any other review clears what a reviewer copied from the history (#46, R1-1).
+  if (reviewed === 'pr' && priorFindings.length) {
+    reconcilePrior(round, out)
+  } else {
+    for (const f of out.findings) {
+      if (f.carriedFrom) {
+        warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom}, but this review has no carry-forward list; cleared`)
+        f.carriedFrom = ''
+      }
+    }
+    out.carried = {}
+    out.resolved = []
+  }
   return out
+}
+
+// The accounting for the carry-forward list (#35): every undispositioned earlier finding is
+// carried (a finding of this round with carriedFrom) or resolved (the code no longer has it), and
+// the loop never lets one drop. One the reviewer did not account for is carried as reported, with
+// a warning, so the shaper investigates it: a stale line is moved into the body by place, never
+// lost. A carriedFrom or a resolved entry naming a tracked or unknown id is cleared or ignored.
+// A fallback id is numbered after the highest id in use, since the reviewer's ids may skip a
+// number (#46, R1-3). A carried finding is never known by a Redline id, so a knownAs naming one is
+// cleared; one naming an issue or a teammate's comment stays, and the finding's earlier thread is
+// answered as already tracked (#46, R1-2).
+function reconcilePrior(round, out) {
+  const carryIds = new Set(carryList.map((p) => p.id))
+  const carried = {}
+  for (const f of out.findings) {
+    if (!f.carriedFrom) {
+      continue
+    }
+    const p = priorById[f.carriedFrom]
+    if (!carryIds.has(f.carriedFrom) || carried[f.carriedFrom]) {
+      warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom}, which is ${p ? (carried[f.carriedFrom] ? `already carried as ${carried[f.carriedFrom]}` : `tracked (${p.disposition})`) : 'not an earlier finding'}; cleared`)
+      f.carriedFrom = ''
+      continue
+    }
+    carried[f.carriedFrom] = f.id
+    if (/\bR\d+-\d+\b/.test(f.knownAs || '')) {
+      warnings.push(`round ${round}: the reviewer marked ${f.id} as carried from ${f.carriedFrom} and as known by ${JSON.stringify(f.knownAs)}, which names a Redline finding; knownAs cleared, so it is carried`)
+      f.knownAs = ''
+    }
+  }
+  const resolved = []
+  for (const r of out.resolved) {
+    const id = typeof r.id === 'string' ? r.id.trim() : ''
+    const p = priorById[id]
+    if (!carryIds.has(id) || carried[id] || resolved.some((x) => x.id === id)) {
+      warnings.push(`round ${round}: the reviewer resolved ${id || JSON.stringify(r.id)}, which is ${p ? (carried[id] ? `carried as ${carried[id]}` : resolved.some((x) => x.id === id) ? 'already resolved' : `tracked (${p.disposition})`) : 'not an earlier finding'}; ignored`)
+      continue
+    }
+    resolved.push({ id, why: (r.why || '').trim() })
+  }
+  let next = Math.max(0, ...out.findings.map((x) => Number(x.id.split('-')[1]) || 0))
+  for (const p of carryList) {
+    if (carried[p.id] || resolved.some((x) => x.id === p.id)) {
+      continue
+    }
+    const id = `R${round}-${++next}`
+    warnings.push(`round ${round}: the reviewer did not account for ${p.id} (carried forward from round ${p.round}); carried as reported`)
+    const body = (p.body || '').split('\n').slice(1).join('\n').trim()
+    out.findings.push({
+      id, file: p.file, line: p.line, side: 'RIGHT', category: p.category, severity: p.severity, confidence: p.confidence, title: p.title,
+      description: body || `See the Redline round ${p.round} review body.`, proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: p.id,
+    })
+    carried[p.id] = id
+  }
+  out.carried = carried
+  out.resolved = resolved
 }
 
 async function post(round, reviewed, range, specFolder, reviewOut, active, known, source) {
@@ -1544,18 +1694,53 @@ function droppedReplies(record) {
   }
   record.droppedRecorded = true
   record.outcomes = record.outcomes || {}
-  return dropped.map((f) => {
+  const outcomes = {}
+  const entries = dropped.map((f) => {
     const outcome = { kind: 'dropped', reason: f.reason, commits: [], decidedBy: personLabel }
+    outcomes[f.id] = outcome
     record.outcomes[f.id] = describeOutcome(outcome)
+    record.outcomeKinds = Object.assign(record.outcomeKinds || {}, { [f.id]: 'dropped' })
     decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
     return replyEntry(passOf(record), f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
   })
+  return entries.concat(carriedReplies(passOf(record), record, dropped, outcomes))
 }
 
-// The review dial's relaunch with nothing selected: every finding was dropped, so the replies go
-// out without a revise pass and the run finishes.
-async function replyDropped(record) {
-  const replies = droppedReplies(record)
+// The earlier findings this round's review found gone (#35): each earlier thread hears it once.
+function resolvedReplies(record) {
+  const resolved = record.resolvedPrior || []
+  if (record.resolvedRecorded || !resolved.length) {
+    return []
+  }
+  record.resolvedRecorded = true
+  const pass = passOf(record)
+  return resolved
+    .filter((r) => priorById[r.id])
+    .map((r) => priorReplyEntry(pass, priorById[r.id], `resolved; first reported as ${r.id} in Redline round ${priorById[r.id].round}. ${r.why}${decidedBy(REDLINE)}`, record.reviewPosted))
+}
+
+// The earlier findings this round carried that an issue or a teammate's comment already tracks
+// (#46, R1-2): the finding stays known and is not shaped, and its earlier thread hears once where
+// it went, so the next run reads it as carried.
+function knownCarriedReplies(record) {
+  if (record.knownCarriedRecorded) {
+    return []
+  }
+  const pass = passOf(record)
+  const entries = record.findings
+    .filter((f) => f.knownAs && f.carriedFrom && priorById[f.carriedFrom])
+    .map((f) => priorReplyEntry(pass, priorById[f.carriedFrom], `carried forward as ${f.id}; already tracked in ${f.knownAs}${decidedBy(REDLINE)}`, record.reviewPosted))
+  if (entries.length) {
+    record.knownCarriedRecorded = true
+  }
+  return entries
+}
+
+// A first round that ends without a revise pass (nothing selected on the review dial, or no
+// finding at all): the drops, the resolved earlier findings and a carried finding an issue tracks
+// still get their replies.
+async function replyStandalone(record) {
+  const replies = droppedReplies(record).concat(resolvedReplies(record), knownCarriedReplies(record))
   if (!replies.length) {
     return
   }
@@ -1833,7 +2018,8 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = withAnswers(pass, inScope, mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)))).concat(droppedReplies(record))
+  const replies = withAnswers(pass, inScope, mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))))
+    .concat(carriedReplies(pass, record, inScope, outcomes), droppedReplies(record), resolvedReplies(record), knownCarriedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
@@ -1881,6 +2067,10 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
     const approved = approvedPlans.includes(record.round) ? `; plan approved by ${personLabel}` : ''
     const picked = record.dropped ? `; ${record.dropped.length} not acted on (${personLabel}'s pick)` : ''
     lines.push(`- Round ${record.round} (${record.reviewed}): ${correctness} correctness, ${nits} nit; ${(record.commits || []).length} commits${approved}${picked}; spec \`${record.specFolder}\``)
+  }
+  const earlier = earlierRoundsLines()
+  if (earlier.length) {
+    lines.push('', '### Earlier rounds', '', ...earlier)
   }
   if (decidedAll.length) {
     lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${d.title}: ${d.outcome}`))
@@ -2008,8 +2198,64 @@ function threadCandidates() {
       const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
+    // The earlier rounds' threads this round answered (#35): a carried finding's thread is settled
+    // with the finding that carries it; a resolved one with its reply. The ids are the earlier
+    // root, any earlier Redline reply in it, and this round's reply, so the script's every-comment
+    // rule holds and a teammate's comment keeps the thread open. A carrying finding in the review
+    // body has no thread, so its earlier thread settles on its own reply (#46, R1-4). A carried
+    // finding an issue or a teammate's comment tracks has no outcome: its earlier thread is
+    // answered but left open as already tracked (#46, R1-2).
+    const ids = new Set(record.findings.map((f) => f.id))
+    for (const [priorId, newId] of Object.entries(record.carried || {})) {
+      const prior = priorById[priorId]
+      if (!prior || !prior.comment_id || !ids.has(newId)) {
+        continue
+      }
+      const carrier = record.findings.find((f) => f.id === newId)
+      const kind = kinds[newId] || ''
+      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
+    }
+    for (const r of record.resolvedPrior || []) {
+      const prior = priorById[r.id]
+      if (!prior || !prior.comment_id) {
+        continue
+      }
+      const settled = replyIds[r.id] > 0
+      out.push({ id: r.id, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[r.id] || 0, settled, reason: settled ? '' : 'no reply posted' })
+    }
   }
   return out
+}
+
+// The handoff's Earlier rounds section (#35): what became of every finding the PR's earlier
+// Redline rounds posted, as this run read them at launch.
+function earlierRoundsLines() {
+  const record = rounds.find((r) => !r.human && r.round === firstRound)
+  if (!priorFindings.length || !record) {
+    return []
+  }
+  const ids = new Set(record.findings.map((f) => f.id))
+  return priorFindings.map((p) => {
+    const newId = (record.carried || {})[p.id]
+    const resolved = (record.resolvedPrior || []).find((r) => r.id === p.id)
+    const carrier = newId ? record.findings.find((f) => f.id === newId) : null
+    const what = newId
+      ? !ids.has(newId)
+        ? `carried forward as ${newId}, out of scope (correctness only)`
+        : carrier.knownAs
+          ? `carried forward as ${newId}: already tracked in ${carrier.knownAs}`
+          : record.outcomes && record.outcomes[newId] ? `carried forward as ${newId}: ${record.outcomes[newId]}` : `carried forward as ${newId}`
+      : resolved
+        ? `resolved: ${resolved.why}${decidedBy(REDLINE)}`
+        // The disposition before the reply text: one a later round's line carried is named by its
+        // new id, whatever its own thread's last reply says (#46, R1-5).
+        : p.disposition === 'carried' && p.carried_to
+          ? `carried forward as ${p.carried_to} in round ${p.carried_to.slice(1).split('-')[0]}`
+          : `already handled in round ${p.round}: ${p.reply ? p.reply.body : p.disposition}`
+    return `- **${p.id}** ${p.title}: ${what}`
+  })
 }
 
 // Finish's sweep: the workflow picks the settled threads and the GitHub agent runs the one
@@ -2271,7 +2517,7 @@ try {
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
@@ -2294,7 +2540,7 @@ try {
       active = active.filter((f) => act.has(f.id))
       log(`round ${round}: ${personLabel} picked ${active.length} finding(s) to act on, ${record.dropped.length} dropped`)
       if (active.length === 0) {
-        await replyDropped(record)
+        await replyStandalone(record)
         const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'No finding was selected to act on, so there was no revise pass.' })
       }
@@ -2317,6 +2563,7 @@ try {
     }
 
     if (correctness.length === 0 && nits.length === 0) {
+      await replyStandalone(record)
       const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }

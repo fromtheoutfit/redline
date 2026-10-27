@@ -21,7 +21,11 @@
 # PR 13 is the review-thread fixture (#39), two GraphQL pages served to `threads` and
 # `resolve-threads`: a Redline thread with its reply, one a teammate replied in after Redline, one a
 # teammate opened, one already resolved, and one Redline thread with no reply yet, and one where a
-# teammate commented between Redline's comment and its reply (#45, R1-2). The shim is the
+# teammate commented between Redline's comment and its reply (#45, R1-2). PR 14 is the
+# prior-findings fixture (#35): two Redline rounds, one finding per disposition (a fixed reply, no
+# reply beside a teammate's, a dropped one, a body finding answered by an issue comment, a not
+# changed one that round 2 carried as R2-2, a decided one), an Already tracked line that is not a
+# finding, and round 2's fresh finding with no reply. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
 # which threads were resolved and that the mutation is the script's fixed string.
@@ -48,7 +52,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -124,6 +128,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/12/reviews") pages=("$PAGES/reviews-12.json") ;;
     "repos/{owner}/{repo}/pulls/12/comments") pages=("$PAGES/comments-12.json") ;;
     "repos/{owner}/{repo}/issues/12/comments") pages=("$PAGES/issue-comments-12.json") ;;
+    "repos/{owner}/{repo}/pulls/14/reviews") pages=("$PAGES/reviews-14.json") ;;
+    "repos/{owner}/{repo}/pulls/14/comments") pages=("$PAGES/comments-14.json") ;;
+    "repos/{owner}/{repo}/issues/14/comments") pages=("$PAGES/issue-comments-14.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -197,6 +204,25 @@ gh has-review 7 3 >/dev/null; is "has-review: round 3 is not (exit 1)" "$?" "1"
 gh has-review 7 9 >/dev/null; is "has-review: 'Redline roundabout 9' is not round 9" "$?" "1"
 gh has-review 8 1 >/dev/null; is "has-review: no Redline review at all (exit 1)" "$?" "1"
 
+echo "# prior-findings"
+pf="$(gh prior-findings 14)"; code=$?
+is "prior-findings: exits 0" "$code" "0"
+is "prior-findings: every posted finding, by round then number; an Already tracked line is not a finding" "$(jq -c '[.[].id]' <<<"$pf")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R1-6","R2-1","R2-2"]'
+is "prior-findings: a fixed reply is fixed, with the thread's comment and reply ids" "$(jq -c '.[0] | [.disposition, .comment_id, .reply.id, .round, .review_id]' <<<"$pf")" '["fixed",1401,1411,1,20]'
+is "prior-findings: the finding line's fields" "$(jq -c '.[0] | [.category, .severity, .confidence, .file, .line, .title]' <<<"$pf")" '["correctness","high","confirmed","app/a.php",5,"Missing status filter"]'
+is "prior-findings: the inline body is the root comment's" "$(jq -r '.[0].body' <<<"$pf" | head -1)" "**R1-1** · correctness · high · confirmed"
+is "prior-findings: no Redline reply is none; a teammate's reply is not a disposition" "$(jq -c '.[1] | [.disposition, .reply, .comment_id]' <<<"$pf")" '["none",null,1402]'
+is "prior-findings: needs a decision is stripped from the title" "$(jq -r '.[1].title' <<<"$pf")" "Skin-toned emoji rejected"
+is "prior-findings: a dropped reply is dropped, its text after the round prefix" "$(jq -c '.[2] | [.disposition, .reply.body]' <<<"$pf")" '["dropped","not acted on in this run. Fine as is. · decided by: @author"]'
+is "prior-findings: a body finding's issue comment is its reply; mitigated is deferred" "$(jq -c '.[3] | [.disposition, .comment_id, .body, .reply.id]' <<<"$pf")" '["deferred",0,"",60]'
+is "prior-findings: the issue comment's text after its header and the round prefix" "$(jq -r '.[3].reply.body' <<<"$pf" | head -c 20)" "mitigated in 3456789"
+is "prior-findings: a finding a later round carried is carried, whatever its thread says" "$(jq -c '.[4] | [.disposition, .carried_to, .reply.body]' <<<"$pf")" '["carried","R2-2","not changed in this round. Disposition fix; no commit names it. · decided by: redline"]'
+is "prior-findings: any other reply is decided" "$(jq -r '.[5].disposition' <<<"$pf")" "decided"
+is "prior-findings: a fresh finding of the later round with no reply is none" "$(jq -c '.[6] | [.disposition, .carried_from, .round]' <<<"$pf")" '["none","",2]'
+is "prior-findings: the carried finding names its origin, its title carries neither suffix, and not changed carries forward" "$(jq -c '.[7] | [.carried_from, .title, .disposition, .carried_to]' <<<"$pf")" '["R1-5","Streak one short","not-changed",""]'
+is "prior-findings: a PR with no Redline review prints an empty list" "$(gh prior-findings 8)" "[]"
+gh prior-findings 99 >/dev/null 2>&1; is "prior-findings: a gh error exits 2" "$?" "2"
+
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?
 is "human-review @login: exits 0" "$code" "0"
@@ -261,6 +287,7 @@ gh human-review 10 seven 2>/dev/null; is "usage: human-review with a selector th
 gh last-human-review 2>/dev/null; is "usage: last-human-review without a number exits 2" "$?" "2"
 gh files 2>/dev/null; is "usage: files without a number exits 2" "$?" "2"
 gh last-round x 2>/dev/null; is "usage: last-round with a non-number exits 2" "$?" "2"
+gh prior-findings 2>/dev/null; is "usage: prior-findings without a number exits 2" "$?" "2"
 gh place 7 "$WORK/missing.json" 2>/dev/null; is "usage: place with a missing file exits 2" "$?" "2"
 gh --help 2>"$WORK/err"; code=$?
 is "usage: --help exits 2" "$code" "2"

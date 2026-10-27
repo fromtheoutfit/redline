@@ -94,7 +94,8 @@ function mock(scenario) {
     }
     if (t === 'redline:redline-reviewer') {
       reviewN += 1
-      return { round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], summary: 'S' }
+      // scenario.resolved[n] is the nth review's resolved list (#35): earlier findings the reviewer found gone.
+      return { round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: 'S' }
     }
     if (t === 'redline:redline-shaper') {
       const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))]
@@ -145,7 +146,9 @@ function mock(scenario) {
   return { agent, calls }
 }
 
-const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category, severity: 'low', confidence: 'likely', title: `title ${id}`, description: 'd', proposedFix: '', needsDecision: false, knownAs: '', ...extra })
+const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category, severity: 'low', confidence: 'likely', title: `title ${id}`, description: 'd', proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: '', ...extra })
+// An earlier round's finding as redline-gh.sh prior-findings prints it (#35).
+const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split('-')[0]), review_id: 20, category: 'correctness', severity: 'low', confidence: 'likely', file: 'app/x.php', line: 1, title: `title ${id}`, comment_id: 0, body: '', reply: null, carried_from: '', carried_to: '', disposition, ...extra })
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
@@ -470,6 +473,142 @@ function samePrefix(name, first, second, n) {
   check('firstRound: the plural names the earlier rounds', pick(run.calls, 'post r4').prompt.includes('Rounds 1 to 3 are already on this PR; this run starts at round 4.'), pick(run.calls, 'post r4').prompt.slice(0, 900))
   run = await go('bad firstRound', { ...baseArgs, firstRound: 0 }, { reviews: [[]] })
   check('bad firstRound: refused before any agent runs', run.thrown && /args.firstRound must be/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+}
+
+// ---------------------------------------------------------------------------
+// 8b. carry forward (#35): an earlier round's finding with no disposition is carried into this
+// run's first round; one with a reply is tracked; the loop accounts for every carry-forward id.
+// ---------------------------------------------------------------------------
+{
+  const priors = [
+    prior('R1-1', 'fixed', { comment_id: 11, reply: { id: 250, body: 'fixed in 1234567 (redline: R1-1 x). · decided by: redline' } }),
+    prior('R1-2', 'none', { comment_id: 12, body: '**R1-2** · correctness · low · likely\n\n**title R1-2**\n\nOld description.' }),
+    prior('R1-3', 'dropped', { comment_id: 13, category: 'nit', reply: { id: 251, body: 'not acted on in this run. Fine. · decided by: @author' } }),
+    prior('R1-4', 'not-changed', { comment_id: 14, reply: { id: 252, body: 'not changed in this round. Disposition fix; no commit names it. · decided by: redline' } }),
+    prior('R1-5', 'none', { comment_id: 0 }),
+  ]
+  const carryArgs = { ...baseArgs, firstRound: 2, priorFindings: priors }
+  const scenario = { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' }), f('R2-2', 'nit')], []], resolved: [[{ id: 'R1-4', why: 'The line was removed.' }]], commitIds: [['R2-1', 'R2-2', 'R2-3']] }
+  let run = await go('carry: a fresh run at round 2', carryArgs, scenario)
+  check('carry: finishes', run.res.status === 'done', run.res.status)
+  const rp = pick(run.calls, 'review r2').prompt
+  const tracked = rp.slice(rp.indexOf('already handled'), rp.indexOf('with no disposition'))
+  const carry = rp.slice(rp.indexOf('with no disposition'), rp.indexOf('Before you report anything'))
+  check('carry: the prompt lists the tracked findings with their dispositions', tracked.includes('"id": "R1-1"') && tracked.includes('"disposition": "fixed"') && tracked.includes('"id": "R1-3"') && tracked.includes('"disposition": "dropped"') && tracked.includes('"reply": "fixed in 1234567 (redline: R1-1 x). · decided by: redline"'), tracked)
+  check('carry: the prompt lists the carry-forward findings, no reply and not changed alike, with the old comment body', carry.includes('"id": "R1-2"') && carry.includes('"id": "R1-4"') && carry.includes('"id": "R1-5"') && carry.includes('Old description.') && !carry.includes('"id": "R1-1"') && !carry.includes('"id": "R1-3"'), carry)
+  check('carry: the prompt says to re-verify, never copy, and to account for every id', carry.includes('Re-verify each against the current head') && carry.includes('carriedFrom') && carry.includes('resolved') && carry.includes('exactly one of the two'), carry.slice(0, 400))
+  check('carry: the known-finding sentence points at the lists for Redline\'s own rounds', rp.includes("Redline's own earlier rounds on this PR are the lists above"), rp.slice(rp.indexOf('Before you report')))
+  const first = run.res.rounds[0]
+  check('carry: the carried finding keeps its id and names its origin', first.findings[0].id === 'R2-1' && first.findings[0].carriedFrom === 'R1-2', first.findings[0])
+  check('carry: the loop carries the finding the reviewer did not account for, as reported', first.findings.length === 3 && first.findings[2].id === 'R2-3' && first.findings[2].carriedFrom === 'R1-5' && first.findings[2].category === 'correctness' && first.findings[2].title === 'title R1-5', first.findings)
+  check('carry: the unaccounted finding is a warning', run.res.warnings.some((w) => w === 'round 2: the reviewer did not account for R1-5 (carried forward from round 1); carried as reported'), run.res.warnings)
+  check('carry: the record maps every earlier id to its carried id and keeps the resolved list', JSON.stringify(first.carried) === '{"R1-2":"R2-1","R1-5":"R2-3"}' && JSON.stringify(first.resolvedPrior) === '[{"id":"R1-4","why":"The line was removed."}]', [first.carried, first.resolvedPrior])
+  check('carry: the shaper gets the carried findings as findings of this round', pick(run.calls, 'shape r2').prompt.includes('"id": "R2-3"') && pick(run.calls, 'shape r2').prompt.includes('"carriedFrom": "R1-5"'), pick(run.calls, 'shape r2').prompt.slice(0, 300))
+
+  run = await go('carry: carriedFrom names a tracked id', carryArgs, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-1' })], []], resolved: [[{ id: 'R1-2', why: 'gone' }, { id: 'R1-3', why: 'gone' }, { id: 'R1-4', why: 'gone' }, { id: 'R1-5', why: 'gone' }]], commitIds: [['R2-1']] })
+  check('carry: a carriedFrom naming a tracked finding is cleared with a warning', run.res.rounds[0].findings[0].carriedFrom === '' && run.res.warnings.some((w) => w === 'round 2: the reviewer marked R2-1 as carried from R1-1, which is tracked (fixed); cleared'), run.res.warnings)
+  check('carry: a resolved entry naming a tracked finding is ignored with a warning', JSON.stringify((run.res.rounds[0].resolvedPrior || []).map((r) => r.id)) === '["R1-2","R1-4","R1-5"]' && run.res.warnings.some((w) => w === 'round 2: the reviewer resolved R1-3, which is tracked (dropped); ignored'), run.res.warnings)
+  check('carry: every carry-forward id resolved means nothing carried and no fallback', JSON.stringify(run.res.rounds[0].carried) === '{}' && run.res.rounds[0].findings.length === 1, run.res.rounds[0].findings)
+
+  run = await go('carry: none at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit')]], commitIds: [['R1-1']] })
+  check('carry: an empty list adds nothing to the prompt', !pick(run.calls, 'review r1').prompt.includes('already handled') && !pick(run.calls, 'review r1').prompt.includes('with no disposition'))
+  // Only the run's first round carries (#46, R1-1): a re-review that copies a carriedFrom from the
+  // history, and a first round with no earlier findings, clear it with a warning.
+  run = await go('carry: a re-review never carries', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' })], [f('R3-1', 'correctness', { carriedFrom: 'R1-2' })], []], commitIds: [['R2-1'], ['R3-1']] })
+  check('carry: a re-review\'s carriedFrom is cleared with a warning', run.res.rounds[1].findings[0].carriedFrom === '' && run.res.warnings.includes('round 3: the reviewer marked R3-1 as carried from R1-2, but this review has no carry-forward list; cleared'), [run.res.rounds[1].findings[0], run.res.warnings])
+  check('carry: a re-review posts no carried heading and no origin note', !pick(run.calls, 'post r3').prompt.includes('### Carried forward') && !pick(run.calls, 'post r3').prompt.includes('irst reported as R1-2'), pick(run.calls, 'post r3').prompt.slice(0, 1500))
+  check('carry: a re-review sends no reply to the earlier thread; the first round\'s reply stands', !replies(run.calls, 'push and reply r3').some((x) => x.finding === 'R1-2') && replyFor(run.calls, 'push and reply r2', 'R1-2').startsWith('Redline round 2: carried forward as R2-1; '), [replies(run.calls, 'push and reply r3'), replyFor(run.calls, 'push and reply r2', 'R1-2')])
+  run = await go('carry: no list at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit', { carriedFrom: 'R0-1' })]], commitIds: [['R1-1']] })
+  check('carry: a first round with no earlier findings clears a carriedFrom with a warning', run.res.rounds[0].findings[0].carriedFrom === '' && !pick(run.calls, 'post r1').prompt.includes('### Carried forward') && run.res.warnings.includes('round 1: the reviewer marked R1-1 as carried from R0-1, but this review has no carry-forward list; cleared'), [run.res.rounds[0].findings[0], run.res.warnings])
+  // The fallback carry is numbered after the highest id in use, so a gap in the reviewer's ids
+  // never gives two findings one id (#46, R1-3).
+  run = await go('carry: a gap in the reviewer\'s ids', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness'), f('R2-3', 'nit')], []], commitIds: [['R2-1', 'R2-3', 'R2-4']] })
+  check('carry: the fallback carry is numbered after the highest id in use', run.res.rounds[0].findings.map((x) => x.id).join(',') === 'R2-1,R2-3,R2-4' && run.res.rounds[0].findings[2].carriedFrom === 'R1-2' && JSON.stringify(run.res.rounds[0].carried) === '{"R1-2":"R2-4"}', run.res.rounds[0].findings.map((x) => [x.id, x.carriedFrom]))
+  run = await go('carry: bad entry', { ...baseArgs, firstRound: 2, priorFindings: [prior('R2-1', 'none')] }, { reviews: [[]] })
+  check('carry: an entry from this run\'s round or later is refused before any agent runs', run.thrown && /args.priorFindings/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+  run = await go('carry: bad disposition', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'done')] }, { reviews: [[]] })
+  check('carry: an unknown disposition is refused before any agent runs', run.thrown && /args.priorFindings/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+  const dial = { ...carryArgs, interrupt: 'review' }
+  const stop = await go('carry: review dial stops', dial, scenario)
+  check('carry: the review dial presents the carried findings with their origin', stop.res.status === 'reviewed' && (stop.res.findings || []).map((x) => `${x.id}<${x.carriedFrom}`).join(',') === 'R2-1<R1-2,R2-2<,R2-3<R1-5', stop.res.findings)
+  const resumed = await go('carry: review dial relaunch', { ...dial, selected: { act: ['R2-1', 'R2-3'], dropped: { 'R2-2': 'Fine.' } } }, scenario)
+  samePrefix('carry', stop.calls, resumed.calls, 3)
+}
+
+// ---------------------------------------------------------------------------
+// 8c. carry forward, the posted side (#35): the review body's headings, the inline note, the reply
+// in the earlier thread, the sweep of that thread and the handoff's Earlier rounds section.
+// ---------------------------------------------------------------------------
+{
+  const priors = [
+    prior('R1-1', 'fixed', { comment_id: 11, reply: { id: 250, body: 'fixed in 1234567 (redline: R1-1 x). · decided by: redline' } }),
+    prior('R1-2', 'none', { comment_id: 12, body: '**R1-2** · correctness · low · likely\n\n**title R1-2**\n\nOld description.' }),
+    prior('R1-3', 'dropped', { comment_id: 13, category: 'nit', reply: { id: 251, body: 'not acted on in this run. Fine. · decided by: @author' } }),
+    prior('R1-4', 'not-changed', { comment_id: 14, reply: { id: 252, body: 'not changed in this round. Disposition fix; no commit names it. · decided by: redline' } }),
+    prior('R1-5', 'none', { comment_id: 0 }),
+  ]
+  const carryArgs = { ...baseArgs, firstRound: 2, priorFindings: priors }
+  const scenario = { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' }), f('R2-2', 'nit')], []], resolved: [[{ id: 'R1-4', why: 'The line was removed.' }]], commitIds: [['R2-1', 'R2-2', 'R2-3']] }
+  let run = await go('carry: posted side', carryArgs, scenario)
+  const post = pick(run.calls, 'post r2').prompt
+  check('carry: the fresh findings and the carried ones sit under their own headings, with counts', post.includes('### Findings (0 correctness, 1 nit)\\n\\n- **R2-2** · nit') && post.includes('### Carried forward from earlier rounds (2 correctness, 0 nit)\\n\\n- **R2-1** · correctness · low · likely · `app/x.php:1` · title R2-1 · first reported as R1-2\\n- **R2-3** · correctness · low · likely · `app/x.php:1` · title R1-5 · first reported as R1-5'), post.slice(0, 1500))
+  check('carry: the resolved earlier findings are listed with why', post.includes('### Resolved from earlier rounds\\n\\n- **R1-4** title R1-4: The line was removed.'), post.slice(0, 1500))
+  check('carry: the inline comment of a carried finding names its origin after the title', post.includes('**title R2-1**\\n\\nFirst reported as R1-2 in Redline round 1.\\n\\nd'), post.slice(0, 2500))
+  const r = replies(run.calls, 'push and reply r2')
+  const by = (id) => r.find((x) => x.finding === id) || {}
+  check('carry: the earlier thread gets the carried-forward reply with the new id and the outcome', by('R1-2').body === 'Redline round 2: carried forward as R2-1; fixed in 1bbbbbb (redline: R2-1 fix). · decided by: redline' && by('R1-2').comment_id === 12 && by('R1-2').route === 'thread' && by('R1-2').file === '/r/agent-os/specs/2026-10-20-1600-114-review-round-2/redline/round-2-reply-R1-2.md', by('R1-2'))
+  check('carry: an earlier body finding gets its reply as an issue comment behind its own marker and round header', by('R1-5').route === 'issue-comment' && by('R1-5').body === '<!-- redline:R1-5 -->\n**R1-5** · `app/x.php:1` · from the Redline round 1 review body\n\nRedline round 2: carried forward as R2-3; fixed in 3bbbbbb (redline: R2-3 fix). · decided by: redline', by('R1-5'))
+  check('carry: a resolved earlier finding gets the resolved reply in its thread', by('R1-4').body === 'Redline round 2: resolved; first reported as R1-4 in Redline round 1. The line was removed. · decided by: redline' && by('R1-4').comment_id === 14, by('R1-4'))
+  check('carry: a tracked earlier finding gets no reply', !r.some((x) => x.finding === 'R1-1' || x.finding === 'R1-3'), r.map((x) => x.finding))
+  const sweep = (pick(run.calls, 'resolve threads') || {}).prompt || ''
+  check('carry: the sweep names the earlier root, its earlier reply and this round\'s reply', sweep.includes('- R1-2 (round 1): comments 12, 203') && sweep.includes('- R1-4 (round 1): comments 14, 252, 205') && /resolve-threads 114 [0-9 ]*\b12 203\b/.test(sweep) && /resolve-threads 114 [0-9 ]*\b14 252 205\b/.test(sweep) && !sweep.includes('R1-5'), sweep.slice(sweep.indexOf('These findings')))
+  const handoff = comment(run.calls, 'handoff comment')
+  check('carry: the handoff counts the earlier threads among the resolved', handoff.includes('Resolved 5 threads; 0 left open.'), handoff)
+  check('carry: the handoff lists every earlier finding under Earlier rounds', handoff.includes('### Earlier rounds\n\n- **R1-1** title R1-1: already handled in round 1: fixed in 1234567 (redline: R1-1 x). · decided by: redline\n- **R1-2** title R1-2: carried forward as R2-1: fixed in 1bbbbbb · decided by: redline\n- **R1-3** title R1-3: already handled in round 1: not acted on in this run. Fine. · decided by: @author\n- **R1-4** title R1-4: resolved: The line was removed. · decided by: redline\n- **R1-5** title R1-5: carried forward as R2-3: fixed in 3bbbbbb · decided by: redline'), handoff)
+  check('carry: the push prompt says an earlier round\'s reply in the thread is not a duplicate', pick(run.calls, 'push and reply r2').prompt.includes('The duplicate check is a reply in that thread opening `Redline round 2:`'), pick(run.calls, 'push and reply r2').prompt.slice(0, 1200))
+  check('carry: the result records the earlier threads\' reply ids', run.res.rounds[0].replyIds['R1-2'] === 203 && run.res.rounds[0].replyIds['R1-4'] === 205 && !('R1-5' in run.res.rounds[0].replyIds), run.res.rounds[0].replyIds)
+
+  run = await go('carry: review dial drops a carried finding', { ...carryArgs, interrupt: 'review', selected: { act: ['R2-2'], dropped: { 'R2-1': 'Keep it.' } } }, scenario)
+  check('carry: a dropped carried finding tells its earlier thread, with the person as owner', replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; not acted on in this run. Keep it. · decided by: @author', replyFor(run.calls, 'push and reply r2', 'R1-2'))
+  check('carry: the earlier thread of a dropped finding stays open as the person\'s pick', run.res.threads.open.some((o) => o.id === 'R1-2' && o.reason === 'dropped by @author') && run.res.threads.open.some((o) => o.id === 'R2-1'), run.res.threads)
+  check('carry: the handoff says the earlier finding was carried and dropped', comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: carried forward as R2-1: not acted on in this run: Keep it. · decided by: @author'), comment(run.calls, 'handoff comment'))
+
+  run = await go('carry: everything resolved', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'none', { comment_id: 11 }), prior('R1-2', 'not-changed', { comment_id: 12, reply: { id: 250, body: 'not changed in this round. x · decided by: redline' } })] }, { reviews: [[]], resolved: [[{ id: 'R1-1', why: 'Gone.' }, { id: 'R1-2', why: 'Gone too.' }]] })
+  check('carry: a first round with only resolved earlier findings replies and finishes without a revise pass', run.res.status === 'done' && labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
+  check('carry: the review body says no findings and lists the resolved', pick(run.calls, 'post r2').prompt.includes('No findings.\\n\\n### Resolved from earlier rounds\\n\\n- **R1-1** title R1-1: Gone.\\n- **R1-2** title R1-2: Gone too.'), pick(run.calls, 'post r2').prompt.slice(0, 900))
+  check('carry: both earlier threads are swept, the second with its earlier reply', ((pick(run.calls, 'resolve threads') || {}).prompt || '').includes('resolve-threads 114 11 200 12 250 201'), (pick(run.calls, 'resolve threads') || {}).prompt)
+
+  run = await go('carry: correctness scope', { ...baseArgs, firstRound: 2, scope: 'correctness', priorFindings: [prior('R1-3', 'none', { comment_id: 13, category: 'nit' })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-3' })]] })
+  check('carry: a carried nit under the correctness scope is out of scope, said so in the handoff, with no reply and no sweep', run.res.status === 'done' && comment(run.calls, 'handoff comment').includes('- **R1-3** title R1-3: carried forward as R2-1, out of scope (correctness only)') && !pick(run.calls, 'push and reply r2') && !pick(run.calls, 'resolve threads'), [labels(run.calls), comment(run.calls, 'handoff comment')])
+
+  // A carrying finding the post moved into the review body has no thread, so its earlier thread
+  // settles on its own reply (#46, R1-4).
+  run = await go('carry: the carrying finding sits in the review body', carryArgs, { ...scenario, moved: ['R2-1'] })
+  check('carry: an earlier thread is swept on its own reply when its carrying finding has no thread', ((pick(run.calls, 'resolve threads') || {}).prompt || '').includes('- R1-2 (round 1): comments 12, 203') && !run.res.threads.open.some((o) => o.id === 'R1-2') && comment(run.calls, 'handoff comment').includes('Resolved 4 threads; 0 left open.'), [run.res.threads, comment(run.calls, 'handoff comment')])
+  check('carry: the body finding\'s reply is an issue comment and the earlier thread\'s stays a thread reply', replies(run.calls, 'push and reply r2').find((x) => x.finding === 'R2-1').route === 'issue-comment' && replies(run.calls, 'push and reply r2').find((x) => x.finding === 'R1-2').route === 'thread', replies(run.calls, 'push and reply r2').map((x) => `${x.finding}=${x.route}`))
+
+  // A finding an earlier run carried, whose own thread still holds its round's not-changed reply
+  // (the fixture PR 14 shape), is named in the handoff by its new id, not the stale reply (#46, R1-5).
+  run = await go('carry: a finding an earlier run carried', { ...baseArgs, firstRound: 3, priorFindings: [prior('R1-5', 'carried', { comment_id: 15, carried_to: 'R2-2', reply: { id: 255, body: 'not changed in this round. Disposition fix; no commit names it. · decided by: redline' } }), prior('R2-2', 'none', { comment_id: 22, carried_from: 'R1-5' })] }, { reviews: [[f('R3-1', 'correctness', { carriedFrom: 'R2-2' })], []], commitIds: [['R3-1']] })
+  check('carry: the handoff names an earlier run\'s carry by its new id, not the stale reply', comment(run.calls, 'handoff comment').includes('### Earlier rounds\n\n- **R1-5** title R1-5: carried forward as R2-2 in round 2\n- **R2-2** title R2-2: carried forward as R3-1: fixed in '), comment(run.calls, 'handoff comment'))
+
+  // A carried finding the reviewer also marks known (#46, R1-2): a Redline id there is cleared and
+  // the finding is carried; an issue or a teammate's comment keeps it known, and its earlier thread
+  // is answered as already tracked and left open. postDrop scripts what the real post returns for
+  // a known finding, which is no inline thread (post sends only the active findings as comments).
+  run = await go('carry: carried and known by a Redline id', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { comment_id: 11, reply: { id: 250, body: 'fixed in 1234567 (redline: R1-1 x). · decided by: redline' } }), prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', knownAs: 'R1-2' }), f('R2-2', 'nit', { knownAs: 'R1-1: fixed' })], []], postDrop: ['R2-2'], commitIds: [['R2-1']] })
+  check('carry: a carried finding\'s known mark naming a Redline id is cleared with a warning', run.res.rounds[0].findings[0].knownAs === '' && run.res.warnings.includes('round 2: the reviewer marked R2-1 as carried from R1-2 and as known by "R1-2", which names a Redline finding; knownAs cleared, so it is carried'), [run.res.rounds[0].findings[0], run.res.warnings])
+  check('carry: that finding is posted, shaped and answered as carried', pick(run.calls, 'post r2').prompt.includes('### Carried forward from earlier rounds (1 correctness, 0 nit)\\n\\n- **R2-1** · correctness') && ((pick(run.calls, 'shape r2') || {}).prompt || '').includes('"carriedFrom": "R1-2"') && replyFor(run.calls, 'push and reply r2', 'R1-2').startsWith('Redline round 2: carried forward as R2-1; fixed in '), [labels(run.calls), replies(run.calls, 'push and reply r2')])
+  check('carry: a fresh finding matched to a tracked Redline finding stays known, with no reply', run.res.rounds[0].findings[1].knownAs === 'R1-1: fixed' && pick(run.calls, 'post r2').prompt.includes('\\n- **R2-2** title R2-2: R1-1: fixed') && !replies(run.calls, 'push and reply r2').some((x) => x.finding === 'R1-1'), [run.res.rounds[0].findings[1], replies(run.calls, 'push and reply r2')])
+
+  run = await go('carry: carried and known by an issue', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', knownAs: '#41' })]], postDrop: ['R2-1'] })
+  check('carry: a carried finding known by an issue stays known, listed with its origin, and is not shaped', run.res.rounds[0].findings[0].knownAs === '#41' && JSON.stringify(run.res.rounds[0].carried) === '{"R1-2":"R2-1"}' && pick(run.calls, 'post r2').prompt.includes('### Already tracked\\n\\n- **R2-1** title R2-1: #41 · first reported as R1-2') && !pick(run.calls, 'shape r2'), [run.res.rounds[0], labels(run.calls)])
+  check('carry: its earlier thread is told it is carried and already tracked, with no revise pass', labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|PR description|handoff comment|record files|record commit' && replies(run.calls, 'push and reply r2').length === 1 && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; already tracked in #41 · decided by: redline' && replies(run.calls, 'push and reply r2')[0].route === 'thread' && replies(run.calls, 'push and reply r2')[0].comment_id === 12, [labels(run.calls), replies(run.calls, 'push and reply r2')])
+  check('carry: that thread stays open as already tracked, and the handoff names the issue', run.res.threads.open.some((o) => o.id === 'R1-2' && o.reason === 'already tracked') && comment(run.calls, 'handoff comment').includes('Resolved 0 threads; 1 left open: R1-2 (already tracked).') && comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: carried forward as R2-1: already tracked in #41'), [run.res.threads, comment(run.calls, 'handoff comment')])
+
+  // The same reply from revise()'s batch, the second call site (testing/tests), beside a fixed carry.
+  run = await go('carry: carried and known by an issue, beside a fix', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 }), prior('R1-3', 'none', { comment_id: 13 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', knownAs: '#41' }), f('R2-2', 'correctness', { carriedFrom: 'R1-3' })], []], postDrop: ['R2-1'], commitIds: [['R2-2']] })
+  check('carry: the revise pass answers the issue-tracked carry once, beside the fixed carry', replies(run.calls, 'push and reply r2').filter((x) => x.finding === 'R1-2').length === 1 && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; already tracked in #41 · decided by: redline' && replyFor(run.calls, 'push and reply r2', 'R1-3').startsWith('Redline round 2: carried forward as R2-2; fixed in ') && !('R2-1' in (run.res.rounds[0].outcomes || {})) && !pick(run.calls, 'push and reply r3'), replies(run.calls, 'push and reply r2'))
 }
 
 // ---------------------------------------------------------------------------

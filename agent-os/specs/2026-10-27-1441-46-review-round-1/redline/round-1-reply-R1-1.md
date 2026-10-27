@@ -1,0 +1,1 @@
+Redline round 1: fixed in b08affc (redline: R1-1 clear carriedFrom on a review with no carry-forward list (#35)). · decided by: redline
