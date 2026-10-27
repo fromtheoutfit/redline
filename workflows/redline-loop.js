@@ -1162,7 +1162,8 @@ Return only the JSON your instructions specify, with operation "record-commit" a
 // ---------------------------------------------------------------------------
 
 // The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
-// failed a passing gate on error: '""').
+// failed a passing gate on error: '""'). Every agent's error field goes through it, the GitHub
+// agent's too: Losers League PR #790 stopped at Finish on a PR description update that ran nothing.
 function errorText(out) {
   const text = typeof out.error === 'string' ? out.error.trim() : ''
   return ['""', "''", 'null'].includes(text) ? '' : text
@@ -1341,7 +1342,7 @@ async function gather(round) {
   const facts = await run('gather', gatherPrompt(round), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `gather r${round}`, phase: 'Gather', schema: GATHER_SCHEMA,
   })
-  if (facts.error) {
+  if (errorText(facts)) {
     throw stageError('gather', `redline-gh.sh pr ${pr} failed: ${facts.error}`)
   }
   // A dry run posts and pushes nothing, so it may read a closed PR (a seed, a recall test).
@@ -1395,7 +1396,7 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   // and the run continues: the Losers League #778 shape, every finding moved plus an error string.
   // On anything else it still stops the run, so a post-review that exited after the POST, with no
   // thread ids back, is caught here.
-  if (posted.error) {
+  if (errorText(posted)) {
     const review = posted.review && typeof posted.review === 'object' ? posted.review : null
     const accounted = review
       ? new Set([...(Array.isArray(review.comments) ? review.comments : []).map((c) => c.finding), ...(Array.isArray(review.movedToBody) ? review.movedToBody : [])])
@@ -1529,7 +1530,7 @@ async function replyDropped(record) {
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, record.specFolder, replies, false), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
   })
-  if (pushed.error) {
+  if (errorText(pushed)) {
     throw stageError('push-and-reply', `replies failed in round ${record.round}: ${pushed.error}`)
   }
   record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
@@ -1687,7 +1688,7 @@ async function revise(record, inScope, reviewedKind) {
   const written = await run('snapshot', snapshotPrompt(pass, snapshotPath, json(snapshot)), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `snapshot ${pass.tag}`, phase: 'Approve', schema: FILE_OP_SCHEMA,
   })
-  if (written.error) {
+  if (errorText(written)) {
     throw stageError('snapshot', `writing ${snapshotPath} failed: ${written.error}`)
   }
   const octane = A.octane === true || approvedPaths.some((path) => /^(app\/Providers\/|bootstrap\/|config\/octane\.php)/.test(path))
@@ -1788,7 +1789,7 @@ async function revise(record, inScope, reviewedKind) {
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
   })
-  if (pushed.error) {
+  if (errorText(pushed)) {
     throw stageError('push-and-reply', `push or replies failed in ${pass.name}: ${pushed.error}`)
   }
   record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
@@ -1909,7 +1910,7 @@ async function finish(kind, record, compose) {
     const updated = await run('finish', updatePrompt(record.specFolder, bodyCandidates, abs(copy)), {
       agentType: 'redline:redline-github', ...modelOpts('github'), label: 'PR description', phase: 'Finish', schema: UPDATE_SCHEMA,
     })
-    if (updated.error) {
+    if (errorText(updated)) {
       throw stageError('finish', `updating the PR description failed: ${updated.error}`)
     }
     prBody = updated.prBody
@@ -1921,7 +1922,7 @@ async function finish(kind, record, compose) {
   const out = await run('finish', finishPrompt(kind, record.specFolder, file, compose(prBody)), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: labels[kind], phase: 'Finish', schema: FINISH_SCHEMA,
   })
-  if (out.error) {
+  if (errorText(out)) {
     throw stageError('finish', `the ${kind} comment failed: ${out.error}`)
   }
   record.files.push(file)
@@ -1939,7 +1940,7 @@ async function commitRecord() {
   const status = await run('finish', recordStatusPrompt(unique(folders.concat(start ? [start] : []))), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: 'record files', phase: 'Finish', schema: FILE_OP_SCHEMA,
   })
-  if (status.error) {
+  if (errorText(status)) {
     throw stageError('finish', `listing the run record failed: ${status.error}`)
   }
   const listed = unique(status.files.map((path) => path.trim()).filter((path) => path !== ''))
@@ -1957,7 +1958,7 @@ async function commitRecord() {
   const out = await run('finish', recordCommitPrompt(files, message), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: 'record commit', phase: 'Finish', schema: RECORD_SCHEMA,
   })
-  if (out.error) {
+  if (errorText(out)) {
     throw stageError('finish', `committing the run record failed: ${out.error}`, { files })
   }
   return { committed: out.committed, sha: out.sha, pushed: out.pushed, files, message }

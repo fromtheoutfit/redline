@@ -62,8 +62,9 @@ function mock(scenario) {
       if (opts.label.startsWith('push')) {
         return { operation: 'push-and-reply', dryRun: false, pushed: true, replies: [], files: [], error: '' }
       }
+      // scenario.updateError is the agent's error on an update that ran nothing (no pr-body.md).
       if (opts.label === 'PR description') {
-        return { operation: 'update', prBody: { file: '', updated: false, backup: '', copy: '' }, error: '' }
+        return { operation: 'update', prBody: { file: '', updated: false, backup: '', copy: '' }, error: scenario.updateError || '' }
       }
       // git status over the record's paths: by default one uncommitted file per round folder, and
       // the start snapshot as untracked; scenario.recordFiles scripts the list instead.
@@ -351,6 +352,11 @@ function samePrefix(name, first, second, n) {
   check('record: pushes the head branch when push is on', commit.includes('push: true') && commit.includes('git -C /r push origin redline-seed-3'), commit)
   check('record: reported in the result', run.res.recordCommit.committed === true && run.res.recordCommit.sha === 'c'.repeat(40) && run.res.recordCommit.pushed === true && run.res.recordCommit.files.length === 3, run.res.recordCommit)
   check('record: the handoff comment is composed before the commit, so it lists only the fix commits', !comment(run.calls, 'handoff comment').includes('record the run'))
+
+  run = await go('record: description error \'""\'', baseArgs, { ...scenario, updateError: '""' })
+  check('record: \'""\' from the description update is empty; the handoff and the record follow', run.res.status === 'done' && labels(run.calls).slice(-4).join('|') === 'PR description|handoff comment|record files|record commit', [run.res.status, run.res.error, labels(run.calls).slice(-4)])
+  run = await go('record: description error text', baseArgs, { ...scenario, updateError: 'gh: HTTP 422' })
+  check('record: a real description error stops the run at finish, before the handoff', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('gh: HTTP 422') && !labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error])
 
   run = await go('record: nothing uncommitted', baseArgs, { ...scenario, recordFiles: [] })
   check('record: no commit when git status lists nothing', run.res.status === 'done' && labels(run.calls).slice(-2).join('|') === 'handoff comment|record files' && run.res.recordCommit.committed === false, labels(run.calls).slice(-3))
