@@ -1,0 +1,116 @@
+# The gate, as the Redline checker runs it. The gate step is this repository's own
+# .claude/redline/checks.sh, so a check is added by editing .claude/redline/checks.json and
+# regenerating, never here. Nothing in this file may skip or weaken a check to pass on one OS:
+# a script that fails on one OS is fixed on that OS.
+name: gate
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+# A newer push to a pull request cancels its older run; pushes to main queue instead.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  # The Claude Code that runs `claude plugin validate .` (gate step 2). Recorded in
+  # agent-os/product/tech-stack.md; bump both together.
+  CLAUDE_CODE_VERSION: 2.1.312
+
+jobs:
+  gate:
+    name: gate (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: ubuntu, os: ubuntu-latest }
+          - { name: macos, os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install Claude Code
+        run: npm install -g "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}"
+
+      # The scripts are written for the bash 3.2 and BSD tools a stock macOS has. Homebrew's
+      # bash 5 is first on the runner's PATH; put the system directories ahead of it.
+      - name: Run the scripts under Apple's bash 3.2 and BSD tools
+        if: runner.os == 'macOS'
+        run: printf '%s\n' /bin /usr/bin >> "$GITHUB_PATH"
+
+      - name: Tool versions
+        run: |
+          command -v bash; bash --version | head -1
+          jq --version; python3 --version; node --version; claude --version
+
+      - name: Gate, as the checker runs it
+        timeout-minutes: 15
+        run: |
+          rc=0
+          .claude/redline/checks.sh --baseline > "$RUNNER_TEMP/gate.json" || rc=$?
+          if [ -s "$RUNNER_TEMP/gate.json" ]; then
+            {
+              echo '| check | result |'; echo '|---|---|'
+              jq -r '.checks[] | "| \(.name) | \(if .exit == 0 then "pass" else "**fail (exit \(.exit))**" end) |"' "$RUNNER_TEMP/gate.json"
+            } | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$rc"
+
+      - name: Gate stamp matches the gate text
+        run: scripts/redline-gate.sh check .
+
+      - name: checks.sh is generated from the shipped template
+        run: scripts/redline-setup.sh version .claude/redline/checks.sh
+
+      - name: Working tree is clean after the gate
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            git status --porcelain
+            git --no-pager diff
+            exit 1
+          fi
+
+      - name: Upload the gate's JSON
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate-${{ matrix.name }}
+          path: ${{ runner.temp }}/gate.json
+          if-no-files-found: ignore
+          retention-days: 14
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Advisory until the first clean pass: findings annotate the pull request and the job
+      # stays green. To make it required, delete `continue-on-error` and add this job to the
+      # required checks on main (see the #17 spec's Deferred list). The block opens with
+      # `set -euo pipefail` because GitHub runs a step with no `shell:` as `bash -e`, without
+      # pipefail: a pipe would exit with sed's status and pass on every finding, or with no
+      # shellcheck at all. With it, either fails the step, and `continue-on-error` alone keeps
+      # the job green (#47, R1-1).
+      - name: shellcheck (advisory)
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          shellcheck --version | sed -n 2p
+          shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh \
+            | sed -E 's/^([^:]+):([0-9]+):([0-9]+): (warning|error|note|style): (.*)$/::warning file=\1,line=\2,col=\3::\5/'

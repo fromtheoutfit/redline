@@ -1,0 +1,8 @@
+# shellcheck settings for scripts/*.sh, tests/*.sh and the generated .claude/redline/checks.sh,
+# as .github/workflows/gate.yml runs them; the severity is its -S warning (advisory until the first clean pass).
+# No severity= line here: shellcheck 0.11.0 ignores that key and honours -S (#47, R1-2).
+shell=bash
+# SC2164 (cd without || exit): the test harnesses run under set -uo pipefail by design, so one
+# failing case does not stop the table, and cd into a path they just resolved
+# (tests/guard-test.sh:35) or created (tests/gh-test.sh:147).
+disable=SC2164

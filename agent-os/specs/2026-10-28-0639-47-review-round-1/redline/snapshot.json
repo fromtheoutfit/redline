@@ -1,0 +1,24 @@
+{
+  "pr": 47,
+  "start_sha": "9f7b1c86bdc785688ee89db55194867324559be8",
+  "base_ref": "main",
+  "files": [
+    ".github/workflows/gate.yml",
+    ".nvmrc",
+    ".shellcheckrc",
+    "README.md",
+    "agent-os/product/tech-stack.md",
+    "agent-os/specs/2026-10-27-1632-17-ci-gate-on-every-pr-push/plan.md",
+    "agent-os/specs/2026-10-27-1632-17-ci-gate-on-every-pr-push/references.md",
+    "agent-os/specs/2026-10-27-1632-17-ci-gate-on-every-pr-push/shape.md",
+    "agent-os/specs/2026-10-27-1632-17-ci-gate-on-every-pr-push/standards.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md"
+  ],
+  "plan_paths": [
+    ".github/workflows/gate.yml",
+    ".shellcheckrc",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/specs/2026-10-28-0639-47-review-round-1/"
+  ]
+}
