@@ -14,7 +14,7 @@
 ## Tests
 
 - Bash harnesses for the guard (`tests/guard-test.sh` over `tests/guard-cases.tsv`), the saved settings (`tests/prefs-test.sh`), the gate stamp (`tests/gate-test.sh` over `tests/gate-fixtures/`), the setup script (`tests/setup-test.sh` over `tests/setup-fixtures/`), the GitHub wrapper (`tests/gh-test.sh` over `tests/gh-fixtures/`, with a fake `gh`) and the background runner (`tests/background-test.sh`, with a stub `checks.sh`); Node, ESM, no dependencies, for the workflow (`tests/loop-test.mjs`)
-- No framework, no package manager, no lockfile, no build step. CI is `.github/workflows/gate.yml`: on every push to a pull request and to `main`, on Ubuntu and macOS, the gate as the checker runs it (`.claude/redline/checks.sh --baseline`), then the stamp check, the template version check and a clean-tree check, with shellcheck advisory beside it; Claude Code is pinned there to 2.1.312 for `claude plugin validate`, and Node 22 comes from `.nvmrc`
+- No framework, no package manager, no lockfile, no build step. CI is `.github/workflows/gate.yml`: on every push to a pull request and to `main`, on Ubuntu and macOS, the gate as the checker runs it (`.claude/redline/checks.sh --baseline`), then the stamp check, the template version check and a clean-tree check, with shellcheck required beside it; Claude Code is pinned there to 2.1.312 for `claude plugin validate`, and Node 22 comes from `.nvmrc`
 
 ## Planner and host
 
