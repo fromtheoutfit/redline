@@ -1,0 +1,1 @@
+Redline round 1: fixed in a465d45 (redline: R1-1 run the shellcheck step under pipefail so a finding or a missing shellcheck fails it (#17)). · decided by: redline

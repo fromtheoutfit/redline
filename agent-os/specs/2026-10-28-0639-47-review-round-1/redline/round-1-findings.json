@@ -1,0 +1,41 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "9f7b1c86bdc785688ee89db55194867324559be8",
+    "to": "9f7b1c86bdc785688ee89db55194867324559be8"
+  },
+  "summary": "The workflow runs the repository's own gate unchanged on both OSes, keeps the gate's JSON outside the tree and uploads it on failure. The first runs confirm that the macOS leg uses Apple's bash 3.2 and BSD tools. Both findings concern the advisory shellcheck job and its documented path to becoming a required check: the step exits with sed's status, so it cannot fail even after `continue-on-error` is removed, and the severity set in .shellcheckrc may not be the one shellcheck applies.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": ".github/workflows/gate.yml",
+      "line": 110,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "shellcheck step exits with sed's status, so the job can never fail",
+      "description": "The shellcheck step sets no `shell:`, so GitHub runs it as `bash -e {0}`, which has no pipefail. `shellcheck -f gcc ... | sed -E ...` therefore exits with sed's status, which is 0 whatever shellcheck finds. The same goes for `shellcheck --version | sed -n 2p`, so even a runner image without shellcheck passes, because the 127 is swallowed. `continue-on-error: true` has no effect today. The documented way to make the job required (the comment at lines 103-105 and the Deferred entry in the #17 shape.md: delete `continue-on-error`, then add `shellcheck` to the required checks) would produce a required check that passes on every finding. It also means the job's green status was no evidence for the clean first pass that plan.md's As built records. Reproduced the shell behaviour locally: `bash -c 'set -e; false | cat; echo reached'` prints `reached`.",
+      "proposedFix": "Add `shell: bash` to the step, which GitHub runs as `bash --noprofile --norc -eo pipefail {0}`. Opening the block with `set -o pipefail` does the same. `continue-on-error: true` keeps the job green while it is advisory: the step shows as failed but continued when shellcheck finds something. Deleting `continue-on-error` later then gives a check that fails on a finding or when shellcheck is missing. Prove it with one throwaway commit, as Task 7 did for the gate: add a line shellcheck flags at warning (for example `local x=$(true)`, SC2155) to a script under scripts/ and see the step go red.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    },
+    {
+      "id": "R1-2",
+      "file": ".shellcheckrc",
+      "line": 3,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "unsure",
+      "title": "severity=warning may not be a .shellcheckrc key; pass -S warning",
+      "description": "ShellCheck treats the keys in .shellcheckrc as file-wide directives. The directives it documents are `disable`, `enable`, `source`, `source-path`, `shell`, `external-sources` and `extended-analysis`; minimum severity is set with `-S`/`--severity` or `SHELLCHECK_OPTS`. If `severity=` is unknown there, the job runs at the default severity (style), not at warning as this file's comment, the README's Contributing section and the new bash-conventions bullet say, and the eventual required check would fail on info and style notes. One run tells the two cases apart. `scripts/redline-gh.sh:122-123` (`THREADS_QUERY='query($owner: ...'` and `RESOLVE_MUTATION='mutation($threadId: ...'`) carry no disable directive and are SC2016, an info-level note. A run at default severity annotates both lines; a run at warning does not. plan.md's As built records no findings on the first pass, which points the other way. shellcheck is not installed here, so this could not be settled by running it.",
+      "proposedFix": "Put the severity on the command line in gate.yml, where ShellCheck documents it: `shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh`. That is correct whether or not the rc key is honoured. If the run without it shows SC2016 notes on scripts/redline-gh.sh:122-123, also drop `severity=warning` from .shellcheckrc and say in its header comment that the severity comes from the workflow's flag.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": ""
+    }
+  ]
+}

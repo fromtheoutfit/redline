@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 2\n\nReviewed only the fix diff from round 1 (9f7b1c8..13d746f).\n\nBoth round 1 fixes landed as decided. The advisory shellcheck step now starts with `set -euo pipefail`. A finding, or a runner with no shellcheck, fails the step, and `continue-on-error` alone keeps the job green, so deleting that line later gives a required check that really fails. The severity is set only by `-S warning` on the workflow command, and .shellcheckrc and the bash-conventions standard now say so. No other script or check in the repository relied on the removed `severity=` key. This repository has no scheduled commands or queued jobs, so the changed files share no data with any other process. Redline could not run shellcheck in this round because the reviewer's allowlist blocks it, so the pipefail behaviour was checked by reading the workflow, not by running it.\n\nNo findings.",
+  "comments": []
+}
