@@ -144,3 +144,21 @@ Not an implementer task: no Redline role can read a workflow run, and a throwawa
    - The shellcheck step must show failed, with an annotation on that line, while the job stays green.
    - Then drop the commit before merge.
 3. R1-2 was decided as option (2) (Task 3). In the same run, the step's script listing shows `shellcheck -S warning -f gcc ...`, and there are no SC2016 notes on `scripts/redline-gh.sh:122-123`. A note on either line means the flag did not take effect.
+
+## As built
+
+Built as planned. No deviation, so `shape.md` Decisions gains no entry.
+
+- **Task 1** (`8ee2115`): the four spec files, on their own. `redline/` was left to the workflow.
+- **Task 2, R1-1** (`a465d45`): red first, both `bash -c 'set -e; (exit 1|127) | sed -n 2p; echo step-continues'` commands printed `step-continues`. After the edit:
+  - both `set -euo pipefail` proofs printed `step-fails`;
+  - `grep -n -A1 'run: |'` lists four run blocks, the last at 112 with `set -euo pipefail` on 113;
+  - `grep -n 'R1-1'` prints one line, 109, the comment's last;
+  - the commit lists only `.github/workflows/gate.yml`.
+- **Task 3, R1-2** (`5b9c23b`): red first, the flag count printed `0` and the rc key count `1`. After the edit:
+  - `shellcheck -S warning -f gcc` is on line 115;
+  - the counts of `shellcheck -f gcc` and `^severity=` are `0`;
+  - `.shellcheckrc` keeps `4:shell=bash` and `8:disable=SC2164`, with `R1-2` on line 3;
+  - the commit lists only `.github/workflows/gate.yml` and `.shellcheckrc`.
+- **Task 4** (`7e91246`): the two approved edits to `agent-os/standards/scripts/bash-conventions.md`, line 30's closing words first, then the new bullet after it, in the approved wording. The heading is unchanged. Neither edit carries part of a finding's fix, so the message names no finding.
+- **Task 5**: `checks.sh` with the round's snapshot was green on its first run, all nine checks at exit 0, with no unexpected or uncommitted files. Nothing reads the workflow or `.shellcheckrc`, so this shows only that nothing else moved. The behavioural proof is the CI run in After the run above.
