@@ -102,10 +102,15 @@ jobs:
 
       # Advisory until the first clean pass: findings annotate the pull request and the job
       # stays green. To make it required, delete `continue-on-error` and add this job to the
-      # required checks on main (see the #17 spec's Deferred list).
+      # required checks on main (see the #17 spec's Deferred list). The block opens with
+      # `set -euo pipefail` because GitHub runs a step with no `shell:` as `bash -e`, without
+      # pipefail: a pipe would exit with sed's status and pass on every finding, or with no
+      # shellcheck at all. With it, either fails the step, and `continue-on-error` alone keeps
+      # the job green (#47, R1-1).
       - name: shellcheck (advisory)
         continue-on-error: true
         run: |
+          set -euo pipefail
           shellcheck --version | sed -n 2p
           shellcheck -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh \
             | sed -E 's/^([^:]+):([0-9]+):([0-9]+): (warning|error|note|style): (.*)$/::warning file=\1,line=\2,col=\3::\5/'
