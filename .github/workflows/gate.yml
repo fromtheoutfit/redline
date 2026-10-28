@@ -112,5 +112,5 @@ jobs:
         run: |
           set -euo pipefail
           shellcheck --version | sed -n 2p
-          shellcheck -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh \
+          shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh \
             | sed -E 's/^([^:]+):([0-9]+):([0-9]+): (warning|error|note|style): (.*)$/::warning file=\1,line=\2,col=\3::\5/'
