@@ -50,6 +50,9 @@ bg() { (cd "$REPO" && exec "$BG" start "$@") >/dev/null 2>&1 & }
 # within <seconds> <test expression...>: polls the test every 0.1 s, at most that long; 1 on timeout,
 # so a missing script fails the case instead of hanging the table.
 within() { local n=$(( $1 * 10 )); shift; while (( n-- > 0 )); do test "$@" && return 0; sleep 0.1; done; return 1; }
+# count <dir> <prefix>: how many entries of <dir> start with <prefix>; 0 when none (an unmatched
+# glob stays literal, so every name is tested before it is counted).
+count() { local n=0 f; for f in "$1/$2"*; do [[ -e "$f" || -L "$f" ]] && n=$((n+1)); done; echo "$n"; }
 # waitfor <label> [opts...]: run wait from the repository, keeping stdout, stderr and the exit code.
 waitfor() {
     out="$(cd "$REPO" && "$BG" wait "$@" 2>"$WORK/err")"; code=$?
@@ -62,7 +65,7 @@ waitfor pass0
 same "exit 0: stdout is the gate's JSON, verbatim" "$out" '{"mode":"stub","ok":true,"args":"--baseline snap.json","octane":"","checks":[],"git":null}'
 same "exit 0: wait exits 0" "$code" "0"
 has "exit 0: stderr carries the gate's progress lines" "$err" "checks.sh: running the stub gate"
-same "a returned result is read once: the label's files are gone" "$(ls "$FILES" | grep -c '^pass0\.')" "0"
+same "a returned result is read once: the label's files are gone" "$(count "$FILES" pass0.)" "0"
 waitfor pass0 --slice 2
 same "a wait on a label whose result was read exits 5" "$code" "5"
 

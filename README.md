@@ -157,7 +157,7 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 
 ## Contributing
 
-Every push to a pull request and every push to `main` runs the gate in GitHub Actions on Ubuntu and macOS (`.github/workflows/gate.yml`): the same `.claude/redline/checks.sh --baseline` the Redline checker runs, then `scripts/redline-gate.sh check .`, `scripts/redline-setup.sh version .claude/redline/checks.sh`, and a check that the tree is clean afterwards. Run the same four from the repository root before pushing; a check that fails on one OS is fixed on that OS, never skipped in the workflow. shellcheck runs beside the gate on Ubuntu, advisory until its first clean pass.
+Every push to a pull request and every push to `main` runs the gate in GitHub Actions on Ubuntu and macOS (`.github/workflows/gate.yml`): the same `.claude/redline/checks.sh --baseline` the Redline checker runs, then `scripts/redline-gate.sh check .`, `scripts/redline-setup.sh version .claude/redline/checks.sh`, and a check that the tree is clean afterwards. Run the same four from the repository root before pushing; a check that fails on one OS is fixed on that OS, never skipped in the workflow. shellcheck runs beside the gate on Ubuntu and is required.
 
 ## Known limits
 
