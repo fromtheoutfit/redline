@@ -150,3 +150,16 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 10. **Docs**: every row under Docs entries names its commit or its reason. The `README.md` row's commit is Task 2's, listed by hash in As built.
 11. **Standards retrospective**: Task 5, from the proposed list in `shape.md`, as the standards approver approved it.
 12. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+Built as shaped, with no deviation, so `shape.md` Decisions gains nothing.
+
+- **Task 1**, `7867fb8`: the four spec files. `redline/` is left to the workflow.
+- **Task 2 (R1-1)**, `dbdee6e`: `README.md:162` now opens "The gate has a Docs step:". Red first, `grep -c "step 10 is a Docs step" README.md` printed `1`. After the edit it prints `0`, `grep -n "The gate has a Docs step:"` finds line 162 only, and `grep -n "step 1[0-9]"` finds line 269 only (the setup skill's step). The commit touches only `README.md`.
+- **Task 4 (R1-3)**, `1a85938`: `agents/redline-plan-approver.md:23` is the line Task 4 gives. Red first, `grep -c "with the commit or a"` printed `1`. After the edit it prints `0`, "Never bounce an entry for naming no commit" is on line 23, eight checks remain, and the `name:` line is unchanged. The commit touches only the agent file. Gate step 2 (`claude plugin validate .`) passes.
+- **Tasks 3 and 5 (R1-2 and the retrospective)**, `f7842f0`: the standards approver approved items 1 to 3. They are applied to `agent-os/standards/process/docs-gate.md` in the shaped order: item 1 rewrites line 7, item 2 is line 8, item 3 is line 9. Red first, `grep -c 'under a "Docs entries" heading'` printed `1`. After the commit it prints `0`, "in the task that touches the file" is on line 7, and the `# Docs gate` heading is unchanged (no heading line in `git diff` against the parent). The message names R1-2, whose whole fix item 1 carries. Items 2 and 3 are lessons only, so they name no finding.
+- **Task 6, steps 1 to 9**: `checks.sh` against `redline/snapshot.json` exited 0 on its first run. All nine checks passed, and `git.unexpected_files` and `git.uncommitted` were both empty.
+- **Step 10, Docs**: the `README.md` row's commit is `dbdee6e`. The other three rows give their reasons as written under Docs entries.
+- **Step 11, Standards retrospective**: `f7842f0`, as above.
+- **Step 12, Spec folder**: these notes, in the round's last commit.
