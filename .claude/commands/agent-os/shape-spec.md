@@ -41,8 +41,8 @@ In a Redline run you are the **shaper**: a subagent shaping one review round of 
    **Proportionality rule.** Before choosing `fix` for a correctness finding, record two things in `shape.md`: how likely and visible the failure is (observed? reachable by a normal user? what happens when it fires?) and what the fix costs (files touched, especially outside the PR's diff; new dependencies, services or abstractions; rough size). When the cost is out of proportion to the likelihood and impact, you may not choose the full fix on your own: it is `defer` if a cheap mitigation exists, otherwise `ask`.
 5. **Investigate before you sort.** Read the code a finding names and its callers and tests. A finding you cannot confirm or refute after that is `ask` with `why_human: "unsure"`, never silently dropped and never marked `fix` on trust.
 6. **Scope and folder name.** Scope is the round's findings, nothing more. The spec folder is `agent-os/specs/YYYY-MM-DD-HHMM-<pr>-review-round-<n>/`, where the timestamp is the launch timestamp **from the invoking prompt**, never the clock, so a relaunch names the same folder. Step 6's slug rule does not apply.
-7. **The plan.** Task 1 is "Save spec documentation", as always. Then one task per `fix` or `defer` finding, in finding order, each naming the file, the change and the test that proves it. Then one task per `ask` finding, titled `Pending decision <id>: <title>`, holding the options rather than a change. The final task is the Verification Gate, whose command steps (gate steps 1 to 9) read, in a Redline run: **run `.claude/redline/checks.sh <snapshot>` until it exits 0; its JSON is the evidence.** The script is a transcription of those steps, so the gate text stays the source. Steps 10 and 11 stay as written. You do not run the gate; the implementer and checker do. Every command the plan gives the implementer to run, in a task or in the gate, is a plain pipeline: no `$`, backticks, process substitution (`<(`, `>(`) or interpreter (`python3`, `node`, `php -r`). Those are the Bash rules Redline's agents follow, and the implementer's guard refuses a command that breaks them.
-8. **Standards retrospective.** Gate step 10's edits are proposed, not applied. Write the proposed edit list (file, line, the drafted wording, or "no changes") under `## Standards retrospective (proposed)` in `shape.md`. An item whose wording depends on a pending decision is listed as `Held for <id>` with what it would record; the resolve agent drafts it once the person has decided, before the standards approver runs. The standards approver approves the list and the implementer applies it in its own commit. `standards.md` still records each applied standard as it reads at shaping time.
+7. **The plan.** Task 1 is "Save spec documentation", as always. Then one task per `fix` or `defer` finding, in finding order, each naming the file, the change and the test that proves it. Then one task per `ask` finding, titled `Pending decision <id>: <title>`, holding the options rather than a change. The final task is the Verification Gate, whose command steps (gate steps 1 to 9) read, in a Redline run: **run `.claude/redline/checks.sh <snapshot>` until it exits 0; its JSON is the evidence.** The script is a transcription of those steps, so the gate text stays the source. Steps 10, 11 and 12 stay as written, and gate step 10, Docs, is applied when you write the plan: a task that adds or alters a file under scripts/, skills/, agents/, templates/, workflows/, hooks/ or .claude-plugin/, or adds a config key, subcommand, allow rule or exit code, names the README section (and template, if any) it updates or says "no reader-facing change" and why, so the round's commits carry the README edit. You do not run the gate; the implementer and checker do. Every command the plan gives the implementer to run, in a task or in the gate, is a plain pipeline: no `$`, backticks, process substitution (`<(`, `>(`) or interpreter (`python3`, `node`, `php -r`). Those are the Bash rules Redline's agents follow, and the implementer's guard refuses a command that breaks them.
+8. **Standards retrospective.** Gate step 11's edits are proposed, not applied. Write the proposed edit list (file, line, the drafted wording, or "no changes") under `## Standards retrospective (proposed)` in `shape.md`. An item whose wording depends on a pending decision is listed as `Held for <id>` with what it would record; the resolve agent drafts it once the person has decided, before the standards approver runs. The standards approver approves the list and the implementer applies it in its own commit. `standards.md` still records each applied standard as it reads at shaping time.
 9. **You write only the spec folder.** Create it with Write. Do not edit source files and do not run `gh`. Read-only `git` (`status`, `diff`, `log`, `show`, `blame`) is fine; never stage, commit, check out, stash or create branches. If a referenced file does not exist, say so in `shape.md` rather than creating it.
 10. **What you return.** Your final output is JSON, not prose:
 
@@ -201,7 +201,7 @@ Create `agent-os/specs/{folder-name}/` with:
 
 ## Task N: Verification Gate
 
-Run the nine commands in the Verification Gate section (`.claude/redline/checks.sh --baseline` runs them all and prints one JSON object), then the standards retrospective. Fix anything that fails and rerun. The spec is not complete until the gate is green and the retrospective has either landed in the standards or recorded "no changes".
+Run the nine commands in the Verification Gate section (`.claude/redline/checks.sh --baseline` runs them all and prints one JSON object), then the Docs step and the standards retrospective. Fix anything that fails and rerun. The spec is not complete until the gate is green, every Docs entry names its commit or its reason, and the retrospective has either landed in the standards or recorded "no changes".
 
 ---
 
@@ -226,7 +226,7 @@ Plan complete. When you approve and execute:
 
 1. Task 1 will save all spec documentation first
 2. Then implementation tasks will proceed
-3. The final task runs the verification gate, ending with the standards retrospective. The spec is not complete until it is green and the standards are updated or "no changes" is recorded
+3. The final task runs the verification gate, ending with the Docs step and the standards retrospective. The spec is not complete until it is green and the standards are updated or "no changes" is recorded
 
 Ready to start? (approve / adjust)
 ```
@@ -247,16 +247,17 @@ Run in this order:
 8. **GitHub wrapper** — `tests/gh-test.sh` prints `N passed, 0 failed`. A change to a read subcommand of `scripts/redline-gh.sh` adds a case; the fixtures under `tests/gh-fixtures/` are served by the harness's fake `gh`, so nothing reaches GitHub, and a fixture is made large enough to hit the limit it guards (a 60,000-line patch, 150 files over two pages).
 9. **Background** — `tests/background-test.sh` prints `N passed, 0 failed`. A change to `scripts/redline-background.sh` adds a case; the harness runs a stub `checks.sh` in a throwaway repository, so a case that waits on a slow run takes seconds, not the gate's minutes.
    Steps 1 to 9 are what `.claude/redline/checks.sh --baseline` runs, in this order, as one command that prints one JSON object; a Redline run's checker runs the same script with the round's snapshot. The script's header records the baseline time, almost all of it the guard table.
-10. **Standards retrospective** — the standards are a living record, so every spec ends by asking what it taught. Do this mechanically, not from memory:
+10. **Docs** — For each file the change added or altered under `scripts/`, `skills/`, `agents/`, `templates/`, `workflows/`, `hooks/` or `.claude-plugin/`, and for each new config key, subcommand, allow rule or exit code: name the README section (and template, if any) that describes it, and either the commit that updated it or the words "no reader-facing change" with the reason. A plan that cannot name the section adds one. The shaper writes these entries into the plan, one per touched file; the gate confirms each names its commit or its reason.
+11. **Standards retrospective** — the standards are a living record, so every spec ends by asking what it taught. Do this mechanically, not from memory:
    1. List every Decision in `shape.md`, every deviation in `plan.md`'s "As built" section, and every check that went red during the build and was fixed by learning something about Claude Code, the harness or the tooling.
    2. Classify each item: already in a standard (cite the file), missing (name the file and draft the line), or contradicting a standard (quote the line that is now wrong). Also confirm no pattern was invented that is not in `agent-os/standards/`; if one was needed, it was proposed and added before use.
    3. Present the proposed edits with AskUserQuestion: apply, adjust, or none.
    4. Apply approved edits in their own commit (the user titles it), separate from the spec's code. Code that enforces a new rule (a guard-cases row, a loop-test check) goes in a following commit together with the case proving a violation fails.
    5. If nothing changes, add "Standards retrospective: no changes" under Decisions in `shape.md`, so the absence is deliberate and visible.
    The spec is not complete until step 4 or step 5 has happened.
-11. **Spec folder** — `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`.
+12. **Spec folder** — `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`.
 
-Only after all eleven pass, report the spec complete.
+Only after all twelve pass, report the spec complete.
 
 ## Output Structure
 
@@ -346,4 +347,4 @@ The following standards apply to this work.
 - **Standards guide, not dictate** — They inform the plan but aren't always mandatory.
 - **Specs are discoverable** — Months later, someone can find this spec and understand what was built and why.
 - **The gate is the definition of done** — A spec with a red `checks.sh --baseline` is unfinished work, however small the change.
-- **Standards are a living record** — The retrospective in gate step 10 is how they grow. A spec that taught nothing says so in `shape.md`; a spec that taught something changes a standard in its own commit.
+- **Standards are a living record** — The retrospective in gate step 11 is how they grow. A spec that taught nothing says so in `shape.md`; a spec that taught something changes a standard in its own commit.
