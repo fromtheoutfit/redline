@@ -159,7 +159,7 @@ For a Redline role it is a default-deny allowlist, in a table at the top of the 
 
 Every push to a pull request and every push to `main` runs the gate in GitHub Actions on Ubuntu and macOS (`.github/workflows/gate.yml`): the same `.claude/redline/checks.sh --baseline` the Redline checker runs, then `scripts/redline-gate.sh check .`, `scripts/redline-setup.sh version .claude/redline/checks.sh`, and a check that the tree is clean afterwards. Run the same four from the repository root before pushing; a check that fails on one OS is fixed on that OS, never skipped in the workflow. shellcheck runs beside the gate on Ubuntu and is required.
 
-The gate's step 10 is a Docs step: a spec that adds or alters a file under `scripts/`, `skills/`, `agents/`, `templates/`, `workflows/`, `hooks/` or `.claude-plugin/`, or adds a config key, subcommand, allow rule or exit code, names in its plan the README section (and template) it updates, or says why there is no reader-facing change. The Redline reviewer reports a change with no such entry as a nit, and the plan approver sends back a plan missing one.
+The gate has a Docs step: a spec that adds or alters a file under `scripts/`, `skills/`, `agents/`, `templates/`, `workflows/`, `hooks/` or `.claude-plugin/`, or adds a config key, subcommand, allow rule or exit code, names in its plan the README section (and template) it updates, or says why there is no reader-facing change. The Redline reviewer reports a change with no such entry as a nit, and the plan approver sends back a plan missing one.
 
 ## Known limits
 
