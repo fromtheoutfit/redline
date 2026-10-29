@@ -1,0 +1,1 @@
+Redline round 1: fixed in f7842f0 (redline: record the round 1 review lessons in the standards, fixing R1-2 (#13)). · decided by: redline

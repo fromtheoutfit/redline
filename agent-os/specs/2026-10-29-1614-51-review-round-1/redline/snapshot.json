@@ -1,0 +1,25 @@
+{
+  "pr": 51,
+  "start_sha": "589a5ee6e7ecd3dc8018890401d17eb5c076b9dc",
+  "base_ref": "main",
+  "files": [
+    ".claude/commands/agent-os/shape-spec.md",
+    ".claude/redline/checks.sh",
+    "README.md",
+    "agent-os/specs/2026-10-29-1559-13-docs-gate-step/plan.md",
+    "agent-os/specs/2026-10-29-1559-13-docs-gate-step/references.md",
+    "agent-os/specs/2026-10-29-1559-13-docs-gate-step/shape.md",
+    "agent-os/specs/2026-10-29-1559-13-docs-gate-step/standards.md",
+    "agent-os/standards/index.yml",
+    "agent-os/standards/process/docs-gate.md",
+    "agent-os/standards/process/standards-retrospective.md",
+    "agents/redline-plan-approver.md",
+    "agents/redline-reviewer.md"
+  ],
+  "plan_paths": [
+    "README.md",
+    "agents/redline-plan-approver.md",
+    "agent-os/standards/process/docs-gate.md",
+    "agent-os/specs/2026-10-29-1614-51-review-round-1/"
+  ]
+}

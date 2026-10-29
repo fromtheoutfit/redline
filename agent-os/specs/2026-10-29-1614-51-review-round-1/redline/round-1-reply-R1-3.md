@@ -1,0 +1,1 @@
+Redline round 1: fixed in 1a85938 (redline: R1-3 have plan approver check 8 ask for the README section or the reason, never a commit the plan cannot name yet (#13)). · decided by: redline

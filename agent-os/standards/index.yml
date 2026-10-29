@@ -1,6 +1,8 @@
 # Agent OS Standards Index
 
 process:
+  docs-gate:
+    description: Every spec names the README section (and template) each touched plugin file needs, or says why there is no reader-facing change
   internal-notes:
     description: The public repo carries the tool and its README; design records and step notes live in redline-internal
   standards-retrospective:
