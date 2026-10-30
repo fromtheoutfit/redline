@@ -1835,18 +1835,24 @@ function checkDispositions(pass, shaped) {
   }
 }
 
-// The forcing point (#49): after shaping, whatever the shaper returned, a finding a repository ask
-// rule covers is an ask to the person. A paths rule is matched on the finding's file and on the
-// files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The finding
-// becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper gave
-// none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
-// Deterministic from args and the shaper's JSON, so a relaunch replays it. The numeric limits of
-// #25 force here too, when they come.
+// The forcing point (#49): after shaping, whatever fix, defer or ask the shaper returned, a finding
+// a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
+// and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
+// finding becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper
+// gave none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
+// A human pass's none, a comment that asks for nothing, is left as it is: there is no change to
+// leave to the person (#52, R1-4). Deterministic from args and the shaper's JSON, so a relaunch
+// replays it. The numeric limits of #25 force here too, when they come.
 function forceAskRules(record, pass, inScope, shaped) {
   record.forced = record.forced || {}
   for (const f of inScope) {
     const s = shaped.findings.find((x) => x.id === f.id)
     if (!s) {
+      continue
+    }
+    // A human pass's none is a comment that asks for nothing: it makes no change, so there is
+    // nothing to leave to the person, and it keeps its "no change requested" reply (#52, R1-4).
+    if (s.disposition === 'none') {
       continue
     }
     const files = Array.isArray(s.files) ? s.files : []
