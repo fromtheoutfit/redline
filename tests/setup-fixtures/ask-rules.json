@@ -1,0 +1,4 @@
+[
+  {"id": "craft-project-config", "when": {"paths": ["config/project/**"]}, "reason": "Craft project config is applied through the control panel"},
+  {"id": "billing", "when": {"prose": "the change alters what a customer is charged"}, "reason": "Billing changes are reviewed by finance"}
+]

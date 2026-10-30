@@ -89,6 +89,14 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # workflows/, skills/, tests/, templates/, hooks/ and the README are repository content under the
 # same prefixes. Two files stay refused for every role there, because they are the guard that
 # vets the run: scripts/redline-guard.sh and hooks/hooks.json. A person changes those.
+# A repository's ask rules (askRules[].when.paths in <repo>/.claude/redline.json, #49) name the files
+# a person is always brought in for: a write under one is refused for every role, naming the rule,
+# and so is a write to a directory that holds a rule's root (rm -rf config). The target is resolved
+# through symlinks first, so a path outside the repository that resolves into a match is refused
+# too. Globs: ** spans directories, * and ? stay inside one segment, a pattern with no / matches at
+# any depth, a trailing / takes the directory and everything in it; matched case-folded against the
+# repository-relative path (the same dialect as workflows/redline-loop.js). A malformed askRules
+# list refuses every write by a role, naming the fault, until a person fixes the file.
 # ---------------------------------------------------------------------------
 REDLINE_GUARD_TABLE='
 reviewer           | read tests gh-read                                | TMP
@@ -202,6 +210,141 @@ if SELF_HOSTED:
     PROTECTED_FILES = PROTECTED_FILES + SELF_HOSTED_FILES
 NEVER_WRITES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty"}
 ENV_OK = {"TMPDIR": os.environ.get("TMPDIR", "/tmp"), "CLAUDE_PROJECT_DIR": os.environ.get("CLAUDE_PROJECT_DIR", REPO)}
+REPO_REAL = os.path.realpath(REPO)
+
+
+# --- Repository ask rules (#49) ---------------------------------------------
+# askRules[].when.paths in <repo>/.claude/redline.json: the files a person is always brought in
+# for. A write under one is refused for every role. The glob dialect is shared with the workflow
+# (globToRegExp in workflows/redline-loop.js) and pinned by the same cases on both sides.
+
+RULE_ID = re.compile(r"[a-z][a-z0-9-]*")
+
+
+def glob_regex(pattern):
+    """The shared dialect: ** spans segments, * and ? stay inside one, a pattern with no slash
+    (a trailing one aside) matches at any depth, a leading slash only anchors, a trailing slash
+    takes the directory and everything in it. Case-folded, as the protected paths are."""
+    p = pattern.casefold()
+    anchored = "/" in p.rstrip("/")
+    p = p.lstrip("/")
+    dir_only = p.endswith("/")
+    p = p.rstrip("/")
+    out = ""
+    i = 0
+    while i < len(p):
+        c = p[i]
+        if p.startswith("**", i):
+            if p.startswith("**/", i):
+                out += "(?:.*/)?"
+                i += 3
+                continue
+            out += ".*"
+            i += 2
+            continue
+        if c == "*":
+            out += "[^/]*"
+        elif c == "?":
+            out += "[^/]"
+        else:
+            out += re.escape(c)
+        i += 1
+    if not anchored:
+        out = "(?:.*/)?" + out
+    if dir_only:
+        out += "(?:/.*)?"
+    return re.compile("^" + out + "$")
+
+
+def glob_root(pattern):
+    """The literal leading segments of a pattern (config/project for config/project/**): a write
+    to that directory or one above it takes the rule's files along, so it is refused as well.
+    Empty when the first segment holds a wildcard."""
+    segments = []
+    for segment in pattern.casefold().strip("/").split("/"):
+        if "*" in segment or "?" in segment:
+            break
+        segments.append(segment)
+    return "/".join(segments)
+
+
+def rule_fault(rule, ids):
+    """Why a rule is malformed, or None. The same wording the skill's precheck and
+    redline-setup.sh config use."""
+    if not isinstance(rule, dict):
+        return "not an object"
+    rid = rule.get("id")
+    if not isinstance(rid, str) or not RULE_ID.fullmatch(rid):
+        return "id must match [a-z][a-z0-9-]*"
+    if rid in ids:
+        return f"id '{rid}' is not unique"
+    ids.add(rid)
+    when = rule.get("when")
+    if not isinstance(when, dict) or sorted(when.keys()) not in (["paths"], ["prose"]):
+        return f"rule '{rid}': when must hold exactly one of paths or prose"
+    if "paths" in when:
+        paths = when["paths"]
+        if not isinstance(paths, list) or not paths or any(not isinstance(p, str) or not p.strip() for p in paths):
+            return f"rule '{rid}': paths must be a non-empty list of non-empty strings"
+        if any("!" in p or "[" in p for p in paths):
+            return f"rule '{rid}': a path pattern may not hold ! or ["
+    elif not isinstance(when["prose"], str) or not when["prose"].strip():
+        return f"rule '{rid}': prose must be a non-empty string"
+    reason = rule.get("reason")
+    if not isinstance(reason, str) or not reason.strip() or "\n" in reason.strip():
+        return f"rule '{rid}': reason must be one non-empty line"
+    return None
+
+
+def load_ask_rules(repo):
+    """(rules, fault): the paths rules as (id, pattern, reason, regex, root), or a fault string
+    when the file or its askRules cannot be trusted, which refuses every write (fail closed)."""
+    path = os.path.join(repo, ".claude", "redline.json")
+    if not os.path.isfile(path):
+        return [], None
+    try:
+        with open(path) as fh:
+            config = json.load(fh)
+    except Exception:
+        return [], ".claude/redline.json is not JSON"
+    rules = config.get("askRules") if isinstance(config, dict) else None
+    if rules is None:
+        return [], None
+    if not isinstance(rules, list):
+        return [], "askRules is not a list"
+    out, ids = [], set()
+    for n, rule in enumerate(rules, 1):
+        fault = rule_fault(rule, ids)
+        if fault:
+            return [], f"askRules[{n}]: {fault}"
+        if "paths" in rule["when"]:
+            for pattern in rule["when"]["paths"]:
+                out.append((rule["id"], pattern, rule["reason"].strip(), glob_regex(pattern), glob_root(pattern)))
+    return out, None
+
+
+ASK_RULES, ASK_FAULT = load_ask_rules(REPO)
+
+
+def ask_rule(raw, absolute, real):
+    """A reason when the target is under a repository ask rule, or holds a rule's root."""
+    if ASK_FAULT:
+        return f"'{raw}': askRules in .claude/redline.json is malformed ({ASK_FAULT}); a person fixes the file before a Redline role writes anything"
+    if not ASK_RULES:
+        return None
+    rels = []
+    for path, base in ((absolute, REPO), (real, REPO_REAL)):
+        rel = os.path.relpath(path, base).replace(os.sep, "/")
+        if rel == ".." or rel.startswith("../"):
+            continue
+        rels.append(rel.casefold())
+    for rid, pattern, reason, regex, root in ASK_RULES:
+        for rel in rels:
+            if rel != "." and regex.match(rel):
+                return f"'{raw}' is under repository ask rule '{rid}' ({pattern}): {reason}; a person makes this change, never a Redline role"
+            if root and (rel == "." or rel == root or root.startswith(rel + "/")):
+                return f"'{raw}' holds the files of repository ask rule '{rid}' ({pattern}): {reason}; a person makes this change, never a Redline role"
+    return None
 
 
 def expand(path):
@@ -262,8 +405,10 @@ def writable(raw, cur):
         return f"write target '{raw}' is under the home directory"
     path = path.split("*")[0].split("?")[0] or "."
     absolute = os.path.normpath(os.path.join(cur, path))
-    real = os.path.realpath(absolute) if os.path.exists(os.path.dirname(absolute) or "/") else absolute
-    reason = protected(raw, absolute, real)
+    # Resolved whether or not the parent exists yet: a link above a missing parent still points
+    # into the repository, and resolving only ever refuses more (#49).
+    real = os.path.realpath(absolute)
+    reason = protected(raw, absolute, real) or ask_rule(raw, absolute, real)
     if reason:
         return reason
     for prefix in PREFIXES:

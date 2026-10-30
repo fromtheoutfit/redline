@@ -207,7 +207,7 @@ gh has-review 8 1 >/dev/null; is "has-review: no Redline review at all (exit 1)"
 echo "# prior-findings"
 pf="$(gh prior-findings 14)"; code=$?
 is "prior-findings: exits 0" "$code" "0"
-is "prior-findings: every posted finding, by round then number; an Already tracked line is not a finding" "$(jq -c '[.[].id]' <<<"$pf")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R1-6","R2-1","R2-2"]'
+is "prior-findings: every posted finding, by round then number; an Already tracked line is not a finding" "$(jq -c '[.[].id]' <<<"$pf")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R1-6","R2-1","R2-2","R2-3"]'
 is "prior-findings: a fixed reply is fixed, with the thread's comment and reply ids" "$(jq -c '.[0] | [.disposition, .comment_id, .reply.id, .round, .review_id]' <<<"$pf")" '["fixed",1401,1411,1,20]'
 is "prior-findings: the finding line's fields" "$(jq -c '.[0] | [.category, .severity, .confidence, .file, .line, .title]' <<<"$pf")" '["correctness","high","confirmed","app/a.php",5,"Missing status filter"]'
 is "prior-findings: the inline body is the root comment's" "$(jq -r '.[0].body' <<<"$pf" | head -1)" "**R1-1** · correctness · high · confirmed"
@@ -220,6 +220,9 @@ is "prior-findings: a finding a later round carried is carried, whatever its thr
 is "prior-findings: any other reply is decided" "$(jq -r '.[5].disposition' <<<"$pf")" "decided"
 is "prior-findings: a fresh finding of the later round with no reply is none" "$(jq -c '.[6] | [.disposition, .carried_from, .round]' <<<"$pf")" '["none","",2]'
 is "prior-findings: the carried finding names its origin, its title carries neither suffix, and not changed carries forward" "$(jq -c '.[7] | [.carried_from, .title, .disposition, .carried_to]' <<<"$pf")" '["R1-5","Streak one short","not-changed",""]'
+# A finding a repository ask rule left to the person (#49): the rule tail is stripped from the title
+# and its "left to the author" reply reads left, a disposition, so a later run never re-raises it.
+is "prior-findings: the ask-rule tail is stripped from the title and a left reply is left" "$(jq -c '.[8] | [.title, .disposition, .comment_id, .reply.id, .file]' <<<"$pf")" '["Field handle renamed in project config","left",1423,1433,"config/project/project.yaml"]'
 is "prior-findings: a PR with no Redline review prints an empty list" "$(gh prior-findings 8)" "[]"
 gh prior-findings 99 >/dev/null 2>&1; is "prior-findings: a gh error exits 2" "$?" "2"
 

@@ -83,7 +83,7 @@ if (!Number.isInteger(firstRound) || firstRound < 1) {
 // as firstRound: the run's own carried-forward replies change the old threads, so nothing inside
 // the workflow may read them. A finding with no reply, or a "not changed" one, is carried into this
 // run's first round; the rest are tracked and never re-raised.
-const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'none', 'not-changed']
+const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
 const CARRY = ['none', 'not-changed']
 const priorFindings = A.priorFindings === undefined ? [] : A.priorFindings
 if (!Array.isArray(priorFindings)) {
@@ -102,6 +102,47 @@ const carryList = priorFindings.filter((p) => CARRY.includes(p.disposition))
 const trackedList = priorFindings.filter((p) => !CARRY.includes(p.disposition))
 const priorById = Object.fromEntries(priorFindings.map((p) => [p.id, p]))
 const maxPlanAdjustments = Number.isInteger(A.maxPlanAdjustments) && A.maxPlanAdjustments >= 0 ? A.maxPlanAdjustments : 2
+// Repository ask rules (#49): what a person is always brought in for, declared as askRules in the
+// repository's .claude/redline.json and passed by the skill at launch (the workflow reads no
+// file). A finding a rule covers is the person's to act on, never fixed or deferred by Redline.
+// The validation wording is the guard's and redline-setup.sh config's.
+const RULE_ID = /^[a-z][a-z0-9-]*$/
+const askRules = A.askRules === undefined || A.askRules === null ? [] : A.askRules
+if (!Array.isArray(askRules)) {
+  fail('args.askRules must be the askRules list of .claude/redline.json, or []; got ' + JSON.stringify(A.askRules))
+}
+const ruleIds = new Set()
+askRules.forEach((rule, i) => {
+  const at = `args.askRules[${i}]`
+  if (!rule || typeof rule !== 'object') {
+    fail(`${at} is not an object`)
+  }
+  if (typeof rule.id !== 'string' || !RULE_ID.test(rule.id)) {
+    fail(`${at}: id must match [a-z][a-z0-9-]*; got ${JSON.stringify(rule.id)}`)
+  }
+  if (ruleIds.has(rule.id)) {
+    fail(`${at}: id '${rule.id}' is not unique`)
+  }
+  ruleIds.add(rule.id)
+  const when = rule.when && typeof rule.when === 'object' ? rule.when : {}
+  const kind = Object.keys(when).sort().join(',')
+  if (kind !== 'paths' && kind !== 'prose') {
+    fail(`${at}: rule '${rule.id}': when must hold exactly one of paths or prose`)
+  }
+  if (kind === 'paths' && (!Array.isArray(when.paths) || !when.paths.length || when.paths.some((p) => typeof p !== 'string' || p.trim() === ''))) {
+    fail(`${at}: rule '${rule.id}': paths must be a non-empty list of non-empty strings`)
+  }
+  if (kind === 'paths' && when.paths.some((p) => /[!\[]/.test(p))) {
+    fail(`${at}: rule '${rule.id}': a path pattern may not hold ! or [`)
+  }
+  if (kind === 'prose' && (typeof when.prose !== 'string' || when.prose.trim() === '')) {
+    fail(`${at}: rule '${rule.id}': prose must be a non-empty string`)
+  }
+  if (typeof rule.reason !== 'string' || rule.reason.trim() === '' || rule.reason.trim().includes('\n')) {
+    fail(`${at}: rule '${rule.id}': reason must be one non-empty line`)
+  }
+})
+const ruleById = Object.fromEntries(askRules.map((rule) => [rule.id, rule]))
 const teammate = typeof A.reviewer === 'string' ? A.reviewer.replace(/^@/, '') : ''
 const checkerMode = A.checker === 'git-only' ? 'git-only' : 'full'
 const checkerStallMs = Number.isInteger(A.checkerStallMs) && A.checkerStallMs > 0 ? A.checkerStallMs : 300000
@@ -231,6 +272,65 @@ const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
 
+// The glob dialect of a paths ask rule, shared with the guard (glob_regex in
+// scripts/redline-guard.sh) and pinned by the same cases on both sides: ** spans segments, * and ?
+// stay inside one, a pattern with no slash (a trailing one aside) matches at any depth, a leading
+// slash only anchors, a trailing slash takes the directory and everything in it. Case-folded (#49).
+function globToRegExp(pattern) {
+  let p = pattern.toLowerCase()
+  const anchored = p.replace(/\/+$/, '').includes('/')
+  p = p.replace(/^\/+/, '')
+  const dirOnly = p.endsWith('/')
+  p = p.replace(/\/+$/, '')
+  let out = ''
+  for (let i = 0; i < p.length;) {
+    if (p.startsWith('**/', i)) {
+      out += '(?:.*/)?'
+      i += 3
+      continue
+    }
+    if (p.startsWith('**', i)) {
+      out += '.*'
+      i += 2
+      continue
+    }
+    const c = p[i]
+    out += c === '*' ? '[^/]*' : c === '?' ? '[^/]' : c.replace(/[.+^${}()|[\]\\]/g, '\\$&')
+    i += 1
+  }
+  if (!anchored) {
+    out = '(?:.*/)?' + out
+  }
+  if (dirOnly) {
+    out += '(?:/.*)?'
+  }
+  return new RegExp('^' + out + '$')
+}
+const pathRules = askRules.filter((rule) => rule.when.paths).map((rule) => ({ rule, regexes: rule.when.paths.map(globToRegExp) }))
+const relPath = (path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path).replace(/^\.\//, '')
+// The first paths rule, in list order, that one of the paths falls under; null when none does.
+function ruleForPaths(paths) {
+  for (const { rule, regexes } of pathRules) {
+    for (const path of paths) {
+      const rel = relPath(String(path || '')).toLowerCase()
+      if (rel !== '' && regexes.some((re) => re.test(rel))) {
+        return rule
+      }
+    }
+  }
+  return null
+}
+// The rule a finding sits under as reviewed: its file under a paths rule, else the reviewer's
+// advisory askRule tag. The shaper applies the rules; the forcing point (forceAskRules) wins.
+function ruleOf(f) {
+  return ruleForPaths([f.file || '']) || (f.askRule && ruleById[f.askRule]) || null
+}
+// Injected into the reviewer's, shaper's and plan approver's prompts; empty, and appended to an
+// existing interpolation, so a repository with no rules keeps byte-identical prompts (#49).
+const rulesBlock = askRules.length
+  ? `\nRepository ask rules, as JSON: what a person is always brought in for, declared in .claude/redline.json. A finding one covers (its file or its fix under a paths rule, or its change doing what a prose rule's sentence says) is the person's to act on, never fixed or deferred by Redline: in the shaper's JSON it is ask with why_human "repository rule <id>", askRule set to the id, its story quoting the rule's reason and its recommendation what the person would do themselves; every finding's JSON lists files, the paths its task would touch, so the workflow can apply the paths rules. The plan approver bounces a task that writes under a paths rule or fixes a finding a prose rule covers. No Redline role may write under a paths rule; the guard refuses it.\n${json(askRules)}\n`
+  : ''
+
 function modelOpts(key) {
   const picked = models[key] || {}
   const opts = {}
@@ -303,6 +403,9 @@ const FINDING_SCHEMA = {
     needsDecision: bool,
     knownAs: str,
     carriedFrom: str,
+    // The id of a repository ask rule the reviewer judges the finding to be under (#49);
+    // advisory: the review marks it, and the shaper applies the rules.
+    askRule: str,
   },
 }
 
@@ -357,7 +460,8 @@ const JUDGMENT_CALL_SCHEMA = {
     id: str,
     title: str,
     story: str,
-    why_human: { type: 'string', enum: ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'] },
+    // The fixed reasons, plus one per repository ask rule (#49).
+    why_human: { type: 'string', enum: ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
     options: {
       type: 'array',
       items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
@@ -395,6 +499,10 @@ const SHAPE_SCHEMA = {
           // One sentence: the change planned for a fix, the mitigation for a defer, the
           // recommended option for an ask. The plan dial shows it to the person.
           recommendation: str,
+          // The paths the finding's task would touch, and the repository ask rule the shaper
+          // judged it under (#49); forceAskRules reads both.
+          files: strings,
+          askRule: str,
         },
       },
     },
@@ -583,9 +691,12 @@ const RECORD_SCHEMA = {
 
 function findingLine(f) {
   const decision = f.needsDecision ? ' · needs a decision' : ''
-  // The suffix redline-gh.sh prior-findings reads back as carried_from (#35); it stays last.
+  // The suffixes redline-gh.sh prior-findings reads back, in this order: carried_from (#35), then
+  // the repository ask rule the finding is the person's under (#49), which stays last.
   const carried = f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''
-  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}${carried}`
+  const rule = ruleOf(f)
+  const yours = rule ? ` · yours under rule ${rule.id}` : ''
+  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}${carried}${yours}`
 }
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
@@ -636,6 +747,10 @@ function commentBody(f) {
   if (f.needsDecision) {
     lines.push('', 'This needs a decision from the author; Redline does not decide it.')
   }
+  const rule = ruleOf(f)
+  if (rule) {
+    lines.push('', `This one is yours to act on: repository rule ${rule.id} (${rule.reason}).`)
+  }
   return lines.join('\n')
 }
 
@@ -665,6 +780,18 @@ function autopilotDecision(call) {
     notes: `Autopilot took the shaper's recommendation: ${recommendation}.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
+  }
+}
+
+// autopilot on a finding a repository ask rule covers (#49): nothing is applied; the finding is
+// left to the person, with the rule as the reason.
+function leftDecision(forced) {
+  return {
+    choice: 'Left to the person',
+    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; the person makes it.`,
+    date: launchDate,
+    decidedBy: AUTOPILOT,
+    rule: forced.rule,
   }
 }
 
@@ -792,6 +919,8 @@ function replyBody(pass, outcome) {
       return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
     case 'decided':
       return `${pass.title}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+    case 'left':
+      return `${pass.title}: left to the author under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
     case 'dropped':
       return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
     case 'none':
@@ -848,6 +977,9 @@ function reviewPrompt(round, reviewed, range, facts, history, source) {
   }
   if (priorBlock && carryList.length) {
     lines.push('', 'Findings from earlier rounds with no disposition. Re-verify each against the current head, never copy its text: one that still holds is a finding of this round with carriedFrom set to its id (a fresh description, file and line); one the code no longer has goes in resolved with why. Every id here appears in exactly one of the two:', json(carryList.map((p) => ({ id: p.id, round: p.round, category: p.category, severity: p.severity, title: p.title, file: p.file, line: p.line, body: p.body }))))
+  }
+  if (askRules.length) {
+    lines.push('', 'Repository ask rules, as JSON: what a person is always brought in for, declared in .claude/redline.json. Report a finding one covers (its file under a paths rule, or its change doing what a prose rule\'s sentence says) as usual, with askRule set to the rule\'s id; the review then marks it as the person\'s to act on. The tag is advisory: the shaper applies the rules.', json(askRules))
   }
   lines.push(
     '',
@@ -907,7 +1039,7 @@ Run facts:
 - Spec folder to write: ${abs(specFolder)}/ (this exact path; do not derive a name from the clock). Its redline/ subfolder holds Redline's own files (the review as posted, the findings, later the snapshot); leave it alone.
 - Snapshot for the gate: ${abs(specFolder)}/redline/snapshot.json. The workflow writes it after the plan is approved; the Verification Gate task names it as the argument to ${CHECKS}.
 - Your scratch Pest test, if you write one: ${scratchTest('shaper', `r${round}`)}. The reviewer's reproduction for this round, if it wrote one: ${scratchTest('reviewer', `r${round}`)}.
-${nitNote}
+${nitNote}${rulesBlock}
 ${description}
 
 Findings for this round, as JSON:
@@ -941,7 +1073,7 @@ Run facts:
 
 PR description: read it with \`${GH} pr ${pr}\` (the body field).
 
-${body}
+${body}${rulesBlock}
 
 Findings for this pass, as JSON (description is the comment verbatim; source is who wrote it):
 ${json(inScope)}
@@ -962,7 +1094,7 @@ function reshapePrompt(pass, specFolder, inScope, adjustments, attempt) {
 
 ${RUN_LINE}
 
-You are the shaper for ${pass.name}, called again because the plan approver bounced the plan (adjustment ${attempt} of at most ${maxPlanAdjustments}). The spec folder ${abs(specFolder)}/ already exists: read plan.md, shape.md, standards.md and references.md and correct them in place with Write. Do not create a second folder and do not touch its redline/ subfolder. Your scratch Pest test, if you need one: ${scratchTest('shaper', pass.tag)}.${pass.human ? ` This is a pass over ${pass.reviewer}'s review: dispositions stay fix, ask or none, never defer, and a fix is decided by ${pass.reviewer} (decidedBy "reviewer").` : ''}
+You are the shaper for ${pass.name}, called again because the plan approver bounced the plan (adjustment ${attempt} of at most ${maxPlanAdjustments}). The spec folder ${abs(specFolder)}/ already exists: read plan.md, shape.md, standards.md and references.md and correct them in place with Write. Do not create a second folder and do not touch its redline/ subfolder. Your scratch Pest test, if you need one: ${scratchTest('shaper', pass.tag)}.${pass.human ? ` This is a pass over ${pass.reviewer}'s review: dispositions stay fix, ask or none, never defer, and a fix is decided by ${pass.reviewer} (decidedBy "reviewer").` : ''}${rulesBlock}
 
 The approver's adjustments, as JSON:
 ${json(adjustments)}
@@ -987,6 +1119,9 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
     `- Each decision carries the date it was made (date); use it, or ${launchDate} when it is missing.`,
     `- Each decision carries its owner (decidedBy): \`${personLabel}\` for the person, \`${AUTOPILOT}\` for a recommendation taken on autopilot. Every decided entry you write under Decisions in shape.md ends with the line \`Decided by: <that value>\`, verbatim.`,
     `- A decision whose decidedBy is \`${AUTOPILOT}\` carries the shaper's own recommendation as its choice: apply the option that recommendation names (it may paraphrase the label), with the notes as its reasoning.`,
+    ...(askRules.length
+      ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (repository rule <rule>)" and the shaper's recommendation as the full fix.`]
+      : []),
   ]
   if (calls.length) {
     lines.push(
@@ -1025,7 +1160,7 @@ You are the plan approver for ${pass.name}. Adjustment number ${adjustment} (the
 - Spec folder: ${abs(specFolder)}/
 - The PR's files at launch: ${json(prFiles)}
 - Paths approved in earlier rounds of this run (already allowed): ${json(earlierPaths)}
-${humanNote}
+${humanNote}${rulesBlock}
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(inScope)}
 
@@ -1427,8 +1562,11 @@ function result(status, extra) {
       files: record.files || [],
       replyIds: record.replyIds || {},
       human: record.human || null,
+      forced: record.forced || {},
     })),
     judgmentCalls: [],
+    // The findings left to the person under a repository ask rule (#49), every round.
+    forced: rounds.flatMap((record) => Object.entries(record.forced || {}).map(([id, x]) => ({ id, round: record.round, rule: x.rule, reason: x.reason, outcome: record.outcomes && record.outcomes[id] ? record.outcomes[id] : '' }))),
     deferred: deferredAll,
     decided: decidedAll,
     openFindings: [],
@@ -1485,6 +1623,12 @@ async function review(round, reviewed, range, facts, source) {
       f.id = `R${round}-${index + 1}`
     }
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
+    // The reviewer's ask-rule tag is advisory and must name a declared rule (#49).
+    f.askRule = typeof f.askRule === 'string' ? f.askRule.trim() : ''
+    if (f.askRule && !ruleById[f.askRule]) {
+      warnings.push(`round ${round}: the reviewer tagged ${f.id} with ask rule ${JSON.stringify(f.askRule)}, which .claude/redline.json does not declare; cleared`)
+      f.askRule = ''
+    }
   })
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
@@ -1552,7 +1696,7 @@ function reconcilePrior(round, out) {
     const body = (p.body || '').split('\n').slice(1).join('\n').trim()
     out.findings.push({
       id, file: p.file, line: p.line, side: 'RIGHT', category: p.category, severity: p.severity, confidence: p.confidence, title: p.title,
-      description: body || `See the Redline round ${p.round} review body.`, proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: p.id,
+      description: body || `See the Redline round ${p.round} review body.`, proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: p.id, askRule: '',
     })
     carried[p.id] = id
   }
@@ -1618,7 +1762,7 @@ function shaperOwner(decidedBy, pass) {
   return decidedBy || REDLINE
 }
 
-function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits) {
+function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced) {
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
@@ -1628,7 +1772,11 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits) {
     const decision = roundDecisions[f.id]
     const deferredItem = deferred.find((d) => d.id === f.id)
     const owner = owners[f.id] || REDLINE
-    if (decision) {
+    const left = (forced || {})[f.id]
+    if (left) {
+      // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
+      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision) : 'No change made; the person makes it.', commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
+    } else if (decision) {
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
       outcomes[f.id] = { kind: 'deferred', commits: named, fullFix: deferredItem.fullFix, mitigation: deferredItem.mitigation, decidedBy: owner }
@@ -1652,6 +1800,8 @@ function describeOutcome(outcome) {
       return `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
     case 'decided':
       return `${decisionSentence(outcome)}${owner}`
+    case 'left':
+      return `left to the author under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
     case 'none':
@@ -1682,6 +1832,60 @@ function checkDispositions(pass, shaped) {
         f.decidedBy = 'reviewer'
       }
     }
+  }
+}
+
+// The forcing point (#49): after shaping, whatever the shaper returned, a finding a repository ask
+// rule covers is an ask to the person. A paths rule is matched on the finding's file and on the
+// files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The finding
+// becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper gave
+// none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
+// Deterministic from args and the shaper's JSON, so a relaunch replays it. The numeric limits of
+// #25 force here too, when they come.
+function forceAskRules(record, pass, inScope, shaped) {
+  record.forced = record.forced || {}
+  for (const f of inScope) {
+    const s = shaped.findings.find((x) => x.id === f.id)
+    if (!s) {
+      continue
+    }
+    const files = Array.isArray(s.files) ? s.files : []
+    const tagged = typeof s.askRule === 'string' && s.askRule.trim() !== '' ? s.askRule.trim() : ''
+    const rule = ruleForPaths([f.file || ''].concat(files)) || (tagged && ruleById[tagged]) || null
+    if (!rule) {
+      if (tagged) {
+        warnings.push(`${pass.name}: the shaper tagged ${f.id} with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; ignored`)
+      }
+      continue
+    }
+    if (s.disposition !== 'ask') {
+      warnings.push(`${pass.name}: the shaper sorted ${f.id} as ${s.disposition}; repository rule ${rule.id} makes it an ask for the person`)
+    }
+    const recommendation = (s.recommendation || '').trim().replace(/\.$/, '')
+    s.disposition = 'ask'
+    s.decidedBy = 'pending'
+    s.askRule = rule.id
+    shaped.deferred = shaped.deferred.filter((d) => d.id !== f.id)
+    const why = `repository rule ${rule.id}`
+    let call = shaped.judgmentCalls.find((c) => c.id === f.id)
+    if (!call) {
+      call = {
+        id: f.id,
+        title: f.title,
+        story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
+        why_human: why,
+        options: [
+          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
+          { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
+        ],
+        recommendation: recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        dependsOn: [],
+      }
+      shaped.judgmentCalls.push(call)
+    } else {
+      call.why_human = why
+    }
+    record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation }
   }
 }
 
@@ -1793,6 +1997,7 @@ async function revise(record, inScope, reviewedKind) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
+  forceAskRules(record, pass, inScope, shaped)
   record.dispositions = shaped.findings
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
@@ -1815,8 +2020,10 @@ async function revise(record, inScope, reviewedKind) {
     }
     if (interrupt === 'autopilot') {
       for (const call of open) {
-        decisions[call.id] = autopilotDecision(call)
-        log(`${pass.name}: autopilot decided ${call.id} (${decisions[call.id].choice})`)
+        // A finding a repository ask rule covers is left to the person, never applied (#49).
+        const forced = record.forced[call.id]
+        decisions[call.id] = forced ? leftDecision(forced) : autopilotDecision(call)
+        log(`${pass.name}: autopilot ${forced ? `left ${call.id} to the person (repository rule ${forced.rule})` : `decided ${call.id} (${decisions[call.id].choice})`}`)
       }
       return false
     }
@@ -1835,7 +2042,19 @@ async function revise(record, inScope, reviewedKind) {
   let resolved = null
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     for (const id of newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))) {
-      roundDecisions[id] = withOwner(decisions[id])
+      const decision = withOwner(decisions[id])
+      // A finding a repository ask rule covers stays the person's whatever the decision says: a
+      // disposition on it (fix, defer) is not applied, and the rule travels with the decision so
+      // the resolve agent writes it as left to the person (#49).
+      const forced = record.forced[id]
+      if (forced) {
+        if (decision.disposition) {
+          warnings.push(`${pass.name}: ${id} is left to the person under repository rule ${forced.rule}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
+          delete decision.disposition
+        }
+        decision.rule = forced.rule
+      }
+      roundDecisions[id] = decision
     }
     const out = await run('resolve', resolvePrompt(pass, specFolder, newCalls, roundDecisions, newOverrides), {
       agentType: 'redline:redline-resolve', ...modelOpts('revise'), label: `resolve ${pass.tag}${suffix}`, phase: 'Resolve', schema: RESOLVE_SCHEMA,
@@ -1847,7 +2066,7 @@ async function revise(record, inScope, reviewedKind) {
       }
       return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved }
     }
-    deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id)))
+    deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
     return out
   }
   if (calls.length || overrides.length) {
@@ -1893,6 +2112,7 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
     })
     checkDispositions(pass, shaped)
+    forceAskRules(record, pass, inScope, shaped)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
@@ -1947,7 +2167,7 @@ async function revise(record, inScope, reviewedKind) {
   const needCommits = finalDispositions
     .filter((f) => f.disposition === 'fix' || f.disposition === 'defer')
     .map((f) => f.id)
-    .concat(resolved ? resolved.tasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding)).map((task) => task.finding) : [])
+    .concat(resolved ? resolved.tasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding]).map((task) => task.finding) : [])
   const ctx = {
     specFolder, snapshotPath, octane, baselineFailing, inScope, shaped: { ...shaped, findings: finalDispositions }, deferred, roundDecisions, plan, standards,
     allowed: unique(prFiles.concat(approvedPaths, ['agent-os/specs/', 'agent-os/standards/', 'openapi.json'])),
@@ -2009,8 +2229,18 @@ async function revise(record, inScope, reviewedKind) {
     const f = inScope.find((finding) => finding.id === item.id)
     deferredAll.push({ ...item, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[item.id] || 0 })
   }
+  // On autopilot a finding a repository ask rule covers is deferred with no mitigation (#49): the
+  // person makes the change, and the handoff's Deferred list and the skill's triage name it.
+  for (const [id, forced] of Object.entries(record.forced)) {
+    const decision = roundDecisions[id]
+    if (!decision || decision.decidedBy !== AUTOPILOT) {
+      continue
+    }
+    const f = inScope.find((finding) => finding.id === id)
+    deferredAll.push({ id, mitigation: `none (repository rule ${forced.rule})`, fullFix: forced.recommendation, rule: forced.rule, reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
+  }
 
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits)
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
   for (const f of inScope) {
@@ -2076,7 +2306,13 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
     lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${d.title}: ${d.outcome}`))
   }
   if (deferredAll.length) {
-    lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => `- **${d.id}** ${d.title}: shipped ${d.mitigation}; open: ${d.fullFix}`))
+    lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
+      ? `- **${d.id}** ${d.title}: left to you under repository rule ${d.rule}; open: ${d.fullFix}`
+      : `- **${d.id}** ${d.title}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
+  }
+  const left = leftToYou()
+  if (left.length) {
+    lines.push('', '### Left to you (repository rules)', '', ...left)
   }
   if (commitsAll.length) {
     lines.push('', '### Commits', '', ...commitsAll.map((c) => `- ${short(c.sha)} ${c.message}`))
@@ -2087,9 +2323,24 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   return lines.join('\n')
 }
 
+// The findings every round left to the person under a repository ask rule (#49), one line each
+// with the rule, its reason and the outcome as recorded (which carries the owner).
+function leftToYou() {
+  const lines = []
+  for (const record of rounds) {
+    for (const [id, forced] of Object.entries(record.forced || {})) {
+      const f = record.findings.find((x) => x.id === id)
+      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to the author under repository rule ${forced.rule}`
+      lines.push(`- **${id}** ${f ? f.title : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
+    }
+  }
+  return lines
+}
+
 // One line for the PR after a human review pass: what was fixed, what went back to the author as a
-// question, what asked for nothing, and what the final nit pass found. The reviewer is already on
-// the PR, so there is no handoff and no review request.
+// question, what asked for nothing, what was left to the author under a repository rule, and what
+// the final nit pass found. The reviewer is already on the PR, so there is no handoff and no
+// review request.
 function humanSummary(record, nitPass, threads) {
   const pass = passOf(record)
   const kinds = record.outcomeKinds || {}
@@ -2112,6 +2363,11 @@ function humanSummary(record, nitPass, threads) {
   const none = ids('none')
   if (none.length) {
     parts.push(`${andList(none)} asked for nothing`)
+  }
+  const left = ids('left')
+  if (left.length) {
+    const ruleIds = unique(left.map((id) => (record.forced[id] || {}).rule || ''))
+    parts.push(`${andList(left)} left to ${personLabel} under repository rule${ruleIds.length === 1 ? '' : 's'} ${andList(ruleIds)}`)
   }
   const rest = ids('not-changed')
   if (rest.length) {
@@ -2195,7 +2451,7 @@ function threadCandidates() {
       }
       const kind = kinds[f.id] || ''
       const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[f.id] > 0
-      const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[f.id] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
     // The earlier rounds' threads this round answered (#35): a carried finding's thread is settled
@@ -2214,7 +2470,7 @@ function threadCandidates() {
       const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
       const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
-      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
     for (const r of record.resolvedPrior || []) {
@@ -2362,14 +2618,16 @@ async function commitRecord() {
 
 function handoffResult(record, outcome) {
   const findingOf = (id) => compactFinding(record.findings.find((f) => f.id === id) || { id })
-  const judgmentCalls = outcome.pending.map((call) => ({ ...call, finding: findingOf(call.id) }))
+  // `forced` names the repository ask rule a finding is left to the person under (#49), or null.
+  const forcedOf = (id) => (record.forced || {})[id] || null
+  const judgmentCalls = outcome.pending.map((call) => ({ ...call, finding: findingOf(call.id), forced: forcedOf(call.id) }))
   if (outcome.kind === 'plan') {
     log(`round ${record.round}: the plan dial stops after shaping (${outcome.shaped.findings.length} dispositions, ${outcome.pending.length} to answer); the run ends here and resumes on relaunch`)
     return result('handoff', {
       handoffKind: 'plan',
       handoffRound: record.round,
       specFolder: record.specFolder,
-      plan: outcome.shaped.findings.map((s) => ({ ...s, finding: findingOf(s.id), decidedBy: shaperOwner(s.decidedBy, passOf(record)) })),
+      plan: outcome.shaped.findings.map((s) => ({ ...s, finding: findingOf(s.id), decidedBy: shaperOwner(s.decidedBy, passOf(record)), forced: forcedOf(s.id) })),
       deferredPlanned: outcome.shaped.deferred,
       judgmentCalls,
       unresolved: [],

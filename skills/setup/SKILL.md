@@ -97,13 +97,15 @@ When it is green, record the wall time: set `checks.json`'s `baseline` to `{"sec
 
 ## 7. `redline.json`
 
-Suggest a reviewer: `gh pr list --state merged --limit 30 --json reviews --jq '[.[].reviews[].author.login] | group_by(.) | map({login: .[0], n: length}) | sort_by(-.n) | .[0:3]'`, the most frequent first, and ask (the reviewer must not be the person who will run Redline). Then:
+Suggest a reviewer: `gh pr list --state merged --limit 30 --json reviews --jq '[.[].reviews[].author.login] | group_by(.) | map({login: .[0], n: length}) | sort_by(-.n) | .[0:3]'`, the most frequent first, and ask (the reviewer must not be the person who will run Redline).
+
+Then the **ask rules** (#49): what a person is always brought in for, which Redline never fixes or defers on its own (a finding under one comes back as a judgment call naming the rule, the guard refuses the write, and the handoff lists it as the person's). Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh suggest-ask-rules <repoRoot>`: it reads `composer.json` and prints a suggestion with its evidence for a Craft site (`config/project/**`, applied through the control panel) and for a Laravel application (`database/migrations/*`). Present each with its `because` and ask whether to keep it, then ask what else the repository has: a path pattern (`paths`: globs, `**` across directories, matched against the repository-relative path) or a sentence the shaper judges (`prose`: "the change alters what a customer is charged", "the change adds or edits user-facing copy"), each with an id (`[a-z][a-z0-9-]*`, unique) and a one-line reason written for the person who will read it in a review. A rule must not cover `agent-os/specs/`, where Redline writes. On a rerun, the file's list is shown by the `config` dry run below (`askRules`); keep it unless the person changes it. When there are rules, write the list with the Write tool to `${TMPDIR:-/tmp}/redline-ask-rules.json` as a JSON array of `{id, when, reason}` and pass it as `--ask-rules`; with none, omit the flag. Then:
 
 ```
-${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh config --reviewer <handle> --baseline-seconds <n> <repoRoot>
+${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh config --reviewer <handle> --baseline-seconds <n> <repoRoot> [--ask-rules <file>]
 ```
 
-It derives `checker` (`git-only` over five minutes, else `full`) and `checkerStallMs` (1.7 times the baseline, rounded up to five minutes, never below 300000), keeps `maxRounds` 3, `push` true and the models as the template. On a rerun it updates only `checker` and `checkerStallMs` and keeps every other value, the reviewer included, as the person's: pass `--dry-run` first, show `updated` (the derived values it would change) and `differs` (the values it keeps that differ from the template's), and on a yes run it without `--dry-run`. `--force` rewrites the whole file from the template and drops every hand-set value; use it only when the person asks for that reset. On exit 1, a derived key could not be updated in place: show the stderr line and `differs`, and offer `--force`.
+It derives `checker` (`git-only` over five minutes, else `full`) and `checkerStallMs` (1.7 times the baseline, rounded up to five minutes, never below 300000), keeps `maxRounds` 3, `push` true and the models as the template, and writes `askRules` when given. On a rerun it updates only `checker`, `checkerStallMs` and, when `--ask-rules` gives a different list, `askRules`, and keeps every other value, the reviewer included, as the person's: pass `--dry-run` first, show `updated` (the values it would change), `differs` (the values it keeps that differ from the template's) and `askRules` (the file's rules, kept as they are without the flag), and on a yes run it without `--dry-run`. `--force` rewrites the whole file from the template and drops every hand-set value, the rules included unless `--ask-rules` is passed again; use it only when the person asks for that reset. On exit 1, a derived key could not be updated in place: show the stderr line and `differs`, and offer `--force`. On exit 2 naming a rule, fix the list and run again.
 
 ## 8. `.claude/settings.json`
 
@@ -154,7 +156,7 @@ On a rerun that changed nothing, say "nothing drifted" and list what was checked
 
 ## Rules
 
-- You write only the files named above, through the scripts where one exists, and never `.claude/settings.local.json` or anything under `${CLAUDE_PLUGIN_ROOT}`.
+- You write only the files named above, through the scripts where one exists (the ask rules reach `redline.json` only through `config --ask-rules`), and never `.claude/settings.local.json` or anything under `${CLAUDE_PLUGIN_ROOT}`.
 - Nothing you write names a model, a vendor or an AI assistant; Redline labels its own work as Redline.
 - A headless session (`claude -p`) has no `AskUserQuestion`: stop in step 1 with one line saying setup is interactive.
 - The repository's CLAUDE.md Git section stands: no commit, no push, no staging.

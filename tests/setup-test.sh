@@ -205,6 +205,53 @@ expect_exit "negative seconds: exit 2" 2 config --reviewer sam --baseline-second
 expect_exit "non-integer seconds: exit 2" 2 config --reviewer sam --baseline-seconds abc
 expect_exit "no seconds: exit 2" 2 config --reviewer sam
 
+echo "# ask rules (#49): the config round trip"
+C5="$WORK/c5"; mkdir -p "$C5"
+expect_json "--ask-rules, fresh write: written with the list" '[(.written|tostring), (.askRules|length|tostring), (.config.askRules|length|tostring)] | join(",")' "true,2,2" config --reviewer marcamos --baseline-seconds 29 "$C5" --ask-rules "$FIX/ask-rules.json"
+[[ "$(jq -S -c .askRules "$C5/.claude/redline.json")" == "$(jq -S -c . "$FIX/ask-rules.json")" ]] && ok "--ask-rules, fresh write: the file's list is the fixture's" || bad "--ask-rules, fresh write: the file's list is the fixture's" "$(jq -c .askRules "$C5/.claude/redline.json")"
+[[ "$(jq -S -c 'del(.askRules)' "$C5/.claude/redline.json")" == "$(jq -S -c . "$WORK/c1-want.json")" ]] && ok "--ask-rules, fresh write: the rest is the template's" || bad "--ask-rules, fresh write: the rest is the template's" "$(jq -c 'del(.askRules)' "$C5/.claude/redline.json")"
+cp "$C5/.claude/redline.json" "$WORK/c5-before.json"
+expect_json "rerun without the flag: unchanged, the list printed, not under differs" '[(.changed|tostring), (.askRules|length|tostring), (.differs|has("askRules")|tostring)] | join(",")' "false,2,false" config --reviewer marcamos --baseline-seconds 29 "$C5"
+same "rerun without the flag: untouched" "$C5/.claude/redline.json" "$WORK/c5-before.json"
+expect_json "the same list again: unchanged" '[(.changed|tostring), (.updated|has("askRules")|tostring)] | join(",")' "false,false" config --reviewer marcamos --baseline-seconds 29 "$C5" --ask-rules "$FIX/ask-rules.json"
+jq '.[0:1]' "$FIX/ask-rules.json" > "$WORK/one-rule.json"
+expect_json "a changed list, dry run: updated names askRules with have and want, nothing written" '[(.updated.askRules.have|length|tostring), (.updated.askRules.want|length|tostring), (.written|tostring)] | join(",")' "2,1,false" config --reviewer marcamos --baseline-seconds 29 "$C5" --ask-rules "$WORK/one-rule.json" --dry-run
+same "a changed list, dry run: untouched" "$C5/.claude/redline.json" "$WORK/c5-before.json"
+expect_json "a changed list with a baseline move: all three updated, written" '[(.updated|keys|join("+")), (.written|tostring), (.askRules|length|tostring)] | join(",")' "askRules+checker+checkerStallMs,true,1" config --reviewer marcamos --baseline-seconds 1048 "$C5" --ask-rules "$WORK/one-rule.json"
+[[ "$(jq -c '[.checker, .checkerStallMs, (.askRules|length), .maxRounds]' "$C5/.claude/redline.json")" == '["git-only",1800000,1,3]' ]] && ok "a changed list with a baseline move: the file carries all three and keeps the rest" || bad "a changed list with a baseline move: the file" "$(jq -c . "$C5/.claude/redline.json")"
+expect_json "--force without the flag drops the list" '[(.written|tostring), (.askRules|tostring)] | join(",")' "true,null" config --reviewer marcamos --baseline-seconds 29 "$C5" --force
+expect_json "no root: the list rides in config" '[(.config.askRules|length|tostring), (.askRules|length|tostring)] | join(",")' "2,2" config --reviewer sam --baseline-seconds 29 --ask-rules "$FIX/ask-rules.json"
+expect_json "no root, no flag: askRules null" '.askRules' "null" config --reviewer sam --baseline-seconds 29
+printf '[{"id": "Bad", "when": {"paths": ["x"]}, "reason": "r"}]\n' > "$WORK/rules-bad-id.json"
+expect_stderr "a bad id: exit 2 naming the rule" "askRules\[1\]: id must match \[a-z\]\[a-z0-9-\]\*" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-bad-id.json"
+expect_exit "a bad id: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-bad-id.json"
+printf '[{"id": "a", "when": {"paths": ["x"]}, "reason": "r"}, {"id": "a", "when": {"prose": "y"}, "reason": "r"}]\n' > "$WORK/rules-dup.json"
+expect_stderr "a duplicate id: exit 2 naming it" "askRules\[2\]: id 'a' is not unique" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-dup.json"
+printf '[{"id": "a", "when": {"paths": ["x"], "prose": "y"}, "reason": "r"}]\n' > "$WORK/rules-both.json"
+expect_stderr "both paths and prose: exit 2" "rule 'a': when must hold exactly one of paths or prose" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-both.json"
+printf '[{"id": "a", "when": {"paths": ["!x"]}, "reason": "r"}]\n' > "$WORK/rules-neg.json"
+expect_stderr "a negated pattern: exit 2" "a path pattern may not hold ! or \[" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-neg.json"
+printf '[{"id": "a", "when": {"paths": ["x"]}, "reason": " "}]\n' > "$WORK/rules-reason.json"
+expect_stderr "an empty reason: exit 2" "rule 'a': reason must be one non-empty line" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-reason.json"
+printf '{"id": "a"}\n' > "$WORK/rules-obj.json"
+expect_stderr "not a list: exit 2" "askRules is not a list" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-obj.json"
+expect_exit "a missing rules file: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/no-such-rules.json"
+expect_exit "--ask-rules without a file: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules
+
+echo "# ask rules (#49): the stack suggestions"
+S1="$WORK/s1"; mkdir -p "$S1"; cp "$FIX/composer-craft.json" "$S1/composer.json"
+expect_json "a Craft repository suggests config/project/** with its reason" '.suggestions | map([.id, .when.paths[0], .reason, .because] | join("|")) | join(";")' "craft-project-config|config/project/**|Craft project config is applied through the control panel|composer.json requires craftcms/cms" suggest-ask-rules "$S1"
+S2="$WORK/s2"; mkdir -p "$S2"; cp "$FIX/composer-laravel.json" "$S2/composer.json"
+expect_json "a Laravel repository suggests database/migrations/*" '.suggestions | map([.id, .when.paths[0]] | join("|")) | join(";")' "migrations|database/migrations/*" suggest-ask-rules "$S2"
+S3="$WORK/s3"; mkdir -p "$S3"
+expect_json "no composer.json: no suggestions" '.suggestions | length' "0" suggest-ask-rules "$S3"
+S4="$WORK/s4"; mkdir -p "$S4"; printf '{"name": "x", "require": {}}\n' > "$S4/composer.json"
+expect_json "a composer.json with no known dependency: no suggestions" '.suggestions | length' "0" suggest-ask-rules "$S4"
+S5="$WORK/s5"; mkdir -p "$S5"; printf 'not json\n' > "$S5/composer.json"
+expect_exit "a composer.json that is not JSON: exit 2" 2 suggest-ask-rules "$S5"
+expect_exit "suggest-ask-rules without a root: exit 2" 2 suggest-ask-rules
+[[ "$(ls -A "$S1" | sort | tr '\n' ' ')" == "composer.json " ]] && ok "suggest-ask-rules writes nothing" || bad "suggest-ask-rules writes nothing" "$(ls -A "$S1")"
+
 echo "# unattended: a fresh insert"
 U="$WORK/shape-spec-bare.md"; cp "$FIX/shape-spec-bare.md" "$U"
 sha0="$("$GATE" extract "$U" 2>/dev/null | jq -r .sha256)"

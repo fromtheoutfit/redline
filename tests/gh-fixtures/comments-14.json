@@ -1,15 +1,197 @@
 [
-  {"id": 1401, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/a.php", "line": 5, "side": "RIGHT", "body": "**R1-1** · correctness · high · confirmed\n\n**Missing status filter**\n\nThe query lists every order, archived ones included.", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:00Z"},
-  {"id": 1402, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/b.php", "line": 9, "side": "RIGHT", "body": "**R1-2** · correctness · medium · confirmed\n\n**Skin-toned emoji rejected**\n\nA skin-toned emoji is two code points and fails the single-emoji rule.\n\nThis needs a decision from the author; Redline does not decide it.", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:01Z"},
-  {"id": 1403, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "**R1-3** · nit · low · likely\n\n**Name says the wrong thing**", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:02Z"},
-  {"id": 1405, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/d.php", "line": 2, "side": "RIGHT", "body": "**R1-5** · correctness · low · likely\n\n**Streak one short**", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:03Z"},
-  {"id": 1406, "pull_request_review_id": 20, "user": {"login": "author"}, "path": "app/e.php", "line": 4, "side": "RIGHT", "body": "**R1-6** · nit · low · likely\n\n**Docblock disagrees**", "in_reply_to_id": null, "created_at": "2026-10-20T10:00:04Z"},
-  {"id": 1411, "pull_request_review_id": 21, "user": {"login": "author"}, "path": "app/a.php", "line": 5, "side": "RIGHT", "body": "Redline round 1: fixed in 1234567 (redline: R1-1 add the filter). · decided by: redline", "in_reply_to_id": 1401, "created_at": "2026-10-20T12:00:00Z"},
-  {"id": 1412, "pull_request_review_id": 22, "user": {"login": "marcamos"}, "path": "app/b.php", "line": 9, "side": "RIGHT", "body": "Is this still a problem with the new library?", "in_reply_to_id": 1402, "created_at": "2026-10-21T08:30:00Z"},
-  {"id": 1413, "pull_request_review_id": 21, "user": {"login": "author"}, "path": "app/c.php", "line": 3, "side": "RIGHT", "body": "Redline round 1: not acted on in this run. Fine as is. · decided by: @author", "in_reply_to_id": 1403, "created_at": "2026-10-20T12:00:01Z"},
-  {"id": 1415, "pull_request_review_id": 21, "user": {"login": "author"}, "path": "app/d.php", "line": 2, "side": "RIGHT", "body": "Redline round 1: not changed in this round. Disposition fix; no commit names it. · decided by: redline", "in_reply_to_id": 1405, "created_at": "2026-10-20T12:00:02Z"},
-  {"id": 1416, "pull_request_review_id": 21, "user": {"login": "author"}, "path": "app/e.php", "line": 4, "side": "RIGHT", "body": "Redline round 1: The author keeps the docblock because it describes the intended contract. Applied in 2345678 (redline: R1-6 restate the contract). · decided by: @author", "in_reply_to_id": 1406, "created_at": "2026-10-20T12:00:03Z"},
-  {"id": 1421, "pull_request_review_id": 23, "user": {"login": "author"}, "path": "app/f.php", "line": 1, "side": "RIGHT", "body": "**R2-1** · correctness · low · likely\n\n**Fresh one**", "in_reply_to_id": null, "created_at": "2026-10-22T10:00:00Z"},
-  {"id": 1422, "pull_request_review_id": 23, "user": {"login": "author"}, "path": "app/d.php", "line": 4, "side": "RIGHT", "body": "**R2-2** · correctness · low · confirmed\n\n**Streak one short**\n\nFirst reported as R1-5 in Redline round 1.\n\nThe streak still counts from the second day.\n\nThis needs a decision from the author; Redline does not decide it.", "in_reply_to_id": null, "created_at": "2026-10-22T10:00:01Z"},
-  {"id": 1432, "pull_request_review_id": 24, "user": {"login": "author"}, "path": "app/d.php", "line": 4, "side": "RIGHT", "body": "Redline round 2: not changed in this round. Disposition fix; no commit names it. · decided by: redline", "in_reply_to_id": 1422, "created_at": "2026-10-22T12:00:00Z"}
+  {
+    "id": 1401,
+    "pull_request_review_id": 20,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "**R1-1** · correctness · high · confirmed\n\n**Missing status filter**\n\nThe query lists every order, archived ones included.",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-20T10:00:00Z"
+  },
+  {
+    "id": 1402,
+    "pull_request_review_id": 20,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/b.php",
+    "line": 9,
+    "side": "RIGHT",
+    "body": "**R1-2** · correctness · medium · confirmed\n\n**Skin-toned emoji rejected**\n\nA skin-toned emoji is two code points and fails the single-emoji rule.\n\nThis needs a decision from the author; Redline does not decide it.",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-20T10:00:01Z"
+  },
+  {
+    "id": 1403,
+    "pull_request_review_id": 20,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-3** · nit · low · likely\n\n**Name says the wrong thing**",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-20T10:00:02Z"
+  },
+  {
+    "id": 1405,
+    "pull_request_review_id": 20,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "**R1-5** · correctness · low · likely\n\n**Streak one short**",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-20T10:00:03Z"
+  },
+  {
+    "id": 1406,
+    "pull_request_review_id": 20,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/e.php",
+    "line": 4,
+    "side": "RIGHT",
+    "body": "**R1-6** · nit · low · likely\n\n**Docblock disagrees**",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-20T10:00:04Z"
+  },
+  {
+    "id": 1411,
+    "pull_request_review_id": 21,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "Redline round 1: fixed in 1234567 (redline: R1-1 add the filter). · decided by: redline",
+    "in_reply_to_id": 1401,
+    "created_at": "2026-10-20T12:00:00Z"
+  },
+  {
+    "id": 1412,
+    "pull_request_review_id": 22,
+    "user": {
+      "login": "marcamos"
+    },
+    "path": "app/b.php",
+    "line": 9,
+    "side": "RIGHT",
+    "body": "Is this still a problem with the new library?",
+    "in_reply_to_id": 1402,
+    "created_at": "2026-10-21T08:30:00Z"
+  },
+  {
+    "id": 1413,
+    "pull_request_review_id": 21,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: not acted on in this run. Fine as is. · decided by: @author",
+    "in_reply_to_id": 1403,
+    "created_at": "2026-10-20T12:00:01Z"
+  },
+  {
+    "id": 1415,
+    "pull_request_review_id": 21,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "Redline round 1: not changed in this round. Disposition fix; no commit names it. · decided by: redline",
+    "in_reply_to_id": 1405,
+    "created_at": "2026-10-20T12:00:02Z"
+  },
+  {
+    "id": 1416,
+    "pull_request_review_id": 21,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/e.php",
+    "line": 4,
+    "side": "RIGHT",
+    "body": "Redline round 1: The author keeps the docblock because it describes the intended contract. Applied in 2345678 (redline: R1-6 restate the contract). · decided by: @author",
+    "in_reply_to_id": 1406,
+    "created_at": "2026-10-20T12:00:03Z"
+  },
+  {
+    "id": 1421,
+    "pull_request_review_id": 23,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/f.php",
+    "line": 1,
+    "side": "RIGHT",
+    "body": "**R2-1** · correctness · low · likely\n\n**Fresh one**",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-22T10:00:00Z"
+  },
+  {
+    "id": 1422,
+    "pull_request_review_id": 23,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 4,
+    "side": "RIGHT",
+    "body": "**R2-2** · correctness · low · confirmed\n\n**Streak one short**\n\nFirst reported as R1-5 in Redline round 1.\n\nThe streak still counts from the second day.\n\nThis needs a decision from the author; Redline does not decide it.",
+    "in_reply_to_id": null,
+    "created_at": "2026-10-22T10:00:01Z"
+  },
+  {
+    "id": 1432,
+    "pull_request_review_id": 24,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 4,
+    "side": "RIGHT",
+    "body": "Redline round 2: not changed in this round. Disposition fix; no commit names it. · decided by: redline",
+    "in_reply_to_id": 1422,
+    "created_at": "2026-10-22T12:00:00Z"
+  },
+  {
+    "id": 1423,
+    "in_reply_to_id": null,
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "user": {
+      "login": "author"
+    },
+    "pull_request_review_id": 23,
+    "body": "**R2-3** · correctness · medium · likely\n\n**Field handle renamed in project config**\n\nThe handle changes under the field the entries reference.\n\nThis one is yours to act on: repository rule craft-config (Craft project config is applied through the control panel).",
+    "created_at": "2026-10-27T12:00:00Z"
+  },
+  {
+    "id": 1433,
+    "in_reply_to_id": 1423,
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "user": {
+      "login": "author"
+    },
+    "pull_request_review_id": 23,
+    "body": "Redline round 2: left to the author under repository rule craft-config (Craft project config is applied through the control panel). The author applies the rename through the control panel after the merge. · decided by: @author",
+    "created_at": "2026-10-27T12:30:00Z"
+  }
 ]
