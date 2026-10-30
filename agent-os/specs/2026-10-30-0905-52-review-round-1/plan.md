@@ -271,3 +271,26 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 10. **Docs**: every row under Docs entries names its commit or its reason; the README rows' commits are listed by hash in As built.
 11. **Standards retrospective**: Task 6, from the proposed list in `shape.md`, as the standards approver approved it.
 12. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+Every task was built as written; no file outside a task's list was touched, and `scripts/redline-guard.sh` was not changed.
+
+| Task | Finding | Commit | Files |
+| --- | --- | --- | --- |
+| 1 | spec | `11512f4` | `plan.md`, `shape.md`, `standards.md`, `references.md` |
+| 2 | R1-1 (defer) | `9ec60fd` | `tests/guard-cases.tsv`, `README.md` (Known limits; Settings → Ask rules) |
+| 3 | R1-2 | `7174f02` | `scripts/redline-setup.sh`, `tests/setup-test.sh` |
+| 4 | R1-3 | `2b0c91b` | `skills/setup/SKILL.md`, `tests/setup-test.sh`, `README.md` (Set up a repository, item 2) |
+| 5 | R1-4 | `d99c9bf` | `workflows/redline-loop.js`, `tests/loop-test.mjs`, `agents/redline-shaper.md`, `README.md` (Settings → Ask rules) |
+| 6 | standards | `ffa90a9` | `agent-os/standards/scripts/guard.md`, `agent-os/standards/scripts/bash-conventions.md`, `agent-os/standards/workflow/agents.md`, `agent-os/standards/testing/tests.md` |
+
+Docs entries: the README rows' commits are `9ec60fd` (Known limits; Ask rules paths bullet), `2b0c91b` (Set up a repository, item 2) and `d99c9bf` (Ask rules paragraph). The other rows keep the reason given under Docs entries.
+
+Red and green, all through `.claude/redline/checks.sh --baseline`:
+- One red run held Task 2's rows and the red cases of Tasks 3 and 5 together, instead of a separate red run for each task. Results: `guard` 430 passed, 0 mismatched, with the two new rows `allow` and row 458 still `deny`; `setup` 269 passed, 4 failed (the two null lists, plus the non-object list, which failed on its stderr case and its exit case); `loop` 398 passed, 2 failed. The `loop` failures were the two new checks: the reply opened `left to the author under repository rule craft-config`, `forced` and `deferred` each held H1-1, the "makes it an ask" warning was recorded, and the summary read `H1-1 left to @author under repository rule craft-config`.
+- After Task 3, `setup` showed 273 passed, 0 failed. After Task 4 it showed 275 passed, 0 failed. After Task 5, `loop` showed 400 passed, 0 failed.
+- Deviation in a count only: the `loop` baseline was 398 checks, not the 397 recorded at shaping time, so the green count is 400, not 399. The two checks this round adds are the only new ones.
+- The gate with the round's snapshot ran green: all nine checks exit 0, with `unexpected_files` and `uncommitted` empty.
+
+Standards retrospective: the standards approver approved items 1 to 5 of `shape.md`, and they were applied in `ffa90a9`. Each is a lesson, and `shape.md` routes no finding's fix through it, so the commit message names no finding. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
