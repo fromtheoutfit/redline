@@ -1,0 +1,1 @@
+Redline round 2: fixed in 5d09b44 (redline: R2-1 have setup's ask-rules check match an id against the whole string, as the guard and the workflow do (#49)). · decided by: redline

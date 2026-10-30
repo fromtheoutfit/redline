@@ -1,0 +1,1 @@
+Redline round 1: fixed in d99c9bf (redline: R1-4 leave a human-pass comment that asks for nothing as none under an ask rule (#49)). · decided by: redline

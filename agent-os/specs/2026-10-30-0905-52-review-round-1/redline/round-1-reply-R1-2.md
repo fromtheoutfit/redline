@@ -1,0 +1,1 @@
+Redline round 1: fixed in 7174f02 (redline: R1-2 have setup's ask-rules check fault a null paths or prose and a non-object rule as the guard does (#49)). · decided by: redline
