@@ -125,3 +125,23 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 10. **Docs**: every row under Docs entries names its commit or its reason. This round has no README edit, so every row names a reason.
 11. **Standards retrospective**: Task 3, from the proposed list in `shape.md`, as the standards approver approved it.
 12. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+Every task was built as written, with no deviation; no file outside a task's list was touched, and `scripts/redline-guard.sh` was not changed.
+
+| Task | Finding | Commit | Files |
+| --- | --- | --- | --- |
+| 1 | spec | `d0ad35c` | `plan.md`, `shape.md`, `standards.md`, `references.md` |
+| 2 | R2-1 | `5d09b44` | `scripts/redline-setup.sh`, `tests/setup-test.sh` |
+| 3 | standards | `fac2663` | `agent-os/standards/scripts/bash-conventions.md`, `agent-os/standards/testing/tests.md` |
+
+Docs entries: no README edit; every row keeps the reason given under Docs entries.
+
+Red and green, all through `.claude/redline/checks.sh --baseline`:
+- Red, with Task 2's five test lines and no fix: `setup` printed `276 passed, 2 failed`, as the plan expected. The two failures were the newline cases: the stderr case got nothing on stderr and the exit case got `exit 0`. The `"a-1"` case passed. Every other check exited 0.
+- Green, after the fix: `setup` printed `278 passed, 0 failed`, and all nine checks exited 0.
+- Task 2's greps printed `0`, `1`, `1` and `3`, and `git show --stat HEAD` listed only `scripts/redline-setup.sh` and `tests/setup-test.sh`.
+- The gate with the round's snapshot ran green: all nine checks exit 0, with `unexpected_files` and `uncommitted` empty.
+
+Standards retrospective: the standards approver approved items 1 and 2 of `shape.md`, and they were applied in `fac2663`. Each is a lesson, and `shape.md` routes no part of R2-1's fix through it, so the commit message names no finding. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`, and `grep -c "#52, R2-1"` printed `1` for each of the two standards.
