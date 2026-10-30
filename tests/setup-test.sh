@@ -235,6 +235,13 @@ printf '[{"id": "a", "when": {"paths": ["x"]}, "reason": " "}]\n' > "$WORK/rules
 expect_stderr "an empty reason: exit 2" "rule 'a': reason must be one non-empty line" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-reason.json"
 printf '{"id": "a"}\n' > "$WORK/rules-obj.json"
 expect_stderr "not a list: exit 2" "askRules is not a list" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-obj.json"
+printf '[{"id": "a", "when": {"paths": null}, "reason": "r"}]\n' > "$WORK/rules-paths-null.json"
+expect_stderr "a null paths: exit 2" "rule 'a': paths must be a non-empty list of non-empty strings" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-paths-null.json"
+printf '[{"id": "a", "when": {"prose": null}, "reason": "r"}]\n' > "$WORK/rules-prose-null.json"
+expect_stderr "a null prose: exit 2" "rule 'a': prose must be a non-empty string" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-prose-null.json"
+printf '["x", {"id": "a", "when": {"paths": ["x"]}, "reason": "r"}]\n' > "$WORK/rules-nonobject.json"
+expect_stderr "a non-object rule before an object: exit 2 naming it" "askRules\[1\]: not an object" config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-nonobject.json"
+expect_exit "a non-object rule before an object: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/rules-nonobject.json"
 expect_exit "a missing rules file: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules "$WORK/no-such-rules.json"
 expect_exit "--ask-rules without a file: exit 2" 2 config --reviewer sam --baseline-seconds 29 --ask-rules
 

@@ -451,6 +451,8 @@ cmd_unattended() {
 # config
 # ask_rules_fault <list json>: the first reason the list is malformed, or nothing. The wording is
 # the guard's (rule_fault in redline-guard.sh) and the workflow's, so a person reads one message.
+# It tests what they test: a key's presence, never a non-null value, and the id of an object only
+# (#52, R1-2).
 ask_rules_fault() {
     local prog
     prog="$(cat <<'JQ'
@@ -459,11 +461,11 @@ if type != "array" then "askRules is not a list" else
 ([range(0; length) as $i | .[$i] as $r
     | if ($r | type) != "object" then "askRules[\($i + 1)]: not an object"
       elif ($r.id | type) != "string" or ($r.id | test("^[a-z][a-z0-9-]*$") | not) then "askRules[\($i + 1)]: id must match [a-z][a-z0-9-]*"
-      elif ([.[:$i][] | .id] | index($r.id)) != null then "askRules[\($i + 1)]: id '\($r.id)' is not unique"
+      elif ([.[:$i][] | objects | .id] | index($r.id)) != null then "askRules[\($i + 1)]: id '\($r.id)' is not unique"
       elif ($r.when | type) != "object" or (($r.when | keys) != ["paths"] and ($r.when | keys) != ["prose"]) then "askRules[\($i + 1)]: rule '\($r.id)': when must hold exactly one of paths or prose"
-      elif $r.when.paths != null and (($r.when.paths | type) != "array" or ($r.when.paths | length) == 0 or ($r.when.paths | any(type != "string" or clean == ""))) then "askRules[\($i + 1)]: rule '\($r.id)': paths must be a non-empty list of non-empty strings"
-      elif $r.when.paths != null and ($r.when.paths | any(test("[!\\[]"))) then "askRules[\($i + 1)]: rule '\($r.id)': a path pattern may not hold ! or ["
-      elif $r.when.prose != null and (($r.when.prose | type) != "string" or ($r.when.prose | clean) == "") then "askRules[\($i + 1)]: rule '\($r.id)': prose must be a non-empty string"
+      elif ($r.when | has("paths")) and (($r.when.paths | type) != "array" or ($r.when.paths | length) == 0 or ($r.when.paths | any(type != "string" or clean == ""))) then "askRules[\($i + 1)]: rule '\($r.id)': paths must be a non-empty list of non-empty strings"
+      elif ($r.when | has("paths")) and ($r.when.paths | any(test("[!\\[]"))) then "askRules[\($i + 1)]: rule '\($r.id)': a path pattern may not hold ! or ["
+      elif ($r.when | has("prose")) and (($r.when.prose | type) != "string" or ($r.when.prose | clean) == "") then "askRules[\($i + 1)]: rule '\($r.id)': prose must be a non-empty string"
       elif ($r.reason | type) != "string" or ($r.reason | clean) == "" or ($r.reason | clean | test("\n")) then "askRules[\($i + 1)]: rule '\($r.id)': reason must be one non-empty line"
       else empty end] | first // empty)
 end
