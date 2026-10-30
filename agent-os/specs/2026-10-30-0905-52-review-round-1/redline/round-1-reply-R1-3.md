@@ -1,0 +1,1 @@
+Redline round 1: fixed in 2b0c91b (redline: R1-3 have setup pass an empty ask-rules list when the person removes every rule (#49)). · decided by: redline

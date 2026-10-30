@@ -27,15 +27,28 @@
 #       back and compare: equal is up to date; different exits 1 with {differs}, and --force patches
 #       those phrases in place without re-pasting the body. Keeps a BOM and CRLF. Prints {file,
 #       present, changed, written, fillins, found, differs, insertedAt}.
-#   redline-setup.sh config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run]
+#   redline-setup.sh config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run]
 #       redline.json from templates/redline.json.example: checker is git-only when the baseline is
 #       over 300 s, else full; checkerStallMs is the baseline times 1.7, rounded up to five minutes,
 #       never below 300000. With a root, writes <repoRoot>/.claude/redline.json. Over an existing
 #       file, updates only checker and checkerStallMs in place (listed under updated) and keeps every
 #       other value, reviewer included, as the person's: each that differs from the template's is
 #       listed under differs and left alone. Exits 1 when checker or checkerStallMs cannot be updated
-#       in place. --force rewrites the whole file from the template. Prints {config, file, existed,
-#       changed, written, updated, differs}.
+#       in place. --force rewrites the whole file from the template.
+#       --ask-rules <file> (#49) is the repository's ask rules as a JSON list of {id, when, reason}
+#       (id [a-z][a-z0-9-]*, unique; when exactly one of {paths: [globs]} or {prose: "<sentence>"};
+#       reason one line; a pattern holds no ! or [): a fresh file carries it as askRules; an existing
+#       file whose askRules differ is rewritten with the list (listed under updated.askRules), one
+#       whose list is equal is left alone. Without the flag an existing askRules is kept, and never
+#       listed under differs; --force without the flag drops it. askRules in the output is the
+#       file's list after the call (null when it has none). A bad list exits 2 naming the rule.
+#       Prints {config, file, existed, changed, written, updated, differs, askRules}.
+#   redline-setup.sh suggest-ask-rules <repoRoot>
+#       The ask rules the repository's stack suggests (#49), read off composer.json: craftcms/cms
+#       suggests config/project/** (Craft project config is applied through the control panel),
+#       laravel/framework suggests database/migrations/*. Prints {suggestions: [{id, when, reason,
+#       because}]}, [] with no composer.json or no known dependency; exits 2 on a composer.json
+#       that is not JSON. Writes nothing.
 #   redline-setup.sh checks <checks.json> <checks.sh> [--dry-run]
 #       Generate checks.sh from the JSON and scripts/checks-template.sh: a header naming the gate,
 #       the checks and the baseline, the template version line, the stamp (an existing one is kept,
@@ -80,7 +93,7 @@ CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="$PLUGIN_ROOT/templates/shape-spec-unattended.md"
 
 usage() {
-    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--force] [--dry-run] | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
+    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
     exit 2
 }
 die2() { echo "redline-setup: $*" >&2; exit 2; }
@@ -436,12 +449,39 @@ cmd_unattended() {
 
 # ---------------------------------------------------------------------------------------------
 # config
+# ask_rules_fault <list json>: the first reason the list is malformed, or nothing. The wording is
+# the guard's (rule_fault in redline-guard.sh) and the workflow's, so a person reads one message.
+# It tests what they test: a key's presence, never a non-null value, and the id of an object only
+# (#52, R1-2), matched against the whole string with \A and \z, since jq's $ also matches before a
+# final newline, which the guard's fullmatch and the workflow's /^...$/ refuse (#52, R2-1).
+ask_rules_fault() {
+    local prog
+    prog="$(cat <<'JQ'
+def clean: gsub("^\\s+|\\s+$"; "");
+if type != "array" then "askRules is not a list" else
+([range(0; length) as $i | .[$i] as $r
+    | if ($r | type) != "object" then "askRules[\($i + 1)]: not an object"
+      elif ($r.id | type) != "string" or ($r.id | test("\\A[a-z][a-z0-9-]*\\z") | not) then "askRules[\($i + 1)]: id must match [a-z][a-z0-9-]*"
+      elif ([.[:$i][] | objects | .id] | index($r.id)) != null then "askRules[\($i + 1)]: id '\($r.id)' is not unique"
+      elif ($r.when | type) != "object" or (($r.when | keys) != ["paths"] and ($r.when | keys) != ["prose"]) then "askRules[\($i + 1)]: rule '\($r.id)': when must hold exactly one of paths or prose"
+      elif ($r.when | has("paths")) and (($r.when.paths | type) != "array" or ($r.when.paths | length) == 0 or ($r.when.paths | any(type != "string" or clean == ""))) then "askRules[\($i + 1)]: rule '\($r.id)': paths must be a non-empty list of non-empty strings"
+      elif ($r.when | has("paths")) and ($r.when.paths | any(test("[!\\[]"))) then "askRules[\($i + 1)]: rule '\($r.id)': a path pattern may not hold ! or ["
+      elif ($r.when | has("prose")) and (($r.when.prose | type) != "string" or ($r.when.prose | clean) == "") then "askRules[\($i + 1)]: rule '\($r.id)': prose must be a non-empty string"
+      elif ($r.reason | type) != "string" or ($r.reason | clean) == "" or ($r.reason | clean | test("\n")) then "askRules[\($i + 1)]: rule '\($r.id)': reason must be one non-empty line"
+      else empty end] | first // empty)
+end
+JQ
+)"
+    jq -r "$prog" <<<"$1"
+}
+
 cmd_config() {
-    local reviewer="" seconds="" root="" force=false dry=false
+    local reviewer="" seconds="" root="" force=false dry=false rules_file="" rules=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --reviewer) [[ $# -ge 2 ]] || die2 "--reviewer needs a handle"; reviewer="$2"; shift 2 ;;
             --baseline-seconds) [[ $# -ge 2 ]] || die2 "--baseline-seconds needs a number"; seconds="$2"; shift 2 ;;
+            --ask-rules) [[ $# -ge 2 ]] || die2 "--ask-rules needs a file"; rules_file="$2"; shift 2 ;;
             --force) force=true; shift ;;
             --dry-run) dry=true; shift ;;
             -*) usage ;;
@@ -461,14 +501,23 @@ cmd_config() {
                    -e "s/\"checker\": \"[^\"]*\"/\"checker\": \"$checker\"/" \
                    -e "s/\"checkerStallMs\": [0-9]*/\"checkerStallMs\": $stall/" "$CONFIG_TEMPLATE")"
     jq -e . <<<"$content" >/dev/null 2>&1 || die2 "$CONFIG_TEMPLATE did not substitute into valid JSON"
+    if [[ -n "$rules_file" ]]; then
+        [[ -f "$rules_file" ]] || die2 "--ask-rules: $rules_file is not a file"
+        rules="$(jq -c . "$rules_file" 2>/dev/null)" || die2 "--ask-rules: $rules_file is not JSON"
+        local fault; fault="$(ask_rules_fault "$rules")"
+        [[ -z "$fault" ]] || die2 "--ask-rules: $fault"
+        # The list rides in the template's output; jq re-indents the whole file (#49).
+        content="$(jq --indent 2 --argjson r "$rules" '. + {askRules: $r}' <<<"$content")"
+    fi
     local config; config="$(jq -c . <<<"$content")"
     if [[ -z "$root" ]]; then
-        jq -n --argjson config "$config" '{config: $config, file: null, existed: false, changed: false, written: false, updated: {}, differs: {}}'
+        jq -n --argjson config "$config" '{config: $config, file: null, existed: false, changed: false, written: false, updated: {}, differs: {}, askRules: ($config.askRules // null)}'
         return 0
     fi
     [[ -d "$root" ]] || die2 "$root is not a directory"
     root="$(cd "$root" && pwd)"
-    local file="$root/.claude/redline.json" existed=false have='null' differs='{}' updated='{}' changed=true written=false tmp=""
+    local file="$root/.claude/redline.json" existed=false have='null' differs='{}' updated='{}' changed=true written=false tmp="" ask_rules='null'
+    [[ -z "$rules" ]] || ask_rules="$rules"
     if [[ -f "$file" ]]; then
         existed=true
         have="$(jq -c . "$file" 2>/dev/null)" || die2 "$file is not JSON"
@@ -478,6 +527,7 @@ cmd_config() {
                 changed=false
             fi
         else
+            ask_rules="$(jq -c '.askRules // null' <<<"$have")"
             # A rerun updates only the two values derived from the baseline, in place, so the file's
             # formatting and every other value, reviewer included, stay the person's (#12, R1-5).
             tmp="$(tmp_beside "$file")"
@@ -495,6 +545,15 @@ cmd_config() {
                 [{key: "checker", want: $c}, {key: "checkerStallMs", want: $s}]
                 | map(select($h[.key] != .want) | {key: .key, value: {have: $h[.key], want: .want}}) | from_entries')"
             differs="$(config_differs "$(jq -c . "$tmp")" "$config")"
+            # A given list that differs from the file's replaces it; the file is rewritten by jq
+            # for that, since a list cannot be patched in place (#49).
+            if [[ -n "$rules" && "$(jq -S -c . <<<"$ask_rules")" != "$(jq -S -c . <<<"$rules")" ]]; then
+                local tmp2; tmp2="$(tmp_beside "$file")"
+                jq --indent 2 --argjson r "$rules" '.askRules = $r' "$tmp" > "$tmp2"
+                rm -f "$tmp"; tmp="$tmp2"
+                updated="$(jq -c --argjson h "$ask_rules" --argjson r "$rules" '. + {askRules: {have: $h, want: $r}}' <<<"$updated")"
+                ask_rules="$rules"
+            fi
             if [[ "$(jq -c . <<<"$updated")" == '{}' ]]; then
                 changed=false
             fi
@@ -511,13 +570,35 @@ cmd_config() {
         rm -f "$tmp"
     fi
     jq -n --argjson config "$config" --arg file "$file" --argjson existed "$existed" --argjson changed "$changed" \
-        --argjson written "$written" --argjson updated "$updated" --argjson differs "$differs" \
-        '{config: $config, file: $file, existed: $existed, changed: $changed, written: $written, updated: $updated, differs: $differs}'
+        --argjson written "$written" --argjson updated "$updated" --argjson differs "$differs" --argjson rules "$ask_rules" \
+        '{config: $config, file: $file, existed: $existed, changed: $changed, written: $written, updated: $updated, differs: $differs, askRules: $rules}'
 }
 # config_differs <have> <want>: {<key>: {have, want}} for each top-level key whose values differ.
+# askRules is the person's list, never the template's, so it is never drift (#49).
 config_differs() {
     jq -n --argjson h "$1" --argjson w "$2" '
-        [($h | keys) + ($w | keys) | unique[]] | map(select(($h[.] | tojson) != ($w[.] | tojson)) | {key: ., value: {have: $h[.], want: $w[.]}}) | from_entries'
+        [($h | keys) + ($w | keys) | unique[] | select(. != "askRules")] | map(select(($h[.] | tojson) != ($w[.] | tojson)) | {key: ., value: {have: $h[.], want: $w[.]}}) | from_entries'
+}
+
+# suggest-ask-rules <repoRoot>: the ask rules the stack suggests, read off composer.json (#49).
+cmd_suggest_ask_rules() {
+    [[ $# -eq 1 ]] || usage
+    local root="$1"
+    [[ -d "$root" ]] || die2 "$root is not a directory"
+    root="$(cd "$root" && pwd)"
+    local composer="$root/composer.json" deps='[]'
+    if [[ -f "$composer" ]]; then
+        deps="$(jq -c '[(.require // {}), (."require-dev" // {}) | keys[]]' "$composer" 2>/dev/null)" || die2 "$composer is not JSON"
+    fi
+    jq -n --argjson deps "$deps" '
+        {suggestions: [
+            (if ($deps | index("craftcms/cms")) != null
+             then {id: "craft-project-config", when: {paths: ["config/project/**"]}, reason: "Craft project config is applied through the control panel", because: "composer.json requires craftcms/cms"}
+             else empty end),
+            (if ($deps | index("laravel/framework")) != null
+             then {id: "migrations", when: {paths: ["database/migrations/*"]}, reason: "A migration changes the schema; the person reviews it before it runs", because: "composer.json requires laravel/framework"}
+             else empty end)
+        ]}'
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -998,6 +1079,7 @@ case "$1" in
     gitignore) shift; cmd_gitignore "$@" ;;
     unattended) shift; cmd_unattended "$@" ;;
     config) shift; cmd_config "$@" ;;
+    suggest-ask-rules) shift; cmd_suggest_ask_rules "$@" ;;
     checks) shift; cmd_checks "$@" ;;
     read-checks) shift; cmd_read_checks "$@" ;;
     version) shift; cmd_version "$@" ;;

@@ -26,8 +26,9 @@
 #                                  finding is a review body line "- **R<n>-<k>** · <category> ·
 #                                  <severity> · <confidence> · `<file>:<line>` · <title>" (an
 #                                  "Already tracked" line has no such fields and is not one);
-#                                  " · needs a decision" and " · first reported as R<n>-<k>"
-#                                  (carried_from) are stripped from the title. comment_id and body
+#                                  " · needs a decision", " · first reported as R<n>-<k>"
+#                                  (carried_from) and " · yours under rule <id>" (a repository ask
+#                                  rule, #49) are stripped from the title. comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening
@@ -36,8 +37,10 @@
 #                                  after the prefix, or null. disposition reads the reply's first
 #                                  words: "fixed in" fixed, "mitigated" deferred, "not acted on in
 #                                  this run." dropped, "not changed in this round." not-changed,
-#                                  "carried forward as R<n>-<k>;" carried (carried_to), any other
-#                                  reply decided, no reply none; a finding a later round's line
+#                                  "carried forward as R<n>-<k>;" carried (carried_to), "left to
+#                                  the author" left (a finding a repository ask rule left to the
+#                                  person, #49), any other reply decided, no reply none; a
+#                                  finding a later round's line
 #                                  names as first reported is carried (carried_to that id)
 #                                  whatever its thread says. Exit 2 on a gh error
 #   human-review <n> <selector>    a teammate's review comments as one list, for a revise pass over
@@ -335,12 +338,13 @@ case "$cmd" in
                 elif startswith("not acted on in this run.") then "dropped"
                 elif startswith("not changed in this round.") then "not-changed"
                 elif startswith("carried forward as R") then "carried"
+                elif startswith("left to the author") then "left"
                 else "decided" end;
             ($comments[0]) as $all
             | ($issues[0]) as $issue_comments
             | [$reviews[0][] | select(redline_review) | . as $r | round_of as $n
                 | finding_lines[] | . as $f
-                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?$")) as $t
+                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · yours under rule [a-z][a-z0-9-]*)?$")) as $t
                 | ($all | map(select(.in_reply_to_id == null and ((.body // "") | startswith("**" + $f.id + "** · ")))) | first) as $root
                 | ($root.id // 0) as $cid
                 | (if $cid > 0

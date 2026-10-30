@@ -109,16 +109,25 @@ function mock(scenario) {
       const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
-        findings: ids.map((id) => ({ id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way` })),
+        // scenario.files and scenario.askRule (#49) add the paths a finding's task touches and the
+        // shaper's ask-rule tag, only when scripted, so every other scenario's JSON is unchanged.
+        findings: ids.map((id) => ({
+          id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
+          ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
+          ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
+        })),
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: 'a guard clause', fullFix: 'a lock' })),
         judgmentCalls: ids.filter((id) => ask.includes(id)).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
       }
     }
     if (t === 'redline:redline-resolve') {
       const ids = [...new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{/g)].map((m) => m[1]))]
-      // An accepted override has no files to touch; everything else gets a task with a file.
+      // An accepted override has no files to touch, nor does a finding left to the person under a
+      // repository ask rule (its decision carries rule, #49); everything else gets a task with a file.
       const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]))
-      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: accepted.has(id) ? `Accepted, no change: ${id}` : `t ${id}`, files: accepted.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
+      const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
+      const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
+      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
       return { approved: true, adjustments: [], planPaths: ['app/x.php'], notes: '' }
@@ -887,6 +896,97 @@ function samePrefix(name, first, second, n) {
 
   run = await go('threads: the sweep fails', args, { ...scenario, resolveError: 'gh: HTTP 502' })
   check('threads: a failed sweep stops the run at finish, before the handoff comment', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('resolving the settled threads failed: gh: HTTP 502') && !labels(run.calls).includes('handoff comment'), [run.res.status, run.res.stage, run.res.error, labels(run.calls)])
+}
+
+// ---------------------------------------------------------------------------
+// 12. Repository ask rules (#49): a finding under a paths rule (by its file, or by the files the
+//     shaper's task touches) or one the shaper tags with a prose rule is forced to ask whatever
+//     the shaper returned; the review marks it; guided records the person's answer as left to
+//     the author, autopilot leaves it with no commit and lists it under Deferred; its thread
+//     stays open; the handoff lists it under its rule; a repository with no rules keeps
+//     byte-identical prompts; a plan-dial override to fix is refused; a human pass does the same.
+// ---------------------------------------------------------------------------
+{
+  const rules = [
+    { id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' },
+    { id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' },
+  ]
+  const three = [f('R1-1', 'correctness'), f('R1-2', 'correctness', { file: 'config/project/project.yaml', line: 3 }), f('R1-3', 'correctness', { file: 'app/Billing.php', askRule: 'billing' })]
+  // The shaper says fix for all three; R1-3 carries its prose-rule tag.
+  const scenario = { reviews: [three, []], askRule: { 'R1-3': 'billing' }, commitIds: [['R1-1']] }
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const reason = 'Craft project config is applied through the control panel'
+
+  const first = await go('rules: guided, forced asks', ruleArgs, scenario)
+  check('rules: a paths match and a prose tag end the run as a decisions hand-off', first.res.status === 'handoff' && first.res.handoffKind === 'decisions' && JSON.stringify(first.res.decisionsNeeded) === '["R1-2","R1-3"]', [first.res.status, first.res.decisionsNeeded])
+  check('rules: the shaper sorted them as fix; the forcing point warns and wins', first.res.warnings.includes('round 1: the shaper sorted R1-2 as fix; repository rule craft-config makes it an ask for the person') && first.res.warnings.includes('round 1: the shaper sorted R1-3 as fix; repository rule billing makes it an ask for the person'), first.res.warnings)
+  const calls = first.res.judgmentCalls
+  check('rules: the synthesised call names the rule, quotes its reason and offers the person\'s options', calls[0].id === 'R1-2' && calls[0].why_human === 'repository rule craft-config' && calls[0].story === `Repository rule craft-config: ${reason}. d` && calls[0].options.map((o) => o.label).join('|') === 'Make the change by hand after the run|Accept, no change' && calls[0].recommendation === 'By hand: fix R1-2 this way.' && JSON.stringify(calls[0].forced) === `{"rule":"craft-config","reason":"${reason}","recommendation":"By hand: fix R1-2 this way."}`, calls[0])
+  check('rules: the prose-tagged call names its rule', calls[1].id === 'R1-3' && calls[1].why_human === 'repository rule billing' && calls[1].forced.rule === 'billing', calls[1])
+  const post = pick(first.calls, 'post r1').prompt
+  check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · yours under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · yours under rule billing\\n') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
+  check('rules: the inline comment says whose it is and why', post.includes(`This one is yours to act on: repository rule craft-config (${reason}).`) && post.includes('This one is yours to act on: repository rule billing (Billing changes are reviewed by finance).'), post)
+  check('rules: the reviewer, the shaper and the plan approver get the rule list', pick(first.calls, 'review r1').prompt.includes('Repository ask rules, as JSON: what a person is always brought in for') && pick(first.calls, 'review r1').prompt.includes('"id": "craft-config"') && pick(first.calls, 'shape r1').prompt.includes('askRule set to the id') && pick(first.calls, 'shape r1').prompt.includes('"prose": "the change alters what a customer is charged"'), pick(first.calls, 'shape r1').prompt.slice(0, 2500))
+
+  const decided = { ...ruleArgs, decisions: { 'R1-2': { choice: 'Make the change by hand after the run', notes: 'The author renames the field through the control panel after the merge.', date: '2026-10-30' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
+  const second = await go('rules: guided relaunch', decided, scenario)
+  check('rules: the relaunch finishes with no commit for the forced findings', second.res.status === 'done', [second.res.status, second.res.error])
+  samePrefix('rules', first.calls, second.calls, 4)
+  const resolve = pick(second.calls, 'resolve r1').prompt
+  check('rules: the resolve prompt carries the rule on the decision and the left-to-the-person sentence', resolve.includes('"rule": "craft-config"') && resolve.includes('"rule": "billing"') && resolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers'), resolve)
+  check('rules: the plan approver sees the rules and the asks', pick(second.calls, 'plan approver r1').prompt.includes('"id": "craft-config"') && pick(second.calls, 'plan approver r1').prompt.includes('"askRule": "craft-config"'), pick(second.calls, 'plan approver r1').prompt)
+  check('rules: the reply says left to the author, with the rule, its reason, the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author renames the field through the control panel after the merge. · decided by: @author`, replyFor(second.calls, 'push and reply r1', 'R1-2'))
+  check('rules: an accepted one is left too, in the person\'s words', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: left to the author under repository rule billing (Billing changes are reviewed by finance). The author leaves the charge as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
+  const handoff = comment(second.calls, 'handoff comment')
+  check('rules: the handoff lists both under their rules', handoff.includes(`### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author\n- **R1-3** title R1-3: rule billing (Billing changes are reviewed by finance); left to the author under repository rule billing: The author leaves the charge as it is. · decided by: @author`) && !handoff.includes('### Deferred'), handoff)
+  check('rules: their threads stay open, named with the rule; the fixed one is swept', pick(second.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && handoff.includes('\n\nResolved 1 thread; 2 left open: R1-2 (repository rule craft-config), R1-3 (repository rule billing).\n'), handoff)
+  check('rules: the result names them', JSON.stringify(second.res.forced.map((x) => [x.id, x.rule, x.round])) === '[["R1-2","craft-config",1],["R1-3","billing",1]]' && second.res.rounds[0].forced['R1-2'].rule === 'craft-config' && second.res.deferred.length === 0, [second.res.forced, second.res.deferred])
+  check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
+
+  const auto = await go('rules: autopilot', { ...ruleArgs, interrupt: 'autopilot' }, scenario)
+  check('rules: autopilot never applies a forced finding and demands no commit', auto.res.status === 'done', [auto.res.status, auto.res.error])
+  const autoResolve = pick(auto.calls, 'resolve r1').prompt
+  check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; the person makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
+  check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; the person makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
+  const autoHandoff = comment(auto.calls, 'handoff comment')
+  check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to you under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
+  check('rules: the deferred list carries the rule and no mitigation', JSON.stringify(auto.res.deferred.map((d) => [d.id, d.rule, d.mitigation, d.fullFix])) === '[["R1-2","craft-config","none (repository rule craft-config)","By hand: fix R1-2 this way."],["R1-3","billing","none (repository rule billing)","By hand: fix R1-3 this way."]]', auto.res.deferred)
+
+  // The paths rule also catches a finding elsewhere whose task would write under it.
+  const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
+  check('rules: the shaper\'s files force the ask', viaFiles.res.status === 'handoff' && viaFiles.res.judgmentCalls[0].forced.rule === 'craft-config', viaFiles.res)
+  // The reviewer's tag alone is advisory: it marks the review and forces nothing.
+  const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
+  check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · yours under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
+  const unknown = await go('rules: an unknown tag', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'nope' })], []], askRule: { 'R1-1': 'nope' }, commitIds: [['R1-1']] })
+  check('rules: an unknown tag is cleared with a warning, by the reviewer and by the shaper', unknown.res.status === 'done' && unknown.res.warnings.includes('round 1: the reviewer tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; cleared') && unknown.res.warnings.includes('round 1: the shaper tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; ignored') && !pick(unknown.calls, 'post r1').prompt.includes('yours under rule'), unknown.res.warnings)
+
+  // No rules: a run with no key and one with [] build the same prompts, with no rule text in them.
+  const plain = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const noKey = await go('rules: no askRules key', { ...baseArgs, interrupt: 'autopilot' }, plain)
+  const empty = await go('rules: askRules []', { ...baseArgs, interrupt: 'autopilot', askRules: [] }, plain)
+  samePrefix('rules: no key against []', noKey.calls, empty.calls, noKey.calls.length)
+  check('rules: no rule text reaches a prompt when there are no rules', noKey.calls.every((c) => !c.prompt.includes('ask rule') && !c.prompt.includes('Repository ask rules')), noKey.calls.filter((c) => c.prompt.includes('ask rule')).map((c) => c.label))
+  const bad = await go('rules: a malformed rule', { ...baseArgs, askRules: [{ id: 'Bad', when: { paths: ['x'] }, reason: 'r' }] }, plain)
+  check('rules: a malformed list stops the launch before any agent runs', !!bad.thrown && bad.thrown.message.includes('args.askRules[0]: id must match [a-z][a-z0-9-]*') && bad.calls.length === 0, [bad.thrown && bad.thrown.message, labels(bad.calls)])
+
+  // The plan dial: the forced finding is shown with its rule, and an override to fix is refused.
+  const planFirst = await go('rules: plan dial', { ...ruleArgs, interrupt: 'plan' }, scenario)
+  check('rules: the plan hand-off carries the rule on the entry and the call', planFirst.res.status === 'handoff' && planFirst.res.handoffKind === 'plan' && planFirst.res.plan[1].disposition === 'ask' && planFirst.res.plan[1].forced.rule === 'craft-config' && planFirst.res.plan[0].forced === null && planFirst.res.judgmentCalls[0].forced.rule === 'craft-config', planFirst.res.plan)
+  const overridden = { ...ruleArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-2': { choice: 'fix', notes: 'The author wants it fixed anyway.', date: '2026-10-30', disposition: 'fix' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
+  const planSecond = await go('rules: plan dial override to fix', overridden, scenario)
+  check('rules: an override to fix on a forced finding is refused with a warning and the finding stays the person\'s', planSecond.res.status === 'done' && planSecond.res.warnings.includes('round 1: R1-2 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && replyFor(planSecond.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author wants it fixed anyway. · decided by: @author` && !pick(planSecond.calls, 'resolve r1').prompt.includes('Disposition overrides'), [planSecond.res.status, planSecond.res.warnings, replyFor(planSecond.calls, 'push and reply r1', 'R1-2')])
+
+  // A human review pass on autopilot: a comment under a paths rule is left to the author the same way.
+  const folder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
+  const hf = { id: 'H1-1', file: 'config/project/project.yaml', line: 3, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Rename this handle.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 905, threadId: 905, reviewId: 7 }
+  const human = await go('rules: human pass on autopilot', { ...ruleArgs, firstRound: 3, interrupt: 'autopilot', revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: folder, findings: [hf], commentIds: { 'H1-1': 905 }, posted: true } }, { reviews: [[]], commitIds: [[]] })
+  check('rules: the human pass leaves the comment to the author with the pass title', human.res.status === 'done' && replyFor(human.calls, 'push and reply h1', 'H1-1') === `Redline human review 1: left to the author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; the person makes it. · decided by: redline (autopilot)\n\n<!-- redline:answers 905 -->`, [human.res.status, human.res.error, replyFor(human.calls, 'push and reply h1', 'H1-1')])
+  check('rules: the human summary says so', comment(human.calls, 'summary comment') === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 left to @author under repository rule craft-config. No commits, so no final nit pass.', comment(human.calls, 'summary comment'))
+  // A comment that asks for nothing stays none on a rule-covered file: there is no change to leave to the person (#52, R1-4).
+  const praise = await go('rules: a human-pass comment that asks for nothing', { ...ruleArgs, firstRound: 3, interrupt: 'autopilot', revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: folder, findings: [{ ...hf, description: 'Nice.' }], commentIds: { 'H1-1': 905 }, posted: true } }, { reviews: [], none: ['H1-1'], commitIds: [[]] })
+  check('rules: a none on a rule-covered file is not forced: no change requested, nothing left or deferred, no warning', praise.res.status === 'done' && replyFor(praise.calls, 'push and reply h1', 'H1-1').startsWith('Redline human review 1: no change requested.') && praise.res.forced.length === 0 && praise.res.deferred.length === 0 && !praise.res.warnings.some((w) => w.includes('makes it an ask')), [praise.res.status, praise.res.error, replyFor(praise.calls, 'push and reply h1', 'H1-1'), praise.res.forced, praise.res.deferred, praise.res.warnings])
+  check('rules: the human summary says the comment asked for nothing', comment(praise.calls, 'summary comment') === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 asked for nothing. No commits, so no final nit pass.', comment(praise.calls, 'summary comment'))
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

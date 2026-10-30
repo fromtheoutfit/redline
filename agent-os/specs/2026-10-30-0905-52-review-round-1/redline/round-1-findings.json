@@ -1,0 +1,75 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "b005f1d7fd782553c3d163abd46db19c971dcafb",
+    "to": "b005f1d7fd782553c3d163abd46db19c971dcafb"
+  },
+  "summary": "The ask rules are added in layers. The guard, the workflow's single forcing point, the review mark, the `left` outcome with its reply, thread and handoff handling, and setup each have their own harness cases, and a repository without rules keeps byte-identical prompts. The findings are at the edges of that design. A wildcard write operand gets past the guard's cut-at-the-first-wildcard check. Setup's validator disagrees with the guard and the workflow on two malformed shapes. The setup skill has no way to clear a list. A human-pass comment that asks for nothing is still forced into a judgment call. This repository has no scheduled commands or queued jobs, so there is no overlap to report.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "scripts/redline-guard.sh",
+      "line": 345,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A wildcard write operand slips past a paths ask rule",
+      "description": "`writable()` cuts a Bash write target at its first `*` or `?` and passes only that prefix to `ask_rule()`. `ask_rule()` then refuses the prefix only when the rule's regex matches it, or when the prefix is the whole literal root of the rule, or a full directory above it. Two cases are missed. (1) A rule whose first segment holds a wildcard has an empty root: `*.secret.yaml` (the fixture's `yaml-anywhere`), `**/migrations/*`, any slashless glob. For these, `sed -i '' 's/a/b/' app/*.secret.yaml` is cut to `app/`. That prefix does not match the regex, so the edit is allowed, and the same holds for `*.secret.yaml` at the repository root (cut to `.`). (2) A wildcard inside a segment above the root: with `config/project/**`, `sed -i '' 's/a/b/' config/proj*/project.yaml` is cut to `config/proj`. `\"config/project\".startswith(\"config/proj/\")` is false, so the edit is allowed. I traced both through the same `sed -i` path that the passing row `sed -i '' 's/a/b/' config/project/*.yaml` exercises. The README's new Known limits bullet says the guard refuses every `sed -i`, `mv`, `cp` and `rm` target it can extract, and the PR body says a write under a paths rule's globs is refused for every role. A glob operand is a target the guard does extract, and it gets through.",
+      "proposedFix": "`scripts/redline-guard.sh` is changed by a person, so the run can only defer this. Mitigation for the run: add a README Known limits line saying that a wildcard operand is checked by its literal prefix only. Add `tests/guard-cases.tsv` rows under `# @cwd ASKRULES` that pin today's decisions: `sed -i '' 's/a/b/' app/*.secret.yaml` and `sed -i '' 's/a/b/' config/proj*/project.yaml` (both allowed today). Full fix for the person: when the raw target holds `*` or `?`, expand it with `glob.glob` against `cur` (an in-place edit's operands exist when the hook runs) and check each match with `ask_rule`. Also refuse when the cut prefix is a string prefix of a rule's root, or when a rule has no literal root and the wildcard target expands to nothing the guard can check. Then flip the two rows to deny, naming `yaml-anywhere` and `craft-config`.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-setup.sh",
+      "line": 464,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Setup's ask-rules check disagrees with the guard and the workflow",
+      "description": "`ask_rules_fault` is meant to share its checks with `rule_fault` in the guard and with the workflow's launch check. It differs from them in two places. (1) It tests `$r.when.paths != null` and `$r.when.prose != null`, so `{\"when\": {\"paths\": null}}` or `{\"when\": {\"prose\": null}}` passes. I ran the program on `[{\"id\":\"a\",\"when\":{\"paths\":null},\"reason\":\"r\"}]` and it printed nothing. `config --ask-rules` therefore writes that list to `.claude/redline.json`. The guard then returns \"paths must be a non-empty list\", refuses every write by every role, and the workflow's launch check fails. (2) The uniqueness check on line 462, `[.[:$i][] | .id]`, indexes every earlier element. When a non-object rule precedes an object rule, jq aborts. I ran it on `[\"x\", {...}]` and got `jq: error ... Cannot index string with string \"id\"` (exit 5). Under `set -e` the script then exits 5 with jq's raw message, where the documented behaviour is exit 2 naming `askRules[1]: not an object`. The setup skill only handles exit 2.",
+      "proposedFix": "In `ask_rules_fault`, check the key's presence rather than null: `($r.when | has(\"paths\"))` and `($r.when | has(\"prose\"))`. Make the uniqueness check `[.[:$i][] | objects | .id]`. Add `tests/setup-test.sh` cases: `{\"when\": {\"paths\": null}}` exits 2 with \"paths must be a non-empty list of non-empty strings\", `{\"when\": {\"prose\": null}}` exits 2 with \"prose must be a non-empty string\", and `[\"x\", {valid rule}]` exits 2 with \"askRules[1]: not an object\".",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "skills/setup/SKILL.md",
+      "line": 102,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "A setup rerun cannot remove every ask rule",
+      "description": "Step 7 says to pass `--ask-rules` only when there are rules: \"with none, omit the flag\". Without the flag, `config` keeps an existing file's `askRules` as it is (its header says \"Without the flag an existing askRules is kept\"). So on a rerun, when the person says to drop all of the repository's rules, the skill follows its instructions and omits the flag. The old list stays in `.claude/redline.json`, where the guard and every later launch go on enforcing it. The script itself supports clearing: a file holding `[]` passes `ask_rules_fault` and differs from the existing list, so `config` writes `askRules: []`. Only the skill's instruction blocks it. The other way out, `--force`, resets every hand-set value.",
+      "proposedFix": "In step 7, say to omit the flag only when the file has no rules and the person adds none. When the person removes every rule from an existing list, write `[]` to the temp file and pass it as `--ask-rules`; the dry run then shows `updated.askRules`. Add a `tests/setup-test.sh` case: a rerun over the C5 file with a `[]` rules file lists `askRules` under `updated` and leaves `askRules` empty in the file.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "workflows/redline-loop.js",
+      "line": 1861,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "A human-pass comment that asks for nothing is forced into a judgment call",
+      "description": "In a human review pass, the shaper sorts a teammate's comment that asks for nothing (praise, thanks, an acknowledgement) as `none`. `forceAskRules` matches a paths rule on the comment's `file` and does not look at the disposition, so it turns a `none` on a rule-covered file into `ask`. It warns \"the shaper sorted H1-2 as none; repository rule ... makes it an ask\" and builds a judgment call: \"Make the change by hand after the run\" / \"Accept, no change\", with the recommendation \"By hand: <the shaper's why-nothing-is-asked sentence>\". Two effects follow. On guided or plan, the pass stops to ask the author about a \"Looks good\" comment. On autopilot, the comment gets a `left to the author under repository rule ...` reply, a Deferred entry (`mitigation: none`, `fullFix: By hand: ...`) that the skill's triage then walks, and a summary line saying it was left to the author. Without the rule, the same comment would get `no change requested`. Scenario 12's human-pass check scripts a comment the shaper sorts as `fix`, so this case is not covered.",
+      "proposedFix": "In `forceAskRules`, skip a finding whose shaped disposition is `none` (`if (s.disposition === 'none') continue` before matching): a comment that asks for nothing leaves no change to the person. Add a loop-test check to scenario 12: a human pass on autopilot whose shaper sorts H1-1 on `config/project/project.yaml` as `none`. Its reply reads `no change requested`, `res.forced` and `res.deferred` are empty, and no call is synthesised.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

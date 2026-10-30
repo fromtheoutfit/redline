@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "da5b57733605e54c0057184726b3f15d5250bf4d",
+    "to": "aaebc2b5a8912c05c173116de3fd504c249a56dc"
+  },
+  "summary": "The round 2 fix changes the id check in setup's `ask_rules_fault` from `^...$` to `\\A...\\z`. Setup now accepts and refuses ids by the same rule as the guard's `fullmatch` and the workflow's `/^...$/`. Running jq directly showed that `\"a\\n\"` was accepted before and is refused now, while `a` and `a-1` are still accepted and `Ab`, `\"\\na\"` and `\"a\\nb\"` are still refused. The new setup-test cases cover both the refused newline id and the accepted id with a digit and a hyphen. The standards bullets record the lesson accurately. This round has no findings.",
+  "findings": []
+}

@@ -1,0 +1,27 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "b005f1d7fd782553c3d163abd46db19c971dcafb",
+    "to": "da5b57733605e54c0057184726b3f15d5250bf4d"
+  },
+  "summary": "The round 1 fixes do what their findings asked. Setup's validator now checks for a key's presence and skips non-object rules, matching the guard. The setup skill can clear a list by passing `[]`. `forceAskRules` leaves a human pass's `none` alone; only a fix or defer finding can be overridden at the plan dial, so a `none` cannot be forced afterwards. The wildcard-operand gap is pinned by two allow rows and a Known limits paragraph. One small gap in the R1-2 fix remains: setup's id regex accepts an id ending in a newline, which the guard and the workflow refuse. This repository has no scheduled commands or queued jobs, so there is no overlap to report. The harnesses could not be run from the reviewer role; the checker runs them.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "scripts/redline-setup.sh",
+      "line": 463,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Setup's id check accepts an id with a trailing newline that the guard and the workflow refuse",
+      "description": "The R1-2 fix adds a comment saying `ask_rules_fault` \"tests what they test\", but the id check on this line still disagrees with the guard and the workflow. It uses `test(\"^[a-z][a-z0-9-]*$\")`, and jq's Oniguruma regex lets `$` match before a final newline. I ran `jq -n '[\"a\\nB\", \"a\\n\", \"ab\"] | map(test(\"^[a-z][a-z0-9-]*$\"))'` and got `[false, true, true]`, so `\"a\\n\"` passes. The guard uses `RULE_ID.fullmatch` and the workflow uses `/^[a-z][a-z0-9-]*$/` with no `m` flag, and both refuse `\"a\\n\"`. So `config --ask-rules` writes a rule with id `\"a\\n\"` to `.claude/redline.json`. After that the guard fails closed (\"askRules[1]: id must match [a-z][a-z0-9-]*\"), refusing every write by every Redline role, and the launch check stops every run. This is the same kind of disagreement R1-2 fixed for a null `paths`/`prose`. It is unlikely to come up in practice, since the person or the skill would have to write an id ending in a newline, and it fails loudly rather than silently.",
+      "proposedFix": "Anchor to the whole string: `($r.id | test(\"\\\\A[a-z][a-z0-9-]*\\\\z\") | not)` in the heredoc. In jq, `\\A[a-z][a-z0-9-]*\\z` gives `[false, false, true, true]` for `[\"a\\nB\", \"a\\n\", \"ab\", \"a-1\"]`. Add a `tests/setup-test.sh` case: `printf '[{\"id\": \"a\\\\n\", \"when\": {\"paths\": [\"x\"]}, \"reason\": \"r\"}]\\n'` passed as `--ask-rules` exits 2 with \"id must match [a-z][a-z0-9-]*\", next to the existing bad-id case.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

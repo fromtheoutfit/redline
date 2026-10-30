@@ -37,7 +37,7 @@ In a Redline run you are the **shaper**: a subagent shaping one review round of 
 4. **Dispositions.** Sort every finding into exactly one of:
    - `fix`: a clear correctness bug or nit with a proportionate fix. It becomes a plan task.
    - `defer`: a real bug whose full fix is out of proportion to its likelihood and impact, where a cheap mitigation exists (a guard, a clear error, a log line, a code comment naming the finding). The mitigation becomes a plan task; the full fix is listed under `## Deferred` in `shape.md`.
-   - `ask`: a judgment call, as in point 3.
+   - `ask`: a judgment call, as in point 3. A finding the invoking prompt's repository ask rules cover (a `paths` rule on its file or on a file its task would touch, or a `prose` rule's sentence) is `ask` with `why_human: "repository rule <id>"`, never `fix` or `defer`; the person acts on it outside the run.
    **Proportionality rule.** Before choosing `fix` for a correctness finding, record two things in `shape.md`: how likely and visible the failure is (observed? reachable by a normal user? what happens when it fires?) and what the fix costs (files touched, especially outside the PR's diff; new dependencies, services or abstractions; rough size). When the cost is out of proportion to the likelihood and impact, you may not choose the full fix on your own: it is `defer` if a cheap mitigation exists, otherwise `ask`.
 5. **Investigate before you sort.** Read the code a finding names and its callers and tests. A finding you cannot confirm or refute after that is `ask` with `why_human: "unsure"`, never silently dropped and never marked `fix` on trust.
 6. **Scope and folder name.** Scope is the round's findings, nothing more. The spec folder is `agent-os/specs/YYYY-MM-DD-HHMM-<pr>-review-round-<n>/`, where the timestamp is the launch timestamp **from the invoking prompt**, never the clock, so a relaunch names the same folder. Step 6's slug rule does not apply.
@@ -57,7 +57,7 @@ In a Redline run you are the **shaper**: a subagent shaping one review round of 
         "id": "R1-2",
         "title": "Short summary",
         "story": "A teammate runs the command, does X, Y happens, which is bad because Z.",
-        "why_human": "product decision | spec assumption | new standard | unsure | disproportionate fix",
+        "why_human": "product decision | spec assumption | new standard | unsure | disproportionate fix | repository rule <id>",
         "options": [{"label": "Full fix", "cost": "...", "effect": "..."}, {"label": "Mitigate", "cost": "...", "effect": "..."}, {"label": "Accept", "cost": "...", "effect": "..."}],
         "recommendation": "Accept; add a comment.",
         "dependsOn": []
