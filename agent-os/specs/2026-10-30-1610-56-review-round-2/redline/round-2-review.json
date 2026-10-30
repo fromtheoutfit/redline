@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 2\n\nFinal nit pass: reviewed only the nit fixes (57044e8..6708988) for correctness bugs they introduced.\n\nThe round 1 fix changes the README sentence on what `detail.checker` holds after a structural override. The sentence now matches the code: `readStructure()` returns a copy with `status` `read` and `reason` empty, `checker()` hands that copy back, and `stageError` stores it, so the checker's own reason survives only in the warning. The new loop-test check pins this through `kept(run)`, and the two standards edits only record the lesson. The fix diff introduces no correctness bug. The guard does not let the reviewer run `node`, so the loop test was checked by reading it, not by running it.\n\nNo findings.",
+  "comments": []
+}
