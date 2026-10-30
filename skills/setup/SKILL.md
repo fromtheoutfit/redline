@@ -18,9 +18,9 @@ The thirteen steps below are the issue's; do them in order. A **rerun** on a rep
 4. Agent OS present: `<repoRoot>/.claude/commands/agent-os/shape-spec.md` exists. If not, stop with one line: Redline needs Agent OS in the repository (#1 tracks repositories without it).
 5. Inventory, so a rerun updates instead of duplicating; keep it for step 13:
    - `.claude/redline/checks.json` and `.claude/redline/checks.sh` (either, both, neither; `redline-setup.sh version <checks.sh>` and `redline-gate.sh check <repoRoot>` when `checks.sh` exists: their exit codes and lines);
-   - `.claude/redline.json`; `.claude/settings.json`; the `.gitignore` line `.claude/redline.local.json`;
+   - `.claude/redline.json`; `.claude/settings.json` (and, in it, any allow entry an earlier template added that the current one no longer carries: `${CLAUDE_PLUGIN_ROOT}/templates/settings.retired.json` lists them, and step 8 reports them as `stale`); the `.gitignore` line `.claude/redline.local.json`;
    - the `## Unattended mode (Redline)` heading in `shape-spec.md`;
-   - the CLAUDE.md sentence (`When the prompt identifies the session as a Redline agent run`) and paragraph (`Redline labels its own work as "Redline"`).
+   - the CLAUDE.md sentence (`When the prompt identifies the session as a Redline agent run`) and paragraph (`Redline labels its own work as "Redline"`), and the paragraph's last sentence (`Configuration that selects a model`).
 6. `selfHosted`: true when `repoRoot` is the plugin itself (`cd <repoRoot> && pwd -P` equals `cd ${CLAUDE_PLUGIN_ROOT} && pwd -P`). It only changes the paths the generated `checks.sh` header names.
 
 Say what you found in a few lines: fresh setup or rerun, and what exists.
@@ -113,7 +113,7 @@ It derives `checker` (`git-only` over five minutes, else `full`) and `checkerSta
 ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh settings <repoRoot> --allow '<entry>' ... [--dry-run]
 ```
 
-with one `--allow` per entry from step 3.6. It merges `templates/settings.allow.json` without dropping a key and appends what is missing. It keeps every value already in the file: show `conflicts` (each `path` with the file's value and the template's) on every run, and say the file's value was kept; taking the template's is a hand edit the person makes. On a rerun pass `--dry-run` first and show `added`, `keysAdded` and `conflicts` before writing. Then `claude plugin install redline@redline --scope project`, which records the plugin as enabled (it may reorder the file's keys; the next rerun reads it as unchanged). Never read or write `settings.local.json`.
+with one `--allow` per entry from step 3.6. It merges `templates/settings.allow.json` without dropping a key and appends what is missing. It keeps every value already in the file: show `conflicts` (each `path` with the file's value and the template's) on every run, and say the file's value was kept; taking the template's is a hand edit the person makes. On a rerun pass `--dry-run` first and show `added`, `keysAdded`, `conflicts` and `stale` before writing. `stale` lists allow entries an earlier template added that this one no longer carries (`templates/settings.retired.json`): the `Bash(/*/scripts/…)` rules, which a script of that name at any path an agent could write would match, `Edit(//tmp/redlinerepro/**)`, and `Bash(git diff|log|show:*)`, whose `--output=<file>` writes a file; the guard now approves the plugin's own scripts and read-only git by real path for the main session instead (#50). Show them with that reason and ask; on a yes rerun with `--remove-stale`, which drops them and lists them under `removed`; on a no they are kept. Then `claude plugin install redline@redline --scope project`, which records the plugin as enabled (it may reorder the file's keys; the next rerun reads it as unchanged). Never read or write `settings.local.json`.
 
 ## 9. `.gitignore`
 
@@ -139,7 +139,7 @@ It prints the line it wrote, which must equal step 5's: the section was inserted
 
 ## 11. `CLAUDE.md`
 
-From `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-git-sentence.md`: append the sentence to the Git rule that keeps agents from committing, and add the paragraph after the rule that forbids AI attribution. Show the target lines first, then Edit. Skip each that is already present (step 1's inventory). When CLAUDE.md has no such rule, ask whether to add the sentence as its own bullet under a Git heading, or the paragraph at all (it only matters where attribution is forbidden).
+From `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-git-sentence.md`: append the sentence to the Git rule that keeps agents from committing, and add the paragraph after the rule that forbids AI attribution. Show the target lines first, then Edit. Skip each that is already present (step 1's inventory). On a rerun that finds the paragraph without its last sentence (`Configuration that selects a model`), append that sentence to the paragraph in place with Edit: the `models` keys `redline.json` carries are configuration, and without the sentence a reviewer reads them as a violation of the attribution rule (#50). When CLAUDE.md has no such rule, ask whether to add the sentence as its own bullet under a Git heading, or the paragraph at all (it only matters where attribution is forbidden).
 
 ## 12. Verify
 

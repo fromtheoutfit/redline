@@ -43,10 +43,20 @@ input="$(cat)"
 agent_type="$(jq -r '.agent_type // ""' <<<"$input" 2>/dev/null)" || agent_type="?"
 redline_role='^(redline:)?redline-'
 if [[ "$agent_type" != "?" && ! "$agent_type" =~ $redline_role ]]; then
-    if [[ -n "${REDLINE_GUARD_LOG:-}" ]]; then
-        printf '%s\tinert\t\t%s\n' "${agent_type:--}" "$(jq -r '.tool_name // ""' <<<"$input")" 2>/dev/null >>"$REDLINE_GUARD_LOG" || true
+    # Not a Redline role. One shape of Bash call reaches Python anyway: one that may be one of the
+    # plugin's own scripts, the repository's checks.sh or read-only git, which the guard approves
+    # for any session by real path, so the shared allow list carries no Bash(/*/scripts/...) rule
+    # that a script of the same name anywhere would match (#50). Everything else is inert here.
+    tool_name="$(jq -r '.tool_name // ""' <<<"$input" 2>/dev/null)" || tool_name=""
+    main_shape='redline-(gh|prefs|gate|setup)\.sh|checks\.sh|(^|[^A-Za-z0-9_./-])git[[:space:]]'
+    if [[ "$tool_name" == "Bash" ]] && jq -r '.tool_input.command // ""' <<<"$input" 2>/dev/null | grep -Eq "$main_shape"; then
+        export REDLINE_GUARD_MAIN=1
+    else
+        if [[ -n "${REDLINE_GUARD_LOG:-}" ]]; then
+            printf '%s\tinert\t\t%s\n' "${agent_type:--}" "$tool_name" 2>/dev/null >>"$REDLINE_GUARD_LOG" || true
+        fi
+        exit 0
     fi
-    exit 0
 fi
 
 REDLINE_GUARD_PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
@@ -84,6 +94,9 @@ export REDLINE_GUARD_PLUGIN_ROOT
 # rest of .claude/ (commands, other skills and agents, CLAUDE.md beside it) is ordinary repository
 # content: the implementer may write it when the approved plan names it, and the checker's
 # allowed list is what holds the implementer to the plan.
+# A Bash write target holding *, ?, [ or { is refused for every role unless it is under the temp
+# directory: the guard checks paths, not patterns, so a role names its files (#53). A tool's
+# file_path is literal.
 # When the repository is the plugin (its checkout loaded in place, Redline reviewing itself), the
 # plugin's directory is the repository, so it is not refused as a whole: agents/, scripts/,
 # workflows/, skills/, tests/, templates/, hooks/ and the README are repository content under the
@@ -163,15 +176,34 @@ except Exception:
 
 AGENT = data.get("agent_type") or ""
 match = ROLE_NAME.fullmatch(AGENT)
-if not match:
-    log("inert", "", data.get("tool_name") or "")
-    sys.exit(0)
-ROLE = match.group(1)
-if ROLE not in ROLES:
-    deny(f"unknown Redline role '{AGENT}'")
-GROUPS, PREFIXES = ROLES[ROLE]
-
 tool = data.get("tool_name") or ""
+# MAIN: not a Redline role (the main session, any other agent), sent here by the bash fast path for
+# a Bash call that may be approvable (#50). It gets the plugin's scripts and read-only git by real
+# path, writes nothing, and a reason is never a deny: the call is left to the permission prompt.
+MAIN = False
+if not match:
+    if os.environ.get("REDLINE_GUARD_MAIN") == "1" and tool == "Bash":
+        MAIN = True
+        ROLE = "main"
+        GROUPS, PREFIXES = {"main", "git-read"}, []
+    else:
+        log("inert", "", tool)
+        sys.exit(0)
+else:
+    ROLE = match.group(1)
+    if ROLE not in ROLES:
+        deny(f"unknown Redline role '{AGENT}'")
+    GROUPS, PREFIXES = ROLES[ROLE]
+
+
+def refuse(reason, command=""):
+    """A role is denied; the main session is left to the permission prompt instead."""
+    if MAIN:
+        log("inert", reason, command)
+        sys.exit(0)
+    deny(reason, command)
+
+
 tool_input = data.get("tool_input") or {}
 CWD = data.get("cwd") or os.getcwd()
 
@@ -394,8 +426,59 @@ def protected(raw, absolute, real):
     return None
 
 
-def writable(raw, cur):
-    """Return a reason string when raw may not be written by this role, else None."""
+PATTERN = re.compile(r"[*?\[{]")
+
+
+def could_reach(rel, pattern):
+    """True when a path that starts with rel could match the glob pattern (* and ? only): the two
+    are walked together until rel runs out, a * in the pattern admits anything after it."""
+    i = 0
+    for ch in rel:
+        if i >= len(pattern):
+            return False
+        if pattern[i] == "*":
+            return True
+        if pattern[i] != "?" and pattern[i] != ch:
+            return False
+        i += 1
+    return True
+
+
+def reachable(absolute, real):
+    """What a pattern could expand to past its literal prefix: the first protected path or ask rule
+    a path starting with the prefix could match (scripts/redline-guar reaches
+    scripts/redline-guard.sh; .claude/redline.js reaches .claude/redline*.json; config/proj reaches
+    craft-config's root), or a rule with no literal root, which any pattern can reach. None when
+    the prefix is outside the repository."""
+    rels = []
+    for path, base in ((absolute, REPO), (real, REPO_REAL)):
+        rel = os.path.relpath(path, base).replace(os.sep, "/")
+        if rel == ".." or rel.startswith("../"):
+            continue
+        rels.append("" if rel == "." else rel.casefold())
+    for rel in rels:
+        for prot in PROTECTED_DIRS:
+            if could_reach(rel, prot.casefold()):
+                return f"{prot}, which no Redline role may write"
+        for pattern in PROTECTED_FILES:
+            if could_reach(rel, pattern.casefold()):
+                what = "the guard that vets this run" if pattern in SELF_HOSTED_FILES else "Redline's own files"
+                return f"{what} ({pattern})"
+        for rid, pattern, _reason, _regex, root in ASK_RULES:
+            if not root or could_reach(rel, root):
+                return f"repository ask rule '{rid}' ({pattern})"
+    return None
+
+
+def writable(raw, cur, literal=False):
+    """Return a reason string when raw may not be written by this role, else None.
+
+    A tool's file_path is literal. A Bash operand holding *, ?, [ or { is a pattern the shell
+    expands, which the guard cannot check (a pattern that matches nothing when the hook runs can
+    match a file an earlier command in the same call creates), so it is refused for every role
+    unless its literal prefix is under the temp directory (#53). The prefix still goes through
+    protected() and ask_rule() first, so an operand already inside a protected directory or a
+    rule's root keeps that reason."""
     if raw in NEVER_WRITES:
         return None
     path = expand(raw)
@@ -403,7 +486,9 @@ def writable(raw, cur):
         return f"write target '{raw}' uses a shell variable or substitution; use a literal path"
     if path.startswith("~"):
         return f"write target '{raw}' is under the home directory"
-    path = path.split("*")[0].split("?")[0] or "."
+    pattern = not literal and PATTERN.search(path) is not None
+    if pattern:
+        path = PATTERN.split(path, 1)[0] or "."
     absolute = os.path.normpath(os.path.join(cur, path))
     # Resolved whether or not the parent exists yet: a link above a missing parent still points
     # into the repository, and resolving only ever refuses more (#49).
@@ -411,6 +496,12 @@ def writable(raw, cur):
     reason = protected(raw, absolute, real) or ask_rule(raw, absolute, real)
     if reason:
         return reason
+    if pattern:
+        if "TMP" in PREFIXES and any(under(real, d) or under(absolute, d) for d in TMP_DIRS):
+            return None
+        reach = reachable(absolute, real)
+        return (f"write target '{raw}' holds a wildcard, character class or brace list, which the guard cannot check; "
+                f"name the file" + (f"; it could reach {reach}" if reach else ""))
     for prefix in PREFIXES:
         if prefix == "NONE":
             continue
@@ -428,7 +519,7 @@ def writable(raw, cur):
 
 if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
     target = tool_input.get("file_path") or tool_input.get("notebook_path") or ""
-    reason = writable(target, CWD) if target else "no file_path in tool input"
+    reason = writable(target, CWD, literal=True) if target else "no file_path in tool input"
     if reason:
         deny(f"{tool} refused: {reason}", target)
     allow(tool, target)
@@ -488,7 +579,7 @@ def runnable_backtick(text):
 
 
 if runnable_backtick(command):
-    deny(BACKTICKS, command)
+    refuse(BACKTICKS, command)
 
 
 def strip_heredocs(text):
@@ -517,11 +608,11 @@ try:
     lexer.commenters = ""
     tokens = list(lexer)
 except ValueError as exc:
-    deny(f"cannot parse command ({exc})", command)
+    refuse(f"cannot parse command ({exc})", command)
 
 for tok in tokens:
     if "$(" in tok:
-        deny("command substitution inside a quoted string is refused", command)
+        refuse("command substitution inside a quoted string is refused", command)
 
 SEPARATORS = {";", "&&", "||", "|", "|&", "&", "(", ")", ";;", "{", "}"}
 REDIRECT_OUT = {">", ">>", ">|", "&>", "&>>"}
@@ -598,7 +689,7 @@ WRAPPERS = {"time", "nice", "nohup", "command"}
 GIT_READ = {"status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "merge-base", "grep", "describe",
             "cat-file", "name-rev", "shortlog", "diff-tree", "rev-list", "symbolic-ref", "ls-tree", "check-ignore",
             "var", "version", "--version"}
-GIT_GLOBAL_WITH_ARG = {"-C", "-c"}
+GIT_GLOBAL_WITH_ARG = {"-C"}
 ARTISAN_READ = {"route:list", "config:show", "about", "db:show", "db:table", "model:show", "schedule:list", "list",
                 "help", "env", "--version", "-V", "inspire"}
 ARTISAN_NEVER = {"tinker", "db:wipe", "migrate:fresh", "migrate:reset"}
@@ -618,12 +709,13 @@ def non_options(args):
 
 
 def script_name(word, cur):
-    """The script's name when word resolves to the one copy of a Redline script a role may run
-    (the repository's .claude/redline/checks.sh, the plugin's scripts/redline-gh.sh and
-    scripts/redline-background.sh), 'bad-path:<name>' for any other file by that name (a copy
-    under /tmp, say), else None."""
-    homes = {"checks.sh": os.path.join(REPO, ".claude", "redline"), "redline-gh.sh": os.path.join(PLUGIN, "scripts"),
-             "redline-background.sh": os.path.join(PLUGIN, "scripts")}
+    """The script's name when word resolves to the one copy of a Redline script a role or the main
+    session may run (the repository's .claude/redline/checks.sh, the plugin's scripts/redline-gh.sh,
+    redline-background.sh, redline-prefs.sh, redline-gate.sh and redline-setup.sh), 'bad-path:<name>'
+    for any other file by that name (a copy under /tmp, say), else None."""
+    homes = {"checks.sh": os.path.join(REPO, ".claude", "redline")}
+    for script in ("redline-gh.sh", "redline-background.sh", "redline-prefs.sh", "redline-gate.sh", "redline-setup.sh"):
+        homes[script] = os.path.join(PLUGIN, "scripts")
     for name, home in homes.items():
         if word == name or word.endswith("/" + name):
             wanted = os.path.realpath(os.path.join(home, name))
@@ -674,8 +766,10 @@ def check_simple(words, writes, nested, cur):
     if not words:
         return None, cur
 
-    # VAR=value prefixes and transparent wrappers
+    # VAR=value prefixes and transparent wrappers; the names are kept for git (#50)
+    assigned = []
     while words and ASSIGN.match(words[0]):
+        assigned.append(words[0].split("=", 1)[0])
         words = words[1:]
     if not words:
         return None, cur
@@ -684,6 +778,8 @@ def check_simple(words, writes, nested, cur):
     if words and words[0] == "env":
         words = words[1:]
         while words and (ASSIGN.match(words[0]) or words[0].startswith("-")):
+            if ASSIGN.match(words[0]):
+                assigned.append(words[0].split("=", 1)[0])
             words = words[1:]
     if words and words[0] == "timeout":
         words = words[1:]
@@ -704,6 +800,13 @@ def check_simple(words, writes, nested, cur):
         return None, cur
 
     cmd, args = words[0], words[1:]
+
+    # A GIT_* variable can name a program (GIT_PAGER, GIT_EXTERNAL_DIFF, GIT_EDITOR) or set any
+    # configuration key (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), so none reaches git (#50).
+    if cmd == "git":
+        for name in assigned:
+            if name.startswith("GIT_") or name == "PAGER":
+                return f"a {name} prefix on git is refused for every role; it can name a program or set any configuration key", cur
 
     # Operands that exist only at run time cannot be checked. A role without the REPO prefix may
     # not write through them at all; with REPO, the implementer's writes stay inside the
@@ -738,17 +841,28 @@ def check_simple(words, writes, nested, cur):
         if name.startswith("bad-path:"):
             return f"'{cmd}' is not the Redline plugin's scripts/{name[len('bad-path:'):]}", cur
         if name == "checks.sh":
-            return (None if "checks" in GROUPS else f"checks.sh is not available to the {ROLE}"), cur
+            return (None if "checks" in GROUPS or "main" in GROUPS else f"checks.sh is not available to the {ROLE}"), cur
         sub = args[0] if args else ""
         if name == "redline-background.sh":
             if "checks" in GROUPS and sub in BACKGROUND:
                 return None, cur
             return f"redline-background.sh {sub or '<none>'} is not available to the {ROLE}", cur
-        if "gh-all" in GROUPS:
+        if name == "redline-gh.sh":
+            if "gh-all" in GROUPS or "main" in GROUPS:
+                return None, cur
+            if "gh-read" in GROUPS and sub in GH_READ:
+                return None, cur
+            return f"redline-gh.sh {sub or '<none>'} is not available to the {ROLE}", cur
+        # The skill's scripts (#50): the main session runs them, never a role, and of redline-gate.sh
+        # and redline-setup.sh only the subcommand the skill runs unprompted; the writing ones stay
+        # behind the permission prompt, which is the person's confirmation.
+        if name == "redline-prefs.sh" and "main" in GROUPS:
             return None, cur
-        if "gh-read" in GROUPS and sub in GH_READ:
+        if name == "redline-gate.sh" and "main" in GROUPS and sub == "check":
             return None, cur
-        return f"redline-gh.sh {sub or '<none>'} is not available to the {ROLE}", cur
+        if name == "redline-setup.sh" and "main" in GROUPS and sub == "version":
+            return None, cur
+        return f"{name} {sub or '<none>'} is not available to the {ROLE}", cur
 
     # Writers whose targets are their arguments
     if cmd in ("rm", "mkdir", "touch", "mv", "cp", "tee"):
@@ -851,21 +965,39 @@ def check_simple(words, writes, nested, cur):
     return f"'{cmd}' is not on the {ROLE}'s allowlist", cur
 
 
+def read_flag_refused(rest):
+    """The first flag of a read-only git command that writes a file (--output) or runs a program
+    (-O/--open-files-in-pager, --ext-diff), or None; pathspecs after -- are not flags (#50)."""
+    for a in rest:
+        if a == "--":
+            return None
+        if a == "--output" or a.startswith("--output=") or a.startswith("-O") or a.startswith("--open-files-in-pager") or a == "--ext-diff":
+            return a
+    return None
+
+
 def check_git(args, cur):
     args = list(args)
     while args and args[0].startswith("-"):
         opt = args.pop(0)
+        # A configuration key can name a program (diff.external, core.pager, core.fsmonitor,
+        # gpg.program, filter.*.clean), so -c and --config-env are refused for every role (#50).
+        if opt == "-c" or opt.startswith("--config-env"):
+            return "git -c is refused for every role; a configuration key can name a program (diff.external, core.pager, core.fsmonitor)"
+        if opt.startswith("--exec-path") or opt.startswith("--git-dir") or opt.startswith("--work-tree"):
+            return "git --exec-path/--git-dir/--work-tree is refused"
         if opt in GIT_GLOBAL_WITH_ARG and args:
             if opt == "-C":
                 cur = os.path.normpath(os.path.join(cur, args[0]))
             args.pop(0)
-        elif opt.startswith("--git-dir") or opt.startswith("--work-tree"):
-            return "git --git-dir/--work-tree is refused"
     if not args:
         return "git without a subcommand"
     sub, rest = args[0], args[1:]
 
     if sub in GIT_READ and ("read" in GROUPS or "git-read" in GROUPS):
+        bad = read_flag_refused(rest)
+        if bad:
+            return f"git {sub} {bad} is refused for every role; it writes a file or runs a program"
         return None
     if sub == "branch" and "read" in GROUPS:
         if any(a in ("-d", "-D", "-m", "-M", "-c", "-C", "-f", "--delete", "--move", "--copy", "--force", "-u",
@@ -1009,7 +1141,7 @@ def check_text(text, cur):
 
 reason, _ = check_tokens(tokens, CWD)
 if reason:
-    deny(reason, command)
+    refuse(reason, command)
 allow("", command)
 PY
 
