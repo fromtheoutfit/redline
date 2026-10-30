@@ -1,0 +1,27 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "57044e84e297d22bafe7540d3bddf81b517c2713",
+    "to": "57044e84e297d22bafe7540d3bddf81b517c2713"
+  },
+  "summary": "The override is narrow and sits in one place. `readStructure()` runs once in `checker()`, which both the baseline call and the per-pass call go through. Its shape test needs the `git` key, which checks.sh prints last, so output that was cut off is never read as complete. The new loop-test checks cover both call sites and the stops that must not change: `spilled` still stops, and a full pass with `git: null` is overridden and then stops on the missing block. The only finding is a small record and docs mismatch: after an override, the stop record keeps the overridden status, not what the checker returned as the README says. The reviewer could not run `node tests/loop-test.mjs` (the guard refuses node for this role), so the code was traced by reading. Nothing here touches scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "README.md",
+      "line": 262,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "detail.checker no longer keeps what the checker returned once the status is overridden",
+      "description": "`readStructure()` returns a copy with `status: 'read'` and `reason: ''` (workflows/redline-loop.js:1433), and `checker()` hands that copy back. When a later stop happens, `stageError` stores that copy as `{ checker: checked }` (line 2238). Take a full pass where the checker says `no_git_block` and returns `git: null`. The run stops on \"the checker result has no git block\", but `detail.checker` shows `status: 'read', reason: ''`. The README sentence right after the new #55 sentence says `detail.checker` \"keeps whatever the checker returned\" (the #9 decision: the checker's whole return). So the two sentences disagree in exactly the case the new one describes. The checker's own status and reason survive only in the `warnings` line. The new loop-test check 'override: a full pass with git null is read, then stops on the missing block' asserts the stop and the warning, but not what the record keeps.",
+      "proposedFix": "Change the README sentence to: \"The run's `detail.checker` keeps what the checker returned, its `error` normalized and a structural misread overridden to `read` (the warning names the checker's reason)\". The other option is to keep the checker's own words on the overridden copy (for example `overrode: { status: out.status, reason: out.reason }`) so the record still shows them. Either way, add a `kept(run)` assertion to the full-pass `git: null` override check in tests/loop-test.mjs so the record's contents are pinned.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}
