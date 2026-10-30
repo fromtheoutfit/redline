@@ -657,6 +657,19 @@ function samePrefix(name, first, second, n) {
   check('unreadable: not JSON names the cause and the command to run by hand', stopped(run) && run.res.error.includes('not one JSON object') && run.res.error.includes(`run ${command} by hand`) && run.res.error.includes('the checker said: Running guard...'), run.res.error)
   run = await go('checker: result unreadable (no git key)', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? unreadable('no_git_block', { mode: 'full', ok: true, checks: out.result.checks }, '') : null) })
   check('unreadable: a partial object is kept in the record', stopped(run) && run.res.error.includes('no git block') && run.res.error.includes(`run ${command} by hand`) && !run.res.error.includes('the checker said') && (kept(run).result || {}).mode === 'full', brief(run))
+  // A structural reason the workflow can check from the JSON it holds is checked (#55): #54 round 1
+  // stopped at baseline when the checker read `git: null` as a missing key. A run-level reason
+  // (spilled, backgrounded, no_result) stops as before, and an overridden full-pass `git: null`
+  // still stops on the missing block downstream.
+  const overrode = (reason) => `the checker said result_unreadable (${reason}), but the JSON it returned is one object with a checks array and a git key; the workflow overrode the status and read the result`
+  run = await go('checker: baseline git null read as no_git_block', baseArgs, { ...base, checker: (label, out) => (label === 'baseline' ? { ...out, status: 'result_unreadable', reason: 'no_git_block' } : null) })
+  check('override: a baseline with git null the checker called no_git_block is read, with a warning, and the run goes on', run.res.status === 'done' && !!pick(run.calls, 'implement r1') && !repaired(run) && run.res.warnings.includes(`baseline: ${overrode('no_git_block')}`), [brief(run), labels(run.calls), run.res.warnings])
+  run = await go('checker: not_json with a complete result', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'not_json' } : null) })
+  check('override: not_json on a complete result is read, with a warning, no repair', run.res.status === 'done' && !repaired(run) && run.res.warnings.includes(`round 1: ${overrode('not_json')}`), [brief(run), run.res.warnings])
+  run = await go('checker: spilled with a complete result', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'spilled' } : null) })
+  check('override: a run-level reason stops even with a complete result, no warning', stopped(run) && run.res.error.includes('exceeded the Bash tool\'s inline limit') && !run.res.warnings.some((w) => w.includes('overrode')), [brief(run), run.res.warnings])
+  run = await go('checker: full pass git null read as no_git_block', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'no_git_block', result: { ...out.result, git: null } } : null) })
+  check('override: a full pass with git null is read, then stops on the missing block', stopped(run) && run.res.error.includes('the checker result has no git block') && run.res.warnings.includes(`round 1: ${overrode('no_git_block')}`), [brief(run), run.res.warnings])
   run = await go('checker: baseline unreadable', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? unreadable('spilled', null, '') : null) })
   check('unreadable: a baseline the checker cannot read stops before implement', stopped(run) && !pick(run.calls, 'implement r1') && run.res.error.startsWith('baseline: the checker could not read') && kept(run).status === 'result_unreadable', [brief(run), labels(run.calls)])
   run = await go('checker: exit 2', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 2, status: 'read', reason: '', result: null, error: 'checks.sh: no snapshot' } : null) })

@@ -1411,6 +1411,30 @@ Return only the JSON your instructions specify, with operation "record-commit" a
 // check instead of starting a repair pass that would hit the same wall (#9).
 // ---------------------------------------------------------------------------
 
+// A reason that claims something about the JSON's shape is checked against the JSON the checker
+// returned, since the workflow holds it (#55): #54 round 1 stopped at baseline when the checker
+// read `git: null`, which --baseline prints, as a missing key. The run-level reasons (spilled,
+// backgrounded, no_result) say the output went where the checker could not read it, which the
+// JSON cannot refute, so they stop as before.
+const STRUCTURAL_REASONS = ['not_json', 'no_git_block']
+
+// One object with a checks array and a git key, whatever its value: the gate's shape.
+function gateShaped(result) {
+  return result !== null && typeof result === 'object' && !Array.isArray(result) && Array.isArray(result.checks) && Object.prototype.hasOwnProperty.call(result, 'git')
+}
+
+// The checker's result with a structural misread overridden to read, and the warning to record,
+// or the result as it came with no warning.
+function readStructure(out) {
+  if (out.status !== 'result_unreadable' || !STRUCTURAL_REASONS.includes(out.reason) || !gateShaped(out.result)) {
+    return { out, warning: null }
+  }
+  return {
+    out: { ...out, status: 'read', reason: '' },
+    warning: `the checker said result_unreadable (${out.reason}), but the JSON it returned is one object with a checks array and a git key; the workflow overrode the status and read the result`,
+  }
+}
+
 // Why the run stops on this result, naming the cause and the fix, or null when judge() decides.
 // needGit is false for the baseline, whose git block is null by design.
 function stopReason(out, command, needGit) {
@@ -1980,10 +2004,16 @@ function keepReplyIds(record, pushed) {
   }
 }
 
-async function checker(flag, snapshot, octane, label) {
-  return run('check', checkerPrompt(flag, snapshot, octane, label), {
+// prefix is what the warnings beside the call use: 'baseline', or the pass's name.
+async function checker(flag, snapshot, octane, label, prefix) {
+  const out = await run('check', checkerPrompt(flag, snapshot, octane, label), {
     agentType: 'redline:redline-checker', ...modelOpts('checker'), label, phase: 'Check', schema: CHECKER_SCHEMA, stallMs: checkerStallMs,
   })
+  const read = readStructure(out)
+  if (read.warning) {
+    warnings.push(`${prefix}: ${read.warning}`)
+  }
+  return read.out
 }
 
 // One revise pass for a round: Shape, hand-off, Resolve, Approve, Implement, Check, Push and reply.
@@ -2158,7 +2188,7 @@ async function revise(record, inScope, reviewedKind) {
     if (backgroundGate) {
       log(`the gate runs in the background: ${baselineNote}`)
     }
-    baseline = await checker('--baseline', snapshotStart, false, 'baseline')
+    baseline = await checker('--baseline', snapshotStart, false, 'baseline', 'baseline')
     const baselineStop = stopReason(baseline, checkerCommand('--baseline', snapshotStart, false), false)
     if (baselineStop) {
       throw stageError('check', `baseline: ${baselineStop}`, { checker: baseline })
@@ -2196,7 +2226,7 @@ async function revise(record, inScope, reviewedKind) {
     }
     phase('Check')
     const checkLabel = `${attempt ? 'recheck' : 'check'} ${pass.tag}`
-    checked = await checker(checkFlag, snapshotPath, octane, checkLabel)
+    checked = await checker(checkFlag, snapshotPath, octane, checkLabel, pass.name)
     verdict = judge(checked, baselineFailing, unique(needCommits), checkCommand)
     log(`${pass.name}: checker ${verdict.pass ? 'passed' : verdict.stop ? `stopped (${verdict.stop})` : `failed (${verdict.reasons.join('; ')})`}`)
     for (const warning of verdict.warnings) {
