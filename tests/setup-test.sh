@@ -219,6 +219,9 @@ expect_json "a changed list, dry run: updated names askRules with have and want,
 same "a changed list, dry run: untouched" "$C5/.claude/redline.json" "$WORK/c5-before.json"
 expect_json "a changed list with a baseline move: all three updated, written" '[(.updated|keys|join("+")), (.written|tostring), (.askRules|length|tostring)] | join(",")' "askRules+checker+checkerStallMs,true,1" config --reviewer marcamos --baseline-seconds 1048 "$C5" --ask-rules "$WORK/one-rule.json"
 [[ "$(jq -c '[.checker, .checkerStallMs, (.askRules|length), .maxRounds]' "$C5/.claude/redline.json")" == '["git-only",1800000,1,3]' ]] && ok "a changed list with a baseline move: the file carries all three and keeps the rest" || bad "a changed list with a baseline move: the file" "$(jq -c . "$C5/.claude/redline.json")"
+printf '[]\n' > "$WORK/no-rules.json"
+expect_json "an empty list removes every rule: only askRules updated, written" '[(.updated|keys|join("+")), (.written|tostring), (.askRules|length|tostring)] | join(",")' "askRules,true,0" config --reviewer marcamos --baseline-seconds 1048 "$C5" --ask-rules "$WORK/no-rules.json"
+[[ "$(jq -c .askRules "$C5/.claude/redline.json")" == '[]' ]] && ok "an empty list removes every rule: the file holds askRules []" || bad "an empty list removes every rule: the file holds askRules []" "$(jq -c .askRules "$C5/.claude/redline.json")"
 expect_json "--force without the flag drops the list" '[(.written|tostring), (.askRules|tostring)] | join(",")' "true,null" config --reviewer marcamos --baseline-seconds 29 "$C5" --force
 expect_json "no root: the list rides in config" '[(.config.askRules|length|tostring), (.askRules|length|tostring)] | join(",")' "2,2" config --reviewer sam --baseline-seconds 29 --ask-rules "$FIX/ask-rules.json"
 expect_json "no root, no flag: askRules null" '.askRules' "null" config --reviewer sam --baseline-seconds 29
