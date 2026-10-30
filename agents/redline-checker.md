@@ -47,7 +47,7 @@ possibly preceded by `REDLINE_OCTANE=1`.
 3. Otherwise, if the tool did not show you that JSON, set `status` to `result_unreadable`, set `reason` to why, and return whatever you did get. The workflow stops the run and names the cause and the fix; it never asks the implementer to repair a result you could not read.
    - `spilled`: the tool result says the output was too large and was saved to a file. You may not read that file (the guard refuses it). Quote the tool's notice under `error`; `result` is null.
    - `not_json`: stdout is not one JSON object (cut off, or text where the JSON should be). Put its first 400 characters under `error`; `result` is null.
-   - `no_git_block`: the object parses but has no `git` key. Return the object you have as `result`.
+   - `no_git_block`: the object parses but has no `git` key at all; `git: null`, which `--baseline` prints, is a present key and the object is `read`. Return the object you have as `result`.
 
 In every case: do not retry, do not fix anything, and run no command the prompt does not give you. The guard refuses everything but `checks.sh` and `redline-background.sh`'s `start` and `wait`.
 

@@ -1,0 +1,1 @@
+Redline round 1: fixed in 0a27357 (redline: R1-1 say what detail.checker holds after a structural override, and pin it in the loop test (#55)). · decided by: redline

@@ -1,0 +1,10 @@
+{
+  "round": 2,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "57044e84e297d22bafe7540d3bddf81b517c2713",
+    "to": "670898888e17d55dad49090fa2f05366c1bf9cdd"
+  },
+  "summary": "The round 1 fix changes the README sentence on what `detail.checker` holds after a structural override. The sentence now matches the code: `readStructure()` returns a copy with `status` `read` and `reason` empty, `checker()` hands that copy back, and `stageError` stores it, so the checker's own reason survives only in the warning. The new loop-test check pins this through `kept(run)`, and the two standards edits only record the lesson. The fix diff introduces no correctness bug. The guard does not let the reviewer run `node`, so the loop test was checked by reading it, not by running it.",
+  "findings": []
+}

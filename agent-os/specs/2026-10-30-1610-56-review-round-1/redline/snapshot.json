@@ -1,0 +1,24 @@
+{
+  "pr": 56,
+  "start_sha": "57044e84e297d22bafe7540d3bddf81b517c2713",
+  "base_ref": "main",
+  "files": [
+    "README.md",
+    "agent-os/specs/2026-10-30-1558-55-checker-overrides-structural-unreadable/plan.md",
+    "agent-os/specs/2026-10-30-1558-55-checker-overrides-structural-unreadable/references.md",
+    "agent-os/specs/2026-10-30-1558-55-checker-overrides-structural-unreadable/shape.md",
+    "agent-os/specs/2026-10-30-1558-55-checker-overrides-structural-unreadable/standards.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agents/redline-checker.md",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "README.md",
+    "tests/loop-test.mjs",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/specs/2026-10-30-1610-56-review-round-1/"
+  ]
+}
