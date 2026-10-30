@@ -472,6 +472,12 @@ redline:redline-implementer	allow	Write	/tmp/redline-guard-other.yaml
 redline:redline-implementer	deny	Write	app/x.secret.yaml	yaml-anywhere
 redline:redline-implementer	deny	Write	App/X.Secret.YAML	yaml-anywhere
 redline:redline-implementer	allow	Write	app/x.yaml
+# #52, R1-1 (deferred to a person): a Bash operand holding * or ? is checked by its literal prefix only,
+# cut at the first wildcard, so these two are allowed today: app/ holds no root of yaml-anywhere (a pattern
+# that starts with a wildcard has none), and config/proj stops inside craft-config's root. A person flips
+# both to deny, naming yaml-anywhere and craft-config, when the guard checks the operand itself.
+redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' app/*.secret.yaml
+redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' config/proj*/project.yaml
 # Every writing role: the shaper and the resolve agent are refused by the rule, not only by their prefixes.
 redline:redline-shaper	deny	Write	config/project/p.yaml	craft-config
 redline:redline-shaper	allow	Write	agent-os/specs/x/shape.md
