@@ -49,6 +49,9 @@ Round 1 of the Redline review of PR #56, which closes issue #55 ("Checker report
 - **R1-1: one loop-test check pins the record.** A new check directly after `tests/loop-test.mjs:672`, on the same full-pass `git: null` run, asserts `detail.checker` holds `status: 'read'`, `reason: ''` and the full `result` with `git: null` and a `checks` array. It pins behaviour that is already as designed, so it passes at once: there is no red run, since no code changes. The existing check at 672 is left as it is. `plan.md` Task 2.
   Decided by: redline
 
+- **As built: a period before the appended standards sentence.** Retrospective item 1 appends to a sentence ending "(#55)" with no period, since it was the bullet's last; the implementer put a period after "(#55)" so the bullet's new last sentence starts a sentence, as the bullet's other sentences do. The approved text is otherwise as written. `plan.md` As built.
+  Decided by: redline
+
 ## Deferred
 
 None.
