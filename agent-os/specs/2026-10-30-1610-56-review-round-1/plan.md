@@ -105,3 +105,10 @@ Gate steps 1 to 9: run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redli
 10. **Docs**: every row under Docs entries names its commit or its reason. The `README.md` row names Task 2's commit.
 11. **Standards retrospective**: Task 3, from the proposed list in `shape.md`, as the standards approver approved it.
 12. **Spec folder**: `plan.md` reflects what was actually built, and any deviation from the shaped plan is recorded under Decisions in `shape.md`. The As built notes land in the round's last commit.
+
+## As built
+
+- Task 1: `c99babe`, the four spec files.
+- Task 2 (R1-1): `0a27357`, `README.md` and `tests/loop-test.mjs` only, as planned. The gate's `loop` check printed `407 checks passed, 0 failed`, one more than the 406 at shaping.
+- Task 3: `ef200d3`, both approved standards edits. In `agents.md` the appended sentence follows a period after "(#55)", since the bullet's sentences end with one and only the bullet's last sentence goes without; the approved text is otherwise unchanged.
+- No other deviation.
