@@ -94,4 +94,12 @@ Steps 1 to 9: `.claude/redline/checks.sh --baseline` exits 0; the stamp is untou
 
 ## As built
 
-Filled in at the gate: deviations from the tasks above, with the commit each task landed in.
+Built on 2026-10-31 in a normal session, the person committing. Task 1 landed as 185f757; then one commit per finding: Task 2 67d6856, Task 3 0207a47, Task 4 6ab6116, Task 5 c3c8b6b, Task 6 d34a8ea, Task 7 fb70f71, Task 8 b38a1a4, Task 9 4c20405, Task 10 c7a0b97. Task 10 was written by the person in a separate session, from this plan. Deviations:
+
+- **Task 4:** a bare assignment with no command (`PATH=/tmp/x ; cat app/x.php`) is vetted too: an exported name keeps its export when reassigned, so the next command sees it. One more row.
+- **Task 5:** a wildcard before the last segment of a temp pattern gets its own reason (could match a link out of the temp directory) rather than the generic one.
+- **Task 8:** the operand reader covers every spelling of `-e` and `-f` (attached `-es/a/b/`, bundled `-ne`, the long forms), not only the detached ones: the attached form also dropped the first file operand unchecked before this change. Two more rows.
+- **Task 10:** the ask-rules fixture gains two sed script files (`clean.sed`, `write.sed`) for the `-f` rows; Task 8's `sed -i '' -f /tmp/script.sed` allow row is a deny now, since the file is read from disk and does not exist; a row pins a script the reader cannot place (`b end w /tmp/x`) as refused.
+- **Red runs:** each task's new rows went through `tests/guard-test.sh <file>` alone for the red run (seconds), then the whole table for the green one.
+- **Gate:** `.claude/redline/checks.sh --baseline` ok, nine checks at exit 0; `tests/guard-test.sh` 575 passed, 0 mismatched; `scripts/redline-gate.sh check .` match; `scripts/redline-setup.sh version` exit 0; the tree clean. shellcheck is not installed here; CI runs it.
+- **Docs entries:** every row of Task 11 landed in its task's commit: the guard list grew by one bullet in Tasks 3, 4, 6 and 10 and by a clause in Tasks 5, 7, 8 and 9; Launching in Task 6; Known limits in Task 9; the Files row for the harness in Task 4.

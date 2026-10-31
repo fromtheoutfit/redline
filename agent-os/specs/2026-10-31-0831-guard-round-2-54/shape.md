@@ -32,6 +32,10 @@ Decisions 1, 2 (its first clause), 4 to 13 were given by the person in the shapi
 13. **Docs.** The README's guard section says what the guard refuses, in one list. Decided by: @michaelwitwicki.
 14. **Standards carried: six** (shaping question 3, answered 2026-10-31): `scripts/guard`, `scripts/bash-conventions`, `testing/tests`, `process/docs-gate`, `process/standards-retrospective`, `prompts/attribution`. Not carried: `workflow/agents`, `workflow/replay`, `process/internal-notes` (no prompt, workflow or design-note change). Decided by: @michaelwitwicki.
 
+15. **Deviations while building** (2026-10-31), the As built section of `plan.md` has the detail: Task 4 vets a bare assignment with no command; Task 5 gives the wildcard-before-last-segment refusal its own reason; Task 8 reads the attached and bundled spellings of `-e` and `-f` too, which closed an unnoticed drop of the first file operand after an attached `-e`; Task 10 adds two script files to the ask-rules fixture, flips Task 8's `-f` allow row to deny (the file is read from disk now) and pins an unplaceable script as refused. Decided by: @michaelwitwicki.
+16. **Task 10 was written by the person in a separate session**, from the plan's task text. Decided by: @michaelwitwicki.
+17. **Standards retrospective: applied** (2026-10-31), the three files listed under "Standards retrospective (applied)" below, as proposed. Decided by: @michaelwitwicki.
+
 ## Context
 
 - **Visuals:** None.
@@ -43,9 +47,9 @@ Decisions 1, 2 (its first clause), 4 to 13 were given by the person in the shapi
 
 - A `/redline:redline` precheck that stops when the session's working directory is not the repository root, the consequence of decision 7. A change to `skills/redline/SKILL.md` section 1, outside this spec; the README's Launching sentence carries the rule until then.
 
-## Standards retrospective (proposed)
+## Standards retrospective (applied)
 
-Listed mechanically from the decisions above, to be presented with AskUserQuestion at the gate and applied in its own commit:
+Listed mechanically from the decisions and the As built deviations, presented with AskUserQuestion at the gate on 2026-10-31 and approved as proposed; the person commits the three files as their own commit:
 
 - `agent-os/standards/scripts/guard.md`: bullet 14 (the main session's one exception) **contradicts** decision 2: narrow to the three kinds as bare command words, inert for the rest; bullet 18 (read-only git vetted by flag) **missing** the root rule (decision 7) and that a flag is read as git reads it, bundles and abbreviations included (decision 8); **missing** bullets for the variable prefixes and the setters with the two exempt names and the plain-word rule (decision 5), `!` and the keywords (decision 4), a sed script read as sed reads it and find's file-writing predicates (decision 3), the `git add` existing-file exception and why git's own pathspec expansion is harmless (decision 10), and a temp pattern's `..` and last-segment rule (decision 6).
 - `agent-os/standards/testing/tests.md`: bullet 35 (the ask-rules fixtures) **missing** that the fixture also carries a `checks.json` with one var and files whose names hold a bracket, for the rows that need an existing file; bullet 45 **missing** that a main-session row for a refused shape expects `inert`.
