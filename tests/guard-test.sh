@@ -25,7 +25,9 @@
 # ~/.cache/redline/guard-test-askrules (#49): a .claude/redline.json with ask rules, the files
 # config/project/project.yaml and config/other.yaml, a symlink cfg -> config/project inside it and
 # /tmp/redline-guard-askrules-link -> its config/project outside it, and a .claude/redline/checks.json
-# declaring one gate variable (REDLINE_MIGRATE_DB) for the prefix rows (#54); `ASK/` in a row is its path.
+# declaring one gate variable (REDLINE_MIGRATE_DB) for the prefix rows, and two files whose names hold
+# a bracket (app/pages/[id].php, .claude/settings[1].json) for the git add rows (#54); `ASK/` in a row
+# is its path.
 # `# @cwd ASKRULESBAD` sends them from ~/.cache/redline/guard-test-askrules-bad, whose askRules
 # list is malformed (a rule with no reason).
 #
@@ -63,6 +65,7 @@ cat > "$ASK/.claude/redline.json" <<'JSON'
 JSON
 printf '{"vars": [{"name": "migrate_db", "env": "REDLINE_MIGRATE_DB", "default": "x", "doc": "scratch database"}]}\n' > "$ASK/.claude/redline/checks.json"
 printf 'name: x\n' > "$ASK/config/project/project.yaml"
+mkdir -p "$ASK/app/pages" && : > "$ASK/app/pages/[id].php" && : > "$ASK/.claude/settings[1].json"
 printf 'name: y\n' > "$ASK/config/other.yaml"
 ln -s config/project "$ASK/cfg"
 ln -sfn "$ASK/config/project" /tmp/redline-guard-askrules-link

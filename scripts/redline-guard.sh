@@ -1134,9 +1134,11 @@ def check_git(args, cur):
         if not paths:
             return "git add needs file paths"
         for p in paths:
-            if "*" in p or "?" in p:
-                return f"git add {p} is refused; stage files by name, not by glob"
-            reason = writable(p, cur)
+            # A path holding a pattern character either names an existing file exactly (app/pages/[id].php,
+            # a route), checked as that literal path, or is a pattern the shell expands, which the guard
+            # cannot check (#54, R2-4). Protected files and ask rules refuse the literal path as any other.
+            literal = PATTERN.search(p) is not None and os.path.lexists(os.path.join(cur, expand(p)))
+            reason = writable(p, cur, literal=literal)
             if reason:
                 return reason
         return None

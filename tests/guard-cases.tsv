@@ -652,6 +652,15 @@ redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/redline/check*.
 redline:redline-implementer	allow	Bash	REDLINE_MIGRATE_DB=app_redline_migrate php artisan migrate --force --no-interaction
 redline:redline-implementer	deny	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction	DB_DATABASE
 redline:redline-implementer	deny	Bash	REDLINE_MIGRATE_DB='a b' php artisan migrate --force	plain word
+# #54 R2-4: git add of a path holding [ or { that names an existing file exactly (a Folio or Next.js route the implementer
+# edited) is checked as that literal path; when no file of that name exists the path is a pattern, refused as any write
+# operand is. A protected file or a rule's file is refused by name either way.
+redline:redline-implementer	allow	Bash	git add app/pages/[id].php
+redline:redline-implementer	allow	Bash	git add 'app/pages/[id].php'
+redline:redline-implementer	deny	Bash	git add app/pages/[x].php	name the file
+redline:redline-implementer	deny	Bash	git add app/pages/[id].ph?	name the file
+redline:redline-implementer	deny	Bash	git add .claude/settings[1].json	Redline's own files
+redline:redline-implementer	deny	Bash	git add config/projec[t]/project.yaml	craft-config
 # A malformed askRules list refuses every write by a role, naming the fault, while commands still run.
 # @cwd ASKRULESBAD
 redline:redline-implementer	deny	Write	app/x.php	malformed
