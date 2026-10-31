@@ -825,6 +825,129 @@ def sed_in_place(args):
         or any(a.startswith("-") and "i" in a[1:] and not a.startswith("--") and a not in ("-n", "-E", "-r", "-e", "-f", "-s", "-u") for a in args)
 
 
+SED_WRITES = "a sed script that writes a file or runs a command (w, W, e) is refused for every role"
+SED_BARE = "=dDgGhHnNpPxzF"
+SED_FLAGS = "gpIiMm0123456789"
+
+
+def sed_script_refused(script):
+    """Read a sed script as sed reads it and return a reason when it holds a w, W or e command or a w or e flag
+    on s (#54, R2-1): addresses, then one command letter; the bodies of s and y are skipped by their delimiter
+    with backslash escapes; b, t, T and : take a label to whitespace, ; or newline; a, i, c, r and R take the rest of the
+    line; {, }, ;, newline and # comments are stepped over. A script the reader cannot place is refused."""
+    n = len(script)
+    i = 0
+
+    def skip_delimited(i, delim):
+        # Past one delimited body: the next unescaped delimiter, or the end of the script when there is none.
+        while i < n and script[i] != delim:
+            i += 2 if script[i] == "\\" else 1
+        return i + 1
+
+    def skip_address(i):
+        if i < n and script[i].isdigit():
+            while i < n and script[i].isdigit():
+                i += 1
+            if i < n and script[i] == "~":
+                i += 1
+                while i < n and script[i].isdigit():
+                    i += 1
+            return i
+        if i < n and script[i] == "$":
+            return i + 1
+        if i < n and script[i] in "/\\":
+            delim = script[i] if script[i] == "/" else (script[i + 1] if i + 1 < n else "/")
+            i = skip_delimited(i + 1 if script[i] == "/" else i + 2, delim)
+            while i < n and script[i] in "IM":
+                i += 1
+            return i
+        return None
+
+    while i < n:
+        c = script[i]
+        if c in " \t\n;":
+            i += 1
+            continue
+        if c == "#":
+            while i < n and script[i] != "\n":
+                i += 1
+            continue
+        if c in "{}":
+            i += 1
+            continue
+        j = skip_address(i)
+        if j is not None:
+            i = j
+            while i < n and script[i] in " \t":
+                i += 1
+            if i < n and script[i] == ",":
+                i += 1
+                while i < n and script[i] in " \t":
+                    i += 1
+                if i < n and script[i] in "+~":
+                    i += 1
+                    while i < n and script[i].isdigit():
+                        i += 1
+                else:
+                    j = skip_address(i)
+                    if j is None:
+                        return "a sed script the guard cannot read is refused"
+                    i = j
+            while i < n and script[i] in " \t!":
+                i += 1
+        if i >= n:
+            return "a sed script the guard cannot read is refused"
+        c = script[i]
+        i += 1
+        if c in "wWe":
+            return SED_WRITES
+        if c == "{":
+            continue
+        if c in SED_BARE or c == "}":
+            pass
+        elif c in "qQlL":
+            while i < n and script[i] in " \t":
+                i += 1
+            while i < n and script[i].isdigit():
+                i += 1
+        elif c in "btT:v":
+            while i < n and script[i] in " \t":
+                i += 1
+            while i < n and script[i] not in " \t;\n":
+                i += 1
+        elif c in "aicrR":
+            # To the end of the line, and on while a line ends in an unescaped backslash (the a\ form continues its text).
+            while True:
+                start = i
+                while i < n and script[i] != "\n":
+                    i += 1
+                if i < n and (i - len(script[start:i].rstrip("\\"))) % 2 == 1:
+                    i += 1
+                    continue
+                break
+        elif c == "y":
+            if i >= n:
+                return "a sed script the guard cannot read is refused"
+            delim = script[i]
+            i = skip_delimited(skip_delimited(i + 1, delim), delim)
+        elif c == "s":
+            if i >= n:
+                return "a sed script the guard cannot read is refused"
+            delim = script[i]
+            i = skip_delimited(skip_delimited(i + 1, delim), delim)
+            while i < n and script[i] in SED_FLAGS + "we":
+                if script[i] in "we":
+                    return SED_WRITES
+                i += 1
+        else:
+            return "a sed script the guard cannot read is refused"
+        while i < n and script[i] in " \t":
+            i += 1
+        if i < n and script[i] not in ";\n}#":
+            return "a sed script the guard cannot read is refused"
+    return None
+
+
 def check_simple(words, writes, nested, cur):
     """Return (reason_or_None, new_cwd)."""
     for target in writes:
@@ -985,8 +1108,23 @@ def check_simple(words, writes, nested, cur):
         return None, cur
 
     if cmd == "sed":
+        scripts, script_files, files = sed_operands(args)
+        # Every script the call carries is read, the file after -f from disk; a w, W or e command or a w or e
+        # flag on s is refused for every role, and so is a script file the guard cannot read (#54, R2-1).
+        for path in script_files:
+            full = os.path.normpath(os.path.join(cur, expand(path)))
+            try:
+                if not os.path.isfile(full):
+                    raise OSError
+                with open(full, encoding="utf-8", errors="replace") as fh:
+                    scripts.append(fh.read())
+            except OSError:
+                return f"sed -f {path}: cannot read the script file", cur
+        for script in scripts:
+            reason = sed_script_refused(script)
+            if reason:
+                return reason, cur
         if sed_in_place(args):
-            scripts, script_files, files = sed_operands(args)
             if not files and not via_xargs:
                 return "sed -i without a file to edit", cur
             for f in files:
@@ -1001,6 +1139,10 @@ def check_simple(words, writes, nested, cur):
     if cmd == "find":
         if "-delete" in args:
             return "find -delete is refused", cur
+        # A predicate that writes its output to a file is refused for every role (#54, R2-1).
+        for flag in ("-fprint", "-fprint0", "-fprintf", "-fls"):
+            if flag in args:
+                return f"find {flag} writes a file; refused for every role", cur
         # The starting points are the operands before the first predicate; {} in an -exec
         # command stands for a path under one of them, so the command is checked once per
         # starting point with {} replaced by it, never as a file literally named {}.

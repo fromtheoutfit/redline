@@ -23,6 +23,18 @@ redline:redline-reviewer	deny	Bash	gh pr view 42
 redline:redline-reviewer	deny	Bash	echo hi > app/x.php
 redline:redline-reviewer	deny	Bash	sed -i '' 's/a/b/' app/Models/Order.php
 redline:redline-reviewer	allow	Bash	sed -n '1,20p' app/Models/Order.php
+# #54 R2-1: a sed script that writes a file or runs a command is refused for every role, in every spelling the call
+# carries: a w, W or e command, or a w or e flag on s, positional or after -e; the pattern and replacement are skipped.
+redline:redline-reviewer	deny	Bash	sed -n 'w app/x.php' app/Models/Order.php	w, W, e
+redline:redline-reviewer	deny	Bash	sed -n 'w /tmp/x' app/Models/Order.php	w, W, e
+redline:redline-reviewer	deny	Bash	sed 's/a/b/w /tmp/x' app/x.php	w, W, e
+redline:redline-reviewer	deny	Bash	sed -e 's/a/b/' -e 'w .claude/settings.json' /tmp/x	w, W, e
+redline:redline-reviewer	deny	Bash	sed -n '1e ls' app/x.php	w, W, e
+redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/w out' app/x.php	w, W, e
+redline:redline-reviewer	allow	Bash	sed -e 's/new/old/' -e 's/e/w/' app/x.php
+redline:redline-reviewer	allow	Bash	sed -n '/x/{p;q;}' app/x.php
+redline:redline-reviewer	allow	Bash	sed -e 'b end' -e ':end' app/x.php
+redline:redline-reviewer	deny	Bash	sed -n 'b end w /tmp/x' app/x.php	cannot read
 redline:redline-reviewer	allow	Bash	cat app/Models/Order.php > /tmp/order.php
 redline:redline-reviewer	allow	Bash	cat app/Models/Order.php 2>/dev/null | wc -l
 redline:redline-reviewer	deny	Bash	git checkout main
@@ -211,6 +223,10 @@ redline:redline-reviewer	allow	Bash	echo x > /tmp/redlinerepro/sub/*.txt
 redline:redline-implementer	allow	Write	app/pages/[id].php
 redline:redline-implementer	deny	Bash	echo x > app/pages/[id].php	name the file
 redline:redline-reviewer	allow	Bash	find app -name '*.php' -exec grep -l Order {} +
+# #54 R2-1: a find predicate that writes a file is refused for every role; -print is not one.
+redline:redline-reviewer	deny	Bash	find app -name '*.php' -fprint /tmp/list	-fprint
+redline:redline-reviewer	deny	Bash	find app -fls /tmp/l	-fls
+redline:redline-reviewer	allow	Bash	find app -name '*.php' -print
 redline:redline-implementer	allow	Bash	find app -name '*.php' -exec sed -i '' 's/a/b/' {} \\;
 redline:redline-implementer	deny	Bash	find .claude/redline -name '*.sh' -exec rm {} \\;
 redline:redline-reviewer	deny	Bash	find -exec rm {} \\;
@@ -558,7 +574,7 @@ redline:redline-reviewer	deny	Bash	cp /tmp/a /tmp/x*/../../..PLUGIN/.claude/sett
 # and a wildcard in a file operand is still refused.
 redline:redline-implementer	allow	Bash	sed -i '' -e 's/[0-9]*/x/' app/x.php
 redline:redline-implementer	allow	Bash	sed -i '' -e 's/a*/b/' -e 's/[x]/y/' app/x.php
-redline:redline-implementer	allow	Bash	sed -i '' -f /tmp/script.sed app/x.php
+redline:redline-implementer	deny	Bash	sed -i '' -f /tmp/script.sed app/x.php	cannot read
 redline:redline-implementer	allow	Bash	sed -i '' -ne 's/[0-9]*/x/p' app/x.php
 redline:redline-reviewer	allow	Bash	sed -i '' -e 's/a*/b/' /tmp/redlinerepro/none.txt
 redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/' tests/*.sh	name the file
@@ -618,6 +634,10 @@ redline:redline-implementer	allow	Write	config/other.yaml
 redline:redline-implementer	allow	Write	config/projects.yaml
 redline:redline-implementer	allow	Bash	rm -rf config/other
 redline:redline-implementer	allow	Bash	git add config/other.yaml
+# #54 R2-1: the file after -f is read from disk; a clean script passes, a script holding a w command is refused, and
+# the row above the ask-rules section (sed -i '' -f /tmp/script.sed) is now a deny because no such file exists.
+redline:redline-implementer	allow	Bash	sed -i '' -f clean.sed app/x.php
+redline:redline-implementer	deny	Bash	sed -n -f write.sed app/x.php	w, W, e
 # A symlink inside the repository, and one under the temp directory, that resolve into a match.
 redline:redline-implementer	deny	Write	cfg/project.yaml	craft-config
 redline:redline-implementer	deny	Write	/tmp/redline-guard-askrules-link/x.yaml	craft-config
