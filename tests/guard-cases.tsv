@@ -337,6 +337,15 @@ redline:redline-plan-approver	deny	Bash	GIT_PAGER=/tmp/x.sh git log -1	GIT_PAGER
 redline:redline-plan-approver	allow	Bash	git diff HEAD~1
 redline:redline-plan-approver	allow	Bash	git log -1
 redline:redline-github	deny	Bash	git -c user.name=x commit -m "redline: x"	git -c
+# #54 R2-8: git runs only with the repository root as its working directory, for every subcommand. -C into the temp
+# directory or a subdirectory, or a cd before git, ran git where a .git/config a role wrote could name a program. The
+# -C REPO/ and cd REPO/ spellings still resolve to the root, so the github role's record-commit rows above stand.
+redline:redline-reviewer	deny	Bash	git -C /tmp/redlinerepro/r diff	repository root
+redline:redline-reviewer	deny	Bash	cd /tmp/x && git status	repository root
+redline:redline-reviewer	deny	Bash	cd app && git status	repository root
+redline:redline-reviewer	deny	Bash	git -C app log -1	repository root
+redline:redline-github	deny	Bash	git -C /tmp/x add -- f	repository root
+redline:redline-reviewer	allow	Bash	cd REPO/app && cd .. && git status
 
 # Not a Redline role: the guard does nothing, whatever the command.
 -	inert	Bash	git push --force origin main
@@ -380,6 +389,9 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	BASH_ENV=/tmp/x.sh PLUGIN/scripts/redline-gh.sh pr 1
 -	inert	Bash	export GIT_EXTERNAL_DIFF=/tmp/x.sh && git diff
 -	inert	Bash	PATH=/tmp/x git status
+# #54 R2-8: git away from the repository root is inert here; cd REPO/ && git status above stays approved.
+-	inert	Bash	git -C /tmp/x diff
+-	inert	Bash	cd REPO/app && git status
 general-purpose	allow	Bash	git status
 # A Redline-shaped agent_type whose role is not in the table is refused.
 redline:redline-bogus	deny	Bash	git status

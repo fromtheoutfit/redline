@@ -1052,6 +1052,12 @@ def check_git(args, cur):
             if opt == "-C":
                 cur = os.path.normpath(os.path.join(cur, args[0]))
             args.pop(0)
+    # git reads the configuration of the repository it runs in, which can name a program (diff.external,
+    # core.fsmonitor, core.pager), and a role can write a .git/config under the temp directory or a nested
+    # one inside the repository: so git runs only at the repository root, whatever -C and cd say (#54, R2-8).
+    if os.path.normpath(cur) != REPO and os.path.realpath(cur) != REPO_REAL:
+        return (f"git runs only with the repository root ({REPO}) as its working directory; 'git -C <dir>' and "
+                f"'cd <dir> && git' are refused for every role, since a repository under <dir> can name a program in its config")
     if not args:
         return "git without a subcommand"
     sub, rest = args[0], args[1:]
