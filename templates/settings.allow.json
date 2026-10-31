@@ -10,20 +10,10 @@
   "permissions": {
     "allow": [
       "Workflow(redline:redline-loop)",
-      "Bash(/*/scripts/redline-gh.sh *)",
-      "Bash(/*/scripts/redline-prefs.sh *)",
-      "Bash(/*/scripts/redline-gate.sh check *)",
-      "Bash(/*/scripts/redline-setup.sh version *)",
-      "Bash(/*/.claude/redline/checks.sh *)",
-      "Bash(REDLINE_OCTANE=1 /*/.claude/redline/checks.sh *)",
       "Bash(.claude/redline/checks.sh:*)",
       "Bash(./.claude/redline/checks.sh *)",
       "Edit(/agent-os/specs/**)",
-      "Edit(//tmp/redlinerepro/**)",
       "Bash(git status:*)",
-      "Bash(git diff:*)",
-      "Bash(git log:*)",
-      "Bash(git show:*)",
       "Bash(git rev-parse:*)",
       "Bash(git merge-base:*)"
     ]

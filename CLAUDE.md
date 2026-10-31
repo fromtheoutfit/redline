@@ -27,7 +27,8 @@ prohibition is on attribution markers, not on citing the work.
 
 Redline labels its own work as "Redline" (review titles such as `Redline round 2`, the `redline:`
 commit-message prefix, the `Redline handoff` comment). That is a tool name, not AI attribution,
-and is allowed; a model or vendor name next to it is not.
+and is allowed; a model or vendor name next to it is not. Configuration that selects a model, such
+as `models` in `.claude/redline.json`, is not attribution and is allowed.
 
 ## Specs
 

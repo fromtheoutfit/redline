@@ -36,7 +36,7 @@
 # <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 # The line above the stamp names the template version this file was made from; a launch warns
 # when the plugin's template is newer.
-# redline-template: checks-template.sh v1
+# redline-template: checks-template.sh v2
 # redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 
 set -euo pipefail
@@ -282,7 +282,9 @@ if [[ "$mode" != "baseline" ]]; then
     git log --format='%H%x1f%s' "$start_sha..HEAD" > "$work/commits" || true
 
     diff_lines="$(git diff --numstat "$start_sha" | awk '{ a += ($1 == "-" ? 0 : $1) + ($2 == "-" ? 0 : $2) } END { print a + 0 }')"
-    untracked_lines="$(git ls-files --others --exclude-standard -z | xargs -0 cat 2>/dev/null | wc -l | tr -d ' ')"
+    # || true: an untracked file cat cannot read (a symlink to a directory) exits xargs 123, and under
+    # pipefail that ended the script before its JSON; the readable files are still counted (#50).
+    untracked_lines="$(git ls-files --others --exclude-standard -z | xargs -0 cat 2>/dev/null | wc -l | tr -d ' ')" || true
     diff_lines=$((diff_lines + untracked_lines))
 
     if [[ "$mode" == "git-only" ]]; then

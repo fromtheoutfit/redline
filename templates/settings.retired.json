@@ -1,0 +1,12 @@
+[
+  "Bash(/*/scripts/redline-gh.sh *)",
+  "Bash(/*/scripts/redline-prefs.sh *)",
+  "Bash(/*/scripts/redline-gate.sh check *)",
+  "Bash(/*/scripts/redline-setup.sh version *)",
+  "Bash(/*/.claude/redline/checks.sh *)",
+  "Bash(REDLINE_OCTANE=1 /*/.claude/redline/checks.sh *)",
+  "Edit(//tmp/redlinerepro/**)",
+  "Bash(git diff:*)",
+  "Bash(git log:*)",
+  "Bash(git show:*)"
+]

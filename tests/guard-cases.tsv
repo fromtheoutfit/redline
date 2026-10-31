@@ -100,7 +100,7 @@ redline:redline-implementer	deny	Bash	git checkout -- app/Models/Order.php
 redline:redline-implementer	deny	Bash	git stash
 redline:redline-implementer	deny	Bash	composer require foo/bar
 redline:redline-implementer	allow	Bash	npm run build
-redline:redline-implementer	allow	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction
+redline:redline-implementer	deny	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction	DB_DATABASE
 redline:redline-implementer	allow	Write	app/Models/Order.php
 redline:redline-implementer	deny	Write	.claude/agents/redline-implementer.md
 redline:redline-implementer	deny	Bash	git commit -F /tmp/does-not-exist.txt
@@ -200,6 +200,16 @@ redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/'
 redline:redline-reviewer	deny	Bash	cd /tmp && find REPO/app -name '*.php' -exec rm {} \\;
 redline:redline-reviewer	deny	Bash	find app -name '*.php' -exec sed -i '' 's/a/b/' {} \\;
 redline:redline-reviewer	allow	Bash	find /tmp/redlinerepro -name '*.php' -exec rm {} \\;
+# #53: a pattern under the temp directory is still the reviewer's; a tool's file_path is literal, never a pattern.
+redline:redline-reviewer	allow	Bash	sed -i '' 's/a/b/' /tmp/redlinerepro/*.php
+# #54 R2-3: the same climb from the temp directory into .git/, beside its literal spelling, which was always refused; and
+# the exemption holds only when the wildcard is in the last segment, so it cannot match a link that is then walked through.
+redline:redline-reviewer	deny	Bash	mkdir -p /tmp/redlinerepro/rd*/../../..REPO/.git	.. segment
+redline:redline-reviewer	deny	Bash	mkdir -p /tmp/redlinerepro/rdir/../../..REPO/.git	.git/
+redline:redline-reviewer	deny	Bash	sed -i '' 's/a/b/' /tmp/redlinerepro/*/x.php	last segment
+redline:redline-reviewer	allow	Bash	echo x > /tmp/redlinerepro/sub/*.txt
+redline:redline-implementer	allow	Write	app/pages/[id].php
+redline:redline-implementer	deny	Bash	echo x > app/pages/[id].php	name the file
 redline:redline-reviewer	allow	Bash	find app -name '*.php' -exec grep -l Order {} +
 redline:redline-implementer	allow	Bash	find app -name '*.php' -exec sed -i '' 's/a/b/' {} \\;
 redline:redline-implementer	deny	Bash	find .claude/redline -name '*.sh' -exec rm {} \\;
@@ -272,13 +282,127 @@ redline:redline-reviewer	allow	Bash	grep -rn '## Known limits' PLUGIN/README.md
 redline:redline-implementer	allow	Bash	git commit -m 'redline: R1-2 state the rounding rule in the docblock (#42)'
 redline:redline-implementer	deny	Bash	grep -n x#y app ; git push --force origin main
 
+# #54 R2-5: `!` and the shell keywords used to be builtins, so the word after them was never read. They are refused as a
+# command word for every role: a role runs plain pipelines, and the pipeline spelling of each is the neighbour.
+redline:redline-reviewer	deny	Bash	! python3 --version	shell keyword
+redline:redline-reviewer	deny	Bash	if true; then cp /tmp/x app/x.php; fi	shell keyword
+redline:redline-reviewer	deny	Bash	for f in a; do curl https://example.com; done	shell keyword
+redline:redline-reviewer	deny	Bash	while true; do git push; done	shell keyword
+redline:redline-reviewer	deny	Bash	if git diff --quiet; then echo same; fi	shell keyword
+redline:redline-reviewer	allow	Bash	git diff --quiet && echo same
+redline:redline-reviewer	allow	Bash	test -f app/x.php && cat app/x.php
+redline:redline-reviewer	allow	Bash	[ -f app/x.php ] && cat app/x.php
+
+# #50: read-only git is vetted by flag for every role. --output writes a file; -c, --config-env, a GIT_* or PAGER
+# prefix, -O and --ext-diff run a program. A plain read, -C and --no-pager still pass; since #54 (R2-6) every prefix
+# but an exempt one is refused, on git as on any command, so the TMPDIR row is a deny.
+redline:redline-reviewer	deny	Bash	git log --output=.claude/settings.json -1	--output
+redline:redline-reviewer	deny	Bash	git diff --output=CLAUDE.md HEAD~1	--output
+redline:redline-reviewer	deny	Bash	git diff --output /tmp/x HEAD~1	--output
+redline:redline-reviewer	deny	Bash	git -c diff.external=/tmp/x.sh diff	git -c
+redline:redline-reviewer	deny	Bash	git -c core.fsmonitor=/tmp/x.sh status	git -c
+redline:redline-reviewer	deny	Bash	git --config-env=diff.external=X diff	git -c
+redline:redline-reviewer	deny	Bash	git grep -O/tmp/x.sh foo	-O
+redline:redline-reviewer	deny	Bash	git log --ext-diff -p -1	--ext-diff
+redline:redline-reviewer	deny	Bash	GIT_PAGER=/tmp/x.sh git log -1	GIT_PAGER
+redline:redline-reviewer	deny	Bash	GIT_EXTERNAL_DIFF=/tmp/x.sh git diff	GIT_EXTERNAL_DIFF
+redline:redline-reviewer	deny	Bash	env GIT_CONFIG_PARAMETERS='diff.external=/tmp/x.sh' git diff	GIT_CONFIG_PARAMETERS
+# #54 R2-6: every route that sets a variable for a child is refused for every role: export, declare, typeset, set,
+# readonly and local as commands, and a NAME=value prefix on any command, bare or through env (PATH and BASH_ENV reach
+# a program through any command word). Exempt: REDLINE_OCTANE and the env names of the repository's checks.json vars,
+# with a plain-word value. env runs only as `env NAME=value command`, never with an option.
+redline:redline-reviewer	deny	Bash	export GIT_EXTERNAL_DIFF=/tmp/x.sh && git diff	export
+redline:redline-reviewer	deny	Bash	GIT_EXTERNAL_DIFF=/tmp/x.sh bash -c 'git diff'	GIT_EXTERNAL_DIFF
+redline:redline-reviewer	deny	Bash	set -a ; git status	set
+redline:redline-reviewer	deny	Bash	declare -x PATH=/tmp/x ; git status	declare
+redline:redline-reviewer	deny	Bash	PATH=/tmp/x cat app/x.php	PATH
+redline:redline-reviewer	deny	Bash	PATH=/tmp/x ; cat app/x.php	PATH
+redline:redline-reviewer	deny	Bash	BASH_ENV=/tmp/x.sh PLUGIN/scripts/redline-gh.sh pr 1	BASH_ENV
+redline:redline-reviewer	deny	Bash	env -i git status	env
+redline:redline-reviewer	deny	Bash	env PATH=/tmp git status	PATH
+redline:redline-reviewer	deny	Bash	REDLINE_OCTANE='1 2' git status	plain word
+redline:redline-reviewer	allow	Bash	env git status
+redline:redline-reviewer	allow	Bash	unset GIT_DIR ; git status
+redline:redline-reviewer	allow	Bash	git diff HEAD~1
+redline:redline-reviewer	allow	Bash	git log -1
+redline:redline-reviewer	allow	Bash	git grep -n foo
+redline:redline-reviewer	allow	Bash	git -C REPO/ status
+redline:redline-reviewer	allow	Bash	git --no-pager log -1
+redline:redline-reviewer	deny	Bash	TMPDIR=/tmp git status	TMPDIR
+redline:redline-plan-approver	deny	Bash	git log --output=.claude/settings.json -1	--output
+redline:redline-plan-approver	deny	Bash	git diff --output=CLAUDE.md HEAD~1	--output
+redline:redline-plan-approver	deny	Bash	git -c diff.external=/tmp/x.sh diff	git -c
+redline:redline-plan-approver	deny	Bash	git grep -O/tmp/x.sh foo	-O
+redline:redline-plan-approver	deny	Bash	GIT_PAGER=/tmp/x.sh git log -1	GIT_PAGER
+redline:redline-plan-approver	allow	Bash	git diff HEAD~1
+redline:redline-plan-approver	allow	Bash	git log -1
+redline:redline-github	deny	Bash	git -c user.name=x commit -m "redline: x"	git -c
+# #54 R2-7: git grep parses its options with parse-options, which bundles short flags (-lO<pager>) and accepts any
+# unambiguous abbreviation of a long one (--open=<pager>), so a flag is read as git reads it: a single-dash word holding
+# O anywhere, and any --op… word, are refused on every read subcommand.
+redline:redline-reviewer	deny	Bash	git grep --open=/tmp/x.sh foo	--open
+redline:redline-reviewer	deny	Bash	git grep --open-files-in-pager=/tmp/x.sh foo	--open-files-in-pager
+redline:redline-reviewer	deny	Bash	git grep -lO/tmp/x.sh foo	-lO
+redline:redline-reviewer	deny	Bash	git grep -nO /tmp/x.sh foo	-nO
+redline:redline-plan-approver	deny	Bash	git grep -lO/tmp/x.sh foo	-lO
+redline:redline-reviewer	allow	Bash	git grep -l foo
+redline:redline-reviewer	allow	Bash	git grep --only-matching foo
+# #54 R2-8: git runs only with the repository root as its working directory, for every subcommand. -C into the temp
+# directory or a subdirectory, or a cd before git, ran git where a .git/config a role wrote could name a program. The
+# -C REPO/ and cd REPO/ spellings still resolve to the root, so the github role's record-commit rows above stand.
+redline:redline-reviewer	deny	Bash	git -C /tmp/redlinerepro/r diff	repository root
+redline:redline-reviewer	deny	Bash	cd /tmp/x && git status	repository root
+redline:redline-reviewer	deny	Bash	cd app && git status	repository root
+redline:redline-reviewer	deny	Bash	git -C app log -1	repository root
+redline:redline-github	deny	Bash	git -C /tmp/x add -- f	repository root
+redline:redline-reviewer	allow	Bash	cd REPO/app && cd .. && git status
+
 # Not a Redline role: the guard does nothing, whatever the command.
 -	inert	Bash	git push --force origin main
 -	inert	Write	REPO/.claude/redline/checks.sh
 general-purpose	inert	Bash	rm -rf REPO/app
 Explore	inert	Bash	git push --force
 other-plugin:redline-reviewer	inert	Bash	git push --force
-redline:reviewer	inert	Bash	git status
+redline:reviewer	allow	Bash	git status
+# #50, the one exception: for any session that is not a Redline role, a Bash call that is one of the plugin's own
+# scripts by real path (redline-gh.sh, redline-prefs.sh, redline-gate.sh check, redline-setup.sh version), the
+# repository's own checks.sh, or read-only git under the same flag vetting, is approved, so the shared allow list
+# carries no Bash(/*/scripts/...) rule that a script of that name anywhere could match. Anything else stays inert:
+# never a deny, the permission prompt decides.
+-	allow	Bash	PLUGIN/scripts/redline-gh.sh pr 1
+-	inert	Bash	/tmp/x/scripts/redline-gh.sh pr 1
+-	allow	Bash	REDLINE_OCTANE=1 REPO/.claude/redline/checks.sh /tmp/s.json
+-	allow	Bash	.claude/redline/checks.sh --baseline
+-	inert	Bash	/tmp/x/.claude/redline/checks.sh --baseline
+-	allow	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
+-	inert	Bash	PLUGIN/scripts/redline-gate.sh stamp REPO/x.md REPO/.claude/redline/checks.sh
+-	allow	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+-	inert	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/
+-	allow	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ 42
+-	allow	Bash	git diff HEAD~1
+-	allow	Bash	git log -1
+-	allow	Bash	cd REPO/ && git status
+-	inert	Bash	git diff --output=CLAUDE.md HEAD~1
+-	inert	Bash	git -c diff.external=/tmp/x.sh diff
+-	inert	Bash	PLUGIN/scripts/redline-gh.sh pr 1 | jq .
+-	inert	Bash	PLUGIN/scripts/redline-gh.sh pr 1 > /tmp/pr.json
+# #54 R2-1: the approval covers only those three kinds, as the bare command word. A builtin, sed, find, a wrapper or a
+# pipe into another command beside a git word is inert, never approved, even where a role's vetting would pass it.
+-	inert	Bash	sed -n 'w /tmp/x' REPO/CLAUDE.md ; git status
+-	inert	Bash	find REPO/ -name x ; git status
+-	inert	Bash	echo x ; git status
+-	inert	Bash	time git status
+-	inert	Bash	cat REPO/CLAUDE.md | git status
+# #54 R2-5: a keyword in front of a command is inert here, as it is refused for a role.
+-	inert	Bash	! rm -rf REPO/app ; git status
+# #54 R2-6: a variable route is inert here too; the one exempt prefix stays approved (REDLINE_OCTANE=1 checks.sh, above).
+-	inert	Bash	BASH_ENV=/tmp/x.sh PLUGIN/scripts/redline-gh.sh pr 1
+-	inert	Bash	export GIT_EXTERNAL_DIFF=/tmp/x.sh && git diff
+-	inert	Bash	PATH=/tmp/x git status
+# #54 R2-8: git away from the repository root is inert here; cd REPO/ && git status above stays approved.
+-	inert	Bash	git -C /tmp/x diff
+-	inert	Bash	cd REPO/app && git status
+general-purpose	allow	Bash	git status
 # A Redline-shaped agent_type whose role is not in the table is refused.
 redline:redline-bogus	deny	Bash	git status
 redline:redline-	deny	Bash	git status
@@ -310,8 +434,9 @@ redline:redline-github	deny	Bash	REPO/.claude/redline/redline-gh.sh post-review 
 
 # Step 13: the saved preferences file (.claude/redline.local.json) is one of Redline's own files,
 # and the preferences script is the skill's, never a role's. The main session, which runs the
-# skill, is not a Redline role, so the guard is inert for it. The gate stamp script (#6) is the
-# skill's in the same way: no role runs it, and a role can never restamp checks.sh.
+# skill, is not a Redline role: the guard approves the skill's unprompted calls by real path (#50) and is
+# inert for the rest. The gate stamp script (#6) is the skill's in the same way: no role runs it, and a
+# role can never restamp checks.sh; only its check subcommand is approved for the main session.
 redline:redline-implementer	deny	Write	.claude/redline.local.json
 redline:redline-implementer	deny	Edit	REPO/.claude/redline.local.json
 redline:redline-implementer	deny	Bash	cp /tmp/prefs.json .claude/redline.local.json
@@ -327,8 +452,8 @@ redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 redline:redline-reviewer	allow	Bash	cat .claude/redline.local.json
 redline:redline-implementer	allow	Bash	cat .claude/redline.local.json
 -	inert	Write	.claude/redline.local.json
--	inert	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
--	inert	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
+-	allow	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ --interrupt plan
+-	allow	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 
 # The setup script (#6, second half) is the skill's in the same way: no role runs any of its
 # subcommands, and .claude/redline/checks.json, the source checks.sh is generated from, is one of
@@ -341,7 +466,7 @@ redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.
 redline:redline-implementer	deny	Write	.claude/redline/checks.json
 redline:redline-implementer	deny	Edit	REPO/.claude/redline/checks.json
 redline:redline-reviewer	allow	Bash	cat .claude/redline/checks.json
--	inert	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+-	allow	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
 
 # Step 14: Finish commits the run record. The GitHub agent lists the record's uncommitted files
 # with git status, stages them by name (agent-os/specs/ only, its write prefix), commits with the
@@ -413,6 +538,33 @@ redline:redline-implementer	deny	Bash	cp /tmp/g.sh scripts/redline-guard.sh
 redline:redline-implementer	deny	Bash	sed -i '' 's/deny/allow/' scripts/redline-guard.sh
 redline:redline-implementer	deny	Bash	git add scripts/redline-guard.sh
 redline:redline-implementer	deny	Bash	git add hooks/hooks.json
+# #53: a Bash write target holding a wildcard, character class or brace list is refused for every role outside the
+# temp directory, and the reason names the protected file it could reach: the shell would expand it to the guard or
+# the hook, which the literal prefix the guard used to check never matched.
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' scripts/redline-guar?.sh	scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' scripts/redline-guar[d].sh	scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' scripts/redline-guard.{sh,x}	scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	echo x > scripts/redline-guar?.sh	scripts/redline-guard.sh
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' hooks/hook*.json	hooks/hooks.json
+# An ordinary wildcard is refused the same way: the implementer names its files (sed -i '' ... tests/*.sh used to pass).
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' tests/*.sh	name the file
+redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' tests/guard-test.sh
+# #54 R2-3: a temp-directory pattern used to be admitted on its literal prefix, and the .. segments after the wildcard
+# climbed back to the guard. A pattern with a .. segment is refused for every role.
+redline:redline-implementer	deny	Bash	echo x > /tmp/x*/../../..PLUGIN/scripts/redline-guard.sh	.. segment
+redline:redline-reviewer	deny	Bash	cp /tmp/a /tmp/x*/../../..PLUGIN/.claude/settings.json	.. segment
+# #54 R2-2: the script after -e, or the file after -f, is a script, never a write target: the write-target rule applies to
+# the file operands only, in every spelling of -e (detached, attached, bundled as -ne), so a regex holding * or [ passes
+# and a wildcard in a file operand is still refused.
+redline:redline-implementer	allow	Bash	sed -i '' -e 's/[0-9]*/x/' app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -e 's/a*/b/' -e 's/[x]/y/' app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -f /tmp/script.sed app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -ne 's/[0-9]*/x/p' app/x.php
+redline:redline-reviewer	allow	Bash	sed -i '' -e 's/a*/b/' /tmp/redlinerepro/none.txt
+redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/' tests/*.sh	name the file
+redline:redline-implementer	deny	Bash	sed -i '' -es/a/b/ scripts/x.sh tests/*.sh	name the file
+redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/'	without a file
+redline:redline-reviewer	deny	Bash	sed -i '' -e 's/a/b/' app/x.php	outside this role's write prefixes
 redline:redline-implementer	deny	Bash	rm -rf scripts
 redline:redline-implementer	deny	Bash	rm -rf hooks
 redline:redline-implementer	deny	Bash	mv hooks hooks2
@@ -456,6 +608,8 @@ redline:redline-implementer	deny	Write	config/project/project.yaml	craft-config
 redline:redline-implementer	deny	Edit	config/project/new/sub.yaml	craft-config
 redline:redline-implementer	deny	Bash	echo x > config/project/x.yaml	craft-config
 redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' config/project/*.yaml	holds the files of repository ask rule 'craft-config'
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' config/projec[t]/project.yaml	craft-config
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' config/{project,x}/project.yaml	craft-config
 redline:redline-implementer	deny	Bash	rm -rf config	holds the files of repository ask rule 'craft-config'
 redline:redline-implementer	deny	Bash	rm -rf config/project	holds the files of repository ask rule 'craft-config'
 redline:redline-implementer	deny	Bash	git add config/project/project.yaml	craft-config
@@ -472,12 +626,11 @@ redline:redline-implementer	allow	Write	/tmp/redline-guard-other.yaml
 redline:redline-implementer	deny	Write	app/x.secret.yaml	yaml-anywhere
 redline:redline-implementer	deny	Write	App/X.Secret.YAML	yaml-anywhere
 redline:redline-implementer	allow	Write	app/x.yaml
-# #52, R1-1 (deferred to a person): a Bash operand holding * or ? is checked by its literal prefix only,
-# cut at the first wildcard, so these two are allowed today: app/ holds no root of yaml-anywhere (a pattern
-# that starts with a wildcard has none), and config/proj stops inside craft-config's root. A person flips
-# both to deny, naming yaml-anywhere and craft-config, when the guard checks the operand itself.
-redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' app/*.secret.yaml
-redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' config/proj*/project.yaml
+# #52 R1-1, closed by #53: a Bash operand holding a wildcard is refused outright, and the reason names the rule it
+# could reach (yaml-anywhere has no literal root, so any pattern can reach it; config/proj is a prefix of
+# craft-config's root).
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' app/*.secret.yaml	yaml-anywhere
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' config/proj*/project.yaml	craft-config
 # Every writing role: the shaper and the resolve agent are refused by the rule, not only by their prefixes.
 redline:redline-shaper	deny	Write	config/project/p.yaml	craft-config
 redline:redline-shaper	allow	Write	agent-os/specs/x/shape.md
@@ -485,6 +638,29 @@ redline:redline-resolve	deny	Bash	echo x > config/project/p.yaml	craft-config
 redline:redline-resolve	allow	Bash	echo x > agent-os/specs/x/shape.md
 # The rules file itself stays Redline's own, refused as before.
 redline:redline-implementer	deny	Write	.claude/redline.json	Redline's own files
+# #53: a wildcard, class or brace list in a Bash write target is refused, naming the Redline file it could reach.
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/redline.js?n	.claude/redline*.json
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/redline.jso[n]	.claude/redline*.json
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/{redline,x}.json	.claude/redline/
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/settings*.json	.claude/settings*.json
+redline:redline-implementer	deny	Bash	echo x > .claude/settings.jso[n]	.claude/settings*.json
+# The neighbours whose literal prefix already lands on a protected path keep their reason.
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/agents/redline-*.md	Redline's own files
+redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/redline/check*.sh	.claude/redline/
+# #54 R2-6: the fixture's checks.json declares one gate variable (REDLINE_MIGRATE_DB); a prefix with that name and a
+# plain-word value passes, any other name is refused, and so is a value that is not a plain word.
+redline:redline-implementer	allow	Bash	REDLINE_MIGRATE_DB=app_redline_migrate php artisan migrate --force --no-interaction
+redline:redline-implementer	deny	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction	DB_DATABASE
+redline:redline-implementer	deny	Bash	REDLINE_MIGRATE_DB='a b' php artisan migrate --force	plain word
+# #54 R2-4: git add of a path holding [ or { that names an existing file exactly (a Folio or Next.js route the implementer
+# edited) is checked as that literal path; when no file of that name exists the path is a pattern, refused as any write
+# operand is. A protected file or a rule's file is refused by name either way.
+redline:redline-implementer	allow	Bash	git add app/pages/[id].php
+redline:redline-implementer	allow	Bash	git add 'app/pages/[id].php'
+redline:redline-implementer	deny	Bash	git add app/pages/[x].php	name the file
+redline:redline-implementer	deny	Bash	git add app/pages/[id].ph?	name the file
+redline:redline-implementer	deny	Bash	git add .claude/settings[1].json	Redline's own files
+redline:redline-implementer	deny	Bash	git add config/projec[t]/project.yaml	craft-config
 # A malformed askRules list refuses every write by a role, naming the fault, while commands still run.
 # @cwd ASKRULESBAD
 redline:redline-implementer	deny	Write	app/x.php	malformed

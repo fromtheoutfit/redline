@@ -7,15 +7,17 @@
 # checks.json is the source of truth: a change to the gate is an edit to the JSON and a regenerate,
 # never a hand edit of checks.sh.
 #
-#   redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run]
+#   redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run]
 #       Merge templates/settings.allow.json into <repoRoot>/.claude/settings.json without dropping
 #       a key or changing a value already there: a top-level key the file lacks is appended, and
 #       under a top-level object both have, each entry the file lacks is appended while each entry
 #       it has is kept whole. permissions.allow is the existing entries, then the template's not
 #       yet present, then each --allow not yet present. Every kept value that differs from the
-#       template's is listed under conflicts. Compared as JSON, so a file the plugin CLI reordered
-#       is left alone. Keeps CRLF. Prints
-#       {file, existed, changed, written, added, keysAdded, conflicts}.
+#       template's is listed under conflicts. An allow entry an earlier template added and this one
+#       no longer carries (templates/settings.retired.json, #50) is listed under stale and kept;
+#       --remove-stale drops those entries instead and lists them under removed. Compared as JSON,
+#       so a file the plugin CLI reordered is left alone. Keeps CRLF. Prints
+#       {file, existed, changed, written, added, removed, stale, keysAdded, conflicts}.
 #   redline-setup.sh gitignore <repoRoot> [--dry-run]
 #       Add .claude/redline.local.json after .claude/settings.local.json, else after the last
 #       .claude/ entry, else at the end; keeps CRLF. Prints {file, existed, changed, written, line,
@@ -89,11 +91,12 @@ set -euo pipefail
 PLUGIN_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TEMPLATE="${REDLINE_TEMPLATE:-$PLUGIN_ROOT/scripts/checks-template.sh}"
 SETTINGS_TEMPLATE="$PLUGIN_ROOT/templates/settings.allow.json"
+RETIRED_TEMPLATE="$PLUGIN_ROOT/templates/settings.retired.json"
 CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="$PLUGIN_ROOT/templates/shape-spec-unattended.md"
 
 usage() {
-    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
+    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
     exit 2
 }
 die2() { echo "redline-setup: $*" >&2; exit 2; }
@@ -106,10 +109,11 @@ commit_tmp() { cat "$1" > "$2"; rm -f "$1"; }
 # ---------------------------------------------------------------------------------------------
 # settings
 cmd_settings() {
-    local root="" dry=false allows=()
+    local root="" dry=false remove=false allows=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --allow) [[ $# -ge 2 && -n "$2" ]] || die2 "--allow needs an entry"; allows+=("$2"); shift 2 ;;
+            --remove-stale) remove=true; shift ;;
             --dry-run) dry=true; shift ;;
             -*) usage ;;
             *) [[ -z "$root" ]] || usage; root="$1"; shift ;;
@@ -133,18 +137,21 @@ cmd_settings() {
     if [[ ${#allows[@]} -gt 0 ]]; then
         extras="$(printf '%s\n' "${allows[@]}" | jq -R . | jq -s .)"
     fi
-    local template merged
+    local template retired merged
     template="$(jq -c . "$SETTINGS_TEMPLATE")"
+    retired="$(jq -c . "$RETIRED_TEMPLATE")"
     # Entry-level, the file's values win: a top-level key the file lacks is appended; under a
     # top-level object both have, an entry the file lacks is appended and one it has is kept whole.
-    merged="$(jq -n --argjson e "$existing" --argjson t "$template" --argjson x "$extras" '
+    # A retired entry (one an earlier template added) is kept too, unless --remove-stale (#50).
+    merged="$(jq -n --argjson e "$existing" --argjson t "$template" --argjson x "$extras" --argjson r "$retired" --argjson rm "$remove" '
         def union($a; $b): reduce $b[] as $i ($a; if index([$i]) != null then . else . + [$i] end);
         (reduce ($t | keys_unsorted[]) as $k ($e;
             if has($k) | not then .[$k] = $t[$k]
             elif (.[$k] | type) == "object" and ($t[$k] | type) == "object" then
                 reduce ($t[$k] | keys_unsorted[]) as $j (.; if (.[$k] | has($j)) then . else .[$k][$j] = $t[$k][$j] end)
             else . end)
-         | .permissions.allow = union(union(($e.permissions.allow // []); ($t.permissions.allow // [])); $x))')"
+         | .permissions.allow = union(union(($e.permissions.allow // []); ($t.permissions.allow // [])); $x)
+         | if $rm then .permissions.allow -= $r else . end)')"
     local changed=false written=false
     if [[ "$(jq -S -c . <<<"$existing")" != "$(jq -S -c . <<<"$merged")" ]]; then
         changed=true
@@ -160,9 +167,11 @@ cmd_settings() {
         fi
     fi
     jq -n --arg file "$file" --argjson existed "$existed" --argjson changed "$changed" --argjson written "$written" \
-        --argjson e "$existing" --argjson m "$merged" --argjson t "$template" '
+        --argjson e "$existing" --argjson m "$merged" --argjson t "$template" --argjson r "$retired" --argjson rm "$remove" '
         {file: $file, existed: $existed, changed: $changed, written: $written,
          added: [($m.permissions.allow // [])[] | select(. as $i | (($e.permissions.allow // []) | index([$i])) == null)],
+         removed: (if $rm then [($e.permissions.allow // [])[] | select(. as $i | ($r | index([$i])) != null)] else [] end),
+         stale: [($m.permissions.allow // [])[] | select(. as $i | ($r | index([$i])) != null)],
          keysAdded: [($m | keys_unsorted[]) | select(. as $k | ($e | has($k)) | not)],
          conflicts: [$t | keys_unsorted[] as $k | select($e | has($k))
             | if ($e[$k] | type) == "object" and ($t[$k] | type) == "object" then

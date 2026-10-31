@@ -1,0 +1,54 @@
+# Guard hardening (#53, #50) — Shaping Notes
+
+## Scope
+
+Two issues, shaped together because both are guard changes a person makes, and the rows, the README sections and the restamp overlap.
+
+- **#53**: a Bash write target holding `*`, `?`, `[` or `{` is refused for every role unless it is under the temp directory. The guard checks paths, not patterns; no expansion at check time. The two #52 R1-1 rows flip to deny; every allow in the issue's two tables becomes a deny row beside its literal neighbour; `sed -i '' … tests/*.sh` is refused and the implementer names its files.
+- **#50 part 1**: the seven allow-list entries an agent could imitate (`Bash(/*/scripts/…)`, `Bash(REDLINE_OCTANE=1 /*/…)`, `Edit(//tmp/redlinerepro/**)`) leave `templates/settings.allow.json`; the guard approves a main-session call to the plugin's own scripts and the repository's `checks.sh` by real path instead; `redline-setup.sh settings` reports the retired entries as stale and removes them on a yes.
+- **#50 part 2**: read-only git is vetted by flag for every role and the main session: `--output`, `-O`, `--ext-diff`, every `-c`, and every `GIT_*` or `PAGER` prefix are refused.
+- **#50 part 3**: one sentence in the CLAUDE.md attribution paragraph says model configuration is not attribution.
+- **#50 part 4**: `checks.sh` keeps printing its JSON when an untracked file cannot be read; the template moves to v2.
+
+Not in scope: expanding a pattern at check time (the issue says why it is not a fix); the relative `Bash(.claude/redline/checks.sh:*)` rules and the personal `--allow` entries, which let a session run a file it can write under accept-edits (an accepted class, the same as `Bash(composer check:*)`); the stack axis (#3).
+
+## Decisions
+
+The prompt's eight decisions stand, amended by the four answers below. Each answer was given by the person on 2026-10-30; the rest were settled from the code while shaping.
+
+1. **#53, the blunt fix**, as the prompt's decision 1, with two refinements settled while shaping: (a) the literal prefix (cut at the first of `*?[{`) still goes through `protected()` and `ask_rule()` first, so an operand already inside a protected directory or a rule's root keeps its specific reason (row 458, `config/project/*.yaml`, keeps "holds the files of"), and the wildcard reason names what the pattern could reach when the prefix is a string prefix of a protected pattern's path or of a rule's root, or when a rule has no literal root, so the flipped rows can name `yaml-anywhere` and `craft-config` as the prompt asks; (b) a tool `file_path` (Write, Edit, MultiEdit, NotebookEdit) is literal and is no longer cut: the shell never expands it, so `Write app/pages/[id].php` is the file of that name. Decided by: @michaelwitwicki (the prompt), refinements by redline.
+2. **#50 part 1** as proposed. The main session (any `agent_type` that is not a Redline role) gets an `allow` when every simple command is the plugin's `redline-gh.sh` (any subcommand), `redline-prefs.sh` (any), `redline-gate.sh check`, `redline-setup.sh version`, the repository's `.claude/redline/checks.sh`, each resolved by realpath, or read-only git; anything else leaves the guard inert, never a deny. The reserved subcommands stay behind the permission prompt, as `scripts/bash-conventions` says ("the permission prompt is the person's confirmation"). The bash fast path reaches Python only when the command mentions one of the script names or a `git` word. Decided by: @michaelwitwicki (the prompt); the inert-never-deny rule and the prefilter by redline.
+3. **#50 part 2, git `-c` and env prefixes: refuse all** (answered 2026-10-30). The issue's key list missed `core.fsmonitor` (runs on `git status`), `gpg.program` (`git log --show-signature`), `filter.*.clean` (`git diff`), and the `GIT_CONFIG_PARAMETERS` and `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_n` variables, which set any key. No role, skill, agent or template uses `git -c` or a `GIT_*` prefix, so refusing every `-c`, `--config-env`, `--exec-path` and every `GIT_*`/`PAGER` prefix on a git command loses nothing and needs no list to keep. Decided by: @michaelwitwicki.
+4. **#50 part 3** as the prompt: the sentence is appended to the template's paragraph; the setup skill's step 11 appends it in place on a rerun; this repository's own `CLAUDE.md` gets it now, since this checkout carries the paragraph and the `models` keys. Decided by: @michaelwitwicki (the prompt).
+5. **#50 part 4, bump the template to v2** (answered 2026-10-30). The version line is how a set-up repository learns the template moved: `redline-setup.sh version` exits 1 and the launch precheck says to rerun setup. Vestmark, Chalkboard and Losers League carry v1 with the crash. The setup test's version cases spelled `v1` literally; they now read the template's version. Decided by: @michaelwitwicki.
+6. **The retired list lives in `templates/settings.retired.json`** (answered 2026-10-30), a JSON array of the seven entries, beside the template they left. `settings` reports those present in the file under `stale` and `--remove-stale` drops them (listed under `removed`); a person's own entry is never stale, since only the retired list is consulted. Decided by: @michaelwitwicki.
+7. **The guard, the hook, `checks-template.sh` below its header and the restamp are a person's.** Built in a normal session with the person committing; a later Redline round on the PR defers any further finding in them, which is expected. Decided by: @michaelwitwicki (the prompt).
+8. **Docs and done-when** as the prompt's points 7 and 8: `plan.md` Task 7 holds the entries; the Verification section holds the end-to-end check. Decided by: @michaelwitwicki (the prompt).
+9. **Standards carried: six** (answered 2026-10-30): `scripts/guard`, `scripts/bash-conventions`, `testing/tests`, `process/docs-gate`, `process/standards-retrospective`, `prompts/attribution`. Not carried: `workflow/agents`, `workflow/replay`, `process/internal-notes` (no workflow, prompt-contract or design-note change). Decided by: @michaelwitwicki.
+10. **Deviations while building** (2026-10-30): `reachable()` walks the glob (`could_reach()`) rather than testing a string prefix, since `.claude/redline.js` is not a string prefix of `.claude/redline*.json`; the retired list holds ten entries (the three `git diff|log|show` rules included), not seven; four existing rows moved from `inert` to `allow` by design; Task 3's rows and fix went in together without a separate red run; the README's "Template version" example reads v2. Decided by: redline.
+11. **Standards retrospective: applied** (2026-10-30), the three files listed under "Standards retrospective (applied)" below, as proposed. Decided by: @michaelwitwicki.
+
+## Context
+
+- **Visuals:** None.
+- **References:** see `references.md`. The survey read the guard end to end (the fast path, the role table, `writable()`, `protected()`, `ask_rule()`, `script_name()`, `check_simple()`, `check_git()`), the guard harness and the case table, the setup script's `settings`, `checks` and `version` subcommands and their tests, the checks template's untracked-lines block, the setup skill's steps 1, 8 and 11, the CLAUDE.md template, the allow-list template, and the README's Upgrading, Set up a repository, Ask rules, Files, guard, Known limits and `redline-setup.sh` sections.
+- **Product alignment:** aligned. `agent-os/product/mission.md:16` ("Guarded roles … Redline never edits Redline") and `roadmap.md:26` ("Acceptable while the gate protects the guard") describe what #53 restores; nothing to adjust.
+- **What the survey established:** the "Context" section of `plan.md` lists it: the fast path exits before Python for every non-role; `script_name()` already pins scripts by realpath; `check_simple` strips env prefixes unread; `check_git` reads no flags; `writable()` is one function for every tool and Bash form; `find -exec` substitutes `{}` before the check; the two #52 R1-1 rows sit at 479-480; the setup test spells `v1`; `settings` never removes; the CLAUDE.md edits are the skill's.
+
+## Standards retrospective (applied)
+
+Listed mechanically from the decisions above (the deviations of decision 10 added at the gate; no check went red for a reason about the tooling), presented with AskUserQuestion at gate step 11 on 2026-10-30 and approved as proposed; the person commits the three files as their own commit:
+
+- `agent-os/standards/scripts/guard.md`: bullet 17 (the #52 R1-1 "checked by its literal prefix only" rule) **contradicts** decision 1: replace with the pattern refusal and why expansion at check time is not a fix (#53); bullet 16's "a Bash target cut at its first `*`" clause reworded; bullet 14 ("anything else, the main session included, leaves the guard inert") **contradicts** decision 2: add the approval exception and why the allow list carries no path-wildcard script rule (#50); **missing**: read-only git vetted by flag, `-c` and `GIT_*` refused for every role (#50, decision 3).
+- `agent-os/standards/scripts/bash-conventions.md`: bullet 30's "`version` … has the one narrow rule `Bash(/*/scripts/redline-setup.sh version *)`" **contradicts** decision 2; **missing**: an entry a template drops goes in `templates/settings.retired.json` so `settings` can report it stale (decision 6), and a template body change bumps the version line (decision 5).
+- `agent-os/standards/testing/tests.md`: bullet 69's "pins as allowed the wildcard operands the guard does not refuse yet" **contradicts** decision 1; **missing**: main-session rows use `-` and expect `allow` or `inert` (decision 2); a version case reads the template's version instead of spelling it (decision 5).
+- `process/docs-gate`, `process/standards-retrospective`, `prompts/attribution`: already cover what this spec does; no edit. No pattern was used that is not in `agent-os/standards/`.
+
+## Standards Applied
+
+- scripts/guard — the table and `writable()` are the policy; every refusal is proven by a `tests/guard-cases.tsv` row beside the neighbouring decision; the self-hosted rows run under `# @cwd PLUGIN`; a denial is a sentence a person can act on
+- scripts/bash-conventions — a new flag and two fields on `settings`, the header as the reference, jq for every JSON value, the reserved subcommands behind the prompt, the version line, bash 3.2 and BSD tools
+- testing/tests — a case per tested surface in the same commit; red before green; the tests write only under the temp directory and `~/.cache/redline/`
+- process/docs-gate — a Docs entry per touched plugin file and for the new flag, fields, template file and version (plan.md Task 7)
+- process/standards-retrospective — the proposed list above, presented at the gate, applied in its own commit
+- prompts/attribution — Redline is the only label in the spec folder; the template sentence says configuration is not attribution
