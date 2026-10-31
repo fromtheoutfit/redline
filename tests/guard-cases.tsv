@@ -553,6 +553,18 @@ redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' tests/guard-test.sh
 # climbed back to the guard. A pattern with a .. segment is refused for every role.
 redline:redline-implementer	deny	Bash	echo x > /tmp/x*/../../..PLUGIN/scripts/redline-guard.sh	.. segment
 redline:redline-reviewer	deny	Bash	cp /tmp/a /tmp/x*/../../..PLUGIN/.claude/settings.json	.. segment
+# #54 R2-2: the script after -e, or the file after -f, is a script, never a write target: the write-target rule applies to
+# the file operands only, in every spelling of -e (detached, attached, bundled as -ne), so a regex holding * or [ passes
+# and a wildcard in a file operand is still refused.
+redline:redline-implementer	allow	Bash	sed -i '' -e 's/[0-9]*/x/' app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -e 's/a*/b/' -e 's/[x]/y/' app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -f /tmp/script.sed app/x.php
+redline:redline-implementer	allow	Bash	sed -i '' -ne 's/[0-9]*/x/p' app/x.php
+redline:redline-reviewer	allow	Bash	sed -i '' -e 's/a*/b/' /tmp/redlinerepro/none.txt
+redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/' tests/*.sh	name the file
+redline:redline-implementer	deny	Bash	sed -i '' -es/a/b/ scripts/x.sh tests/*.sh	name the file
+redline:redline-implementer	deny	Bash	sed -i '' -e 's/a/b/'	without a file
+redline:redline-reviewer	deny	Bash	sed -i '' -e 's/a/b/' app/x.php	outside this role's write prefixes
 redline:redline-implementer	deny	Bash	rm -rf scripts
 redline:redline-implementer	deny	Bash	rm -rf hooks
 redline:redline-implementer	deny	Bash	mv hooks hooks2

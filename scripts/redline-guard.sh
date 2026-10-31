@@ -785,6 +785,41 @@ def repo_artisan(word, cur):
 WRITERS = {"rm", "mkdir", "touch", "mv", "cp", "tee"}
 
 
+SED_SCRIPT_FLAG = re.compile(r"-[nErsuz]*([ef])(.*)")
+
+
+def sed_operands(args):
+    """(scripts, script_files, files): the script texts on the command line, the files -f names, and
+    the file operands, read as sed reads its options: -e and -f detached, attached (-es/a/b/) or bundled
+    after the flags that take no argument (-ne), and the long forms; the first operand is the script when
+    no -e or -f was given. A script is never a write target (#54, R2-2). '' is BSD sed's empty backup suffix."""
+    scripts, script_files, files = [], [], []
+    pending = None
+    for a in args:
+        if pending:
+            (scripts if pending == "e" else script_files).append(a)
+            pending = None
+        elif a in ("-e", "--expression"):
+            pending = "e"
+        elif a in ("-f", "--file"):
+            pending = "f"
+        elif a.startswith("--expression="):
+            scripts.append(a.split("=", 1)[1])
+        elif a.startswith("--file="):
+            script_files.append(a.split("=", 1)[1])
+        elif a.startswith("-") and a != "-":
+            m = SED_SCRIPT_FLAG.fullmatch(a)
+            if m and m.group(2):
+                (scripts if m.group(1) == "e" else script_files).append(m.group(2))
+            elif m:
+                pending = m.group(1)
+        elif a != "":
+            files.append(a)
+    if not scripts and not script_files and files:
+        scripts.append(files.pop(0))
+    return scripts, script_files, files
+
+
 def sed_in_place(args):
     return any(a == "-i" or a.startswith("-i") and not a.startswith("-in") or a.startswith("--in-place") for a in args) \
         or any(a.startswith("-") and "i" in a[1:] and not a.startswith("--") and a not in ("-n", "-E", "-r", "-e", "-f", "-s", "-u") for a in args)
@@ -951,9 +986,7 @@ def check_simple(words, writes, nested, cur):
 
     if cmd == "sed":
         if sed_in_place(args):
-            files = [a for a in non_options(args) if a != ""]  # '' is BSD sed's empty backup suffix
-            if not any(a in ("-e", "--expression", "-f", "--file") for a in args):
-                files = files[1:]
+            scripts, script_files, files = sed_operands(args)
             if not files and not via_xargs:
                 return "sed -i without a file to edit", cur
             for f in files:
