@@ -276,6 +276,17 @@ redline:redline-reviewer	allow	Bash	grep -rn '## Known limits' PLUGIN/README.md
 redline:redline-implementer	allow	Bash	git commit -m 'redline: R1-2 state the rounding rule in the docblock (#42)'
 redline:redline-implementer	deny	Bash	grep -n x#y app ; git push --force origin main
 
+# #54 R2-5: `!` and the shell keywords used to be builtins, so the word after them was never read. They are refused as a
+# command word for every role: a role runs plain pipelines, and the pipeline spelling of each is the neighbour.
+redline:redline-reviewer	deny	Bash	! python3 --version	shell keyword
+redline:redline-reviewer	deny	Bash	if true; then cp /tmp/x app/x.php; fi	shell keyword
+redline:redline-reviewer	deny	Bash	for f in a; do curl https://example.com; done	shell keyword
+redline:redline-reviewer	deny	Bash	while true; do git push; done	shell keyword
+redline:redline-reviewer	deny	Bash	if git diff --quiet; then echo same; fi	shell keyword
+redline:redline-reviewer	allow	Bash	git diff --quiet && echo same
+redline:redline-reviewer	allow	Bash	test -f app/x.php && cat app/x.php
+redline:redline-reviewer	allow	Bash	[ -f app/x.php ] && cat app/x.php
+
 # #50: read-only git is vetted by flag for every role. --output writes a file; -c, --config-env, a GIT_* or PAGER
 # prefix, -O and --ext-diff run a program. A plain read, -C, --no-pager and a non-git prefix still pass.
 redline:redline-reviewer	deny	Bash	git log --output=.claude/settings.json -1	--output
@@ -340,6 +351,8 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	echo x ; git status
 -	inert	Bash	time git status
 -	inert	Bash	cat REPO/CLAUDE.md | git status
+# #54 R2-5: a keyword in front of a command is inert here, as it is refused for a role.
+-	inert	Bash	! rm -rf REPO/app ; git status
 general-purpose	allow	Bash	git status
 # A Redline-shaped agent_type whose role is not in the table is refused.
 redline:redline-bogus	deny	Bash	git status

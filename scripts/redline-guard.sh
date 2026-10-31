@@ -684,8 +684,11 @@ READ_CMDS = {"cat", "head", "tail", "less", "more", "ls", "find", "grep", "rg", 
              "strings", "md5", "shasum", "comm", "paste", "fold", "tac", "sed", "php", "git", "composer", "xargs",
              "env", "sleep", "hostname", "uname", "whoami", "id", "tee"}
 BUILTINS = {"cd", "export", "set", "unset", "true", "false", ":", "exit", "return", "echo", "printf", "test", "[",
-            "pwd", "read", "shift", "local", "declare", "typeset", "wait", "break", "continue", "if", "then",
-            "else", "elif", "fi", "for", "do", "done", "while", "until", "case", "esac", "in", "!"}
+            "pwd", "read", "shift", "local", "declare", "typeset", "wait", "break", "continue"}
+# A keyword or ! as the command word hides the word after it, which the guard would never read; a role
+# runs plain pipelines, so every one is refused (#54, R2-5).
+KEYWORDS = {"!", "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until", "case", "esac", "in",
+            "select", "function", "coproc"}
 WRAPPERS = {"time", "nice", "nohup", "command"}
 GIT_READ = {"status", "diff", "log", "show", "rev-parse", "ls-files", "blame", "merge-base", "grep", "describe",
             "cat-file", "name-rev", "shortlog", "diff-tree", "rev-list", "symbolic-ref", "ls-tree", "check-ignore",
@@ -811,6 +814,9 @@ def check_simple(words, writes, nested, cur):
     # permission prompt (#54, R2-1). cd is passed through so the git root rule can resolve it.
     if MAIN and cmd not in ("cd", "git") and script_name(cmd, cur) is None:
         return f"'{cmd}' is not one of the commands approved for the main session (the plugin's scripts, checks.sh, read-only git); the permission prompt decides", cur
+
+    if cmd in KEYWORDS:
+        return f"'{cmd}' is a shell keyword; a role runs plain pipelines, with no compound command or negation", cur
 
     # A GIT_* variable can name a program (GIT_PAGER, GIT_EXTERNAL_DIFF, GIT_EDITOR) or set any
     # configuration key (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), so none reaches git (#50).
