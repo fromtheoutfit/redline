@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-2 in Redline round 2. sed_operands (scripts/redline-guard.sh:791-820) separates the script after -e/--expression and the file after -f/--file, in their detached, attached and bundled forms, from the file operands, so only the files reach writable() (:1130). · decided by: redline

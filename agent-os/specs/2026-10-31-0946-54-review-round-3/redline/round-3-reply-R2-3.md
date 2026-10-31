@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-3 in Redline round 2. writable() now refuses a pattern target that has a .. segment anywhere (scripts/redline-guard.sh:527), and grants the temp-directory exemption only when the text after the cut holds no / (:529-533). · decided by: redline

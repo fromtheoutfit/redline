@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-7 in Redline round 2. read_flag_refused now refuses any word that starts with --op and any single-dash bundle that holds O (scripts/redline-guard.sh:1213), which covers the abbreviated and bundled spellings of -O. · decided by: redline

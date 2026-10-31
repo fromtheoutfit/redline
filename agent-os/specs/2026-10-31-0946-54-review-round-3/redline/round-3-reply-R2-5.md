@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-5 in Redline round 2. ! and the shell keywords left BUILTINS and are refused as a command word through KEYWORDS (scripts/redline-guard.sh:723 and :1025); the main session is inert for them because of the bare-command-word rule at :1022. · decided by: redline

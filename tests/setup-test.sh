@@ -16,6 +16,9 @@ GATE="$PLUGIN/scripts/redline-gate.sh"
 FIX="$PLUGIN/tests/setup-fixtures"
 GFIX="$PLUGIN/tests/gate-fixtures"
 TEMPLATE="$PLUGIN/scripts/checks-template.sh"
+# The template's version (v2 on 2026-10-30); the version cases are relative to it, never spelled.
+TV="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}')"
+TN="${TV#v}"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-setup-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 pass=0; fail=0
@@ -73,9 +76,26 @@ cp "$R1/.claude/settings.json" "$WORK/r1-before.json"
 same "fresh rerun: byte-identical" "$R1/.claude/settings.json" "$WORK/r1-before.json"
 mkdir -p "$WORK/r1b" "$WORK/r1c"
 expect_json "fresh: the extra is listed among added" '.added | index(["Bash(composer check:*)"]) != null' "true" settings "$WORK/r1b" --allow 'Bash(composer check:*)'
-check "the template allows redline-setup.sh version and no other subcommand" jq -e '[.permissions.allow[] | select(test("redline-setup"))] == ["Bash(/*/scripts/redline-setup.sh version *)"]' "$PLUGIN/templates/settings.allow.json"
+check "the template carries no script path rule, no temp edit rule and no git diff/log/show rule (#50)" jq -e '[.permissions.allow[] | select(test("scripts/|^Edit\\(//tmp|git (diff|log|show)"))] == []' "$PLUGIN/templates/settings.allow.json"
+check "the retired list holds the old version rule and the git diff rule" jq -e '(index(["Bash(/*/scripts/redline-setup.sh version *)"]) != null) and (index(["Bash(git diff:*)"]) != null)' "$PLUGIN/templates/settings.retired.json"
 "$SETUP" settings "$WORK/r1c" >/dev/null 2>&1
 [[ "$(jq -r 'keys_unsorted[0]' "$WORK/r1c/.claude/settings.json")" == "extraKnownMarketplaces" ]] && ok "fresh: written in the template's key order" || bad "fresh: written in the template's key order" "$(jq -r 'keys_unsorted[0]' "$WORK/r1c/.claude/settings.json")"
+expect_json "fresh: nothing stale, nothing removed" '[(.stale|length|tostring), (.removed|length|tostring)] | join(",")' "0,0" settings "$WORK/r1c"
+
+echo "# settings: stale entries an earlier template added (#50)"
+R8="$WORK/r8"; mkdir -p "$R8/.claude"; cp "$FIX/settings-stale.json" "$R8/.claude/settings.json"
+expect_json "stale: the retired entries are listed, in file order" '.stale | join(",")' "Bash(/*/scripts/redline-gh.sh *),Edit(//tmp/redlinerepro/**),Bash(git diff:*)" settings "$R8"
+expect_json "stale: kept, nothing changes, nothing written" '[.changed, .written, (.removed|length|tostring)] | join(",")' "false,false,0" settings "$R8"
+expect_json "stale: a personal entry is never stale" '.stale | index(["Bash(composer check:*)"])' "null" settings "$R8"
+cp "$R8/.claude/settings.json" "$WORK/r8-before.json"
+expect_json "--remove-stale --dry-run: removed lists them, not written" '[(.removed|length|tostring), .changed, .written] | join(",")' "3,true,false" settings "$R8" --remove-stale --dry-run
+same "--remove-stale --dry-run: untouched" "$R8/.claude/settings.json" "$WORK/r8-before.json"
+expect_json "--remove-stale: written, removed lists them, stale now empty" '[.written, (.removed|length|tostring), (.stale|length|tostring)] | join(",")' "true,3,0" settings "$R8" --remove-stale
+check "--remove-stale: the retired entries are gone" jq -e '[.permissions.allow[] | select(test("redlinerepro|redline-gh|git diff"))] == []' "$R8/.claude/settings.json"
+check "--remove-stale: the personal entry and the template's survive, in order" jq -e '(.permissions.allow | index(["Bash(composer check:*)"])) != null and (.permissions.allow | index(["Bash(git status:*)"])) < (.permissions.allow | index(["Bash(composer check:*)"]))' "$R8/.claude/settings.json"
+check "--remove-stale: the other keys survive" jq -e '.enabledPlugins["redline@redline"] == true' "$R8/.claude/settings.json"
+expect_json "rerun after removal: nothing stale, unchanged" '[(.stale|length|tostring), .changed] | join(",")' "0,false" settings "$R8"
+expect_json "--remove-stale with nothing stale: unchanged" '[.changed, (.removed|length|tostring)] | join(",")' "false,0" settings "$R8" --remove-stale
 
 echo "# settings: an existing file with other keys"
 R2="$WORK/r2"; mkdir -p "$R2/.claude"; cp "$FIX/settings-other-keys.json" "$R2/.claude/settings.json"
@@ -365,7 +385,7 @@ RC="$("$SETUP" read-checks "$LC" 2>/dev/null)"
 [[ "$(jq -r '.checks[] | select(.name == "env") | .source' <<<"$RC" | head -1)" == "$(jq -r '.steps[] | select(.name == "env") | .source' "$LJ")" ]] && ok "read-checks: a source step comes back verbatim" || bad "read-checks: a source step comes back verbatim" "$(jq -r '.checks[] | select(.name == "env") | .source' <<<"$RC" | head -1)"
 [[ "$(jq -r '.checks[] | select(.name == "migrations") | [.cmd, .source != null] | @csv' <<<"$RC")" == ",true" ]] && ok "read-checks: a step expanding a variable is source, not cmd" || bad "read-checks: a step expanding a variable is source, not cmd" "$(jq -c '.checks[] | select(.name == "migrations")' <<<"$RC")"
 [[ "$(jq -r '.checks[] | select(.name == "octane") | .guard' <<<"$RC")" == "REDLINE_OCTANE" ]] && ok "read-checks: octane under its guard" || bad "read-checks: octane under its guard" "$(jq -c '.checks[] | select(.name == "octane")' <<<"$RC")"
-[[ "$(jq -r '.templateVersion' <<<"$RC")" == "v1" && "$(jq -r '.stamp' <<<"$RC")" == "null" ]] && ok "read-checks: the version line and no stamp yet" || bad "read-checks: the version line and no stamp yet" "$(jq -c '{templateVersion, stamp}' <<<"$RC")"
+[[ "$(jq -r '.templateVersion' <<<"$RC")" == "$TV" && "$(jq -r '.stamp' <<<"$RC")" == "null" ]] && ok "read-checks: the version line and no stamp yet" || bad "read-checks: the version line and no stamp yet" "$(jq -c '{templateVersion, stamp}' <<<"$RC")"
 jq '.input' <<<"$RC" > "$WORK/laravel-bootstrap.json"
 [[ "$(jq -S -c . "$WORK/laravel-bootstrap.json")" == "$(jq -S -c '. + {selfHosted: false}' "$LJ")" ]] && ok "read-checks: input recovers the whole checks.json" || bad "read-checks: input recovers the whole checks.json" "$(diff <(jq -S . "$WORK/laravel-bootstrap.json") <(jq -S '. + {selfHosted: false}' "$LJ"))"
 "$SETUP" checks "$WORK/laravel-bootstrap.json" "$WORK/laravel-bootstrap.sh" >/dev/null 2>&1
@@ -404,6 +424,18 @@ OUT="$(cd "$SR" && .claude/redline/checks.sh --baseline 2>/dev/null)"; RCODE=$?
 [[ "$(jq -r '.checks[1] | [(.exit|tostring), .stderr] | join(" ")' <<<"$OUT")" == "3 broken"* ]] && ok "runs: the failing check's exit and stderr" || bad "runs: the failing check's exit and stderr" "$(jq -c '.checks[1]' <<<"$OUT")"
 [[ "$(jq -r '.checks[0].stdout' <<<"$OUT")" == "fine"* ]] && ok "runs: the passing check's stdout" || bad "runs: the passing check's stdout" "$(jq -c '.checks[0]' <<<"$OUT")"
 check "runs: no formatter means no fix check" jq -e '[.checks[] | select(.name == "fix")] | length == 0' <<<"$OUT"
+# #50: an untracked file that cannot be read (a symlink to a directory) must not stop the git block before its JSON:
+# cat fails on the link, xargs exits 123, and under pipefail the untracked-lines assignment used to end the script.
+cat > "$WORK/scratch-pass.json" <<'JSON'
+{"repo": "a scratch repository", "gateFile": "gate.md", "baseline": {"seconds": 1, "date": "2026-10-22"},
+ "steps": [{"step": 1, "name": "passes", "recorded": 0, "cmd": "echo fine"}]}
+JSON
+"$SETUP" checks "$WORK/scratch-pass.json" "$SR/.claude/redline/checks.sh" >/dev/null 2>&1
+( cd "$SR" && git add .claude && git -c user.email=t@t -c user.name=t commit -q -m checks )
+mkdir -p "$SR/somedir" && ln -s somedir "$SR/link" && printf 'a\nb\n' > "$SR/readable.txt"
+printf '{"pr": 1, "start_sha": "%s", "base_ref": "HEAD", "files": [], "plan_paths": []}\n' "$(git -C "$SR" rev-parse HEAD)" > "$WORK/scratch-snapshot.json"
+OUT2="$(cd "$SR" && .claude/redline/checks.sh "$WORK/scratch-snapshot.json" 2>/dev/null)"; RCODE2=$?
+[[ "$(jq -r '[.mode, (.git.diff_lines|tostring)] | join(" ")' <<<"$OUT2" 2>/dev/null)" == "full 2" ]] && ok "runs: an untracked symlink to a directory still gets one JSON object, counting the readable file's lines" || bad "runs: an untracked symlink to a directory still gets one JSON object, counting the readable file's lines" "exit $RCODE2: ${OUT2:-no output}"
 
 echo "# checks: bad input"
 jq '.steps[0].name = "snapshots"' "$LJ" > "$WORK/dup.json"
@@ -451,18 +483,18 @@ REDLINE_TEMPLATE="$WORK/noversion-template.sh" "$SETUP" checks "$LJ" "$WORK/x.sh
 
 echo "# version"
 expect_exit "the template matches itself" 0 version "$TEMPLATE"
-expect_json "the template: match" '[.template, .file, (.match|tostring)] | join(",")' "v1,v1,true" version "$TEMPLATE"
-sed 's/^# redline-template: checks-template.sh v1$/# redline-template: checks-template.sh v0/' "$TEMPLATE" > "$WORK/v0.sh"
-expect_exit "an older version: exit 1" 1 version "$WORK/v0.sh"
-expect_json "an older version: match false" '[.file, (.match|tostring)] | join(",")' "v0,false" version "$WORK/v0.sh"
-expect_json "an older version: newer false" '.newer' "false" version "$WORK/v0.sh"
-expect_stderr "an older version: still says to run /redline:setup" "Run /redline:setup" version "$WORK/v0.sh"
-sed 's/^# redline-template: checks-template.sh v1$/# redline-template: checks-template.sh v2/' "$TEMPLATE" > "$WORK/v2.sh"
-expect_exit "a newer version: exit 1" 1 version "$WORK/v2.sh"
-expect_json "a newer version: newer true" '[.file, (.match|tostring), (.newer|tostring)] | join(",")' "v2,false,true" version "$WORK/v2.sh"
-expect_stderr "a newer version: says to update the plugin" "update the plugin" version "$WORK/v2.sh"
-v2err="$("$SETUP" version "$WORK/v2.sh" 2>&1 >/dev/null)"
-[[ -n "$v2err" && "$v2err" != *"/redline:setup"* ]] && ok "a newer version: does not suggest /redline:setup" || bad "a newer version: does not suggest /redline:setup" "$v2err"
+expect_json "the template: match" '[.template, .file, (.match|tostring)] | join(",")' "$TV,$TV,true" version "$TEMPLATE"
+sed "s/^# redline-template: checks-template.sh $TV\$/# redline-template: checks-template.sh v$((TN-1))/" "$TEMPLATE" > "$WORK/older.sh"
+expect_exit "an older version: exit 1" 1 version "$WORK/older.sh"
+expect_json "an older version: match false" '[.file, (.match|tostring)] | join(",")' "v$((TN-1)),false" version "$WORK/older.sh"
+expect_json "an older version: newer false" '.newer' "false" version "$WORK/older.sh"
+expect_stderr "an older version: still says to run /redline:setup" "Run /redline:setup" version "$WORK/older.sh"
+sed "s/^# redline-template: checks-template.sh $TV\$/# redline-template: checks-template.sh v$((TN+1))/" "$TEMPLATE" > "$WORK/newer.sh"
+expect_exit "a newer version: exit 1" 1 version "$WORK/newer.sh"
+expect_json "a newer version: newer true" '[.file, (.match|tostring), (.newer|tostring)] | join(",")' "v$((TN+1)),false,true" version "$WORK/newer.sh"
+expect_stderr "a newer version: says to update the plugin" "update the plugin" version "$WORK/newer.sh"
+newererr="$("$SETUP" version "$WORK/newer.sh" 2>&1 >/dev/null)"
+[[ -n "$newererr" && "$newererr" != *"/redline:setup"* ]] && ok "a newer version: does not suggest /redline:setup" || bad "a newer version: does not suggest /redline:setup" "$newererr"
 expect_exit "no version line: exit 1" 1 version "$GFIX/checks-no-stamp.sh"
 expect_json "no version line: file null" '.file' "null" version "$GFIX/checks-no-stamp.sh"
 expect_exit "a missing file: exit 2" 2 version "$WORK/missing.sh"

@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "pr",
+  "range": {
+    "from": "ac7dc9d7e4279ea233272fe76297a77e38db8901",
+    "to": "ac7dc9d7e4279ea233272fe76297a77e38db8901"
+  },
+  "summary": "The round-2 commits close each of the eight carried findings by refusing the whole class: the main session is approved only for bare script, checks.sh and read-only git command words; variable setters and prefixes are refused; keywords are refused; git runs only at the repository root; the read-flag refusal is widened; sed's script and file operands are read separately; temp patterns get the .. and last-segment rules; and git add accepts an existing bracket-named file. Each fix has deny rows beside its kept neighbours. The setup side (the retired list, --remove-stale, the v2 template and the CLAUDE.md sentence) still reads as sound, and this round raises no new finding. The repository has no scheduled commands or queued jobs, so no changed file shares data with one.",
+  "findings": []
+}

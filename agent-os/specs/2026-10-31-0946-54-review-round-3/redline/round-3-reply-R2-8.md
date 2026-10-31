@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-8 in Redline round 2. The person chose option A: check_git refuses every subcommand unless the working directory, after -C and any cd, is REPO or REPO_REAL (scripts/redline-guard.sh:1235-1237), so git never runs in a repository whose config a role could have written. · decided by: redline
