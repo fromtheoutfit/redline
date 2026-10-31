@@ -100,7 +100,7 @@ redline:redline-implementer	deny	Bash	git checkout -- app/Models/Order.php
 redline:redline-implementer	deny	Bash	git stash
 redline:redline-implementer	deny	Bash	composer require foo/bar
 redline:redline-implementer	allow	Bash	npm run build
-redline:redline-implementer	allow	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction
+redline:redline-implementer	deny	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction	DB_DATABASE
 redline:redline-implementer	allow	Write	app/Models/Order.php
 redline:redline-implementer	deny	Write	.claude/agents/redline-implementer.md
 redline:redline-implementer	deny	Bash	git commit -F /tmp/does-not-exist.txt
@@ -288,7 +288,8 @@ redline:redline-reviewer	allow	Bash	test -f app/x.php && cat app/x.php
 redline:redline-reviewer	allow	Bash	[ -f app/x.php ] && cat app/x.php
 
 # #50: read-only git is vetted by flag for every role. --output writes a file; -c, --config-env, a GIT_* or PAGER
-# prefix, -O and --ext-diff run a program. A plain read, -C, --no-pager and a non-git prefix still pass.
+# prefix, -O and --ext-diff run a program. A plain read, -C and --no-pager still pass; since #54 (R2-6) every prefix
+# but an exempt one is refused, on git as on any command, so the TMPDIR row is a deny.
 redline:redline-reviewer	deny	Bash	git log --output=.claude/settings.json -1	--output
 redline:redline-reviewer	deny	Bash	git diff --output=CLAUDE.md HEAD~1	--output
 redline:redline-reviewer	deny	Bash	git diff --output /tmp/x HEAD~1	--output
@@ -300,12 +301,28 @@ redline:redline-reviewer	deny	Bash	git log --ext-diff -p -1	--ext-diff
 redline:redline-reviewer	deny	Bash	GIT_PAGER=/tmp/x.sh git log -1	GIT_PAGER
 redline:redline-reviewer	deny	Bash	GIT_EXTERNAL_DIFF=/tmp/x.sh git diff	GIT_EXTERNAL_DIFF
 redline:redline-reviewer	deny	Bash	env GIT_CONFIG_PARAMETERS='diff.external=/tmp/x.sh' git diff	GIT_CONFIG_PARAMETERS
+# #54 R2-6: every route that sets a variable for a child is refused for every role: export, declare, typeset, set,
+# readonly and local as commands, and a NAME=value prefix on any command, bare or through env (PATH and BASH_ENV reach
+# a program through any command word). Exempt: REDLINE_OCTANE and the env names of the repository's checks.json vars,
+# with a plain-word value. env runs only as `env NAME=value command`, never with an option.
+redline:redline-reviewer	deny	Bash	export GIT_EXTERNAL_DIFF=/tmp/x.sh && git diff	export
+redline:redline-reviewer	deny	Bash	GIT_EXTERNAL_DIFF=/tmp/x.sh bash -c 'git diff'	GIT_EXTERNAL_DIFF
+redline:redline-reviewer	deny	Bash	set -a ; git status	set
+redline:redline-reviewer	deny	Bash	declare -x PATH=/tmp/x ; git status	declare
+redline:redline-reviewer	deny	Bash	PATH=/tmp/x cat app/x.php	PATH
+redline:redline-reviewer	deny	Bash	PATH=/tmp/x ; cat app/x.php	PATH
+redline:redline-reviewer	deny	Bash	BASH_ENV=/tmp/x.sh PLUGIN/scripts/redline-gh.sh pr 1	BASH_ENV
+redline:redline-reviewer	deny	Bash	env -i git status	env
+redline:redline-reviewer	deny	Bash	env PATH=/tmp git status	PATH
+redline:redline-reviewer	deny	Bash	REDLINE_OCTANE='1 2' git status	plain word
+redline:redline-reviewer	allow	Bash	env git status
+redline:redline-reviewer	allow	Bash	unset GIT_DIR ; git status
 redline:redline-reviewer	allow	Bash	git diff HEAD~1
 redline:redline-reviewer	allow	Bash	git log -1
 redline:redline-reviewer	allow	Bash	git grep -n foo
 redline:redline-reviewer	allow	Bash	git -C REPO/ status
 redline:redline-reviewer	allow	Bash	git --no-pager log -1
-redline:redline-reviewer	allow	Bash	TMPDIR=/tmp git status
+redline:redline-reviewer	deny	Bash	TMPDIR=/tmp git status	TMPDIR
 redline:redline-plan-approver	deny	Bash	git log --output=.claude/settings.json -1	--output
 redline:redline-plan-approver	deny	Bash	git diff --output=CLAUDE.md HEAD~1	--output
 redline:redline-plan-approver	deny	Bash	git -c diff.external=/tmp/x.sh diff	git -c
@@ -353,6 +370,10 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	cat REPO/CLAUDE.md | git status
 # #54 R2-5: a keyword in front of a command is inert here, as it is refused for a role.
 -	inert	Bash	! rm -rf REPO/app ; git status
+# #54 R2-6: a variable route is inert here too; the one exempt prefix stays approved (REDLINE_OCTANE=1 checks.sh, above).
+-	inert	Bash	BASH_ENV=/tmp/x.sh PLUGIN/scripts/redline-gh.sh pr 1
+-	inert	Bash	export GIT_EXTERNAL_DIFF=/tmp/x.sh && git diff
+-	inert	Bash	PATH=/tmp/x git status
 general-purpose	allow	Bash	git status
 # A Redline-shaped agent_type whose role is not in the table is refused.
 redline:redline-bogus	deny	Bash	git status
@@ -582,6 +603,11 @@ redline:redline-implementer	deny	Bash	echo x > .claude/settings.jso[n]	.claude/s
 # The neighbours whose literal prefix already lands on a protected path keep their reason.
 redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/agents/redline-*.md	Redline's own files
 redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' .claude/redline/check*.sh	.claude/redline/
+# #54 R2-6: the fixture's checks.json declares one gate variable (REDLINE_MIGRATE_DB); a prefix with that name and a
+# plain-word value passes, any other name is refused, and so is a value that is not a plain word.
+redline:redline-implementer	allow	Bash	REDLINE_MIGRATE_DB=app_redline_migrate php artisan migrate --force --no-interaction
+redline:redline-implementer	deny	Bash	DB_DATABASE=app_redline_migrate php artisan migrate --force --no-interaction	DB_DATABASE
+redline:redline-implementer	deny	Bash	REDLINE_MIGRATE_DB='a b' php artisan migrate --force	plain word
 # A malformed askRules list refuses every write by a role, naming the fault, while commands still run.
 # @cwd ASKRULESBAD
 redline:redline-implementer	deny	Write	app/x.php	malformed

@@ -359,6 +359,29 @@ def load_ask_rules(repo):
 ASK_RULES, ASK_FAULT = load_ask_rules(REPO)
 
 
+def load_vars(repo):
+    """The environment names of the gate variables the repository's checks.json declares (vars[].env):
+    the only prefixes, with REDLINE_OCTANE, a role may set on a command (#54, R2-6). A file that cannot
+    be read declares nothing."""
+    path = os.path.join(repo, ".claude", "redline", "checks.json")
+    try:
+        with open(path) as fh:
+            config = json.load(fh)
+    except Exception:
+        return set()
+    entries = config.get("vars") if isinstance(config, dict) else None
+    out = set()
+    for entry in (entries if isinstance(entries, list) else []):
+        if isinstance(entry, dict) and isinstance(entry.get("env"), str) and ASSIGN_NAME.fullmatch(entry["env"]):
+            out.add(entry["env"])
+    return out
+
+
+ASSIGN_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+EXEMPT_VARS = {"REDLINE_OCTANE"} | load_vars(REPO)
+PLAIN_WORD = re.compile(r"[A-Za-z0-9_./-]*")
+
+
 def ask_rule(raw, absolute, real):
     """A reason when the target is under a repository ask rule, or holds a rule's root."""
     if ASK_FAULT:
@@ -683,8 +706,10 @@ READ_CMDS = {"cat", "head", "tail", "less", "more", "ls", "find", "grep", "rg", 
              "realpath", "readlink", "which", "type", "tree", "du", "df", "date", "printenv", "seq", "nl", "od",
              "strings", "md5", "shasum", "comm", "paste", "fold", "tac", "sed", "php", "git", "composer", "xargs",
              "env", "sleep", "hostname", "uname", "whoami", "id", "tee"}
-BUILTINS = {"cd", "export", "set", "unset", "true", "false", ":", "exit", "return", "echo", "printf", "test", "[",
-            "pwd", "read", "shift", "local", "declare", "typeset", "wait", "break", "continue"}
+BUILTINS = {"cd", "unset", "true", "false", ":", "exit", "return", "echo", "printf", "test", "[", "pwd", "read",
+            "shift", "wait", "break", "continue"}
+# A builtin that sets a variable for every later command, which the guard cannot vet (#54, R2-6).
+VAR_SETTERS = {"export", "declare", "typeset", "set", "readonly", "local"}
 # A keyword or ! as the command word hides the word after it, which the guard would never read; a role
 # runs plain pipelines, so every one is refused (#54, R2-5).
 KEYWORDS = {"!", "if", "then", "else", "elif", "fi", "for", "do", "done", "while", "until", "case", "esac", "in",
@@ -770,10 +795,23 @@ def check_simple(words, writes, nested, cur):
     if not words:
         return None, cur
 
-    # VAR=value prefixes and transparent wrappers; the names are kept for git (#50)
-    assigned = []
+    # A NAME=value prefix, bare or through env, is refused unless the name is one Redline declares and the
+    # value a plain word: PATH, BASH_ENV or GIT_EXTERNAL_DIFF reach a program through any command word, and
+    # a bare assignment of an exported name (PATH=/tmp/x ; cat) changes every later command (#54, R2-6).
+    def prefix_refused(token):
+        name, value = token.split("=", 1)
+        if name not in EXEMPT_VARS:
+            return (f"a {name}= prefix is refused for every role; a variable can name a program (PATH, BASH_ENV, "
+                    f"GIT_EXTERNAL_DIFF) or set any configuration key, and only REDLINE_OCTANE and the repository's "
+                    f"checks.json vars are exempt")
+        if not PLAIN_WORD.fullmatch(value):
+            return f"the value of a {name}= prefix must be a plain word (letters, digits, _ . / -), not '{value}'"
+        return None
+
     while words and ASSIGN.match(words[0]):
-        assigned.append(words[0].split("=", 1)[0])
+        reason = prefix_refused(words[0])
+        if reason:
+            return reason, cur
         words = words[1:]
     if not words:
         return None, cur
@@ -786,8 +824,11 @@ def check_simple(words, writes, nested, cur):
     if words and words[0] == "env":
         words = words[1:]
         while words and (ASSIGN.match(words[0]) or words[0].startswith("-")):
-            if ASSIGN.match(words[0]):
-                assigned.append(words[0].split("=", 1)[0])
+            if words[0].startswith("-"):
+                return f"env {words[0]} is refused for every role; env runs only as 'env NAME=value command'", cur
+            reason = prefix_refused(words[0])
+            if reason:
+                return reason, cur
             words = words[1:]
     if words and words[0] == "timeout":
         words = words[1:]
@@ -818,12 +859,8 @@ def check_simple(words, writes, nested, cur):
     if cmd in KEYWORDS:
         return f"'{cmd}' is a shell keyword; a role runs plain pipelines, with no compound command or negation", cur
 
-    # A GIT_* variable can name a program (GIT_PAGER, GIT_EXTERNAL_DIFF, GIT_EDITOR) or set any
-    # configuration key (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), so none reaches git (#50).
-    if cmd == "git":
-        for name in assigned:
-            if name.startswith("GIT_") or name == "PAGER":
-                return f"a {name} prefix on git is refused for every role; it can name a program or set any configuration key", cur
+    if cmd in VAR_SETTERS:
+        return f"'{cmd}' sets a variable for every later command, which the guard cannot vet; refused for every role", cur
 
     # Operands that exist only at run time cannot be checked. A role without the REPO prefix may
     # not write through them at all; with REPO, the implementer's writes stay inside the

@@ -24,7 +24,8 @@
 # `# @cwd ASKRULES` sends them from a fixture repository the harness prepares on every run at
 # ~/.cache/redline/guard-test-askrules (#49): a .claude/redline.json with ask rules, the files
 # config/project/project.yaml and config/other.yaml, a symlink cfg -> config/project inside it and
-# /tmp/redline-guard-askrules-link -> its config/project outside it; `ASK/` in a row is its path.
+# /tmp/redline-guard-askrules-link -> its config/project outside it, and a .claude/redline/checks.json
+# declaring one gate variable (REDLINE_MIGRATE_DB) for the prefix rows (#54); `ASK/` in a row is its path.
 # `# @cwd ASKRULESBAD` sends them from ~/.cache/redline/guard-test-askrules-bad, whose askRules
 # list is malformed (a rule with no reason).
 #
@@ -48,7 +49,7 @@ REPO="$(cd "$REPO" && pwd)"
 ASK="$CACHE/guard-test-askrules"
 ASKBAD="$CACHE/guard-test-askrules-bad"
 rm -rf "$ASK" "$ASKBAD"
-mkdir -p "$ASK/.claude" "$ASK/config/project" "$ASK/agent-os/specs/x" "$ASKBAD/.claude"
+mkdir -p "$ASK/.claude/redline" "$ASK/config/project" "$ASK/agent-os/specs/x" "$ASKBAD/.claude"
 git -C "$ASK" init -q && git -C "$ASKBAD" init -q
 cat > "$ASK/.claude/redline.json" <<'JSON'
 {
@@ -60,6 +61,7 @@ cat > "$ASK/.claude/redline.json" <<'JSON'
   ]
 }
 JSON
+printf '{"vars": [{"name": "migrate_db", "env": "REDLINE_MIGRATE_DB", "default": "x", "doc": "scratch database"}]}\n' > "$ASK/.claude/redline/checks.json"
 printf 'name: x\n' > "$ASK/config/project/project.yaml"
 printf 'name: y\n' > "$ASK/config/other.yaml"
 ln -s config/project "$ASK/cfg"
