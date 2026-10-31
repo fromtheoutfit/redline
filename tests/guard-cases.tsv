@@ -202,6 +202,12 @@ redline:redline-reviewer	deny	Bash	find app -name '*.php' -exec sed -i '' 's/a/b
 redline:redline-reviewer	allow	Bash	find /tmp/redlinerepro -name '*.php' -exec rm {} \\;
 # #53: a pattern under the temp directory is still the reviewer's; a tool's file_path is literal, never a pattern.
 redline:redline-reviewer	allow	Bash	sed -i '' 's/a/b/' /tmp/redlinerepro/*.php
+# #54 R2-3: the same climb from the temp directory into .git/, beside its literal spelling, which was always refused; and
+# the exemption holds only when the wildcard is in the last segment, so it cannot match a link that is then walked through.
+redline:redline-reviewer	deny	Bash	mkdir -p /tmp/redlinerepro/rd*/../../..REPO/.git	.. segment
+redline:redline-reviewer	deny	Bash	mkdir -p /tmp/redlinerepro/rdir/../../..REPO/.git	.git/
+redline:redline-reviewer	deny	Bash	sed -i '' 's/a/b/' /tmp/redlinerepro/*/x.php	last segment
+redline:redline-reviewer	allow	Bash	echo x > /tmp/redlinerepro/sub/*.txt
 redline:redline-implementer	allow	Write	app/pages/[id].php
 redline:redline-implementer	deny	Bash	echo x > app/pages/[id].php	name the file
 redline:redline-reviewer	allow	Bash	find app -name '*.php' -exec grep -l Order {} +
@@ -521,6 +527,10 @@ redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' hooks/hook*.json	hooks/
 # An ordinary wildcard is refused the same way: the implementer names its files (sed -i '' ... tests/*.sh used to pass).
 redline:redline-implementer	deny	Bash	sed -i '' 's/a/b/' tests/*.sh	name the file
 redline:redline-implementer	allow	Bash	sed -i '' 's/a/b/' tests/guard-test.sh
+# #54 R2-3: a temp-directory pattern used to be admitted on its literal prefix, and the .. segments after the wildcard
+# climbed back to the guard. A pattern with a .. segment is refused for every role.
+redline:redline-implementer	deny	Bash	echo x > /tmp/x*/../../..PLUGIN/scripts/redline-guard.sh	.. segment
+redline:redline-reviewer	deny	Bash	cp /tmp/a /tmp/x*/../../..PLUGIN/.claude/settings.json	.. segment
 redline:redline-implementer	deny	Bash	rm -rf scripts
 redline:redline-implementer	deny	Bash	rm -rf hooks
 redline:redline-implementer	deny	Bash	mv hooks hooks2

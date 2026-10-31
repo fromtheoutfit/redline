@@ -500,9 +500,9 @@ def writable(raw, cur, literal=False):
     A tool's file_path is literal. A Bash operand holding *, ?, [ or { is a pattern the shell
     expands, which the guard cannot check (a pattern that matches nothing when the hook runs can
     match a file an earlier command in the same call creates), so it is refused for every role
-    unless its literal prefix is under the temp directory (#53). The prefix still goes through
-    protected() and ask_rule() first, so an operand already inside a protected directory or a
-    rule's root keeps that reason."""
+    unless its literal prefix is under the temp directory, the wildcard is in its last segment and no
+    segment is .. (#53, #54). The prefix still goes through protected() and ask_rule() first, so an
+    operand already inside a protected directory or a rule's root keeps that reason."""
     if raw in NEVER_WRITES:
         return None
     path = expand(raw)
@@ -511,6 +511,7 @@ def writable(raw, cur, literal=False):
     if path.startswith("~"):
         return f"write target '{raw}' is under the home directory"
     pattern = not literal and PATTERN.search(path) is not None
+    full = path
     if pattern:
         path = PATTERN.split(path, 1)[0] or "."
     absolute = os.path.normpath(os.path.join(cur, path))
@@ -521,8 +522,15 @@ def writable(raw, cur, literal=False):
     if reason:
         return reason
     if pattern:
+        # The text after the cut is never resolved, so a .. segment anywhere, or a segment after the
+        # wildcard (which could be a link), could leave the temp directory the prefix is under (#54, R2-3).
+        if ".." in full.split("/"):
+            return f"write target '{raw}' holds a wildcard and a .. segment, which could climb out of the temp directory; name the file"
         if "TMP" in PREFIXES and any(under(real, d) or under(absolute, d) for d in TMP_DIRS):
-            return None
+            tail = full[len(path):] if path != "." else full
+            if "/" not in tail:
+                return None
+            return f"write target '{raw}' holds a wildcard before its last segment, which could match a link out of the temp directory; name the directory"
         reach = reachable(absolute, real)
         return (f"write target '{raw}' holds a wildcard, character class or brace list, which the guard cannot check; "
                 f"name the file" + (f"; it could reach {reach}" if reach else ""))
