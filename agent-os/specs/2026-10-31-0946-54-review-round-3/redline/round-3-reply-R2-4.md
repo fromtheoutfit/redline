@@ -1,0 +1,1 @@
+Redline round 3: resolved; first reported as R2-4 in Redline round 2. The git add branch checks a path that holds a pattern character as a literal path when a file of exactly that name exists (scripts/redline-guard.sh:1282-1283), so an existing [id].php can be staged and still goes through the protected and ask-rule checks. · decided by: redline
