@@ -333,6 +333,13 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	git -c diff.external=/tmp/x.sh diff
 -	inert	Bash	PLUGIN/scripts/redline-gh.sh pr 1 | jq .
 -	inert	Bash	PLUGIN/scripts/redline-gh.sh pr 1 > /tmp/pr.json
+# #54 R2-1: the approval covers only those three kinds, as the bare command word. A builtin, sed, find, a wrapper or a
+# pipe into another command beside a git word is inert, never approved, even where a role's vetting would pass it.
+-	inert	Bash	sed -n 'w /tmp/x' REPO/CLAUDE.md ; git status
+-	inert	Bash	find REPO/ -name x ; git status
+-	inert	Bash	echo x ; git status
+-	inert	Bash	time git status
+-	inert	Bash	cat REPO/CLAUDE.md | git status
 general-purpose	allow	Bash	git status
 # A Redline-shaped agent_type whose role is not in the table is refused.
 redline:redline-bogus	deny	Bash	git status

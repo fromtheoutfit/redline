@@ -178,8 +178,9 @@ AGENT = data.get("agent_type") or ""
 match = ROLE_NAME.fullmatch(AGENT)
 tool = data.get("tool_name") or ""
 # MAIN: not a Redline role (the main session, any other agent), sent here by the bash fast path for
-# a Bash call that may be approvable (#50). It gets the plugin's scripts and read-only git by real
-# path, writes nothing, and a reason is never a deny: the call is left to the permission prompt.
+# a Bash call that may be approvable (#50). It gets the plugin's scripts, the repository's checks.sh
+# and read-only git by real path, each as the bare command word (#54, R2-1), writes nothing, and a
+# reason is never a deny: the call is left to the permission prompt.
 MAIN = False
 if not match:
     if os.environ.get("REDLINE_GUARD_MAIN") == "1" and tool == "Bash":
@@ -773,6 +774,10 @@ def check_simple(words, writes, nested, cur):
         words = words[1:]
     if not words:
         return None, cur
+    # The main session is approved for three kinds of command word and nothing in front of them: a
+    # wrapper, env, timeout or xargs would carry an approval to a command the guard did not read (#54, R2-1).
+    if MAIN and (words[0] in WRAPPERS or words[0] in ("env", "timeout", "xargs")):
+        return f"'{words[0]}' in front of a command is not approved for the main session; the permission prompt decides", cur
     while words and words[0] in WRAPPERS:
         words = words[1:]
     if words and words[0] == "env":
@@ -800,6 +805,12 @@ def check_simple(words, writes, nested, cur):
         return None, cur
 
     cmd, args = words[0], words[1:]
+
+    # The main session's approval is the plugin's scripts, the repository's checks.sh and read-only git,
+    # nothing else: a builtin, sed, find or any other word a role's vetting would pass is left to the
+    # permission prompt (#54, R2-1). cd is passed through so the git root rule can resolve it.
+    if MAIN and cmd not in ("cd", "git") and script_name(cmd, cur) is None:
+        return f"'{cmd}' is not one of the commands approved for the main session (the plugin's scripts, checks.sh, read-only git); the permission prompt decides", cur
 
     # A GIT_* variable can name a program (GIT_PAGER, GIT_EXTERNAL_DIFF, GIT_EDITOR) or set any
     # configuration key (GIT_CONFIG_PARAMETERS, GIT_CONFIG_COUNT), so none reaches git (#50).
