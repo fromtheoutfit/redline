@@ -337,6 +337,16 @@ redline:redline-plan-approver	deny	Bash	GIT_PAGER=/tmp/x.sh git log -1	GIT_PAGER
 redline:redline-plan-approver	allow	Bash	git diff HEAD~1
 redline:redline-plan-approver	allow	Bash	git log -1
 redline:redline-github	deny	Bash	git -c user.name=x commit -m "redline: x"	git -c
+# #54 R2-7: git grep parses its options with parse-options, which bundles short flags (-lO<pager>) and accepts any
+# unambiguous abbreviation of a long one (--open=<pager>), so a flag is read as git reads it: a single-dash word holding
+# O anywhere, and any --op… word, are refused on every read subcommand.
+redline:redline-reviewer	deny	Bash	git grep --open=/tmp/x.sh foo	--open
+redline:redline-reviewer	deny	Bash	git grep --open-files-in-pager=/tmp/x.sh foo	--open-files-in-pager
+redline:redline-reviewer	deny	Bash	git grep -lO/tmp/x.sh foo	-lO
+redline:redline-reviewer	deny	Bash	git grep -nO /tmp/x.sh foo	-nO
+redline:redline-plan-approver	deny	Bash	git grep -lO/tmp/x.sh foo	-lO
+redline:redline-reviewer	allow	Bash	git grep -l foo
+redline:redline-reviewer	allow	Bash	git grep --only-matching foo
 # #54 R2-8: git runs only with the repository root as its working directory, for every subcommand. -C into the temp
 # directory or a subdirectory, or a cd before git, ran git where a .git/config a role wrote could name a program. The
 # -C REPO/ and cd REPO/ spellings still resolve to the root, so the github role's record-commit rows above stand.

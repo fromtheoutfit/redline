@@ -1029,11 +1029,13 @@ def check_simple(words, writes, nested, cur):
 
 def read_flag_refused(rest):
     """The first flag of a read-only git command that writes a file (--output) or runs a program
-    (-O/--open-files-in-pager, --ext-diff), or None; pathspecs after -- are not flags (#50)."""
+    (-O/--open-files-in-pager, --ext-diff), or None; pathspecs after -- are not flags (#50). Read as
+    git's parse-options reads a flag: a short one may sit anywhere in a bundle (-lO<pager>) and a long
+    one may be any unambiguous abbreviation (--open=<pager>; no other read option starts --op) (#54, R2-7)."""
     for a in rest:
         if a == "--":
             return None
-        if a == "--output" or a.startswith("--output=") or a.startswith("-O") or a.startswith("--open-files-in-pager") or a == "--ext-diff":
+        if a == "--output" or a.startswith("--output=") or a.startswith("--op") or a == "--ext-diff" or re.match(r"-[^-]*O", a):
             return a
     return None
 
