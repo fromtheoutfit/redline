@@ -37,6 +37,12 @@ The reviewer's alternative wording ("set posted true and comment_url to \"\"") i
 
 Decided by: redline
 
+### As built: two wording deviations in the retrospective
+
+The `agents.md` edit merges its citation with the bullet's existing one, `(#34, R1-1; #59, R2-1)`, instead of a second parenthesis before it; the approved words are otherwise unchanged. The standards commit's message names R2-1 ("finishing R2-1") although its edits are lessons only; R2-1's fix is wholly its own commit. See `plan.md`, As built.
+
+Decided by: redline
+
 ## Context
 
 - **Visuals:** None

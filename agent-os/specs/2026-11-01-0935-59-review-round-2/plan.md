@@ -53,3 +53,14 @@ Run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redline/checks.sh /Users
     - No new config key, subcommand, allow rule or exit code.
 11. **Standards retrospective.** Apply the list approved from `shape.md`'s "Standards retrospective (proposed)" in its own commit (`agent-os/standards/workflow/agents.md`, `agent-os/standards/testing/tests.md`). If the approved list is empty, add "Standards retrospective: no changes" under Decisions in `shape.md`.
 12. **Spec folder.** `plan.md` gets an "As built" section naming each task's commit and any deviation; a deviation is recorded under Decisions in `shape.md`.
+
+---
+
+## As built
+
+- Task 1: `3778554` redline: save review round 2 spec for PR #59 (#10).
+- Task 2: `1f3eece` redline: R2-1 report a resumed Finish comment found already posted as posted (#10). Red first: the gate's loop check failed on "resume: the handoff comment prompt ends with the line and the comment check" with only the test changed, then passed (458 checks passed, 0 failed) with the clause changed. `grep -n "set posted true and comment_url"` prints one line in each file (`workflows/redline-loop.js:392`, `tests/loop-test.mjs:1118`).
+- Task 3: the gate runs green with every task committed (gate steps 1 to 9). Docs: `workflows/redline-loop.js` → README "Launching", no reader-facing change, as the plan's Docs entry gives. Standards retrospective: `bca23c2` redline: record the round 2 review lessons in the standards, finishing R2-1 (#10), the two approved edits.
+- Deviation: the `agents.md` edit was asked to be appended "before the closing citation" with its own `(#59, R2-1)`; the two citations were merged into one, `(#34, R1-1; #59, R2-1)`, so the bullet does not end with two parentheses in a row. The words are the approved ones.
+- Deviation: the standards commit names R2-1 ("finishing R2-1"), although the plan sends no part of R2-1's fix through the retrospective (its edits are lessons only); history is not rewritten, so the message stands, and R2-1's fix is wholly `1f3eece`.
+- Note: the first gate run (the red one) also reported `background` failing on "a second wait returns the result" (a timing case under a slow machine); the next run passed it unchanged, and no task touches `scripts/redline-background.sh` or its test.
