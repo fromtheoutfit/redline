@@ -1096,6 +1096,19 @@ function samePrefix(name, first, second, n) {
   check('resume: the snapshot before the resume point does not (it is cached)', !snapshotPaths(hand, 'snapshot r1').includes('.claude/redline/checks.json'), snapshotPaths(hand, 'snapshot r1'))
   const unexcused = await go('resume: an unexcused unexpected file still fails', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] } } } }, withNit)
   check('resume: the neighbouring decision stands', unexcused.res.status === 'error' && unexcused.res.stage === 'check' && unexcused.res.error.includes('files outside the approved plan changed: .claude/redline/checks.json'), [unexcused.res.status, unexcused.res.stage, unexcused.res.error])
+  // A second resume at the same label: run check prints the hand list with the label's earlier
+  // entry merged in, so the entry carries both resumes' commits and paths, and the judge excuses both.
+  const secondSha = SHA(10)
+  const twoHands = (label, out) => {
+    if (label === 'recheck r1') {
+      return { ...out, exit: 1, result: { ...out.result, git: { ...out.result.git, unexpected_files: ['.claude/redline/checks.json', '.claude/redline/checks.sh'], commits: [{ sha: secondSha, message: 'Fix the gate script' }, { sha: handSha, message: 'Fix the gate config' }].concat(out.result.git.commits) } } }
+    }
+    return handPatch(label, out)
+  }
+  const bothArgs = { ...baseArgs, resume: { 'recheck r1': { attempt: 3, error: errorText, hand: { commits: [handSha, secondSha], paths: ['.claude/redline/checks.json', '.claude/redline/checks.sh'] } } } }
+  const both = await go('resume: a second resume carries both hand commits', bothArgs, { ...withNit, checker: twoHands })
+  check('resume: both hand commits are excused and the run finishes', both.res.status === 'done' && !labels(both.calls).some((l) => l.startsWith('repair r1 #')), [both.res.status, both.res.error, labels(both.calls)])
+  check('resume: neither hand commit is one of the run\'s', !both.res.commits.some((c) => c.sha === handSha || c.sha === secondSha), both.res.commits)
 
   // Bad args are refused before any agent runs.
   const badAttempt = await go('resume: bad attempt', { ...baseArgs, resume: { x: { attempt: 1, error: '' } } }, base)

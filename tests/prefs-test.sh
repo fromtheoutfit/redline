@@ -250,6 +250,21 @@ printf '{}\n' > "$REPO/$OTHERSTAMP/redline/round-2-review.json"
 printf '{}\n' > "$REPO/$OTHERPR/redline/round-1-review.json"
 runj "check: a folder of another launch stamp or another PR is refused" '[.reason, .line] | join("|")' "untracked|commit or remove $OTHERSTAMP/redline/round-2-review.json, $OTHERPR/redline/round-1-review.json, or start fresh" check "$REPO" 7
 rm -rf "$REPO/agent-os"
+
+echo "# run check: a second resume at the same label keeps the first's hand commits"
+H1=1111111111111111111111111111111111111111
+printf '%s\n' '{"runId":"wf_9","args":{"pr":7,"resume":{"recheck r1":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/again.json"
+printf '%s\n' '{"runId":"wf_10","args":{"pr":7,"resume":{"check r2":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/otherlabel.json"
+run save "$REPO" 7 --run-id wf_9 --record "$REC/again.json" >/dev/null 2>&1
+runj "check: the label's earlier hand list is printed when HEAD has not moved" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1|.claude/redline/checks.json" check "$REPO" 7
+printf '{}\n' > "$REPO/.claude/redline/other.json"
+"${G[@]}" add .claude/redline/other.json
+"${G[@]}" commit -q -m "Fix the gate again"
+AGAIN="$("${G[@]}" rev-parse HEAD)"
+runj "check: a new hand commit joins the label's earlier one" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1,$AGAIN|.claude/redline/checks.json,.claude/redline/other.json" check "$REPO" 7
+"${G[@]}" reset -q --hard "$RUNHEAD"
+run save "$REPO" 7 --run-id wf_10 --record "$REC/otherlabel.json" >/dev/null 2>&1
+runj "check: an entry under another label adds nothing" '[(.ok|tostring), (.hand.commits|length|tostring), (.hand.paths|length|tostring)] | join("|")' "true|0|0" check "$REPO" 7
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
 echo "# run clear"

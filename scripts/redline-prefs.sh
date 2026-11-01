@@ -42,7 +42,8 @@
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
 #       outside the run's spec folders: the listed ones, and every folder the run's launch stamp
 #       names for this PR). hand lists the commits and paths on top of the marker's
-#       head, which the workflow excuses. Exit 0 ok, 1 refused.
+#       head, plus the hand list the marker's own label already carries in its args.resume,
+#       which the workflow excuses. Exit 0 ok, 1 refused.
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #
@@ -209,6 +210,19 @@ if [[ "$cmd" == "run" ]]; then
             refuse head-moved "$n $plural since the run stopped touch $outside outside .claude/; $fresh"
         fi
     fi
+    # The hand list is cumulative: the hand list the marker's own label already carries in its
+    # args.resume (an earlier resume at the same step) comes first, then the commits and paths on
+    # top of the marker's head, each once, whether or not HEAD moved.
+    hand_prog="$(cat <<'JQ'
+def once: reduce .[] as $x ([]; if any(.[]; . == $x) then . else . + [$x] end);
+def list: if type == "array" then map(select(type == "string" and . != "")) else [] end;
+(($marker.label // "") as $label
+ | if $label == "" then null else (try $marker.args.resume[$label].hand catch null) end) as $earlier
+| if ($earlier | type) != "object" then .
+  else {commits: ((($earlier.commits | list) + .commits) | once), paths: ((($earlier.paths | list) + .paths) | once)} end
+JQ
+)"
+    hand="$(jq -c --argjson marker "$entry" "$hand_prog" <<<"$hand")"
     untracked_json="$(git -C "$root" status --porcelain --untracked-files=all | cut -c4- | sed 's/^.* -> //' | jq -R . | jq -sc .)"
     # The run's own paths: under a folder the marker lists, or under any folder the run's launch
     # stamp names for this PR (the workflow's specFolderFor and humanFolderFor), so the start
