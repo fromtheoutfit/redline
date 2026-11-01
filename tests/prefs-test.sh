@@ -218,6 +218,14 @@ HAND="$("${G[@]}" rev-parse HEAD)"
 runj "check: a hand commit under .claude/ is allowed" '[(.ok|tostring), .reason, (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true||$HAND|.claude/redline/checks.json" check "$REPO" 7
 runj "check: the plugin's own checkout refuses a moved head" '[.reason, .line] | join("|")' "plugin|the repository is the plugin and HEAD moved since the run stopped (1 commit); a plugin fix changes what runs, so start fresh: the next round carries the findings forward" check "$REPO" 7 --plugin "$REPO"
 runj "check: another plugin root is not the plugin case" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$REC"
+# Only an error resume carries a hand commit into the workflow, so any other stop refuses one.
+"${G[@]}" reset -q --hard "$RUNHEAD"
+run save "$REPO" 7 --run-id wf_3 --record "$REC/handoff.json" >/dev/null 2>&1
+"${G[@]}" reset -q --hard "$HAND"
+runj "check: a hand commit after a hand-off is refused" '[.reason, .line] | join("|")' "head-moved|the run stopped at a hand-off and HEAD moved since (1 commit); only a run that stopped with an error accepts a hand commit, so start fresh after committing or removing $FOLDER" check "$REPO" 7
+"${G[@]}" reset -q --hard "$RUNHEAD"
+run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
+"${G[@]}" reset -q --hard "$HAND"
 printf 'w\n' > "$REPO/app/y.php"
 "${G[@]}" add app/y.php
 "${G[@]}" commit -q -m "Hand fix"

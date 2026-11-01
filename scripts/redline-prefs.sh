@@ -37,11 +37,12 @@
 #       Whether the run can be resumed from here, as {ok, reason, line, marker, head, hand, untracked}:
 #       the first failing reason wins, in this order: none (no marker), session (another session
 #       launched it; the line gives claude --resume <id>), branch (not the run's branch),
-#       head-moved (HEAD is not the marker's and not on top of it, or the commits on top touch a
-#       path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
+#       head-moved (HEAD is not the marker's and not on top of it, the marker's kind is not error
+#       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
 #       outside the run's spec folders: the listed ones, and every folder the run's launch stamp
-#       names for this PR). hand lists the commits and paths on top of the marker's
+#       names for this PR). Hand commits are accepted only on an error marker, since only an error
+#       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
 #       which the workflow excuses. Exit 0 ok, 1 refused.
 #   redline-prefs.sh run clear <repoRoot> <pr>
@@ -202,6 +203,17 @@ if [[ "$cmd" == "run" ]]; then
         hand="$(jq -cn --arg c "$commits" --arg p "$paths" '{commits: ($c | split("\n") | map(select(. != ""))), paths: ($p | split("\n") | map(select(. != "")))}')"
         n="$(jq -r '.commits | length' <<<"$hand")"
         plural="commits"; [[ "$n" -eq 1 ]] && plural="commit"
+        # Only an error resume carries the hand list into the workflow (args.resume), so a hand
+        # commit after any other stop would fail the relaunch at the checker: refuse it here.
+        mkind="$(jq -r '.kind // ""' <<<"$entry")"
+        if [[ "$mkind" != "error" ]]; then
+            case "$mkind" in
+                handoff) where="at a hand-off" ;;
+                reviewed) where="after posting a review" ;;
+                *) where="before returning a result" ;;
+            esac
+            refuse head-moved "the run stopped $where and HEAD moved since ($n $plural); only a run that stopped with an error accepts a hand commit, so $fresh"
+        fi
         if [[ -n "$plugin" && -d "$plugin" && "$(realdir "$plugin")" == "$(realdir "$root")" ]]; then
             refuse plugin "the repository is the plugin and HEAD moved since the run stopped ($n $plural); a plugin fix changes what runs, so start fresh: the next round carries the findings forward"
         fi
