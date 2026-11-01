@@ -125,7 +125,9 @@ printf '%s\n' '{"runId":"wf_1","args":{"pr":7,"headRef":"work","files":["app/x.p
 printf '%s\n' '{"runId":"wf_2","args":{"pr":7},"result":{"status":"error","stage":"gather","error":"head moved","resumeFrom":null,"specFolders":["'"$FOLDER"'"]}}' > "$REC/gather.json"
 printf '%s\n' '{"runId":"wf_3","args":{"pr":7},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/handoff.json"
 printf '%s\n' '{"runId":"wf_4","args":{"pr":7},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/reviewed.json"
-printf '%s\n' '{"runId":"wf_5","args":{"pr":7}}' > "$REC/stopped.json"
+printf '%s\n' '{"runId":"wf_5","args":{"pr":7,"repoRoot":"'"$REPO"'","snapshotPath":"'"$REPO/$FOLDER"'/redline/snapshot-start.json","launchedAt":"2026-11-01T09:00:00-0400"}}' > "$REC/stopped.json"
+# An error at post r2: the result lists round 1 only, since a round joins the result after its post.
+printf '%s\n' '{"runId":"wf_8","args":{"pr":7,"repoRoot":"'"$REPO"'","launchedAt":"2026-11-01T09:00:00-0400"},"result":{"status":"error","stage":"post","error":"GitHub refused the review","resumeFrom":{"label":"post r2","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/later.json"
 printf '%s\n' '{"runId":"wf_6","args":{"pr":7},"result":{"status":"done"}}' > "$REC/done.json"
 # A repository whose own path holds /redline/ (this plugin's checkout does): the start snapshot's
 # folder is read off args.repoRoot and the snapshot's fixed tail, never by splitting on /redline/.
@@ -173,7 +175,7 @@ saved "save: a refused save leaves the entry" '.runs."7".runId' "wf_1"
 runj "save: a hand-off marker" '[.kind, .handoffKind, (.round|tostring), .label] | join(" ")' "handoff decisions 1 " save "$REPO" 7 --run-id wf_3 --record "$REC/handoff.json"
 runj "save: a reviewed marker" '[.kind, (.round|tostring)] | join(" ")' "reviewed 1" save "$REPO" 7 --run-id wf_4 --record "$REC/reviewed.json"
 runj "save: the start snapshot's folder under a path holding /redline/" '.specFolders | join(",")' "agent-os/specs/2026-11-01-0900-7-review-round-1,agent-os/specs/2026-11-01-0900-7-review-round-2" save "$REPO" 7 --run-id wf_7 --record "$REC/nested.json"
-runj "save: no result is a stopped run" '[.kind, .stage, .specFolders | tostring] | join(" ")' "stopped  []" save "$REPO" 7 --run-id wf_5 --record "$REC/stopped.json"
+runj "save: no result is a stopped run, listing the start snapshot's folder from its args" '[.kind, .stage, .specFolders | tostring] | join(" ")' "stopped  [\"$FOLDER\"]" save "$REPO" 7 --run-id wf_5 --record "$REC/stopped.json"
 runx "save: a done record leaves no marker, exit 2" 2 save "$REPO" 7 --run-id wf_6 --record "$REC/done.json"
 runx "save: without --run-id exits 2" 2 save "$REPO" 7 --record "$REC/error.json"
 env -u CLAUDE_CODE_SESSION_ID "$PREFS" run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "save: no session anywhere exits 2" || bad "save: no session anywhere exits 2" "$?"
@@ -225,6 +227,30 @@ BELOW="$("${G[@]}" rev-parse HEAD)"
 runj "check: a head below the run's commit is refused" '[.reason, .line] | join("|")' "head-moved|HEAD ${BELOW:0:7} is not on top of the run's last commit ${RUNHEAD:0:7}; start fresh after committing or removing $FOLDER" check "$REPO" 7
 "${G[@]}" reset -q --hard "$RUNHEAD"
 rm -rf "$REPO/agent-os"
+
+echo "# run check: the run's own folders come from its args"
+run save "$REPO" 7 --run-id wf_5 --record "$REC/stopped.json" >/dev/null 2>&1
+mkdir -p "$REPO/$FOLDER/redline"
+printf '{}\n' > "$REPO/$FOLDER/redline/snapshot-start.json"
+runj "check: a stopped run's untracked start snapshot is the run's own" '[(.ok|tostring), .reason, (.untracked|join(","))] | join("|")' "true||$FOLDER/redline/snapshot-start.json" check "$REPO" 7
+rm -rf "$REPO/agent-os"
+run save "$REPO" 7 --run-id wf_8 --record "$REC/later.json" >/dev/null 2>&1
+LATER="agent-os/specs/2026-11-01-0900-7-review-round-2"
+HUMAN="agent-os/specs/2026-11-01-0900-7-human-review-1"
+mkdir -p "$REPO/$LATER/redline" "$REPO/$HUMAN/redline"
+printf '{}\n' > "$REPO/$LATER/redline/round-2-review.json"
+printf '[]\n' > "$REPO/$LATER/redline/round-2-findings.json"
+printf '{}\n' > "$REPO/$HUMAN/redline/review.json"
+runj "check: a later round the result does not list yet is the run's own" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7
+rm -rf "$REPO/agent-os"
+OTHERSTAMP="agent-os/specs/2026-11-01-0800-7-review-round-2"
+OTHERPR="agent-os/specs/2026-11-01-0900-8-review-round-1"
+mkdir -p "$REPO/$OTHERSTAMP/redline" "$REPO/$OTHERPR/redline"
+printf '{}\n' > "$REPO/$OTHERSTAMP/redline/round-2-review.json"
+printf '{}\n' > "$REPO/$OTHERPR/redline/round-1-review.json"
+runj "check: a folder of another launch stamp or another PR is refused" '[.reason, .line] | join("|")' "untracked|commit or remove $OTHERSTAMP/redline/round-2-review.json, $OTHERPR/redline/round-1-review.json, or start fresh" check "$REPO" 7
+rm -rf "$REPO/agent-os"
+run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
 echo "# run clear"
 runj "clear: removes the entry" '.cleared' "true" clear "$REPO" 7

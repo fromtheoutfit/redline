@@ -26,7 +26,9 @@
 #       --session, else CLAUDE_CODE_SESSION_ID (set in every Bash tool subprocess). kind is error,
 #       handoff or reviewed from the result's status, or stopped when the record has no result;
 #       any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot be
-#       resumed: exit 1 with the folders to commit or remove, and no marker. Prints the entry:
+#       resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
+#       result's, plus the start snapshot's folder, from the result's snapshotStart or, without
+#       one (a stopped run has no result), from args.snapshotPath. Prints the entry:
 #       {pr, kind, runId, session, record, head, branch, stage, label, attempt, error, round,
 #       handoffKind, specFolders, args}.
 #   redline-prefs.sh run read <repoRoot> <pr>
@@ -38,7 +40,8 @@
 #       head-moved (HEAD is not the marker's and not on top of it, or the commits on top touch a
 #       path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
-#       outside the run's spec folders). hand lists the commits and paths on top of the marker's
+#       outside the run's spec folders: the listed ones, and every folder the run's launch stamp
+#       names for this PR). hand lists the commits and paths on top of the marker's
 #       head, which the workflow excuses. Exit 0 ok, 1 refused.
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
@@ -155,7 +158,7 @@ if [[ "$cmd" == "run" ]]; then
                stage: ($r.stage // ""), label: ($r.resumeFrom.label // ""), attempt: ($r.resumeFrom.attempt // 0), error: ($r.error // ""),
                round: ($r.handoffRound // $r.reviewedRound // (($r.rounds // []) | if length > 0 then last.round else 0 end)),
                handoffKind: ($r.handoffKind // ""),
-               specFolders: ((($r.specFolders // []) + [($r.snapshotStart // "") | select(. != "")
+               specFolders: ((($r.specFolders // []) + [($r.snapshotStart // "") | (if . == "" then ($rec.args.snapshotPath // "") else . end) | select(. != "")
                                  | ltrimstr((($rec.args.repoRoot // $root) | rtrimstr("/")) + "/") | sub("/redline/snapshot-start\\.json$"; "")
                                  | select(startswith("/") | not)])
                              | map(select(. != "")) | unique | sort),
@@ -207,7 +210,17 @@ if [[ "$cmd" == "run" ]]; then
         fi
     fi
     untracked_json="$(git -C "$root" status --porcelain --untracked-files=all | cut -c4- | sed 's/^.* -> //' | jq -R . | jq -sc .)"
-    stray="$(jq -r --argjson folders "$(jq -c '.specFolders // []' <<<"$entry")" '[.[] | select(. as $p | ($folders | map(. + "/") | any(. as $f | $p | startswith($f))) | not)] | join(", ")' <<<"$untracked_json")"
+    # The run's own paths: under a folder the marker lists, or under any folder the run's launch
+    # stamp names for this PR (the workflow's specFolderFor and humanFolderFor), so the start
+    # snapshot and a round its result does not list yet count as the run's.
+    stray_prog="$(cat <<'JQ'
+(($marker.args.launchedAt // "") | if type == "string" then (capture("^(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})T(?<h>[0-9]{2}):(?<m>[0-9]{2})") // null) else null end) as $at
+| (if $at == null then [] else ["review-round-", "human-review-"] | map("agent-os/specs/" + $at.d + "-" + $at.h + $at.m + "-" + $pr + "-" + .) end) as $stamped
+| ((($marker.specFolders // []) | map(. + "/")) + $stamped) as $prefixes
+| [.[] | select(. as $p | ($prefixes | any(. as $f | $p | startswith($f))) | not)] | join(", ")
+JQ
+)"
+    stray="$(jq -r --argjson marker "$entry" --arg pr "$pr" "$stray_prog" <<<"$untracked_json")"
     if [[ -n "$stray" ]]; then
         refuse untracked "commit or remove $stray, or start fresh"
     fi
