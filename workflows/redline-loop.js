@@ -376,12 +376,25 @@ function stageError(stage, message, extra, label) {
 
 // The one line a resume adds to the resumed agent's prompt, and the shaper's replace sentence: the
 // failed attempt's spec files are rewritten, never appended to, and redline/ is never touched (#10).
+// Two Finish operations have two effects and no duplicate check in their own prompt, so the line
+// gives them one (#59, R1-6): a Finish comment (handoff, cap-hit, summary) looks for the comment an
+// earlier attempt posted before posting, and the record commit looks for the commit an earlier
+// attempt made before committing, then pushes. Only the resume line carries them, so a first run's
+// prompts stay as they were.
+const FINISH_COMMENT_LABELS = ['handoff comment', 'cap-hit comment', 'summary comment']
+
 function resumeLine(opts) {
   const entry = resume[opts.label]
   const shaper = opts.agentType === 'redline:redline-shaper'
     ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
     : ''
-  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}`
+  const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub
+    ? ` Before Step 2, run \`${GH} pr-comments ${pr}\`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, return that comment's URL, and go on to Step 3.`
+    : ''
+  const recordCommit = opts.label === 'record commit'
+    ? ` Before Step 1, run \`git -C ${repoRoot} status --porcelain --untracked-files=all -- <the paths Step 1 names>\`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA \`git -C ${repoRoot} rev-parse HEAD\` prints, and do Step 3.`
+    : ''
+  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${finishComment}${recordCommit}`
 }
 
 // The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2

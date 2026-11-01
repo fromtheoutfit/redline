@@ -91,7 +91,9 @@ function mock(scenario) {
         const files = prompt.slice(prompt.indexOf(' add -- ') + 8).split('\n')[0].split(' ')
         return { operation: 'record-commit', committed: true, sha: 'c'.repeat(40), pushed: prompt.includes('push: true'), files, error: scenario.recordError || '' }
       }
-      return { operation: 'handoff', dryRun: false, posted: true, comment_url: 'u', reviewRequested: true, files: [], error: '' }
+      // scenario.finishError (#59, R1-6) is the agent's error on a Finish comment, such as a review
+      // request GitHub refused after the comment posted.
+      return { operation: 'handoff', dryRun: false, posted: true, comment_url: 'u', reviewRequested: true, files: [], error: scenario.finishError || '' }
     }
     if (t === 'redline:redline-reviewer') {
       reviewN += 1
@@ -1109,6 +1111,25 @@ function samePrefix(name, first, second, n) {
   const both = await go('resume: a second resume carries both hand commits', bothArgs, { ...withNit, checker: twoHands })
   check('resume: both hand commits are excused and the run finishes', both.res.status === 'done' && !labels(both.calls).some((l) => l.startsWith('repair r1 #')), [both.res.status, both.res.error, labels(both.calls)])
   check('resume: neither hand commit is one of the run\'s', !both.res.commits.some((c) => c.sha === handSha || c.sha === secondSha), both.res.commits)
+
+  // The Finish comment and the record commit (#59, R1-6): each has two effects and no duplicate
+  // check of its own, so the resume line at those labels gives it one; no other label carries it.
+  const commentClause = ' Before Step 2, run `/p/scripts/redline-gh.sh pr-comments 114`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, return that comment\'s URL, and go on to Step 3.'
+  const recordClause = ' Before Step 1, run `git -C /r status --porcelain --untracked-files=all -- <the paths Step 1 names>`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA `git -C /r rev-parse HEAD` prints, and do Step 3.'
+  const finishFail = await go('resume: the handoff comment fails after posting', baseArgs, { ...base, finishError: 'could not request a review from sam' })
+  check('resume: a Finish comment error names the handoff comment', finishFail.res.status === 'error' && finishFail.res.stage === 'finish' && JSON.stringify(finishFail.res.resumeFrom) === JSON.stringify({ label: 'handoff comment', attempt: 2 }), [finishFail.res.status, finishFail.res.stage, finishFail.res.resumeFrom])
+  const commentArgs = { ...baseArgs, resume: { 'handoff comment': { attempt: 2, error: finishFail.res.error, hand: { commits: [], paths: [] } } } }
+  const reposted = await go('resume: the handoff comment relaunch', commentArgs, base)
+  check('resume: the handoff comment relaunch finishes', reposted.res.status === 'done', [reposted.res.status, reposted.res.error])
+  check('resume: the handoff comment prompt ends with the line and the comment check', pick(reposted.calls, 'handoff comment') && pick(reposted.calls, 'handoff comment').prompt.endsWith(line(finishFail.res.error) + commentClause), pick(reposted.calls, 'handoff comment') && pick(reposted.calls, 'handoff comment').prompt.slice(-700))
+  const recordFail = await go('resume: the record commit fails after committing', baseArgs, { ...base, recordError: 'push rejected: fetch first' })
+  check('resume: a record commit error names the record commit', recordFail.res.status === 'error' && recordFail.res.stage === 'finish' && JSON.stringify(recordFail.res.resumeFrom) === JSON.stringify({ label: 'record commit', attempt: 2 }), [recordFail.res.status, recordFail.res.stage, recordFail.res.resumeFrom])
+  const recommitArgs = { ...baseArgs, resume: { 'record commit': { attempt: 2, error: recordFail.res.error, hand: { commits: [], paths: [] } } } }
+  const recommitted = await go('resume: the record commit relaunch', recommitArgs, base)
+  check('resume: the record commit relaunch finishes', recommitted.res.status === 'done', [recommitted.res.status, recommitted.res.error])
+  check('resume: the record commit prompt ends with the line and the commit check', pick(recommitted.calls, 'record commit') && pick(recommitted.calls, 'record commit').prompt.endsWith(line(recordFail.res.error) + recordClause), pick(recommitted.calls, 'record commit') && pick(recommitted.calls, 'record commit').prompt.slice(-700))
+  check('resume: the handoff comment before a record commit resume carries no clause', pick(recommitted.calls, 'handoff comment') && !pick(recommitted.calls, 'handoff comment').prompt.includes('Resume attempt'), pick(recommitted.calls, 'handoff comment') && pick(recommitted.calls, 'handoff comment').prompt.slice(-300))
+  check('resume: the recheck resume line carries neither clause', pick(second.calls, 'recheck r1') && !pick(second.calls, 'recheck r1').prompt.includes(commentClause) && !pick(second.calls, 'recheck r1').prompt.includes(recordClause), pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.slice(-400))
 
   // Bad args are refused before any agent runs.
   const badAttempt = await go('resume: bad attempt', { ...baseArgs, resume: { x: { attempt: 1, error: '' } } }, base)
