@@ -150,3 +150,15 @@ Run `/Users/michaelwitwicki/Code/Claude/redline/.claude/redline/checks.sh /Users
     - No new config key, subcommand, allow rule or exit code.
 11. **Standards retrospective.** Apply the list approved from `shape.md`'s "Standards retrospective (proposed)" in its own commit (`agent-os/standards/workflow/replay.md`, `agent-os/standards/workflow/agents.md`, `agent-os/standards/testing/tests.md`; item 4 as drafted for R1-2's answer, Refuse it: a clause on `workflow/agents.md`'s last bullet). If the approved list is empty, add "Standards retrospective: no changes" under Decisions in `shape.md`.
 12. **Spec folder.** `plan.md` gets an "As built" section naming each task's commit and any deviation; a deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+- Task 1: `50e2146` redline: save review round 1 spec for PR #59 (#10).
+- Task 2 (R1-1): `eaa86e2`. Red first: the renamed stopped-run save case and the two new `check ... is the run's own` cases failed, the other-stamp/other-PR neighbour passed. The ok case for a later round also holds an untracked file under `agent-os/specs/2026-11-01-0900-7-human-review-1/`, so the `-human-review-` prefix is exercised too; the error record for it is `later.json` (stage `post`, `resumeFrom` `post r2`).
+- Task 3 (R1-3): `7e67d07`. `### A stopped run` now sits at the end of section 2; every reference names section 2.
+- Task 4 (R1-4): `59c1624`. Red first: both prefs cases failed before the script change. The loop check passed before and after, since the workflow already excused every commit and path in the entry it is given; the fix is in `run check`. The merge also drops a non-string or empty entry from the earlier list, so a damaged `args.resume` entry cannot break the jq.
+- Task 5 (R1-5): `725803e`.
+- Task 6 (R1-6): `f544fd2`. Red first: with the two clauses taken out of the returned line, the two prompt-ending checks failed; restored, all passed. The comment clause is gated on `postToGitHub`, as planned, so a dry run's Finish prompt is unchanged.
+- Task 7 (R1-2): `14e133b`. Red first: the hand-off case failed before the script change.
+- Task 8: the gate (`checks.sh` with the round's snapshot) is green: syntax, validate, guard, loop, prefs, gate, setup, gh and background all exit 0. The test harnesses were run through `checks.sh` only, since the guard allows the implementer no direct call to `tests/prefs-test.sh` or `node tests/loop-test.mjs`.
+- Standards retrospective: the approved list was empty, so no standards commit; `shape.md` records "Standards retrospective: no changes" under Decisions.

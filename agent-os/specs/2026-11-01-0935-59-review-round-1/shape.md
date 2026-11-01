@@ -105,6 +105,10 @@ Date: 2026-11-01
 
 Decided by: @michaelfromtheoutfit
 
+### Standards retrospective
+
+Standards retrospective: no changes. The standards approver approved none of the proposed edits below, so none was applied.
+
 ## Deferred
 
 None.
