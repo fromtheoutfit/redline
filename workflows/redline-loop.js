@@ -194,6 +194,29 @@ const selected = A.selected && typeof A.selected === 'object' && !Array.isArray(
     dropped: A.selected.dropped && typeof A.selected.dropped === 'object' && !Array.isArray(A.selected.dropped) ? A.selected.dropped : {},
   }
   : null
+// Resume after an error (#10): the agent label the error result named, with the attempt number
+// the relaunch is, the error text, and the hand commits made since the run stopped (their SHAs
+// and the .claude/ paths they touch, which the judge excuses). run() appends one resume line to
+// that label's prompt, so every prompt before it replays from cache and that agent and all after
+// it rerun: a completed agent's result replays unchanged on a plain relaunch, even one the script
+// rejected, which is why the prompt has to change. The map keeps every earlier entry, so a later
+// relaunch replays the resumed prompt too.
+const resume = {}
+if (A.resume !== undefined) {
+  if (!A.resume || typeof A.resume !== 'object' || Array.isArray(A.resume)) {
+    fail('args.resume must map an agent label to {attempt, error, hand}; got ' + JSON.stringify(A.resume))
+  }
+  for (const [label, entry] of Object.entries(A.resume)) {
+    const hand = entry && entry.hand && typeof entry.hand === 'object' ? entry.hand : { commits: [], paths: [] }
+    const strings = (list) => Array.isArray(list) && list.every((x) => typeof x === 'string')
+    if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.attempt) || entry.attempt < 2 || typeof entry.error !== 'string' || !strings(hand.commits || []) || !strings(hand.paths || [])) {
+      fail(`args.resume must map an agent label to {attempt, error, hand}; got ${JSON.stringify(label)}: ${JSON.stringify(entry)}`)
+    }
+    resume[label] = { attempt: entry.attempt, error: entry.error, hand: { commits: hand.commits || [], paths: hand.paths || [] } }
+  }
+}
+const handCommits = new Set(Object.values(resume).flatMap((entry) => entry.hand.commits))
+const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.hand.paths))]
 const models = A.models && typeof A.models === 'object' ? A.models : {}
 if (!models.revise || typeof models.revise.model !== 'string') {
   fail('args.models.revise.model is required: the revise model picked at launch')
@@ -343,8 +366,35 @@ function modelOpts(key) {
   return opts
 }
 
-function stageError(stage, message, extra) {
-  return Object.assign(new Error(message), { stage, extra: extra || {} })
+// The label of the last agent run() started: the step a resume reruns from (#10). An error raised
+// from a stage whose last agent is not the one to rerun names its own (the parallel Approve).
+let lastLabel = ''
+
+function stageError(stage, message, extra, label) {
+  return Object.assign(new Error(message), { stage, extra: extra || {}, label: label || lastLabel })
+}
+
+// The one line a resume adds to the resumed agent's prompt, and the shaper's replace sentence: the
+// failed attempt's spec files are rewritten, never appended to, and redline/ is never touched (#10).
+// Two Finish operations have two effects and no duplicate check in their own prompt, so the line
+// gives them one (#59, R1-6): a Finish comment (handoff, cap-hit, summary) looks for the comment an
+// earlier attempt posted before posting, and the record commit looks for the commit an earlier
+// attempt made before committing, then pushes. Only the resume line carries them, so a first run's
+// prompts stay as they were.
+const FINISH_COMMENT_LABELS = ['handoff comment', 'cap-hit comment', 'summary comment']
+
+function resumeLine(opts) {
+  const entry = resume[opts.label]
+  const shaper = opts.agentType === 'redline:redline-shaper'
+    ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+    : ''
+  const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub
+    ? ` Before Step 2, run \`${GH} pr-comments ${pr}\`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, return that comment's URL, and go on to Step 3.`
+    : ''
+  const recordCommit = opts.label === 'record commit'
+    ? ` Before Step 1, run \`git -C ${repoRoot} status --porcelain --untracked-files=all -- <the paths Step 1 names>\`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA \`git -C ${repoRoot} rev-parse HEAD\` prints, and do Step 3.`
+    : ''
+  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${finishComment}${recordCommit}`
 }
 
 // The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
@@ -357,6 +407,13 @@ function errorText(out) {
 }
 
 async function run(stage, prompt, opts) {
+  lastLabel = opts.label
+  if (resume[opts.label]) {
+    // The resume point: the hand commits' paths join the approved paths here, never at startup,
+    // so the snapshot prompt before this point stays byte-identical and replays from cache.
+    approvedPaths = unique(approvedPaths.concat(resume[opts.label].hand.paths))
+    prompt += resumeLine(opts)
+  }
   const out = await agent(prompt, opts)
   if (out === null || out === undefined) {
     throw stageError(stage, `${opts.label} returned nothing (skipped, stalled on every attempt, or died on an API error)`)
@@ -1486,7 +1543,10 @@ function judge(out, baselineFailing, needCommits, command) {
     reasons.push(`failing checks: ${newFailures.join(', ')}`)
   }
   const git = result.git
-  const unexpected = git.unexpected_files || []
+  // A hand commit made since the run stopped, on a .claude/ path, is excused (#10): its paths are
+  // not unexpected, its commit needs no prefix, and an exit 1 it alone caused is not a failure.
+  const excused = (git.unexpected_files || []).filter((path) => handPaths.includes(path))
+  const unexpected = (git.unexpected_files || []).filter((path) => !excused.includes(path))
   if (unexpected.length) {
     reasons.push(`files outside the approved plan changed: ${unexpected.join(', ')}`)
   }
@@ -1495,7 +1555,7 @@ function judge(out, baselineFailing, needCommits, command) {
     reasons.push(`uncommitted changes outside the spec folders, which the push would leave behind: ${uncommitted.join(', ')}`)
   }
   const commits = git.commits || []
-  const unprefixed = commits.filter((commit) => !/^redline:/.test(commit.message || ''))
+  const unprefixed = commits.filter((commit) => !handCommits.has(commit.sha) && !/^redline:/.test(commit.message || ''))
   if (unprefixed.length) {
     reasons.push(`commits without the redline: prefix: ${unprefixed.map((commit) => short(commit.sha)).join(', ')}`)
   }
@@ -1503,7 +1563,7 @@ function judge(out, baselineFailing, needCommits, command) {
   if (missing.length) {
     reasons.push(`no commit names ${missing.join(', ')}`)
   }
-  if (out.exit !== 0 && reasons.length === 0 && preExisting.length === 0) {
+  if (out.exit !== 0 && reasons.length === 0 && preExisting.length === 0 && excused.length === 0) {
     reasons.push(`checks.sh exited ${out.exit}`)
   }
   // The checker's error is text, never a verdict input (#37, R1-3): detail on a failure the
@@ -1602,7 +1662,7 @@ function result(status, extra) {
     warnings,
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.',
     },
     ...extra,
   }
@@ -2135,13 +2195,13 @@ async function revise(record, inScope, reviewedKind) {
     plan = approvals[0]
     standards = approvals[1]
     if (!plan || !standards) {
-      throw stageError('approve', `the ${!plan ? 'plan' : 'standards'} approver returned nothing in ${pass.name}`)
+      throw stageError('approve', `the ${!plan ? 'plan' : 'standards'} approver returned nothing in ${pass.name}`, {}, `${!plan ? 'plan' : 'standards'} approver ${pass.tag}${suffix}`)
     }
     if (plan.approved) {
       break
     }
     if (adjustment >= maxPlanAdjustments) {
-      throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes })
+      throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
@@ -2251,7 +2311,7 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const gitCommits = (checked.result.git && checked.result.git.commits) || []
-  const known = new Set(commitsAll.map((c) => c.sha))
+  const known = new Set(commitsAll.map((c) => c.sha).concat([...handCommits]))
   const roundCommits = gitCommits
     .filter((c) => !known.has(c.sha))
     .reverse()
@@ -2751,6 +2811,8 @@ try {
     return result('done', {
       humanReview: { n, reviewer, reviewIds: record.human.reviewIds, specFolder, summaryPosted: finished.posted, summaryFile: `${specFolder}/redline/human-review-${n}-summary.md`, nitPassRound: nitPass ? nitPass.round : 0 },
       lastFixUnreviewed,
+      handoffPosted: false,
+      reviewRequested: false,
       note: 'One revise pass over a human review; the summary comment replaces the handoff, and no review was requested.',
     })
   }
@@ -2774,7 +2836,9 @@ try {
     if (outcome.handoff) {
       return handoffResult(record, outcome)
     }
-    return result('done', { reviseOnly: true, note: 'One revise pass; no re-review, handoff comment or review request.' })
+    phase('Finish')
+    recordCommit = await commitRecord()
+    return result('done', { reviseOnly: true, handoffPosted: false, reviewRequested: false, note: 'One revise pass; no re-review, handoff comment or review request.' })
   }
 
   let round = firstRound
@@ -2815,6 +2879,9 @@ try {
     rounds.push(record)
 
     if (reviewOnly) {
+      // The review-only run commits its record too (#10), so the next launch finds a clean tree.
+      phase('Finish')
+      recordCommit = await commitRecord()
       return result('review-only', { reviewFile: files[0], findingsFile: files[1] })
     }
 
@@ -2886,5 +2953,10 @@ try {
   }
 } catch (error) {
   log(`stopped: ${error.message}`)
-  return result('error', { stage: error.stage || 'workflow', error: error.message, detail: error.extra || {} })
+  // The step a resume reruns from (#10): the agent label the error names, with the attempt the
+  // relaunch would be. A gather error (the head moved, the PR is not open, the branch is wrong)
+  // and an error with no agent behind it are not resumable: the next launch is a fresh run.
+  const resumable = error.stage && error.stage !== 'gather' && error.label
+  const resumeFrom = resumable ? { label: error.label, attempt: (resume[error.label] ? resume[error.label].attempt : 1) + 1 } : null
+  return result('error', { stage: error.stage || 'workflow', error: error.message, detail: error.extra || {}, resumeFrom })
 }

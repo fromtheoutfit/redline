@@ -33,6 +33,7 @@ const SHA = (n) => String(n).padEnd(40, 'b')
 function mock(scenario) {
   const calls = []
   let reviewN = 0
+  let planN = 0
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
     const t = opts.agentType
@@ -90,7 +91,9 @@ function mock(scenario) {
         const files = prompt.slice(prompt.indexOf(' add -- ') + 8).split('\n')[0].split(' ')
         return { operation: 'record-commit', committed: true, sha: 'c'.repeat(40), pushed: prompt.includes('push: true'), files, error: scenario.recordError || '' }
       }
-      return { operation: 'handoff', dryRun: false, posted: true, comment_url: 'u', reviewRequested: true, files: [], error: '' }
+      // scenario.finishError (#59, R1-6) is the agent's error on a Finish comment, such as a review
+      // request GitHub refused after the comment posted.
+      return { operation: 'handoff', dryRun: false, posted: true, comment_url: 'u', reviewRequested: true, files: [], error: scenario.finishError || '' }
     }
     if (t === 'redline:redline-reviewer') {
       reviewN += 1
@@ -98,7 +101,8 @@ function mock(scenario) {
       return { round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: 'S' }
     }
     if (t === 'redline:redline-shaper') {
-      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))]
+      // scenario.shaperDrop (#10): the ids the shaper leaves out of its findings, a shape-stage error.
+      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id))
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
@@ -130,6 +134,10 @@ function mock(scenario) {
       return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
+      // scenario.planBounce (#10): the plan approver bounces the plan this many times first.
+      if (scenario.planBounce && planN++ < scenario.planBounce) {
+        return { approved: false, adjustments: [{ task: 2, problem: 'p', change: 'c' }], planPaths: [], notes: '' }
+      }
       return { approved: true, adjustments: [], planPaths: ['app/x.php'], notes: '' }
     }
     if (t === 'redline:redline-standards-approver') {
@@ -178,10 +186,12 @@ async function go(name, args, scenario) {
   }
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
-  // Every run that reaches Finish ends with the run-record commit, after the closing comment.
-  if (!thrown && (res.status === 'capped' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
+  // Every run that reaches Finish ends with the run-record commit: after the closing comment, or
+  // after the post of a review-only run or the replies of a revise-only run (#10).
+  if (!thrown && (res.status === 'capped' || res.status === 'review-only' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
     const tail = calls.slice(-3).map((c) => c.label)
-    check(`${name}: the run-record commit is the last call, after the closing comment`, /comment$/.test(tail[0]) && tail[1] === 'record files' && tail[2] === 'record commit' && res.recordCommit && res.recordCommit.committed, tail)
+    const before = res.status === 'review-only' ? /^post r\d+$/ : res.reviseOnly ? /^push and reply r\d+$/ : /comment$/
+    check(`${name}: the run-record commit is the last call, after the closing step`, before.test(tail[0]) && tail[1] === 'record files' && tail[2] === 'record commit' && res.recordCommit && res.recordCommit.committed, tail)
   }
   return { res, calls, thrown }
 }
@@ -347,9 +357,9 @@ function samePrefix(name, first, second, n) {
   check('dry run: done, nothing posted', run.res.status === 'done' && pick(run.calls, 'handoff comment').prompt.includes('This is a dry run: post nothing'))
   check('dry run: reply says local', replyFor(run.calls, 'push and reply r1', 'R1-1').includes('Committed locally; not pushed. · decided by: redline'))
   run = await go('review only (flag)', { ...baseArgs, reviewOnly: true }, { reviews: [[f('R1-1', 'nit')]] })
-  check('review only: three calls', run.res.status === 'review-only' && run.calls.length === 3 && run.res.interrupt === 'review only')
+  check('review only: gather, review, post and the record commit', run.res.status === 'review-only' && labels(run.calls).join('|') === 'gather r1|review r1|post r1|record files|record commit' && run.res.interrupt === 'review only', labels(run.calls))
   run = await go('review only (dial word)', { ...baseArgs, interrupt: 'review only' }, { reviews: [[f('R1-1', 'nit')]] })
-  check('review only word: same', run.res.status === 'review-only' && run.calls.length === 3)
+  check('review only word: same', run.res.status === 'review-only' && run.calls.length === 5)
   run = await go('bad interrupt word', { ...baseArgs, interrupt: 'yolo' }, { reviews: [[]] })
   check('bad interrupt: refused before any agent runs', run.thrown && /args.interrupt must be one of/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
   run = await go('bad scope word', { ...baseArgs, scope: 'nits' }, { reviews: [[]] })
@@ -405,11 +415,15 @@ function samePrefix(name, first, second, n) {
   for (const [name, args, s] of [
     ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness', { needsDecision: true })]], ask: ['R1-1'] }],
     ['the review dial', { ...baseArgs, interrupt: 'review' }, { reviews: [[f('R1-1', 'correctness')]] }],
-    ['review only', { ...baseArgs, interrupt: 'review only' }, { reviews: [[f('R1-1', 'nit')]] }],
   ]) {
     run = await go(`record: ${name} stops before Finish`, args, s)
     check(`record: ${name} commits no record`, !labels(run.calls).some((l) => l.startsWith('record')), labels(run.calls))
   }
+  // A review-only run ends with the record commit like a full run, so the next launch's clean-tree
+  // precheck passes (#10).
+  run = await go('record: review only commits its record', { ...baseArgs, interrupt: 'review only' }, { reviews: [[f('R1-1', 'nit')]] })
+  check('record: review only ends with the record commit after post', run.res.status === 'review-only' && labels(run.calls).join('|') === 'gather r1|review r1|post r1|record files|record commit' && run.res.recordCommit.committed === true, [run.res.status, labels(run.calls)])
+  check('record: review only stages the round folder and the start snapshot', pick(run.calls, 'record files') && pick(run.calls, 'record files').prompt.includes(`--untracked-files=all -- ${folder1} ${start}\n`), pick(run.calls, 'record files') && pick(run.calls, 'record files').prompt)
 
   run = await go('record: the commit fails', baseArgs, { ...scenario, recordError: 'nothing added to commit' })
   check('record: a failed commit is an error at finish', run.res.status === 'error' && run.res.stage === 'finish' && run.res.error.includes('committing the run record failed'), run.res)
@@ -457,6 +471,8 @@ function samePrefix(name, first, second, n) {
   run = await go('revise-only over a posted review', reviseArgs(true), { reviews: [], commitIds: [['R1-1']] })
   const postedReplies = replies(run.calls, 'push and reply r1')
   check('revise-only: a posted review with no thread id routes to issue-comment', postedReplies.length === 1 && postedReplies[0].route === 'issue-comment' && postedReplies[0].body.startsWith('<!-- redline:R1-1 -->'), postedReplies)
+  check('revise-only: the record is committed after the replies (#10)', labels(run.calls).slice(-3).join('|') === 'push and reply r1|record files|record commit' && run.res.recordCommit.committed === true, labels(run.calls))
+  check('revise-only: handoffPosted and reviewRequested are false, never absent (#10)', run.res.handoffPosted === false && run.res.reviewRequested === false, [run.res.handoffPosted, run.res.reviewRequested])
   run = await go('review dial drops a body finding', { ...baseArgs, interrupt: 'review', selected: { act: ['R1-1'], dropped: { 'R1-2': 'Fine as is.' } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1']], moved: ['R1-2'] })
   check('moved: a dropped body finding is also replied to behind its marker', replyFor(run.calls, 'push and reply r1', 'R1-2').startsWith('<!-- redline:R1-2 -->') && replyFor(run.calls, 'push and reply r1', 'R1-2').includes('not acted on in this run. Fine as is.'), replyFor(run.calls, 'push and reply r1', 'R1-2'))
 
@@ -784,6 +800,7 @@ function samePrefix(name, first, second, n) {
 
   const decided = humanArgs(four, {}, { decisions: { 'H1-2': { choice: 'Keep it', notes: 'The author keeps the default because the board already shows it.', date: '2026-10-20' } } })
   const second = await go('human: relaunch with the author\'s answer', decided, scenario)
+  check('human: handoffPosted and reviewRequested are false, never absent (#10)', second.res.handoffPosted === false && second.res.reviewRequested === false, [second.res.handoffPosted, second.res.reviewRequested])
   check('human: finishes', second.res.status === 'done' && second.res.humanReview && second.res.humanReview.n === 1 && second.res.humanReview.reviewer === 'marcamos' && second.res.humanReview.nitPassRound === 3 && second.res.humanReview.summaryPosted === true, [second.res.status, second.res.humanReview])
   samePrefix('human', first.calls, second.calls, 1)
   check('human: the call sequence, with the nit pass as round 3 and the summary in place of the handoff', labels(second.calls).join('|') === sequence, labels(second.calls))
@@ -1001,6 +1018,124 @@ function samePrefix(name, first, second, n) {
   const praise = await go('rules: a human-pass comment that asks for nothing', { ...ruleArgs, firstRound: 3, interrupt: 'autopilot', revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: folder, findings: [{ ...hf, description: 'Nice.' }], commentIds: { 'H1-1': 905 }, posted: true } }, { reviews: [], none: ['H1-1'], commitIds: [[]] })
   check('rules: a none on a rule-covered file is not forced: no change requested, nothing left or deferred, no warning', praise.res.status === 'done' && replyFor(praise.calls, 'push and reply h1', 'H1-1').startsWith('Redline human review 1: no change requested.') && praise.res.forced.length === 0 && praise.res.deferred.length === 0 && !praise.res.warnings.some((w) => w.includes('makes it an ask')), [praise.res.status, praise.res.error, replyFor(praise.calls, 'push and reply h1', 'H1-1'), praise.res.forced, praise.res.deferred, praise.res.warnings])
   check('rules: the human summary says the comment asked for nothing', comment(praise.calls, 'summary comment') === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 asked for nothing. No commits, so no final nit pass.', comment(praise.calls, 'summary comment'))
+}
+
+// ---------------------------------------------------------------------------
+// 13. Resume after an error (#10): the error result names the agent label that caused the stop;
+//     the relaunch's args.resume appends one resume line to that label's prompt, so every prompt
+//     before it replays byte-identically and that agent and all after rerun. A hand commit on
+//     .claude/ paths is excused by the judge and allowed by later snapshots; gather is not resumable.
+// ---------------------------------------------------------------------------
+{
+  const failing = (out) => ({ ...out, exit: 1, result: { ...out.result, checks: [{ name: 'check', exit: 1, recorded: false, stdout: 'boom', stderr: '' }] } })
+  const full = (label) => label.startsWith('check') || label.startsWith('recheck')
+  const errorText = 'checks.sh still fails after one repair pass in round 1: failing checks: check'
+  const line = (e) => `Resume attempt 2 of this step. The run stopped at this step with an error (${e}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.`
+  const shaperLine = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+  const base = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
+  const first = await go('resume: error at recheck', baseArgs, { ...base, checker: (label, out) => (full(label) ? failing(out) : null) })
+  check('resume: the error names the label and the next attempt', first.res.status === 'error' && first.res.stage === 'check' && JSON.stringify(first.res.resumeFrom) === JSON.stringify({ label: 'recheck r1', attempt: 2 }), [first.res.status, first.res.stage, first.res.resumeFrom])
+  check('resume: the error text is what the relaunch quotes', first.res.error === errorText, first.res.error)
+  const at = first.calls.findIndex((c) => c.label === 'recheck r1')
+  // On the real relaunch every agent before recheck r1 replays from cache, the failing check r1
+  // included; the mock reruns them, so the scenario fails check r1 again and lets the recheck pass.
+  const onlyFirst = { ...base, checker: (label, out) => (label === 'check r1' ? failing(out) : null) }
+  const resumeArgs = { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] } } } }
+  const second = await go('resume: relaunch reruns from the label', resumeArgs, onlyFirst)
+  samePrefix('resume', first.calls, second.calls, at)
+  check('resume: the resumed prompt ends with the resume line', pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.endsWith(line(errorText)), pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.slice(-400))
+  check('resume: no other prompt carries the line', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label).join() === 'recheck r1', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label))
+  check('resume: the relaunch finishes', second.res.status === 'done' && second.res.resumeFrom === undefined, [second.res.status, second.res.error])
+  check('resume: the relaunch note names the field', first.res.relaunch.how.includes('error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.'), first.res.relaunch.how)
+
+  // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
+  // up to the stop, the resumed one included, replays.
+  const later = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], checker: onlyFirst.checker }
+  const stop = await go('resume: a hand-off after the resume', resumeArgs, later)
+  check('resume: the hand-off stops after shape r2', stop.res.status === 'handoff' && stop.res.handoffRound === 2, [stop.res.status, stop.res.handoffRound])
+  const third = await go('resume: relaunch after the hand-off keeps the line', { ...resumeArgs, decisions: { 'R2-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-01' } } }, later)
+  samePrefix('resume: after the hand-off', stop.calls, third.calls, stop.calls.length)
+  check('resume: the hand-off relaunch finishes', third.res.status === 'done', [third.res.status, third.res.error])
+
+  // The shape stage: a missing disposition stops at shape; the resume reruns the shaper with the
+  // replace sentence, and the three prompts before it replay.
+  const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']] }
+  const shapeFail = await go('resume: shape stage error', baseArgs, { ...two, shaperDrop: ['R1-2'] })
+  check('resume: a missing disposition names shape r1', shapeFail.res.status === 'error' && shapeFail.res.stage === 'shape' && shapeFail.res.error === 'the shaper gave no disposition for R1-2' && JSON.stringify(shapeFail.res.resumeFrom) === JSON.stringify({ label: 'shape r1', attempt: 2 }), [shapeFail.res.status, shapeFail.res.stage, shapeFail.res.error, shapeFail.res.resumeFrom])
+  const shapeArgs = { ...baseArgs, resume: { 'shape r1': { attempt: 2, error: 'the shaper gave no disposition for R1-2', hand: { commits: [], paths: [] } } } }
+  const reshaped = await go('resume: shape stage relaunch', shapeArgs, two)
+  samePrefix('resume: shape stage', shapeFail.calls, reshaped.calls, 3)
+  check('resume: the shaper prompt ends with the line and the replace sentence', pick(reshaped.calls, 'shape r1') && pick(reshaped.calls, 'shape r1').prompt.endsWith(line('the shaper gave no disposition for R1-2') + shaperLine), pick(reshaped.calls, 'shape r1') && pick(reshaped.calls, 'shape r1').prompt.slice(-600))
+  check('resume: the shape relaunch finishes', reshaped.res.status === 'done', [reshaped.res.status, reshaped.res.error])
+
+  // The approve stage names the plan approver, not the standards approver that started beside it.
+  const bounced = await go('resume: approve exhausted', baseArgs, { ...base, planBounce: 3 })
+  check('resume: an exhausted approval names the last plan approver', bounced.res.status === 'error' && bounced.res.stage === 'approve' && bounced.res.resumeFrom && bounced.res.resumeFrom.label === 'plan approver r1 #3', [bounced.res.status, bounced.res.stage, bounced.res.resumeFrom])
+
+  // gather is not resumable: the head moved, the PR is not open, or the branch is wrong.
+  const moved = await go('resume: gather is not resumable', baseArgs, { ...base, heads: ['b'.repeat(40)] })
+  check('resume: a gather error carries resumeFrom null', moved.res.status === 'error' && moved.res.stage === 'gather' && moved.res.resumeFrom === null, [moved.res.status, moved.res.stage, moved.res.resumeFrom])
+
+  // A hand commit on .claude/ since the run stopped: the checker reports it as unexpected and
+  // without the prefix, the judge excuses both, and the next snapshot allows the path.
+  const handSha = SHA(9)
+  const handPatch = (label, out) => {
+    if (label === 'check r1') {
+      return failing(out)
+    }
+    if (label === 'recheck r1') {
+      return { ...out, exit: 1, result: { ...out.result, git: { ...out.result.git, unexpected_files: ['.claude/redline/checks.json'], commits: [{ sha: handSha, message: 'Fix the gate config' }].concat(out.result.git.commits) } } }
+    }
+    return null
+  }
+  const withNit = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], checker: handPatch }
+  const handArgs = { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [handSha], paths: ['.claude/redline/checks.json'] } } } }
+  const hand = await go('resume: a hand commit is excused', handArgs, withNit)
+  check('resume: the excused round passes and the run finishes', hand.res.status === 'done' && !labels(hand.calls).some((l) => l.startsWith('repair r1 #')), [hand.res.status, hand.res.error, labels(hand.calls)])
+  check('resume: the hand commit is not one of the run\'s', !hand.res.commits.some((c) => c.sha === handSha || c.message === 'Fix the gate config'), hand.res.commits)
+  const snapshotPaths = (run, label) => (pick(run.calls, label) ? JSON.parse(pick(run.calls, label).prompt.slice(pick(run.calls, label).prompt.indexOf('{'), pick(run.calls, label).prompt.lastIndexOf('}') + 1)).plan_paths : [])
+  check('resume: the next snapshot allows the hand path', snapshotPaths(hand, 'snapshot r2').includes('.claude/redline/checks.json'), snapshotPaths(hand, 'snapshot r2'))
+  check('resume: the snapshot before the resume point does not (it is cached)', !snapshotPaths(hand, 'snapshot r1').includes('.claude/redline/checks.json'), snapshotPaths(hand, 'snapshot r1'))
+  const unexcused = await go('resume: an unexcused unexpected file still fails', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] } } } }, withNit)
+  check('resume: the neighbouring decision stands', unexcused.res.status === 'error' && unexcused.res.stage === 'check' && unexcused.res.error.includes('files outside the approved plan changed: .claude/redline/checks.json'), [unexcused.res.status, unexcused.res.stage, unexcused.res.error])
+  // A second resume at the same label: run check prints the hand list with the label's earlier
+  // entry merged in, so the entry carries both resumes' commits and paths, and the judge excuses both.
+  const secondSha = SHA(10)
+  const twoHands = (label, out) => {
+    if (label === 'recheck r1') {
+      return { ...out, exit: 1, result: { ...out.result, git: { ...out.result.git, unexpected_files: ['.claude/redline/checks.json', '.claude/redline/checks.sh'], commits: [{ sha: secondSha, message: 'Fix the gate script' }, { sha: handSha, message: 'Fix the gate config' }].concat(out.result.git.commits) } } }
+    }
+    return handPatch(label, out)
+  }
+  const bothArgs = { ...baseArgs, resume: { 'recheck r1': { attempt: 3, error: errorText, hand: { commits: [handSha, secondSha], paths: ['.claude/redline/checks.json', '.claude/redline/checks.sh'] } } } }
+  const both = await go('resume: a second resume carries both hand commits', bothArgs, { ...withNit, checker: twoHands })
+  check('resume: both hand commits are excused and the run finishes', both.res.status === 'done' && !labels(both.calls).some((l) => l.startsWith('repair r1 #')), [both.res.status, both.res.error, labels(both.calls)])
+  check('resume: neither hand commit is one of the run\'s', !both.res.commits.some((c) => c.sha === handSha || c.sha === secondSha), both.res.commits)
+
+  // The Finish comment and the record commit (#59, R1-6): each has two effects and no duplicate
+  // check of its own, so the resume line at those labels gives it one; no other label carries it.
+  const commentClause = ' Before Step 2, run `/p/scripts/redline-gh.sh pr-comments 114`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, return that comment\'s URL, and go on to Step 3.'
+  const recordClause = ' Before Step 1, run `git -C /r status --porcelain --untracked-files=all -- <the paths Step 1 names>`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA `git -C /r rev-parse HEAD` prints, and do Step 3.'
+  const finishFail = await go('resume: the handoff comment fails after posting', baseArgs, { ...base, finishError: 'could not request a review from sam' })
+  check('resume: a Finish comment error names the handoff comment', finishFail.res.status === 'error' && finishFail.res.stage === 'finish' && JSON.stringify(finishFail.res.resumeFrom) === JSON.stringify({ label: 'handoff comment', attempt: 2 }), [finishFail.res.status, finishFail.res.stage, finishFail.res.resumeFrom])
+  const commentArgs = { ...baseArgs, resume: { 'handoff comment': { attempt: 2, error: finishFail.res.error, hand: { commits: [], paths: [] } } } }
+  const reposted = await go('resume: the handoff comment relaunch', commentArgs, base)
+  check('resume: the handoff comment relaunch finishes', reposted.res.status === 'done', [reposted.res.status, reposted.res.error])
+  check('resume: the handoff comment prompt ends with the line and the comment check', pick(reposted.calls, 'handoff comment') && pick(reposted.calls, 'handoff comment').prompt.endsWith(line(finishFail.res.error) + commentClause), pick(reposted.calls, 'handoff comment') && pick(reposted.calls, 'handoff comment').prompt.slice(-700))
+  const recordFail = await go('resume: the record commit fails after committing', baseArgs, { ...base, recordError: 'push rejected: fetch first' })
+  check('resume: a record commit error names the record commit', recordFail.res.status === 'error' && recordFail.res.stage === 'finish' && JSON.stringify(recordFail.res.resumeFrom) === JSON.stringify({ label: 'record commit', attempt: 2 }), [recordFail.res.status, recordFail.res.stage, recordFail.res.resumeFrom])
+  const recommitArgs = { ...baseArgs, resume: { 'record commit': { attempt: 2, error: recordFail.res.error, hand: { commits: [], paths: [] } } } }
+  const recommitted = await go('resume: the record commit relaunch', recommitArgs, base)
+  check('resume: the record commit relaunch finishes', recommitted.res.status === 'done', [recommitted.res.status, recommitted.res.error])
+  check('resume: the record commit prompt ends with the line and the commit check', pick(recommitted.calls, 'record commit') && pick(recommitted.calls, 'record commit').prompt.endsWith(line(recordFail.res.error) + recordClause), pick(recommitted.calls, 'record commit') && pick(recommitted.calls, 'record commit').prompt.slice(-700))
+  check('resume: the handoff comment before a record commit resume carries no clause', pick(recommitted.calls, 'handoff comment') && !pick(recommitted.calls, 'handoff comment').prompt.includes('Resume attempt'), pick(recommitted.calls, 'handoff comment') && pick(recommitted.calls, 'handoff comment').prompt.slice(-300))
+  check('resume: the recheck resume line carries neither clause', pick(second.calls, 'recheck r1') && !pick(second.calls, 'recheck r1').prompt.includes(commentClause) && !pick(second.calls, 'recheck r1').prompt.includes(recordClause), pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.slice(-400))
+
+  // Bad args are refused before any agent runs.
+  const badAttempt = await go('resume: bad attempt', { ...baseArgs, resume: { x: { attempt: 1, error: '' } } }, base)
+  check('resume: an attempt under 2 is refused', badAttempt.thrown && /args.resume must map an agent label/.test(badAttempt.thrown.message) && badAttempt.calls.length === 0, badAttempt.thrown && badAttempt.thrown.message)
+  const badShape = await go('resume: bad shape', { ...baseArgs, resume: [] }, base)
+  check('resume: a list is refused', badShape.thrown && /args.resume must map an agent label/.test(badShape.thrown.message), badShape.thrown && badShape.thrown.message)
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)
