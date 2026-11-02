@@ -16,7 +16,7 @@ The fourteen steps below are the issue's (#6), plus the short aliases of #44 as 
 2. The default branch: `git symbolic-ref --short refs/remotes/origin/HEAD` (strip `origin/`), else `main`. `git rev-parse --abbrev-ref HEAD` must be that branch on a fresh setup (on a rerun, the current branch is fine when it is not the default and the tree is clean). `git status --porcelain` must print nothing. `git fetch`, then `git rev-list --count HEAD..origin/<default>`: when behind, offer `git pull --ff-only` and run it only on a yes.
 3. `gh auth status` signed in; `jq --version` and `python3 --version` print; Claude Code has workflows (the `Workflow` tool exists in this session).
 4. Agent OS present: `<repoRoot>/.claude/commands/agent-os/shape-spec.md` exists. If not, stop with one line: Redline needs Agent OS in the repository (#1 tracks repositories without it).
-5. Inventory, so a rerun updates instead of duplicating; keep it for the steps below: steps 5, 11 and 12 read it, and step 14 lists what a rerun checked:
+5. Inventory, so a rerun updates instead of duplicating; keep it for the steps below and for step 14's list of what a rerun checked:
    - `.claude/redline/checks.json` and `.claude/redline/checks.sh` (either, both, neither; `redline-setup.sh version <checks.sh>` and `redline-gate.sh check <repoRoot>` when `checks.sh` exists: their exit codes and lines);
    - `.claude/redline.json`; `.claude/settings.json` (and, in it, any allow entry an earlier template added that the current one no longer carries: `${CLAUDE_PLUGIN_ROOT}/templates/settings.retired.json` lists them, and step 8 reports them as `stale`); the `.gitignore` line `.claude/redline.local.json`;
    - the `## Unattended mode (Redline)` heading in `shape-spec.md`;
