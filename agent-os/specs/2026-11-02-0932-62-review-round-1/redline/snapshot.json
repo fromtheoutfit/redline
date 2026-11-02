@@ -1,0 +1,23 @@
+{
+  "pr": 62,
+  "start_sha": "9d3b5773ef9c3f46b5892e938875ab287798fd6f",
+  "base_ref": "main",
+  "files": [
+    "README.md",
+    "agent-os/specs/2026-11-02-0851-18-setup-header-and-read-checks/plan.md",
+    "agent-os/specs/2026-11-02-0851-18-setup-header-and-read-checks/references.md",
+    "agent-os/specs/2026-11-02-0851-18-setup-header-and-read-checks/shape.md",
+    "agent-os/specs/2026-11-02-0851-18-setup-header-and-read-checks/standards.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "scripts/redline-setup.sh",
+    "skills/setup/SKILL.md",
+    "tests/setup-test.sh"
+  ],
+  "plan_paths": [
+    "scripts/redline-setup.sh",
+    "tests/setup-test.sh",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/specs/2026-11-02-0932-62-review-round-1/"
+  ]
+}
