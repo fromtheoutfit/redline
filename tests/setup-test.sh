@@ -563,8 +563,9 @@ cp "$PLUGIN/.claude/redline/checks.sh" "$WORK/plugin-rerun.sh"
 expect_json "regenerating over the committed file is a no-op" '[.changed, .written, .stampKept] | join(",")' "false,false,true" checks "$PJ" "$WORK/plugin-rerun.sh"
 same "regenerating over the committed file leaves it byte-identical" "$WORK/plugin-rerun.sh" "$PLUGIN/.claude/redline/checks.sh"
 
-expect_json "this checkout's /redline alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline
-expect_json "this checkout's /redline-revise alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline-revise
+# A dry run: a missing alias file reads absent and stays missing, never written into the checkout (#63, R1-3).
+expect_json "this checkout's /redline alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline --dry-run
+expect_json "this checkout's /redline-revise alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline-revise --dry-run
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
