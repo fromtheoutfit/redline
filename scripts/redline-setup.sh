@@ -53,14 +53,18 @@
 #       that is not JSON. Writes nothing.
 #   redline-setup.sh checks <checks.json> <checks.sh> [--dry-run]
 #       Generate checks.sh from the JSON and scripts/checks-template.sh: a header naming the gate,
-#       the checks and the baseline, the template version line, the stamp (an existing one is kept,
-#       else the TODO placeholder), the template's functions verbatim, and one run_check per step.
-#       Deterministic; nothing is written when the bytes are unchanged. With --dry-run, nothing is
-#       written, not even the target's directory. Prints {file, written, changed, stampKept,
-#       checks, templateVersion}.
+#       the checks (each command as a person types it, a source step unescaped; each var as
+#       ENV=<name>   doc (default value)) and the baseline, the template version line, the stamp
+#       (an existing one is kept, else the TODO placeholder), the template's functions verbatim,
+#       and one run_check per step. Deterministic; nothing is written when the bytes are
+#       unchanged. With --dry-run, nothing is written, not even the target's directory. Prints
+#       {file, written, changed, stampKept, checks, templateVersion}.
 #   redline-setup.sh read-checks <checks.sh>
-#       Read the run_check lines, guards, variables, ALWAYS_ALLOWED and header back, and print them
-#       with a best-effort checks.json under "input" (the bootstrap for a hand-written checks.sh).
+#       Read the run_check lines, guards, variables, ALWAYS_ALLOWED (or the allowed list a
+#       hand-written git block hard-codes after 'agent-os/specs/' 'agent-os/standards/') and header
+#       back (the gate file with or without the generated "steps m to n"; a var's doc with or
+#       without its "(default ...)"), and print them with a best-effort checks.json under "input"
+#       (the bootstrap for a hand-written checks.sh).
 #   redline-setup.sh version <checks.sh>
 #       Compare the file's "# redline-template:" line with the template's. Prints {template, file,
 #       match, newer}; exits 1 on a mismatch or a missing line, and the stderr line says which: run
@@ -747,6 +751,17 @@ pfx = "" if self_hosted else "<plugin>/"
 readme = "README.md" if self_hosted else "the Redline plugin\x27s README"
 def dq(s):
     return s.replace("\\", "\\\\").replace("\"", "\\\"").replace("$", "\\$").replace("`", "\\`")
+# unq: the inverse of dq, for the header only: a source step is shown as bash -c receives it (#18).
+def unq(s):
+    out, k = [], 0
+    while k < len(s):
+        if s[k] == "\\" and k + 1 < len(s) and s[k + 1] in "\\\"$`":
+            out.append(s[k + 1])
+            k += 2
+        else:
+            out.append(s[k])
+            k += 1
+    return "".join(out)
 def wrap(t):
     return textwrap.fill(t, width=100, initial_indent="# ", subsequent_indent="# ", break_long_words=False, break_on_hyphens=False).split("\n")
 WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"]
@@ -762,12 +777,12 @@ H += ["#", "# Usage:",
 oct_text = "Runs `%s` here (gate step %d)." % (octane["cmd"], octane["step"]) if octane else "Ignored here: no long-lived-process suite."
 H += ["#                      bootstrap/ or config/octane.php. " + oct_text]
 for v in vars_:
-    H.append("#   %s=%s   %s (default %s)" % (v["env"], v["name"], v.get("doc", "").strip() or "set by the repository", v["default"]))
+    H.append("#   %s=<name>   %s (default %s)" % (v["env"], v.get("doc", "").strip() or "set by the repository", v["default"]))
 count = len(items)
 H += ["#", "# The %s checks, in the gate\x27s order:" % (WORDS[count] if count < len(WORDS) else str(count))]
 w = max(len(i["name"]) for i in items)
 for i in items:
-    shown = i["cmd"] if i["cmd"] is not None else i["source"]
+    shown = i["cmd"] if i["cmd"] is not None else unq(i["source"])
     H.append("#   %s  %s  (gate step %d: %s%s)" % (i["name"].ljust(w), shown, i["step"], i["title"], ", recorded" if i["kind"] == "formatter" else ""))
 if fmt is None:
     H.append("# No formatter, so there is no recorded \"fix\" step.")
@@ -923,12 +938,12 @@ if m:
     repo = m.group(1)
 gate_file = None
 m = re.search(r"\((\S+), steps \d+ to \d+\)", htext)
+if not m:
+    # The hand-written forms: "Verification Gate (<file>)", else any shape-spec.md path, never
+    # starting on a parenthesis (#18).
+    m = re.search(r"Verification Gate\s*\(([^\s()]+)\)", htext) or re.search(r"([^\s()]*shape-spec\.md)", htext)
 if m:
     gate_file = m.group(1)
-else:
-    m = re.search(r"(\S*shape-spec\.md)", htext)
-    if m:
-        gate_file = m.group(1)
 self_hosted = "See README.md for" in htext
 baseline = None
 m = re.search(r"Baseline on (\d{4}-\d\d-\d\d): (\d+) seconds(?:, (.*?))?, so `checker", htext)
@@ -938,9 +953,11 @@ if m:
         baseline["note"] = m.group(3)
 docs = {}
 for l in header:
-    m = re.match(r"^#   ([A-Z_][A-Z0-9_]*)=([A-Za-z_][A-Za-z0-9_]*)\s+(.*?) \(default (.*)\)\s*$", l)
+    # ENV=<name> (generated since #18) or ENV=<identifier> (generated before it); the "(default ...)"
+    # tail is optional, since a hand-written header may carry it on the next line.
+    m = re.match(r"^#   ([A-Z_][A-Z0-9_]*)=(?:<name>|[A-Za-z_][A-Za-z0-9_]*)\s+(.*?)(?:\s+\(default [^)]*\))?\s*$", l)
     if m:
-        docs[m.group(1)] = m.group(3)
+        docs[m.group(1)] = m.group(2)
 allowed = []
 vars_ = []
 checks = []
@@ -971,6 +988,8 @@ def expands(raw):
         k += 1
     return False
 guards = []
+aa_seen = False
+hard = []
 step = None
 title = None
 in_formatter = False
@@ -981,8 +1000,16 @@ for idx, l in enumerate(lines):
         seen_if = True
     m = re.match(r"^ALWAYS_ALLOWED=\((.*)\)\s*$", l)
     if m:
+        aa_seen = True
         allowed = re.findall(r"\x27([^\x27]*)\x27|\"([^\"]*)\"|(\S+)", m.group(1))
         allowed = [a or b or c for a, b, c in allowed]
+    # A hand-written git block hard-codes its allowed entries after the two fixed ones, where the
+    # template expands ALWAYS_ALLOWED (#18).
+    m = re.match(r"^\s*printf \x27%s\\n\x27 \x27agent-os/specs/\x27 \x27agent-os/standards/\x27(.*)$", l)
+    if m:
+        rest = m.group(1).replace("${ALWAYS_ALLOWED[@]+\"${ALWAYS_ALLOWED[@]}\"}", "")
+        hard = [a or b or c for a, b, c in re.findall(r"\x27([^\x27]*)\x27|\"([^\"]*)\"|(\S+)", rest)]
+        hard = [t for t in hard if t and not t.startswith("$")]
     m = VAR.match(l)
     if m and not seen_if:
         vars_.append({"name": m.group(1), "env": m.group(2), "default": m.group(3), "doc": docs.get(m.group(2), "")})
@@ -990,7 +1017,7 @@ for idx, l in enumerate(lines):
     if m:
         step = int(m.group(1))
         t = m.group(2).strip()
-        t = re.split(r"\.(?:\s|$)|:\s", t, 1)[0].strip()
+        t = re.split(r"\.(?:\s|$)|:\s", t, maxsplit=1)[0].strip()
         title = t or None
     if re.match(r"^\s*if \[\[ \"\$\{REDLINE_OCTANE", l):
         guards.append(("REDLINE_OCTANE", len(l) - len(l.lstrip())))
@@ -1009,6 +1036,8 @@ for idx, l in enumerate(lines):
                  "cmd": None if expands(raw) else unescape(raw), "source": raw if expands(raw) else None,
                  "guard": guards[-1][0] if guards else None, "title": title, "formatter": in_formatter}
         checks.append(entry)
+if not aa_seen:
+    allowed = hard
 inp = {"repo": repo, "gateFile": gate_file, "selfHosted": self_hosted, "alwaysAllowed": allowed, "vars": vars_,
        "formatter": None, "octane": None, "baseline": baseline, "steps": []}
 seen_base = set()
