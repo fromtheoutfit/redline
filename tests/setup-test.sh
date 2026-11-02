@@ -646,6 +646,21 @@ REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a confl
 REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a conflict beside a template change, --pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$AO" "${FILL[@]}" --merge --pick 1=ours
 check "a conflict beside a template change, --pick 1=ours: the hand edit kept" grep -q 'HAND EDIT kept' "$AO"
 check "a conflict beside a template change, --pick 1=ours: the template's line beside it taken" grep -q 'TEMPLATE REWORDED TWO' "$AO"
+# A same-length hunk whose lines do not line up (#64, R2-1): the section deletes point 1 and adds its own
+# line after point 2, and the template rewords point 2. The section's point 2 sits one line up from the
+# base's, so a split by position would pair different lines and a pick would write point 2 twice or drop
+# the rewording; the hunk stays one conflict, and either pick writes each line once.
+V4C="$WORK/v4c"; mkdir -p "$V4C/history"; cp "$V4"/history/shape-spec-unattended.v*.md "$V4C/history/"
+sed -e "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** TEMPLATE REWORDED TWO./' "$UT" > "$V4C/shape-spec-unattended.md"
+SH="$WORK/shifted.md"; awk '/^1\. \*\*Plan mode\./ { next } { print } /^2\. \*\*No questions\./ { print "2a. HAND ADDED LINE." }' "$WORK/u-before.md" > "$SH"; cp "$SH" "$WORK/shifted-before.md"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor in a same-length hunk: one conflict, the whole hunk" '[(.conflicts|length|tostring), (.conflicts[0].base|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs|length|tostring)] | join(",")' "1,2,2,2" unattended "$SH" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor, --pick 1=theirs: written" '[.changed, .written] | join(",")' "true,true" unattended "$SH" "${FILL[@]}" --merge --pick 1=theirs
+[[ "$(grep -c '^2\. \*\*No questions' "$SH")" == "1" ]] && ok "a shifted anchor, --pick 1=theirs: point 2 once" || bad "a shifted anchor, --pick 1=theirs: point 2 once" "$(grep -c '^2\. \*\*No questions' "$SH")"
+check "a shifted anchor, --pick 1=theirs: the template's wording" grep -q 'TEMPLATE REWORDED TWO' "$SH"
+cp "$WORK/shifted-before.md" "$SH"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor, --pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$SH" "${FILL[@]}" --merge --pick 1=ours
+check "a shifted anchor, --pick 1=ours: the hand-added line kept" grep -q '^2a\. HAND ADDED LINE\.$' "$SH"
+[[ "$(grep -c '^1\. \*\*Plan mode\.' "$SH")" == "0" && "$(grep -c '^2\. \*\*No questions' "$SH")" == "1" ]] && ok "a shifted anchor, --pick 1=ours: point 1 stays deleted, point 2 once" || bad "a shifted anchor, --pick 1=ours: point 1 stays deleted, point 2 once" "$(grep -c '^[12]\. \*\*' "$SH")"
 
 # --keep: the marker alone.
 K="$WORK/keep.md"; cp "$WORK/u-old.md" "$K"

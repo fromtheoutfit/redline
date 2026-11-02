@@ -48,7 +48,8 @@
 #       them, so read templateDiff before --merge. Every side carries the wanted fill-ins before
 #       the merge (fill-in phrases never conflict); a hunk changed only in the section (a hand
 #       edit or deletion) is kept, changed only in the template is taken, a hunk of one length on every
-#       side is merged line by line, and a line changed in both differently is a conflict, numbered under conflicts [{n, base, ours, theirs}] and shown diff3-style in
+#       side whose lines line up (each anchored line at its own offset) is merged line by line, and a line
+#       changed in both differently is a conflict (in any other hunk changed in both, the whole hunk is), numbered under conflicts [{n, base, ours, theirs}] and shown diff3-style in
 #       merged, which is never written: --merge writes the merged section with the wanted fill-ins
 #       and the current marker when there is no conflict (it implies --force), and with conflicts
 #       needs one --pick <n>=ours|theirs per conflict, else exits 1 unchanged; --keep writes the
@@ -507,8 +508,10 @@ def ndiff(a, b):
 
 # merge3(base, ours, theirs): a diff3 over matching blocks. A hunk changed on one side is taken from that
 # side; changed the same way on both, once; changed differently, a conflict, left as ("conflict", n):
-# in a hunk of one length on every side, each line changed differently on both is a conflict alone,
-# so a pick settles that line and never the lines beside it (#64, R1-1); any other hunk is one conflict.
+# in a hunk of one length on every side whose lines line up, each line changed differently on both is a
+# conflict alone, so a pick settles that line and never the lines beside it (#64, R1-1); any other hunk
+# is one conflict, a same-length one with a base line anchored at another offset on a side included,
+# since pairing its lines by position would pair different lines and a pick would write one twice (#64, R2-1).
 def merge3(base, ours, theirs):
     def anchors(a, b):
         m = {}
@@ -534,8 +537,9 @@ def merge3(base, ours, theirs):
             out.extend(ct)
         elif ct == cb:
             out.extend(co)
-        elif len(cb) == len(co) == len(ct):
-            # A same-length hunk merges line by line: adjacent lines changed on different sides both come
+        elif len(cb) == len(co) == len(ct) and all(bo.get(b + k, o + k) == o + k and bt.get(b + k, t + k) == t + k for k in range(len(cb))):
+            # A same-length hunk whose lines line up (a base line anchored on a side sits at its own offset
+            # there; #64, R2-1) merges line by line: adjacent lines changed on different sides both come
             # through, and only a line changed differently on both sides is a conflict, that line alone.
             for x, y, z in zip(cb, co, ct):
                 if y == x or y == z:
