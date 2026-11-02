@@ -1,0 +1,27 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "07751123485a474595d557197678afa01bef795a",
+    "to": "f67708c4282432691edb9e695c8f5b7caeee40c6"
+  },
+  "summary": "The round 1 fixes do what was asked. A conflicting line in a same-length hunk is now a conflict by itself, and the new cases pick it both ways. The pinned body hashes match the files: the v3 body below `---` hashes to its pin. They fail a body change without a bump, an edit to a frozen copy, and a bump that adds no pin. One edge remains in the new per-line split. It pairs lines by position even when the hunk's anchors are shifted, so a section that deletes one line and adds another next to a template change gets a misleading one-line conflict, where it used to get a whole-hunk conflict.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "scripts/redline-setup.sh",
+      "line": 537,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The per-line split pairs lines by position even when an anchor inside the hunk is shifted, so a pick duplicates or drops a line",
+      "description": "After the R1-1 fix, every hunk that has the same length on all three sides is merged line by line, and lines are paired by position. A hunk can be the same length on every side while its lines are not aligned. Before the fix, that case fell into the whole-hunk conflict, because the `all(...)` test failed. Traced by hand through `difflib`'s matching blocks (the guard refuses `python3` and `redline-setup.sh unattended` for the reviewer, so this was not run). Take base `[H, L1, L2, L3]`. The section deletes point 1 and adds its own line after point 2: ours is `[H, L2, X, L3]`. The template rewords point 2: theirs is `[H, L1, L2', L3]`. Base L2 is anchored in ours (at ours offset 0 inside the hunk) but not in theirs. So the hunk is `cb=[L1, L2]`, `co=[L2, X]`, `ct=[L1, L2']`. Position 0 pairs (L1, L2, L1), and since `z == x` the loop silently emits L2. Position 1 becomes conflict 1, with base `[L2]`, ours `[X]` and theirs `[L2']`. `--merge --pick 1=theirs` writes `[H, L2, L2', L3]`: point 2 appears twice, in its old and new wording. `--pick 1=ours` writes `[H, L2, X, L3]`, which drops the template's rewording, although the conflict the person was shown claims ours replaced L2 with X. At 0775112, the same input gave one conflict over both lines, and either pick was coherent.",
+      "proposedFix": "Split line by line only when the hunk is aligned. For every k, a base line `cb[k]` that is anchored on a side must map to offset k on that side (`bo[b+k] == o+k`, and the same for `bt` with `t`). Any other same-length hunk stays one whole-hunk conflict, as hunks of different lengths do. Regression case for tests/setup-test.sh, red today. Build a fake template from the frozen copy whose point 2 is reworded: `sed 's/^2\\. \\*\\*No questions\\.\\*\\*.*/2. **No questions.** TEMPLATE REWORDED TWO./'` over a v4 template with history up to `$UV`. Build the section from `$WORK/u-before.md` with `awk '/^1\\. \\*\\*Plan mode/ {next} {print} /^2\\. \\*\\*No questions/ {print \"2a. HAND ADDED LINE.\"}'`. Expect `.conflicts[0].base|length` to be 2. After `--merge --pick 1=theirs`, expect `grep -c '^2\\. \\*\\*No questions'` to print 1.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

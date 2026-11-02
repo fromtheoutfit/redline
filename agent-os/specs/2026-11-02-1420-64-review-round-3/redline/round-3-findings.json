@@ -1,0 +1,10 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "f67708c4282432691edb9e695c8f5b7caeee40c6",
+    "to": "b8dec910318ec6391b940ba87ee380928baff4d8"
+  },
+  "summary": "The round 2 fix adds one rule to merge3: a same-length hunk is merged line by line only when each base line that is anchored on a side sits at its own offset on that side. Any other same-length hunk becomes a single conflict, so a pick can no longer write a line twice or drop one. I traced the rule against the hunk boundaries. Each hunk starts just after a line anchored on both sides and stops at the next one, and the matching blocks are monotone. So the rule also rules out a side's line being anchored to a different base line in the hunk, and the Chalkboard adjacency case (one hand-edited line beside a template-changed line) still merges line by line. The new setup-test case covers a deletion and an addition in one hunk beside a template change, picked both ways. The README, the script header and the two standards were updated to match. The reviewer's guard refused setup-test.sh and python3, so this result comes from reading the code, not from running it, and there are no findings.",
+  "findings": []
+}

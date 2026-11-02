@@ -20,6 +20,12 @@ TEMPLATE="$PLUGIN/scripts/checks-template.sh"
 # The template's version (v2 on 2026-10-30); the version cases are relative to it, never spelled.
 TV="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}')"
 TN="${TV#v}"
+UT="$PLUGIN/templates/shape-spec-unattended.md"
+# The unattended section's version (v3 on 2026-11-02), read off the template's marker line; the
+# section cases are relative to it, never spelled (#15).
+UV="$(grep -m1 '^<!-- redline-unattended: v' "$UT" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
+UN="${UV#v}"
+UHIST="$PLUGIN/templates/history"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-setup-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 pass=0; fail=0
@@ -297,7 +303,8 @@ expect_json "fresh: not present, changed, written" '[.present, .changed, .writte
 H="$(grep -n '^## Unattended mode (Redline)$' "$U" | cut -d: -f1)"; PRE="$(grep -n '^## Prerequisites$' "$U" | cut -d: -f1)"; PRO="$(grep -n '^## Process$' "$U" | cut -d: -f1)"
 [[ "$H" -gt "$PRE" && "$H" -lt "$PRO" ]] && ok "fresh: between Prerequisites and Process" || bad "fresh: between Prerequisites and Process" "$PRE < $H < $PRO"
 [[ -z "$(sed -n "$((H-1))p" "$U")" && -z "$(sed -n "$((PRO-1))p" "$U")" && -n "$(sed -n "$((PRO-2))p" "$U")" ]] && ok "fresh: one blank line on each side" || bad "fresh: one blank line on each side" "$(sed -n "$((H-1))p;$((PRO-2)),$((PRO-1))p" "$U")"
-[[ "$(sed -n "$((H+1))p" "$U")" == "" ]] && ok "fresh: a blank line after the heading" || bad "fresh: a blank line after the heading" "$(sed -n "$((H+1))p" "$U")"
+[[ "$(sed -n "$((H+1))p" "$U")" == "<!-- redline-unattended: $UV -->" ]] && ok "fresh: the marker is the template's version (#15)" || bad "fresh: the marker is the template's version (#15)" "$(sed -n "$((H+1))p" "$U")"
+[[ "$(sed -n "$((H+2))p" "$U")" == "" ]] && ok "fresh: a blank line after the marker" || bad "fresh: a blank line after the marker" "$(sed -n "$((H+2))p" "$U")"
 check "fresh: gate steps filled in" grep -q '(gate steps 1 to 5)' "$U"
 check "fresh: prose steps filled in" grep -q 'Steps 6 and 7 stay as written' "$U"
 check "fresh: retrospective step filled in" grep -q "Gate step 6's edits" "$U"
@@ -312,6 +319,29 @@ cp "$U" "$WORK/u-before.md"
 expect_json "rerun: present, unchanged" '[.present, .changed, .written] | join(",")' "true,false,false" unattended "$U" "${FILL[@]}"
 same "rerun: byte-identical" "$U" "$WORK/u-before.md"
 expect_json "rerun: found reads the fill-ins back" '[.found.gateSteps, .found.proseSteps, (.found.retroStep|tostring), (.found.prBody|tostring)] | join("|")' "1-5|6 and 7|6|false" unattended "$U" "${FILL[@]}"
+
+echo "# unattended --version: the section's marker against the template's (#15)"
+expect_exit "--version: a fresh insert matches" 0 unattended --version "$U"
+expect_json "--version: template, file, match, newer" '[.template, .file, (.match|tostring), (.newer|tostring)] | join(",")' "$UV,$UV,true,false" unattended --version "$U"
+sed "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN-1)) -->/" "$U" > "$WORK/u-old.md"
+expect_exit "--version: an older marker: exit 1" 1 unattended --version "$WORK/u-old.md"
+expect_json "--version: an older marker: match false, newer false" '[.file, (.match|tostring), (.newer|tostring)] | join(",")' "v$((UN-1)),false,false" unattended --version "$WORK/u-old.md"
+expect_stderr "--version: an older marker says to run /redline:setup" "was made from template v$((UN-1)); the plugin ships $UV. Run /redline:setup to see the change" unattended --version "$WORK/u-old.md"
+sed "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" "$U" > "$WORK/u-new.md"
+expect_exit "--version: a newer marker: exit 1" 1 unattended --version "$WORK/u-new.md"
+expect_json "--version: a newer marker: newer true" '[.file, (.match|tostring), (.newer|tostring)] | join(",")' "v$((UN+1)),false,true" unattended --version "$WORK/u-new.md"
+expect_stderr "--version: a newer marker says to update the plugin" "update the plugin" unattended --version "$WORK/u-new.md"
+newerr="$("$SETUP" unattended --version "$WORK/u-new.md" 2>&1 >/dev/null)"
+[[ -n "$newerr" && "$newerr" != *"/redline:setup"* ]] && ok "--version: a newer marker does not suggest /redline:setup" || bad "--version: a newer marker does not suggest /redline:setup" "$newerr"
+grep -v '^<!-- redline-unattended:' "$U" > "$WORK/u-nomark.md"
+expect_exit "--version: no marker: exit 1" 1 unattended --version "$WORK/u-nomark.md"
+expect_json "--version: no marker: file null" '.file' "null" unattended --version "$WORK/u-nomark.md"
+expect_stderr "--version: no marker says so" "carries no version marker" unattended --version "$WORK/u-nomark.md"
+expect_exit "--version: no section: exit 1" 1 unattended --version "$FIX/shape-spec-bare.md"
+expect_json "--version: no section: file null" '.file' "null" unattended --version "$FIX/shape-spec-bare.md"
+expect_stderr "--version: no section says so" "has no unattended section" unattended --version "$FIX/shape-spec-bare.md"
+expect_exit "--version with a fill-in flag: exit 2" 2 unattended --version "$U" --gate-steps 1-5
+expect_exit "--version with a missing file: exit 2" 2 unattended --version "$WORK/missing.md"
 
 echo "# unattended: a rerun whose fill-ins differ"
 expect_exit "a different range: exit 1" 1 unattended "$U" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body
@@ -534,6 +564,174 @@ expect_stderr "an unknown name: named" "setup" command "$A3" setup
 expect_exit "a root that is not a directory: exit 2" 2 command "$WORK/nope" redline
 [[ ! -e "$A3/.claude" ]] && ok "usage errors write nothing" || bad "usage errors write nothing" "$(ls -la "$A3/.claude")"
 
+echo "# unattended rerun: a section made from an older body is merged three ways (#15)"
+# A section inserted from the frozen v1 (the override points at the frozen file; its missing history/history is tolerated).
+V1="$WORK/v1.md"; cp "$FIX/shape-spec-bare.md" "$V1"
+REDLINE_UNATTENDED_TEMPLATE="$UHIST/shape-spec-unattended.v1.md" "$SETUP" unattended "$V1" "${FILL[@]}" >/dev/null 2>&1
+check "v1 insert: the marker is v1" grep -q '^<!-- redline-unattended: v1 -->$' "$V1"
+sed 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** HAND EDIT kept./' "$V1" > "$WORK/v1-hand.md"; cp "$WORK/v1-hand.md" "$V1"
+expect_exit "v1 section, no flag: exit 1" 1 unattended "$V1" "${FILL[@]}"
+expect_json "v1 section: version, base, not guessed, no conflicts" '[.version.file, .version.template, .base, (.guessed|tostring), (.conflicts|length|tostring)] | join(",")' "v1,$UV,v1,false,0" unattended "$V1" "${FILL[@]}"
+expect_json "v1 section: the report carries the template diff, the hand edits and the merged text" '[(.templateDiff|type), (.handEdits|test("HAND EDIT")|tostring), (.merged|test("HAND EDIT")|tostring), (.merged|test("Every decision names its owner")|tostring)] | join(",")' "string,true,true,true" unattended "$V1" "${FILL[@]}"
+expect_stderr "v1 section, no flag: the line names --merge and --keep" "\-\-merge.*\-\-keep" unattended "$V1" "${FILL[@]}"
+same "v1 section, no flag: untouched" "$V1" "$WORK/v1-hand.md"
+expect_exit "v1 section, --force alone: exit 1" 1 unattended "$V1" "${FILL[@]}" --force
+same "v1 section, --force alone: untouched" "$V1" "$WORK/v1-hand.md"
+expect_json "v1 section, --merge --dry-run: changed, not written" '[.changed, .written] | join(",")' "true,false" unattended "$V1" "${FILL[@]}" --merge --dry-run
+same "v1 section, --merge --dry-run: untouched" "$V1" "$WORK/v1-hand.md"
+expect_json "v1 section, --merge: changed and written" '[.changed, .written] | join(",")' "true,true" unattended "$V1" "${FILL[@]}" --merge
+check "--merge: the hand edit survives" grep -q 'HAND EDIT kept' "$V1"
+check "--merge: v2's owner line arrived" grep -q 'Every decision names its owner' "$V1"
+check "--merge: v3's ask-rules sentence arrived" grep -q 'repository rule <id>' "$V1"
+check "--merge: the marker is the template's version" grep -q "^<!-- redline-unattended: $UV -->\$" "$V1"
+check "--merge: the fill-ins are the wanted ones" grep -q '(gate steps 1 to 5)' "$V1"
+[[ "$(grep -c '^## Unattended mode (Redline)$' "$V1")" == "1" ]] && ok "--merge: the heading once" || bad "--merge: the heading once" "$(grep -c '^## Unattended mode (Redline)$' "$V1")"
+[[ "$("$GATE" extract "$V1" 2>/dev/null | jq -r '.steps_default | join("-")')" == "1-5" ]] && ok "--merge: the gate still reads the range" || bad "--merge: the gate still reads the range" "$("$GATE" extract "$V1" 2>&1 | head -3)"
+expect_json "--merge, then a rerun: nothing drifted" '[.present, .changed, .written] | join(",")' "true,false,false" unattended "$V1" "${FILL[@]}"
+expect_exit "--merge, then --version: current" 0 unattended --version "$V1"
+
+# This checkout's own section is the hand-edit fixture (decision 4): three hand edits beside the fill-ins.
+SELF="$WORK/self.md"; grep -v '^<!-- redline-unattended:' "$PLUGIN/.claude/commands/agent-os/shape-spec.md" > "$SELF"
+SFILL=(--gate-steps 1-9 --prose-steps "10, 11 and 12" --retro-step 11 --no-pr-body)
+sha_self="$("$GATE" extract "$SELF" 2>/dev/null | jq -r .sha256)"
+expect_exit "this checkout's section without its marker: exit 1" 1 unattended "$SELF" "${SFILL[@]}"
+expect_json "this checkout's section: base guessed as the current version, no conflicts" '[(.version.file|tostring), .base, (.guessed|tostring), (.conflicts|length|tostring)] | join(",")' "null,$UV,true,0" unattended "$SELF" "${SFILL[@]}"
+expect_json "this checkout's section: the hand edits are reported" '[(.handEdits|test("gate step 10, Docs")|tostring), (.handEdits|test("A teammate runs the command")|tostring), (.handEdits|test("The guard and the hook")|tostring)] | join(",")' "true,true,true" unattended "$SELF" "${SFILL[@]}"
+expect_json "this checkout's section, --merge: written" '[.changed, .written] | join(",")' "true,true" unattended "$SELF" "${SFILL[@]}" --merge
+same "this checkout's section, --merge: only the marker was added (the three hand edits kept)" "$SELF" "$PLUGIN/.claude/commands/agent-os/shape-spec.md"
+[[ "$("$GATE" extract "$SELF" 2>/dev/null | jq -r .sha256)" == "$sha_self" ]] && ok "this checkout's section, --merge: the gate hash did not move" || bad "this checkout's section, --merge: the gate hash did not move" "moved"
+
+# A conflicting line: a fake newer template rewords the Plan mode line the section hand-edited.
+V4="$WORK/v4"; mkdir -p "$V4/history"; cp "$UHIST"/shape-spec-unattended.v*.md "$V4/history/"; cp "$UT" "$V4/history/shape-spec-unattended.$UV.md"
+sed -e "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" -e 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** TEMPLATE REWORDED./' "$UT" > "$V4/shape-spec-unattended.md"
+C="$WORK/conflict.md"; cp "$WORK/u-hand.md" "$C"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "conflict, no flag: exit 1" 1 unattended "$C" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "conflict: one conflict, numbered 1, ours holds the hand edit" '[(.conflicts|length|tostring), (.conflicts[0].n|tostring), (.conflicts[0].ours[0]|test("HAND EDIT")|tostring), (.conflicts[0].theirs[0]|test("TEMPLATE REWORDED")|tostring), (.base), (.guessed|tostring)] | join(",")' "1,1,true,true,$UV,false" unattended "$C" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "conflict: merged renders it diff3-style" '.merged | test("<<<<<<<")' "true" unattended "$C" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "conflict, --merge without a pick: exit 1" 1 unattended "$C" "${FILL[@]}" --merge
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_stderr "conflict, --merge without a pick: names the number" "1" unattended "$C" "${FILL[@]}" --merge
+same "conflict, --merge without a pick: untouched" "$C" "$WORK/u-hand.md"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "--pick without --merge: exit 2" 2 unattended "$C" "${FILL[@]}" --pick 1=ours
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "--pick naming no conflict: exit 2" 2 unattended "$C" "${FILL[@]}" --merge --pick 2=ours
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "--pick with a bad side: exit 2" 2 unattended "$C" "${FILL[@]}" --merge --pick 1=mine
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_exit "--merge --keep: exit 2" 2 unattended "$C" "${FILL[@]}" --merge --keep
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "--pick 1=theirs: written" '[.changed, .written] | join(",")' "true,true" unattended "$C" "${FILL[@]}" --merge --pick 1=theirs
+check "--pick 1=theirs: the template's wording" grep -q 'TEMPLATE REWORDED' "$C"
+check "--pick 1=theirs: the newer marker" grep -q "^<!-- redline-unattended: v$((UN+1)) -->\$" "$C"
+[[ "$(grep -c '<<<<<<<' "$C")" == "0" ]] && ok "--pick: no conflict marker written" || bad "--pick: no conflict marker written" "$(grep -c '<<<<<<<' "$C")"
+cp "$WORK/u-hand.md" "$C"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "--pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$C" "${FILL[@]}" --merge --pick 1=ours
+check "--pick 1=ours: the hand edit kept" grep -q 'HAND EDIT kept' "$C"
+
+# Adjacent lines changed on different sides (Chalkboard's hand-edited story line beside the why_human line #49
+# changed): a same-length hunk is merged line by line, not reported as a conflict.
+ADJ="$WORK/adjacent.md"; sed 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** HAND EDIT beside the reworded line./' "$WORK/u-before.md" > "$ADJ"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "adjacent changes: no conflict" '.conflicts | length' "0" unattended "$ADJ" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "adjacent changes, --merge: written" '[.changed, .written] | join(",")' "true,true" unattended "$ADJ" "${FILL[@]}" --merge
+check "adjacent changes: the template's line taken" grep -q 'TEMPLATE REWORDED' "$ADJ"
+check "adjacent changes: the hand edit kept" grep -q 'HAND EDIT beside' "$ADJ"
+# A conflicting line beside a one-sided change in the same hunk (#64, R1-1): the conflict is that line
+# alone, so a pick settles it and the change beside it comes through whichever side is picked.
+AC="$WORK/adj-conflict.md"; sed -e 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** HAND EDIT kept./' -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** HAND EDIT two./' "$WORK/u-before.md" > "$AC"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "a conflict beside a hand edit: one conflict, that line alone" '[(.conflicts|length|tostring), (.conflicts[0].base|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs|length|tostring), (.conflicts[0].ours[0]|test("HAND EDIT kept")|tostring)] | join(",")' "1,1,1,1,true" unattended "$AC" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "a conflict beside a hand edit, --pick 1=theirs: written" '[.changed, .written] | join(",")' "true,true" unattended "$AC" "${FILL[@]}" --merge --pick 1=theirs
+check "a conflict beside a hand edit, --pick 1=theirs: the template's line taken" grep -q 'TEMPLATE REWORDED' "$AC"
+check "a conflict beside a hand edit, --pick 1=theirs: the hand edit beside it kept" grep -q 'HAND EDIT two' "$AC"
+# The mirror: the template also rewords line 2, which the section left alone; --pick 1=ours keeps the
+# hand edit on line 1 and still takes the template's line 2.
+V4B="$WORK/v4b"; mkdir -p "$V4B/history"; cp "$V4"/history/shape-spec-unattended.v*.md "$V4B/history/"
+sed 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** TEMPLATE REWORDED TWO./' "$V4/shape-spec-unattended.md" > "$V4B/shape-spec-unattended.md"
+AO="$WORK/adj-ours.md"; cp "$WORK/u-hand.md" "$AO"
+REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a conflict beside a template change: one conflict, that line alone" '[(.conflicts|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs[0]|test("TEMPLATE REWORDED\\.")|tostring)] | join(",")' "1,1,true" unattended "$AO" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a conflict beside a template change, --pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$AO" "${FILL[@]}" --merge --pick 1=ours
+check "a conflict beside a template change, --pick 1=ours: the hand edit kept" grep -q 'HAND EDIT kept' "$AO"
+check "a conflict beside a template change, --pick 1=ours: the template's line beside it taken" grep -q 'TEMPLATE REWORDED TWO' "$AO"
+# A same-length hunk whose lines do not line up (#64, R2-1): the section deletes point 1 and adds its own
+# line after point 2, and the template rewords point 2. The section's point 2 sits one line up from the
+# base's, so a split by position would pair different lines and a pick would write point 2 twice or drop
+# the rewording; the hunk stays one conflict, and either pick writes each line once.
+V4C="$WORK/v4c"; mkdir -p "$V4C/history"; cp "$V4"/history/shape-spec-unattended.v*.md "$V4C/history/"
+sed -e "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** TEMPLATE REWORDED TWO./' "$UT" > "$V4C/shape-spec-unattended.md"
+SH="$WORK/shifted.md"; awk '/^1\. \*\*Plan mode\./ { next } { print } /^2\. \*\*No questions\./ { print "2a. HAND ADDED LINE." }' "$WORK/u-before.md" > "$SH"; cp "$SH" "$WORK/shifted-before.md"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor in a same-length hunk: one conflict, the whole hunk" '[(.conflicts|length|tostring), (.conflicts[0].base|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs|length|tostring)] | join(",")' "1,2,2,2" unattended "$SH" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor, --pick 1=theirs: written" '[.changed, .written] | join(",")' "true,true" unattended "$SH" "${FILL[@]}" --merge --pick 1=theirs
+[[ "$(grep -c '^2\. \*\*No questions' "$SH")" == "1" ]] && ok "a shifted anchor, --pick 1=theirs: point 2 once" || bad "a shifted anchor, --pick 1=theirs: point 2 once" "$(grep -c '^2\. \*\*No questions' "$SH")"
+check "a shifted anchor, --pick 1=theirs: the template's wording" grep -q 'TEMPLATE REWORDED TWO' "$SH"
+cp "$WORK/shifted-before.md" "$SH"
+REDLINE_UNATTENDED_TEMPLATE="$V4C/shape-spec-unattended.md" expect_json "a shifted anchor, --pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$SH" "${FILL[@]}" --merge --pick 1=ours
+check "a shifted anchor, --pick 1=ours: the hand-added line kept" grep -q '^2a\. HAND ADDED LINE\.$' "$SH"
+[[ "$(grep -c '^1\. \*\*Plan mode\.' "$SH")" == "0" && "$(grep -c '^2\. \*\*No questions' "$SH")" == "1" ]] && ok "a shifted anchor, --pick 1=ours: point 1 stays deleted, point 2 once" || bad "a shifted anchor, --pick 1=ours: point 1 stays deleted, point 2 once" "$(grep -c '^[12]\. \*\*' "$SH")"
+
+# --keep: the marker alone.
+K="$WORK/keep.md"; cp "$WORK/u-old.md" "$K"
+expect_exit "--keep: exit 0" 0 unattended "$K" "${FILL[@]}" --keep
+[[ "$(diff "$WORK/u-old.md" "$K" | grep -c '^[<>]')" == "2" ]] && ok "--keep: the diff is the marker line alone" || bad "--keep: the diff is the marker line alone" "$(diff "$WORK/u-old.md" "$K")"
+check "--keep: the marker is the template's version" grep -q "^<!-- redline-unattended: $UV -->\$" "$K"
+cp "$WORK/u-old.md" "$K"
+expect_json "--keep --dry-run: changed, not written" '[.changed, .written] | join(",")' "true,false" unattended "$K" "${FILL[@]}" --keep --dry-run
+same "--keep --dry-run: untouched" "$K" "$WORK/u-old.md"
+expect_exit "--keep with a changed range: exit 1" 1 unattended "$K" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body --keep
+same "--keep with a changed range: untouched" "$K" "$WORK/u-old.md"
+expect_exit "--keep --force with a changed range: exit 0" 0 unattended "$K" --gate-steps 1-6 --prose-steps "6 and 7" --retro-step 6 --no-pr-body --keep --force
+check "--keep --force: the range patched" grep -q '(gate steps 1 to 6)' "$K"
+check "--keep --force: the marker written" grep -q "^<!-- redline-unattended: $UV -->\$" "$K"
+# A newer section is never merged down; a marked section with no frozen copy exits 2.
+expect_exit "a newer section: exit 1, no merge" 1 unattended "$WORK/u-new.md" "${FILL[@]}" --merge
+expect_json "a newer section: newer true" '.version.newer' "true" unattended "$WORK/u-new.md" "${FILL[@]}" --merge
+E="$WORK/empty"; mkdir -p "$E/history"; cp "$UT" "$E/shape-spec-unattended.md"
+REDLINE_UNATTENDED_TEMPLATE="$E/shape-spec-unattended.md" expect_exit "a marked section whose frozen copy is missing: exit 2" 2 unattended "$WORK/u-old.md" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$E/shape-spec-unattended.md" expect_stderr "a marked section whose frozen copy is missing: names the file" "shape-spec-unattended.v$((UN-1)).md" unattended "$WORK/u-old.md" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$E/shape-spec-unattended.md" expect_json "an unmarked section with an empty history: the template is the only candidate" '[.base, (.guessed|tostring)] | join(",")' "$UV,true" unattended "$WORK/u-nomark.md" "${FILL[@]}"
+
+echo "# unattended template: every version below the current one is frozen under templates/history (#15)"
+[[ "$UV" =~ ^v[0-9]+$ ]] && ok "the template carries a version marker" || bad "the template carries a version marker" "'$UV'"
+for ((n=1; n<UN; n++)); do
+    hf="$UHIST/shape-spec-unattended.v$n.md"
+    [[ -f "$hf" ]] && grep -q "^<!-- redline-unattended: v$n -->\$" "$hf" && grep -q '^---$' "$hf" \
+        && ok "history: v$n is frozen with its marker and its --- line" || bad "history: v$n is frozen with its marker and its --- line" "$hf"
+done
+[[ ! -e "$UHIST/shape-spec-unattended.$UV.md" ]] && ok "history: the current version is not frozen" || bad "history: the current version is not frozen" "$UHIST/shape-spec-unattended.$UV.md exists"
+# Every unattended body is pinned by version (#64, R1-2): the sha256 of the lines after the first ---
+# line, for the current template and each frozen copy under templates/history/. A body change that left
+# the marker where it was, or an edit to a frozen copy, fails here. A bump adds its version's line below,
+# which is the reminder to freeze the previous body in the same commit; the older lines never change.
+ubody_pin() {
+    case "$1" in
+        v1) echo "a408539181c8e3bc9719ad4b8544705158b0ce48a9cd69f25be3b2f3e6836421" ;;
+        v2) echo "223a713c121ca604bdc5aba264485b3af64a5d49a0730d0ed9382ac94bacf9d4" ;;
+        v3) echo "e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a" ;;
+    esac
+}
+# ubody_sha <file>: the sha256 of the file's body, the lines after its first --- line.
+ubody_sha() { awk 'f { print } /^---$/ { f = 1 }' "$1" | shasum -a 256 | awk '{ print $1 }'; }
+# ubody_ok <template> <history dir>: every version's body matches its pin; prints the first that does not.
+ubody_ok() {
+    local t="$1" h="$2" v n got want
+    v="$(grep -m1 '^<!-- redline-unattended: v' "$t" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
+    for ((n=1; n<${v#v}; n++)); do
+        want="$(ubody_pin "v$n")"; got="$(ubody_sha "$h/shape-spec-unattended.v$n.md")"
+        [[ -n "$want" && "$got" == "$want" ]] || { echo "v$n (frozen): pinned ${want:-nothing}, got $got; a frozen copy never changes"; return 1; }
+    done
+    want="$(ubody_pin "$v")"; got="$(ubody_sha "$t")"
+    [[ -n "$want" && "$got" == "$want" ]] || { echo "$v (current): pinned ${want:-nothing}, got $got; a body change bumps the marker, freezes the previous body under templates/history/ and pins the new version here"; return 1; }
+}
+msg="$(ubody_ok "$UT" "$UHIST")" && ok "history: every unattended body matches its pinned hash ($UV and the frozen copies)" || bad "history: every unattended body matches its pinned hash ($UV and the frozen copies)" "$msg"
+# A reworded body line under the same marker fails, naming the current version.
+PN="$WORK/pin-nobump"; mkdir -p "$PN/history"; cp "$UHIST"/shape-spec-unattended.v*.md "$PN/history/"
+sed 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** REWORDED WITHOUT A BUMP./' "$UT" > "$PN/shape-spec-unattended.md"
+msg="$(ubody_ok "$PN/shape-spec-unattended.md" "$PN/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "$UV (current):"* ]] && ok "pins: a body change without a bump fails, naming $UV" || bad "pins: a body change without a bump fails, naming $UV" "exit $rc: $msg"
+# An edit to the previous version's frozen copy fails, naming that version.
+PF="$WORK/pin-frozen"; mkdir -p "$PF/history"; cp "$UT" "$PF/shape-spec-unattended.md"; cp "$UHIST"/shape-spec-unattended.v*.md "$PF/history/"
+awk '{ print } END { print "A FROZEN EDIT." }' "$UHIST/shape-spec-unattended.v$((UN-1)).md" > "$PF/history/shape-spec-unattended.v$((UN-1)).md"
+msg="$(ubody_ok "$PF/shape-spec-unattended.md" "$PF/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "v$((UN-1)) (frozen):"* ]] && ok "pins: an edit to a frozen copy fails, naming v$((UN-1))" || bad "pins: an edit to a frozen copy fails, naming v$((UN-1))" "exit $rc: $msg"
+# A bump done right (marker bumped, previous body frozen) with no new pin still fails: the bump touches the test.
+PB="$WORK/pin-bump"; mkdir -p "$PB/history"; cp "$UHIST"/shape-spec-unattended.v*.md "$PB/history/"; cp "$UT" "$PB/history/shape-spec-unattended.$UV.md"
+sed -e "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** REWORDED WITH A BUMP./' "$UT" > "$PB/shape-spec-unattended.md"
+msg="$(ubody_ok "$PB/shape-spec-unattended.md" "$PB/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "v$((UN+1)) (current): pinned nothing"* ]] && ok "pins: a bump with no pin for v$((UN+1)) fails" || bad "pins: a bump with no pin for v$((UN+1)) fails" "exit $rc: $msg"
+
 echo "# version"
 expect_exit "the template matches itself" 0 version "$TEMPLATE"
 expect_json "the template: match" '[.template, .file, (.match|tostring)] | join(",")' "$TV,$TV,true" version "$TEMPLATE"
@@ -552,6 +750,51 @@ expect_exit "no version line: exit 1" 1 version "$GFIX/checks-no-stamp.sh"
 expect_json "no version line: file null" '.file' "null" version "$GFIX/checks-no-stamp.sh"
 expect_exit "a missing file: exit 2" 2 version "$WORK/missing.sh"
 expect_exit "this checkout's checks.sh carries the current version" 0 version "$PLUGIN/.claude/redline/checks.sh"
+expect_exit "this checkout's unattended section carries the current version (#15)" 0 unattended --version "$PLUGIN/.claude/commands/agent-os/shape-spec.md"
+
+echo "# version <repoRoot>: the whole contract in one read-only call (#15)"
+VR="$WORK/vroot"; mkdir -p "$VR/.claude/redline" "$VR/.claude/commands/agent-os"
+cp "$TEMPLATE" "$VR/.claude/redline/checks.sh"
+cp "$FIX/shape-spec-bare.md" "$VR/.claude/commands/agent-os/shape-spec.md"
+"$SETUP" unattended "$VR/.claude/commands/agent-os/shape-spec.md" "${FILL[@]}" >/dev/null 2>&1
+"$SETUP" settings "$VR" >/dev/null 2>&1
+expect_exit "a current root: exit 0" 0 version "$VR"
+expect_json "a current root: checks, unattended and settings all current" '[(.checks.match|tostring), (.unattended.match|tostring), (.settings.missing|length|tostring), (.settings.stale|length|tostring)] | join(",")' "true,true,0,0" version "$VR"
+expect_json "a current root: the two version objects have the file form's shape" '[(.checks|keys|join("+")), (.unattended|keys|join("+"))] | join(",")' "file+match+newer+template,file+match+newer+template" version "$VR"
+[[ -z "$("$SETUP" version "$VR" 2>&1 >/dev/null)" ]] && ok "a current root: no stderr line" || bad "a current root: no stderr line" "$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+cp "$VR/.claude/redline/checks.sh" "$WORK/vroot-checks.sh"; cp "$WORK/older.sh" "$VR/.claude/redline/checks.sh"
+expect_exit "an older checks.sh: exit 1" 1 version "$VR"
+expect_json "an older checks.sh: checks.match false, the rest current" '[(.checks.match|tostring), (.unattended.match|tostring), (.settings.missing|length|tostring)] | join(",")' "false,true,0" version "$VR"
+expect_stderr "an older checks.sh: the checks line" "was made from checks-template.sh v$((TN-1)); the plugin ships $TV. Run /redline:setup" version "$VR"
+cp "$WORK/vroot-checks.sh" "$VR/.claude/redline/checks.sh"
+cp "$VR/.claude/commands/agent-os/shape-spec.md" "$WORK/vroot-spec.md"
+sed "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN-1)) -->/" "$WORK/vroot-spec.md" > "$VR/.claude/commands/agent-os/shape-spec.md"
+expect_exit "an older section: exit 1" 1 version "$VR"
+expect_json "an older section: unattended.file is the older version" '[(.checks.match|tostring), .unattended.file, (.unattended.match|tostring)] | join(",")' "true,v$((UN-1)),false" version "$VR"
+expect_stderr "an older section: the issue's line" "the unattended section in .*shape-spec.md was made from template v$((UN-1)); the plugin ships $UV. Run /redline:setup to see the change" version "$VR"
+cp "$WORK/vroot-spec.md" "$VR/.claude/commands/agent-os/shape-spec.md"
+cp "$VR/.claude/settings.json" "$WORK/vroot-settings.json"
+jq 'del(.permissions.allow[] | select(. == "Bash(git status:*)"))' "$WORK/vroot-settings.json" > "$VR/.claude/settings.json"
+expect_exit "a settings.json missing an entry: exit 1" 1 version "$VR"
+expect_json "a settings.json missing an entry: missing names it" '.settings.missing | join(",")' "Bash(git status:*)" version "$VR"
+expect_stderr "a settings.json missing an entry: the line counts and names it" "settings.json lacks 1 entry the plugin now expects (Bash(git status:\*)); run /redline:setup" version "$VR"
+jq '.permissions.allow += ["Bash(/*/scripts/redline-gh.sh *)"]' "$WORK/vroot-settings.json" > "$VR/.claude/settings.json"
+expect_exit "a settings.json with a retired entry: exit 1" 1 version "$VR"
+expect_json "a settings.json with a retired entry: stale names it, missing empty" '[(.settings.stale|join(",")), (.settings.missing|length|tostring)] | join("|")' "Bash(/*/scripts/redline-gh.sh *)|0" version "$VR"
+expect_stderr "a settings.json with a retired entry: the line counts and names it" "settings.json carries 1 entry the plugin retired (Bash(/\*/scripts/redline-gh.sh \*)); run /redline:setup" version "$VR"
+rm "$VR/.claude/settings.json"
+expect_exit "no settings.json: exit 1" 1 version "$VR"
+expect_json "no settings.json: every template entry is missing" '.settings.missing | length' "$(jq '.permissions.allow | length' "$PLUGIN/templates/settings.allow.json")" version "$VR"
+printf '\xef\xbb\xbf{}' > "$VR/.claude/settings.json"
+expect_exit "a settings.json with a BOM: exit 2" 2 version "$VR"
+cp "$WORK/vroot-settings.json" "$VR/.claude/settings.json"
+mv "$VR/.claude/commands/agent-os/shape-spec.md" "$WORK/vroot-spec-moved.md"
+expect_exit "no shape-spec.md: exit 2" 2 version "$VR"
+mv "$WORK/vroot-spec-moved.md" "$VR/.claude/commands/agent-os/shape-spec.md"
+rm "$VR/.claude/redline/checks.sh"
+expect_exit "no checks.sh: exit 2" 2 version "$VR"
+expect_exit "neither a file nor a directory: exit 2" 2 version "$WORK/nothing-here"
+expect_exit "version with two arguments: exit 2" 2 version "$VR" "$VR"
 
 echo "# this checkout: checks.sh is checks.json generated and stamped"
 PJ="$PLUGIN/.claude/redline/checks.json"
@@ -566,6 +809,8 @@ same "regenerating over the committed file leaves it byte-identical" "$WORK/plug
 # A dry run: a missing alias file reads absent and stays missing, never written into the checkout (#63, R1-3).
 expect_json "this checkout's /redline alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline --dry-run
 expect_json "this checkout's /redline-revise alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline-revise --dry-run
+# The whole contract, as the launch precheck reads it (#15): checks.sh, the section and settings.json current.
+expect_exit "this checkout's contract is current: version <repoRoot> exits 0 (#15)" 0 version "$PLUGIN"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

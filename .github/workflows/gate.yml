@@ -72,8 +72,8 @@ jobs:
       - name: Gate stamp matches the gate text
         run: scripts/redline-gate.sh check .
 
-      - name: checks.sh is generated from the shipped template
-        run: scripts/redline-setup.sh version .claude/redline/checks.sh
+      - name: The contract is current (checks.sh, the unattended section, settings.json)
+        run: scripts/redline-setup.sh version .
 
       - name: Working tree is clean after the gate
         run: |

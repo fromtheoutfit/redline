@@ -1,0 +1,1 @@
+Redline round 2: fixed in 75a40c8 (redline: R2-1 split a same-length hunk line by line only when its lines line up (#15)). · decided by: redline

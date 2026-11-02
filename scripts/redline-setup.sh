@@ -32,12 +32,39 @@
 #       or foreign (no marker line: a person's own command of that name, never written, --force or
 #       not). Prints {file, name, template, existed, status, changed, written, diff}.
 #   redline-setup.sh unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text>
-#           --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run]
+#           --retro-step <n> (--pr-body-standard <name> | --no-pr-body)
+#           [--force] [--merge [--pick <n>=ours|theirs]... | --keep] [--dry-run]
 #       Insert templates/shape-spec-unattended.md's section after the plan-mode check under
-#       Prerequisites with the fill-ins applied, or, when the section is present, read its fill-ins
-#       back and compare: equal is up to date; different exits 1 with {differs}, and --force patches
-#       those phrases in place without re-pasting the body. Keeps a BOM and CRLF. Prints {file,
-#       present, changed, written, fillins, found, differs, insertedAt}.
+#       Prerequisites with the fill-ins applied; its first line inside the section is the template's
+#       version marker, <!-- redline-unattended: vN --> (#15). When the section is present, compare
+#       its marker with the template's first, then read its fill-ins back. Marker equal: equal
+#       fill-ins is up to date; different exits 1 with {differs}, and --force patches those phrases
+#       in place without re-pasting the body. Marker older, or none: exits 1 with the three-way
+#       view, and nothing is written without --merge or --keep. The base is the frozen body under
+#       templates/history/ at the section's version (exit 2 when that file is missing), or, with no
+#       marker, the candidate (every frozen body and the current template) with the fewest lines
+#       differing from the section, the newest on a tie, reported as guessed: a section whose hand
+#       deletions are exactly a version's additions is guessed older and the merge would restore
+#       them, so read templateDiff before --merge. Every side carries the wanted fill-ins before
+#       the merge (fill-in phrases never conflict); a hunk changed only in the section (a hand
+#       edit or deletion) is kept, changed only in the template is taken, a hunk of one length on every
+#       side whose lines line up (each anchored line at its own offset) is merged line by line, and a line
+#       changed in both differently is a conflict (in any other hunk changed in both, the whole hunk is), numbered under conflicts [{n, base, ours, theirs}] and shown diff3-style in
+#       merged, which is never written: --merge writes the merged section with the wanted fill-ins
+#       and the current marker when there is no conflict (it implies --force), and with conflicts
+#       needs one --pick <n>=ours|theirs per conflict, else exits 1 unchanged; --keep writes the
+#       current marker alone and keeps the body as it stands (the warning then stops; fill-ins
+#       must match, or --force with it); --force alone writes nothing on a mismatch. A newer marker
+#       than the template's exits 1 and is never merged down. templateDiff is the unified diff from
+#       the base to the template, handEdits from the base to the section. A wanted --pr-body-standard
+#       over a section that hand-wrote its own point 11 inserts the template's beside it. Keeps a
+#       BOM and CRLF. Prints {file, present, changed, written, fillins, found, differs, insertedAt,
+#       version, base, guessed, templateDiff, handEdits, merged, conflicts}.
+#   redline-setup.sh unattended --version <shape-spec.md>
+#       Compare the section's version marker with the template's. Prints {template, file, match,
+#       newer} as version does; exits 1 on a mismatch, a missing marker or a missing section, and
+#       the stderr line says which: run /redline:setup for an older or missing one, update the
+#       plugin for a newer one.
 #   redline-setup.sh config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run]
 #       redline.json from templates/redline.json.example: checker is git-only when the baseline is
 #       over 300 s, else full; checkerStallMs is the baseline times 1.7, rounded up to five minutes,
@@ -78,8 +105,19 @@
 #       Compare the file's "# redline-template:" line with the template's. Prints {template, file,
 #       match, newer}; exits 1 on a mismatch or a missing line, and the stderr line says which: run
 #       /redline:setup for an older or missing line, update the plugin for a newer one.
+#   redline-setup.sh version <repoRoot>
+#       The whole contract in one read-only call, the one /redline:redline's precheck makes (#15):
+#       <repoRoot>/.claude/redline/checks.sh as above, the unattended section of
+#       <repoRoot>/.claude/commands/agent-os/shape-spec.md as unattended --version, and
+#       <repoRoot>/.claude/settings.json against templates/settings.allow.json and
+#       settings.retired.json (missing: the template's entries the file lacks; stale: the retired
+#       ones it carries; the repository's own entries are never listed; no file is every entry
+#       missing). Prints {checks, unattended, settings: {missing, stale}}, one stderr line per
+#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing or
+#       settings.json is not JSON or has a byte-order mark.
 #
-# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh (tests).
+# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, and REDLINE_UNATTENDED_TEMPLATE
+# templates/shape-spec-unattended.md, whose history/ directory sits beside it (tests).
 #
 # checks.json: {"repo": "<phrase after 'Redline gate for'>", "gateFile": ".claude/commands/agent-os/shape-spec.md",
 #   "selfHosted": false, "alwaysAllowed": ["openapi.json"],
@@ -95,9 +133,10 @@
 # none of " $ ` \ }, and an alwaysAllowed entry no '.
 #
 # Exit codes: 0; 1 when a compared file differs without --force (for config, when checker or
-# checkerStallMs cannot be updated in place), a template anchor is missing, or the version line is
-# missing, older or newer; 2 on a bad invocation, a file that is not JSON, a settings file with a
-# BOM, or a bad checks.json (every reason on stderr). Needs python3 and jq.
+# checkerStallMs cannot be updated in place), a template anchor is missing, the version line or the
+# section marker is missing, older or newer, or a merge has a conflict without its --pick; 2 on a bad
+# invocation, a file that is not JSON, a settings file with a BOM, a bad checks.json, or a section
+# whose frozen template is missing (every reason on stderr). Needs python3 and jq.
 
 set -euo pipefail
 
@@ -106,10 +145,11 @@ TEMPLATE="${REDLINE_TEMPLATE:-$PLUGIN_ROOT/scripts/checks-template.sh}"
 SETTINGS_TEMPLATE="$PLUGIN_ROOT/templates/settings.allow.json"
 RETIRED_TEMPLATE="$PLUGIN_ROOT/templates/settings.retired.json"
 CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
-UNATTENDED_TEMPLATE="$PLUGIN_ROOT/templates/shape-spec-unattended.md"
+UNATTENDED_TEMPLATE="${REDLINE_UNATTENDED_TEMPLATE:-$PLUGIN_ROOT/templates/shape-spec-unattended.md}"
+UNATTENDED_HISTORY="$(dirname "$UNATTENDED_TEMPLATE")/history"
 
 usage() {
-    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | command <repoRoot> <redline|redline-revise> [--force] [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
+    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | command <repoRoot> <redline|redline-revise> [--force] [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--merge [--pick <n>=ours|theirs]... | --keep] [--dry-run] | unattended --version <shape-spec.md> | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh|repoRoot>" >&2
     exit 2
 }
 die2() { echo "redline-setup: $*" >&2; exit 2; }
@@ -328,9 +368,10 @@ cmd_command() {
 # ---------------------------------------------------------------------------------------------
 # unattended
 PY_UNATTENDED='
-import sys, re, json
-tpl_path, gate, prose, retro, prbody, force, out = sys.argv[1:8]
-force = force == "1"
+import sys, re, json, os, difflib
+mode, tpl_path, hist_dir, gate, prose, retro, prbody, force, merge, keep, picks, out = sys.argv[1:13]
+force, merge, keep = force == "1", merge == "1", keep == "1"
+picks = dict(p.split("=", 1) for p in picks.split(",") if p)
 data = sys.stdin.buffer.read()
 bom = data.startswith(b"\xef\xbb\xbf")
 if bom:
@@ -343,6 +384,7 @@ lines = text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
 FENCE = re.compile(r"^([ \t]*)(`{3,}|~{3,})(.*)$")
 HEAD = re.compile(r"^(#{1,6})[ \t]+(.*?)[ \t]*#*[ \t]*$")
 UNHEAD = re.compile(r"^(#{2,6})[ \t]+Unattended mode \(Redline\)[ \t]*$")
+MARK = re.compile(r"^<!-- redline-unattended: (v\d+) -->[ \t]*$")
 def fenced(ls):
     enc = [False] * len(ls)
     opener = None
@@ -372,7 +414,7 @@ def prose_phrase(p):
     return "Step %s stays as written" % p if re.fullmatch(r"\d+", p) else "Steps %s stay as written" % p
 
 GENERIC = "the repository\x27s standard for agent-written PR descriptions"
-want = {"gateSteps": gate, "proseSteps": prose, "retroStep": int(retro), "prBody": prbody if prbody else False}
+want = {"gateSteps": gate, "proseSteps": prose, "retroStep": int(retro) if retro else None, "prBody": prbody if prbody else False}
 
 def read_fillins(sec):
     found = {"gateSteps": None, "proseSteps": None, "retroStep": None, "prBody": False}
@@ -391,21 +433,27 @@ def read_fillins(sec):
             found["prBody"] = m.group(1) if m else GENERIC
     return found
 
-def apply(sec, found):
+# apply(sec, found, fill): the section with fill-ins `fill` written in (a field fill lacks falls back to
+# the wanted one); `found` is what the section carried, so a wanted point 11 missing from it is inserted.
+def apply(sec, found, fill):
+    f = dict(want)
+    for k, v in (fill or {}).items():
+        if v is not None:
+            f[k] = v
     new = []
     for l in sec:
-        l = re.sub(r"\(gate steps \d+ to \d+", "(gate steps %s to %s" % tuple(gate.split("-")), l)
-        l = re.sub(r"Gate step \d+\x27s edits", "Gate step %s\x27s edits" % retro, l)
-        l = re.sub(r"\bSteps? .+? stays? as written", prose_phrase(prose), l)
+        l = re.sub(r"\(gate steps \d+ to \d+", "(gate steps %s to %s" % tuple(f["gateSteps"].split("-")), l)
+        l = re.sub(r"Gate step \d+\x27s edits", "Gate step %s\x27s edits" % f["retroStep"], l)
+        l = re.sub(r"\bSteps? .+? stays? as written", prose_phrase(f["proseSteps"]), l)
         if re.match(r"^11\. \*\*The PR description\.\*\*", l):
-            if not want["prBody"]:
+            if not f["prBody"]:
                 continue
-            l = re.sub(r"\(per (`[^`]+`|" + re.escape(GENERIC) + r")\)", "(per `%s`)" % want["prBody"], l)
+            l = re.sub(r"\(per (`[^`]+`|" + re.escape(GENERIC) + r")\)", "(per `%s`)" % f["prBody"], l)
         new.append(l)
-    if want["prBody"] and found is not None and found["prBody"] is False:
+    if f["prBody"] and found is not None and found["prBody"] is False:
         tpl11 = [t for t in tpl_section if re.match(r"^11\. \*\*The PR description\.\*\*", t)]
         if tpl11:
-            line11 = re.sub(r"\(per " + re.escape(GENERIC) + r"\)", "(per `%s`)" % want["prBody"], tpl11[0])
+            line11 = re.sub(r"\(per " + re.escape(GENERIC) + r"\)", "(per `%s`)" % f["prBody"], tpl11[0])
             for k, l in enumerate(new):
                 if l.startswith("Everything not named above"):
                     while k > 0 and new[k - 1] == "":
@@ -414,18 +462,104 @@ def apply(sec, found):
                     break
     return new
 
-with open(tpl_path, encoding="utf-8") as f:
-    tpl = f.read().split("\n")
-try:
-    cut = tpl.index("---")
-except ValueError:
-    print("redline-setup: %s has no --- line before its section" % tpl_path, file=sys.stderr)
-    sys.exit(2)
-tpl_section = tpl[cut + 1:]
-while tpl_section and tpl_section[0].strip() == "":
-    tpl_section.pop(0)
-while tpl_section and tpl_section[-1].strip() == "":
-    tpl_section.pop()
+# body_of(path): a template file section, everything below its --- line, trimmed.
+def body_of(path):
+    with open(path, encoding="utf-8") as f:
+        t = f.read().split("\n")
+    try:
+        cut = t.index("---")
+    except ValueError:
+        print("redline-setup: %s has no --- line before its section" % path, file=sys.stderr)
+        sys.exit(2)
+    sec = t[cut + 1:]
+    while sec and sec[0].strip() == "":
+        sec.pop(0)
+    while sec and sec[-1].strip() == "":
+        sec.pop()
+    return sec
+
+def marker_of(sec):
+    for l in sec:
+        m = MARK.match(l)
+        if m:
+            return m.group(1)
+    return None
+
+def strip_marker(sec):
+    return [l for l in sec if not MARK.match(l)]
+
+def vnum(v):
+    m = re.fullmatch(r"v(\d+)", v or "")
+    return int(m.group(1)) if m else None
+
+# load_history(): every frozen body under history/, by version; a missing directory is no history.
+def load_history():
+    hist = {}
+    if os.path.isdir(hist_dir):
+        for name in sorted(os.listdir(hist_dir)):
+            m = re.fullmatch(r"shape-spec-unattended\.(v\d+)\.md", name)
+            if m:
+                hist[m.group(1)] = body_of(os.path.join(hist_dir, name))
+    return hist
+
+def ndiff(a, b):
+    sm = difflib.SequenceMatcher(None, a, b, autojunk=False)
+    return sum((i2 - i1) + (j2 - j1) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != "equal")
+
+# merge3(base, ours, theirs): a diff3 over matching blocks. A hunk changed on one side is taken from that
+# side; changed the same way on both, once; changed differently, a conflict, left as ("conflict", n):
+# in a hunk of one length on every side whose lines line up, each line changed differently on both is a
+# conflict alone, so a pick settles that line and never the lines beside it (#64, R1-1); any other hunk
+# is one conflict, a same-length one with a base line anchored at another offset on a side included,
+# since pairing its lines by position would pair different lines and a pick would write one twice (#64, R2-1).
+def merge3(base, ours, theirs):
+    def anchors(a, b):
+        m = {}
+        for i, j, n in difflib.SequenceMatcher(None, a, b, autojunk=False).get_matching_blocks():
+            for k in range(n):
+                m[i + k] = j + k
+        return m
+    bo, bt = anchors(base, ours), anchors(base, theirs)
+    out, conflicts = [], []
+    b = o = t = 0
+    while b < len(base) or o < len(ours) or t < len(theirs):
+        if b < len(base) and bo.get(b) == o and bt.get(b) == t:
+            out.append(base[b])
+            b += 1; o += 1; t += 1
+            continue
+        nb = b
+        while nb < len(base) and not (nb in bo and nb in bt):
+            nb += 1
+        no = bo[nb] if nb < len(base) else len(ours)
+        nt = bt[nb] if nb < len(base) else len(theirs)
+        cb, co, ct = base[b:nb], ours[o:no], theirs[t:nt]
+        if co == cb or co == ct:
+            out.extend(ct)
+        elif ct == cb:
+            out.extend(co)
+        elif len(cb) == len(co) == len(ct) and all(bo.get(b + k, o + k) == o + k and bt.get(b + k, t + k) == t + k for k in range(len(cb))):
+            # A same-length hunk whose lines line up (a base line anchored on a side sits at its own offset
+            # there; #64, R2-1) merges line by line: adjacent lines changed on different sides both come
+            # through, and only a line changed differently on both sides is a conflict, that line alone.
+            for x, y, z in zip(cb, co, ct):
+                if y == x or y == z:
+                    out.append(z)
+                elif z == x:
+                    out.append(y)
+                else:
+                    conflicts.append({"n": len(conflicts) + 1, "base": [x], "ours": [y], "theirs": [z]})
+                    out.append(("conflict", len(conflicts)))
+        else:
+            conflicts.append({"n": len(conflicts) + 1, "base": cb, "ours": co, "theirs": ct})
+            out.append(("conflict", len(conflicts)))
+        b, o, t = nb, no, nt
+    return out, conflicts
+
+def udiff(a, b, na, nb):
+    return "\n".join(difflib.unified_diff(a, b, na, nb, lineterm=""))
+
+tpl_section = body_of(tpl_path)
+tv = marker_of(tpl_section)
 
 enc = fenced(lines)
 start = None
@@ -439,23 +573,100 @@ def emit(obj, code=0):
     print(json.dumps(obj))
     sys.exit(code)
 
+if mode == "version":
+    if start is None:
+        emit({"present": False, "file": None})
+    emit({"present": True, "file": marker_of(lines[start:section_end(lines, enc, start, level)])})
+
 def write(new_lines):
     with open(out, "wb") as f:
         f.write((b"\xef\xbb\xbf" if bom else b"") + nl.join(new_lines).encode("utf-8"))
 
+# with_marker(sec): the section with the template marker as its first line inside it.
+def with_marker(sec):
+    sec = strip_marker(sec)
+    return sec[:1] + ["<!-- redline-unattended: %s -->" % tv] + sec[1:]
+
 if start is not None:
     end = section_end(lines, enc, start, level)
-    found = read_fillins(lines[start:end])
+    sec = lines[start:end]
+    tail = []
+    while sec and sec[-1].strip() == "":
+        tail.insert(0, sec.pop())
+    found = read_fillins(sec)
     differs = {k: {"have": found[k], "want": want[k]} for k in want if found[k] != want[k]}
-    base = {"present": True, "fillins": want, "found": found, "differs": differs, "insertedAt": None}
-    if not differs:
-        emit(dict(base, changed=False))
-    if not force:
+    fv = marker_of(sec)
+    newer = vnum(fv) is not None and vnum(tv) is not None and vnum(fv) > vnum(tv)
+    version = {"template": tv, "file": fv, "match": fv == tv, "newer": newer}
+    base = {"present": True, "fillins": want, "found": found, "differs": differs, "insertedAt": None, "version": version,
+            "base": None, "guessed": False, "templateDiff": None, "handEdits": None, "merged": None, "conflicts": []}
+    def finish(section):
+        write(lines[:start] + section + tail + lines[end:])
+        emit(dict(base, changed=True))
+    def refuse_fillins():
         print("redline-setup: the unattended section already exists with different fill-ins (%s); pass --force to patch them" % ", ".join("%s: %s -> %s" % (k, v["have"], v["want"]) for k, v in differs.items()), file=sys.stderr)
         emit(dict(base, changed=False), 1)
-    new = lines[:start] + apply(lines[start:end], found) + lines[end:]
-    write(new)
-    emit(dict(base, changed=True))
+    if version["match"]:
+        if not differs:
+            emit(dict(base, changed=False))
+        if not force and not merge:
+            refuse_fillins()
+        finish(apply(sec, found, want))
+    if newer:
+        print("redline-setup: the unattended section was made from template %s, newer than the %s this plugin ships; update the plugin" % (fv, tv), file=sys.stderr)
+        emit(dict(base, changed=False), 1)
+    # An older or unmarked section: the three-way view, then --merge or --keep.
+    hist = load_history()
+    cands = dict(hist)
+    cands[tv] = tpl_section
+    if fv is None:
+        scores = {v: ndiff(strip_marker(apply(body, None, found)), strip_marker(sec)) for v, body in cands.items()}
+        bv = min(sorted(scores, key=vnum, reverse=True), key=lambda v: scores[v])
+        guessed = True
+    else:
+        if fv not in hist:
+            print("redline-setup: the unattended section was made from template %s, and %s has no shape-spec-unattended.%s.md to merge from" % (fv, hist_dir, fv), file=sys.stderr)
+            sys.exit(2)
+        bv, guessed = fv, False
+    ours = strip_marker(apply(sec, found, want))
+    base_lines = strip_marker(apply(cands[bv], None, want))
+    theirs = strip_marker(apply(tpl_section, None, want))
+    merged, conflicts = merge3(base_lines, ours, theirs)
+    def rendered(sel=None):
+        outl = []
+        for l in merged:
+            if isinstance(l, tuple):
+                c = conflicts[l[1] - 1]
+                side = (sel or {}).get(str(c["n"]))
+                if side == "ours":
+                    outl.extend(c["ours"])
+                elif side == "theirs":
+                    outl.extend(c["theirs"])
+                else:
+                    outl += ["<<<<<<< shape-spec.md"] + c["ours"] + ["======="] + c["theirs"] + [">>>>>>> template %s" % tv]
+            else:
+                outl.append(l)
+        return outl
+    base = dict(base, base=bv, guessed=guessed,
+                templateDiff=udiff(base_lines, theirs, "template %s" % bv, "template %s" % tv),
+                handEdits=udiff(base_lines, ours, "template %s" % bv, "shape-spec.md"),
+                merged="\n".join(with_marker(rendered())), conflicts=conflicts)
+    for n in picks:
+        if n not in {str(c["n"]) for c in conflicts}:
+            print("redline-setup: --pick %s names no conflict; the merge has %d" % (n, len(conflicts)), file=sys.stderr)
+            sys.exit(2)
+    if keep:
+        if differs and not force:
+            refuse_fillins()
+        finish(with_marker(apply(sec, found, want)))
+    if merge:
+        unpicked = [str(c["n"]) for c in conflicts if str(c["n"]) not in picks]
+        if unpicked:
+            print("redline-setup: the merge has %d conflicting hunk(s); pass --pick <n>=ours|theirs for %s" % (len(conflicts), ", ".join(unpicked)), file=sys.stderr)
+            emit(dict(base, changed=False), 1)
+        finish(with_marker(rendered(picks)))
+    print("redline-setup: the unattended section was made from template %s%s; the plugin ships %s: --merge takes the template\x27s changes (%d conflicting hunk(s) need --pick), --keep marks it %s as it stands" % (bv, " (guessed)" if guessed else "", tv, len(conflicts), tv), file=sys.stderr)
+    emit(dict(base, changed=False), 1)
 
 pre = None
 for i, l in enumerate(lines):
@@ -470,26 +681,38 @@ idx = section_end(lines, enc, pre, plevel)
 if idx >= len(lines):
     print("redline-setup: no heading follows Prerequisites to insert the section before", file=sys.stderr)
     sys.exit(2)
-section = apply(tpl_section, None)
+section = apply(tpl_section, None, want)
 new = lines[:idx] + section + [""] + lines[idx:]
 write(new)
-emit({"present": False, "changed": True, "fillins": want, "found": None, "differs": {}, "insertedAt": idx + 1})
+emit({"present": False, "changed": True, "fillins": want, "found": None, "differs": {}, "insertedAt": idx + 1,
+      "version": {"template": tv, "file": tv, "match": True, "newer": False},
+      "base": None, "guessed": False, "templateDiff": None, "handEdits": None, "merged": None, "conflicts": []})
 '
 cmd_unattended() {
-    local file="" gate="" prose="" retro="" prbody="" nopr=false force=0 dry=false
+    local file="" gate="" prose="" retro="" prbody="" nopr=false force=0 dry=false vfile="" merge=0 keep=0 picks=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
+            --version) [[ $# -ge 2 ]] || die2 "--version needs a file"; vfile="$2"; shift 2 ;;
             --gate-steps) [[ $# -ge 2 ]] || die2 "--gate-steps needs <m>-<n>"; gate="$2"; shift 2 ;;
             --prose-steps) [[ $# -ge 2 ]] || die2 "--prose-steps needs a value"; prose="$2"; shift 2 ;;
             --retro-step) [[ $# -ge 2 ]] || die2 "--retro-step needs a number"; retro="$2"; shift 2 ;;
             --pr-body-standard) [[ $# -ge 2 && -n "$2" ]] || die2 "--pr-body-standard needs a name"; prbody="$2"; shift 2 ;;
             --no-pr-body) nopr=true; shift ;;
             --force) force=1; shift ;;
+            --merge) merge=1; shift ;;
+            --keep) keep=1; shift ;;
+            --pick) [[ $# -ge 2 && "$2" =~ ^[0-9]+=(ours|theirs)$ ]] || die2 "--pick needs <n>=ours|theirs; got '${2:-}'"; picks="${picks:+$picks,}$2"; shift 2 ;;
             --dry-run) dry=true; shift ;;
             -*) usage ;;
             *) [[ -z "$file" ]] || usage; file="$1"; shift ;;
         esac
     done
+    if [[ -n "$vfile" ]]; then
+        # --version takes no other argument: the read-only form, shared with version <repoRoot>.
+        [[ -z "$file$gate$prose$retro$prbody$picks" && "$nopr" == false && $force -eq 0 && $merge -eq 0 && $keep -eq 0 && "$dry" == false ]] || usage
+        version_unattended "$vfile"
+        return
+    fi
     [[ -n "$file" ]] || usage
     [[ -f "$file" && -r "$file" ]] || die2 "$file is not a readable file"
     [[ "$gate" =~ ^([0-9]+)-([0-9]+)$ ]] || die2 "--gate-steps must be <m>-<n>; got '$gate'"
@@ -500,10 +723,12 @@ cmd_unattended() {
         die2 "give exactly one of --pr-body-standard <name> and --no-pr-body"
     fi
     [[ -f "$UNATTENDED_TEMPLATE" ]] || die2 "$UNATTENDED_TEMPLATE is missing"
+    [[ $merge -eq 1 && $keep -eq 1 ]] && die2 "--merge and --keep exclude each other"
+    [[ -n "$picks" && $merge -eq 0 ]] && die2 "--pick needs --merge"
     local abs tmp res rc=0
     abs="$(cd "$(dirname "$file")" && pwd)/$(basename "$file")"
     tmp="$(tmp_beside "$abs")"
-    res="$(python3 -I -c "$PY_UNATTENDED" "$UNATTENDED_TEMPLATE" "$gate" "$prose" "$retro" "$prbody" "$force" "$tmp" < "$abs")" || rc=$?
+    res="$(python3 -I -c "$PY_UNATTENDED" write "$UNATTENDED_TEMPLATE" "$UNATTENDED_HISTORY" "$gate" "$prose" "$retro" "$prbody" "$force" "$merge" "$keep" "$picks" "$tmp" < "$abs")" || rc=$?
     if [[ $rc -ne 0 ]]; then
         rm -f "$tmp"
         [[ -n "$res" ]] && jq --arg file "$abs" '{file: $file} + . + {written: false}' <<<"$res"
@@ -1139,18 +1364,12 @@ cmd_read_checks() {
 
 # ---------------------------------------------------------------------------------------------
 # version
-cmd_version() {
-    [[ $# -eq 1 ]] || usage
-    local file="$1"
-    [[ -f "$file" && -r "$file" ]] || die2 "$file is not a readable file"
-    [[ -f "$TEMPLATE" ]] || die2 "$TEMPLATE is missing"
-    local tv fv
-    tv="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}' || true)"
-    fv="$(grep -m1 '^# redline-template: checks-template.sh ' "$file" | awk '{print $NF}' || true)"
-    [[ -n "$tv" ]] || die2 "$TEMPLATE has no '# redline-template:' line"
-    local match=false newer=false fnum=""
+# version_compare <template version> <file version>: prints {template, file, match, newer} and
+# returns 1 on a mismatch (the caller says which on stderr). Compared as numbers when both read
+# v<digits>: a newer file is not ported back to an older template.
+version_compare() {
+    local tv="$1" fv="$2" match=false newer=false fnum=""
     [[ -n "$fv" && "$fv" == "$tv" ]] && match=true
-    # Compared as numbers when both read v<digits>: a newer file is not ported back to an older template.
     if [[ "$fv" =~ ^v([0-9]+)$ ]]; then
         fnum="${BASH_REMATCH[1]}"
         if [[ "$tv" =~ ^v([0-9]+)$ ]] && (( 10#$fnum > 10#${BASH_REMATCH[1]} )); then
@@ -1159,16 +1378,92 @@ cmd_version() {
     fi
     jq -n --arg t "$tv" --arg f "$fv" --argjson match "$match" --argjson newer "$newer" \
         '{template: $t, file: (if $f == "" then null else $f end), match: $match, newer: $newer}'
-    if [[ "$match" == false ]]; then
-        if [[ -z "$fv" ]]; then
-            echo "redline-setup: $file carries no template version line; the plugin ships checks-template.sh $tv. Run /redline:setup to port it" >&2
-        elif [[ "$newer" == true ]]; then
-            echo "redline-setup: $file was made from checks-template.sh $fv, newer than the $tv this plugin ships; update the plugin" >&2
-        else
-            echo "redline-setup: $file was made from checks-template.sh $fv; the plugin ships $tv. Run /redline:setup to port the change" >&2
-        fi
-        exit 1
+    [[ "$match" == true ]]
+}
+# version_checks <checks.sh>: the file's "# redline-template:" line against the template's.
+version_checks() {
+    local file="$1"
+    [[ -f "$file" && -r "$file" ]] || die2 "$file is not a readable file"
+    [[ -f "$TEMPLATE" ]] || die2 "$TEMPLATE is missing"
+    local tv fv
+    tv="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}' || true)"
+    fv="$(grep -m1 '^# redline-template: checks-template.sh ' "$file" | awk '{print $NF}' || true)"
+    [[ -n "$tv" ]] || die2 "$TEMPLATE has no '# redline-template:' line"
+    version_compare "$tv" "$fv" && return 0
+    if [[ -z "$fv" ]]; then
+        echo "redline-setup: $file carries no template version line; the plugin ships checks-template.sh $tv. Run /redline:setup to port it" >&2
+    elif [[ "$fv" =~ ^v([0-9]+)$ && "$tv" =~ ^v([0-9]+)$ ]] && (( 10#${fv#v} > 10#${tv#v} )); then
+        echo "redline-setup: $file was made from checks-template.sh $fv, newer than the $tv this plugin ships; update the plugin" >&2
+    else
+        echo "redline-setup: $file was made from checks-template.sh $fv; the plugin ships $tv. Run /redline:setup to port the change" >&2
     fi
+    return 1
+}
+# version_unattended <shape-spec.md>: the section's "<!-- redline-unattended: vN -->" marker against
+# the template's (#15). No section or no marker reads as file null.
+version_unattended() {
+    local file="$1"
+    [[ -f "$file" && -r "$file" ]] || die2 "$file is not a readable file"
+    [[ -f "$UNATTENDED_TEMPLATE" ]] || die2 "$UNATTENDED_TEMPLATE is missing"
+    local tv res present fv
+    tv="$(grep -m1 '^<!-- redline-unattended: v' "$UNATTENDED_TEMPLATE" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/' || true)"
+    [[ -n "$tv" ]] || die2 "$UNATTENDED_TEMPLATE has no '<!-- redline-unattended:' marker"
+    res="$(python3 -I -c "$PY_UNATTENDED" version "$UNATTENDED_TEMPLATE" "$UNATTENDED_HISTORY" "" "" "" "" 0 0 0 "" "" < "$file")" || exit $?
+    present="$(jq -r .present <<<"$res")"
+    fv="$(jq -r '.file // ""' <<<"$res")"
+    version_compare "$tv" "$fv" && return 0
+    if [[ "$present" == false ]]; then
+        echo "redline-setup: $file has no unattended section; run /redline:setup" >&2
+    elif [[ -z "$fv" ]]; then
+        echo "redline-setup: the unattended section in $file carries no version marker; the plugin ships template $tv. Run /redline:setup to see the change" >&2
+    elif [[ "$fv" =~ ^v([0-9]+)$ && "$tv" =~ ^v([0-9]+)$ ]] && (( 10#${fv#v} > 10#${tv#v} )); then
+        echo "redline-setup: the unattended section in $file was made from template $fv, newer than the $tv this plugin ships; update the plugin" >&2
+    else
+        echo "redline-setup: the unattended section in $file was made from template $fv; the plugin ships $tv. Run /redline:setup to see the change" >&2
+    fi
+    return 1
+}
+# version_settings <repoRoot>: the allow entries the template carries that settings.json lacks
+# (missing) and the retired ones it still carries (stale), as settings --dry-run reports them under
+# added and stale; the repository's own entries are never reported. Returns 1 when either list has an
+# entry; exits 2 as settings does on a file that is not JSON or starts with a byte-order mark.
+version_settings() {
+    local root="$1" res rc=0
+    res="$(cmd_settings "$root" --dry-run)" || rc=$?
+    [[ $rc -eq 0 ]] || exit $rc
+    jq '{missing: .added, stale: .stale}' <<<"$res"
+    local nm ns
+    nm="$(jq '.added | length' <<<"$res")"
+    ns="$(jq '.stale | length' <<<"$res")"
+    [[ $nm -eq 0 ]] || echo "redline-setup: settings.json lacks $nm $(entries "$nm") the plugin now expects ($(jq -r '.added | join(", ")' <<<"$res")); run /redline:setup" >&2
+    [[ $ns -eq 0 ]] || echo "redline-setup: settings.json carries $ns $(entries "$ns") the plugin retired ($(jq -r '.stale | join(", ")' <<<"$res")); run /redline:setup" >&2
+    [[ $nm -eq 0 && $ns -eq 0 ]]
+}
+entries() { [[ "$1" -eq 1 ]] && echo entry || echo entries; }
+# version <checks.sh>: the file form. version <repoRoot>: the root form, the one call the launch
+# precheck makes (#15): checks.sh, the unattended section and settings.json, one stderr line per
+# warning, exit 1 when any warns.
+cmd_version() {
+    [[ $# -eq 1 ]] || usage
+    if [[ -f "$1" ]]; then
+        version_checks "$1"
+        return
+    fi
+    [[ -d "$1" ]] || die2 "$1 is neither a file nor a directory"
+    local root c u st rc=0 part
+    root="$(cd "$1" && pwd)"
+    [[ -f "$root/.claude/redline/checks.sh" ]] || die2 "$root/.claude/redline/checks.sh is missing"
+    [[ -f "$root/.claude/commands/agent-os/shape-spec.md" ]] || die2 "$root/.claude/commands/agent-os/shape-spec.md is missing"
+    # Each part prints its JSON and returns 1 on a warning; a part that exits 2 (its reason already on
+    # stderr) ends the call with 2.
+    part=0; c="$(version_checks "$root/.claude/redline/checks.sh")" || part=$?
+    [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
+    part=0; u="$(version_unattended "$root/.claude/commands/agent-os/shape-spec.md")" || part=$?
+    [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
+    part=0; st="$(version_settings "$root")" || part=$?
+    [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
+    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" '{checks: $c, unattended: $u, settings: $s}'
+    return $rc
 }
 
 [[ $# -ge 1 ]] || usage
