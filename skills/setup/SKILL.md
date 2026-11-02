@@ -1,6 +1,6 @@
 ---
 name: setup
-description: "Walk this repository through Redline's contract: /redline:setup, run interactively from the repository root. Reads what it can off the repository, asks about the rest, writes .claude/redline/checks.json and the generated checks.sh, redline.json, settings.json, the .gitignore line, the unattended section of shape-spec.md and the CLAUDE.md sentences, runs the baseline, stamps the gate, and hands back a file list and a suggested commit message. A rerun changes nothing when nothing drifted and shows each diff otherwise. Never commits. Use only when the person types /redline:setup."
+description: "Walk this repository through Redline's contract: /redline:setup, run interactively from the repository root. Reads what it can off the repository, asks about the rest, writes .claude/redline/checks.json and the generated checks.sh, redline.json, settings.json, the .gitignore line, the unattended section of shape-spec.md, the CLAUDE.md sentences and the short alias commands /redline and /redline-revise, runs the baseline, stamps the gate, and hands back a file list and a suggested commit message. A rerun changes nothing when nothing drifted and shows each diff otherwise. Never commits. Use only when the person types /redline:setup."
 argument-hint: ""
 ---
 
@@ -8,7 +8,7 @@ argument-hint: ""
 
 You walk one repository through Redline's per-repository contract, in conversation with the person, from the repository's root. Everything that can be scripted is: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh` does the edits (its header is the reference; the README's "Set up a repository" and `checks.sh` sections say what each file is for), `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh` finds the gate and stamps it. You do the reading, the asking and the explaining. You never commit, stage or push: the person does, with the message you suggest at the end.
 
-The thirteen steps below are the issue's; do them in order. A **rerun** on a repository that already has the contract follows the same steps, and each one either reports "nothing drifted" or shows the diff and asks before writing. Everything you write is on a branch; nothing touches `.claude/settings.local.json` or the plugin's own files.
+The fourteen steps below are the issue's (#6), plus the short aliases of #44 as step 12; do them in order. A **rerun** on a repository that already has the contract follows the same steps, and each one either reports "nothing drifted" or shows the diff and asks before writing. Everything you write is on a branch; nothing touches `.claude/settings.local.json` or the plugin's own files.
 
 ## 1. Preflight, read only
 
@@ -20,7 +20,8 @@ The thirteen steps below are the issue's; do them in order. A **rerun** on a rep
    - `.claude/redline/checks.json` and `.claude/redline/checks.sh` (either, both, neither; `redline-setup.sh version <checks.sh>` and `redline-gate.sh check <repoRoot>` when `checks.sh` exists: their exit codes and lines);
    - `.claude/redline.json`; `.claude/settings.json` (and, in it, any allow entry an earlier template added that the current one no longer carries: `${CLAUDE_PLUGIN_ROOT}/templates/settings.retired.json` lists them, and step 8 reports them as `stale`); the `.gitignore` line `.claude/redline.local.json`;
    - the `## Unattended mode (Redline)` heading in `shape-spec.md`;
-   - the CLAUDE.md sentence (`When the prompt identifies the session as a Redline agent run`) and paragraph (`Redline labels its own work as "Redline"`), and the paragraph's last sentence (`Configuration that selects a model`).
+   - the CLAUDE.md sentence (`When the prompt identifies the session as a Redline agent run`) and paragraph (`Redline labels its own work as "Redline"`), and the paragraph's last sentence (`Configuration that selects a model`);
+   - the two alias command files, `.claude/commands/redline.md` and `.claude/commands/redline-revise.md`: each absent, Redline's (a line starting `<!-- redline-alias:`) or a person's own command of that name (no such line).
 6. `selfHosted`: true when `repoRoot` is the plugin itself (`cd <repoRoot> && pwd -P` equals `cd ${CLAUDE_PLUGIN_ROOT} && pwd -P`). It only changes the paths the generated `checks.sh` header names.
 
 Say what you found in a few lines: fresh setup or rerun, and what exists.
@@ -141,13 +142,32 @@ It prints the line it wrote, which must equal step 5's: the section was inserted
 
 From `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-git-sentence.md`: append the sentence to the Git rule that keeps agents from committing, and add the paragraph after the rule that forbids AI attribution. Show the target lines first, then Edit. Skip each that is already present (step 1's inventory). On a rerun that finds the paragraph without its last sentence (`Configuration that selects a model`), append that sentence to the paragraph in place with Edit: the `models` keys `redline.json` carries are configuration, and without the sentence a reviewer reads them as a violation of the attribution rule (#50). When CLAUDE.md has no such rule, ask whether to add the sentence as its own bullet under a Git heading, or the paragraph at all (it only matters where attribution is forbidden).
 
-## 12. Verify
+## 12. Short aliases
+
+The two project command files that make `/redline <pr> ...` and `/redline-revise <pr> ...` work beside the namespaced `/redline:redline` and `/redline:redline-revise` (#44): `.claude/commands/redline.md` and `.claude/commands/redline-revise.md`, each written verbatim from the plugin's `templates/command-redline.md` and `templates/command-redline-revise.md`, a one-line command that invokes the namespaced skill with `$ARGUMENTS`. They are ordinary repository files, not under `.claude/redline/` and not guarded.
+
+Fresh setup, or a rerun whose inventory found neither file: ask once with `AskUserQuestion`, "Write the short aliases `/redline` and `/redline-revise`?", with **Yes** first (the default; the namespaced commands keep working either way). Nothing records a no, so a later rerun that finds both absent asks again. On a yes, for each of `redline` and `redline-revise`:
+
+```
+${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh command <repoRoot> <name>
+```
+
+and say the file it wrote (`status: absent`, `written: true`).
+
+Rerun with a file present: run the same command with `--dry-run` first, for each name, and read `status`:
+
+- `unchanged`: "nothing drifted".
+- `differs` (exit 1; the file carries the marker line but not the template's bytes): show the unified diff in `diff` and ask; on a yes rerun with `--force`, which rewrites the file from the template; on a no the file stays as the person's edit.
+- `foreign` (no marker line): a person's own `/redline` or `/redline-revise` command. Say so in one line ("`.claude/commands/redline.md` is not Redline's: no marker line; left alone, the namespaced command still works") and never write it, `--force` or not.
+- `absent` for one name while the other is present: ask for that one as a fresh setup does.
+
+## 13. Verify
 
 From the repository: `${CLAUDE_PLUGIN_ROOT}/tests/guard-test.sh` prints `N passed, 0 mismatched`; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` exits 0; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh version <repoRoot>/.claude/redline/checks.sh` exits 0; `jq . <repoRoot>/.claude/redline.json` and `jq . <repoRoot>/.claude/redline/checks.json` parse; the baseline was green in step 6; `gh auth status` signed in.
 
-## 13. Hand back
+## 14. Hand back
 
-Print, in this order: the files written or changed (`git status --porcelain`, `checks.json` among them), the baseline result and wall time, and a suggested commit message and PR title:
+Print, in this order: the files written or changed (`git status --porcelain`, `checks.json` and the two alias files among them), the baseline result and wall time, and a suggested commit message and PR title:
 
 - commit: `Set up Redline for review and revise runs on pull requests` (a rerun: `Bring the Redline contract up to date`), and the files to stage by name;
 - PR title: `Set up Redline`.
@@ -156,7 +176,7 @@ On a rerun that changed nothing, say "nothing drifted" and list what was checked
 
 ## Rules
 
-- You write only the files named above, through the scripts where one exists (the ask rules reach `redline.json` only through `config --ask-rules`), and never `.claude/settings.local.json` or anything under `${CLAUDE_PLUGIN_ROOT}`.
+- You write only the files named above, through the scripts where one exists (the ask rules reach `redline.json` only through `config --ask-rules`; the alias files only through `command`), and never `.claude/settings.local.json` or anything under `${CLAUDE_PLUGIN_ROOT}`.
 - Nothing you write names a model, a vendor or an AI assistant; Redline labels its own work as Redline.
 - A headless session (`claude -p`) has no `AskUserQuestion`: stop in step 1 with one line saying setup is interactive.
 - The repository's CLAUDE.md Git section stands: no commit, no push, no staging.
