@@ -676,6 +676,46 @@ for ((n=1; n<UN; n++)); do
         && ok "history: v$n is frozen with its marker and its --- line" || bad "history: v$n is frozen with its marker and its --- line" "$hf"
 done
 [[ ! -e "$UHIST/shape-spec-unattended.$UV.md" ]] && ok "history: the current version is not frozen" || bad "history: the current version is not frozen" "$UHIST/shape-spec-unattended.$UV.md exists"
+# Every unattended body is pinned by version (#64, R1-2): the sha256 of the lines after the first ---
+# line, for the current template and each frozen copy under templates/history/. A body change that left
+# the marker where it was, or an edit to a frozen copy, fails here. A bump adds its version's line below,
+# which is the reminder to freeze the previous body in the same commit; the older lines never change.
+ubody_pin() {
+    case "$1" in
+        v1) echo "a408539181c8e3bc9719ad4b8544705158b0ce48a9cd69f25be3b2f3e6836421" ;;
+        v2) echo "223a713c121ca604bdc5aba264485b3af64a5d49a0730d0ed9382ac94bacf9d4" ;;
+        v3) echo "e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a" ;;
+    esac
+}
+# ubody_sha <file>: the sha256 of the file's body, the lines after its first --- line.
+ubody_sha() { awk 'f { print } /^---$/ { f = 1 }' "$1" | shasum -a 256 | awk '{ print $1 }'; }
+# ubody_ok <template> <history dir>: every version's body matches its pin; prints the first that does not.
+ubody_ok() {
+    local t="$1" h="$2" v n got want
+    v="$(grep -m1 '^<!-- redline-unattended: v' "$t" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
+    for ((n=1; n<${v#v}; n++)); do
+        want="$(ubody_pin "v$n")"; got="$(ubody_sha "$h/shape-spec-unattended.v$n.md")"
+        [[ -n "$want" && "$got" == "$want" ]] || { echo "v$n (frozen): pinned ${want:-nothing}, got $got; a frozen copy never changes"; return 1; }
+    done
+    want="$(ubody_pin "$v")"; got="$(ubody_sha "$t")"
+    [[ -n "$want" && "$got" == "$want" ]] || { echo "$v (current): pinned ${want:-nothing}, got $got; a body change bumps the marker, freezes the previous body under templates/history/ and pins the new version here"; return 1; }
+}
+msg="$(ubody_ok "$UT" "$UHIST")" && ok "history: every unattended body matches its pinned hash ($UV and the frozen copies)" || bad "history: every unattended body matches its pinned hash ($UV and the frozen copies)" "$msg"
+# A reworded body line under the same marker fails, naming the current version.
+PN="$WORK/pin-nobump"; mkdir -p "$PN/history"; cp "$UHIST"/shape-spec-unattended.v*.md "$PN/history/"
+sed 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** REWORDED WITHOUT A BUMP./' "$UT" > "$PN/shape-spec-unattended.md"
+msg="$(ubody_ok "$PN/shape-spec-unattended.md" "$PN/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "$UV (current):"* ]] && ok "pins: a body change without a bump fails, naming $UV" || bad "pins: a body change without a bump fails, naming $UV" "exit $rc: $msg"
+# An edit to the previous version's frozen copy fails, naming that version.
+PF="$WORK/pin-frozen"; mkdir -p "$PF/history"; cp "$UT" "$PF/shape-spec-unattended.md"; cp "$UHIST"/shape-spec-unattended.v*.md "$PF/history/"
+awk '{ print } END { print "A FROZEN EDIT." }' "$UHIST/shape-spec-unattended.v$((UN-1)).md" > "$PF/history/shape-spec-unattended.v$((UN-1)).md"
+msg="$(ubody_ok "$PF/shape-spec-unattended.md" "$PF/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "v$((UN-1)) (frozen):"* ]] && ok "pins: an edit to a frozen copy fails, naming v$((UN-1))" || bad "pins: an edit to a frozen copy fails, naming v$((UN-1))" "exit $rc: $msg"
+# A bump done right (marker bumped, previous body frozen) with no new pin still fails: the bump touches the test.
+PB="$WORK/pin-bump"; mkdir -p "$PB/history"; cp "$UHIST"/shape-spec-unattended.v*.md "$PB/history/"; cp "$UT" "$PB/history/shape-spec-unattended.$UV.md"
+sed -e "s/^<!-- redline-unattended: $UV -->\$/<!-- redline-unattended: v$((UN+1)) -->/" -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** REWORDED WITH A BUMP./' "$UT" > "$PB/shape-spec-unattended.md"
+msg="$(ubody_ok "$PB/shape-spec-unattended.md" "$PB/history")"; rc=$?
+[[ $rc -ne 0 && "$msg" == "v$((UN+1)) (current): pinned nothing"* ]] && ok "pins: a bump with no pin for v$((UN+1)) fails" || bad "pins: a bump with no pin for v$((UN+1)) fails" "exit $rc: $msg"
 
 echo "# version"
 expect_exit "the template matches itself" 0 version "$TEMPLATE"
