@@ -185,3 +185,30 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-1420-64-review-round-1/plan.md`, `agent-os/specs/2026-11-02-1420-64-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #64 round 1 as built (#15)`
+
+---
+
+## As built
+
+Commits, in order: `17db6d6` (Task 1, the spec folder), `24d5661` (Task 2, R1-1), `17564c1` (Task 3, R1-2), `f15cd40` (Task 4, the standards retrospective, all four approved edits), and this one (Task 5).
+
+- **Starting count.** `setup` read 436 passed before Task 2, not the 438 the plan took from the PR description, so every count below sits two lower than the plan's. The red and green runs are judged by the change from 436, as the plan's preamble says: four new failures, then ten more passes; then four new failures, then four more passes.
+- **Task 2 red.** `setup`: 442 passed, 4 failed (plan: 444, 4). The four failing cases, exactly the planned ones:
+  - `a conflict beside a hand edit: one conflict, that line alone` (got `1,2,2,2,true`)
+  - `a conflict beside a hand edit, --pick 1=theirs: the hand edit beside it kept`
+  - `a conflict beside a template change: one conflict, that line alone` (got `1,2,true`)
+  - `a conflict beside a template change, --pick 1=ours: the template's line beside it taken`
+- **Task 2 green.** `setup`: 446 passed, 0 failed (plan: 448). Every other check exit 0. Proof: `grep -n "a conflict alone" scripts/redline-setup.sh` prints line 510; `grep -c "that line alone" tests/setup-test.sh` prints `2`.
+- **Task 3 red.** `setup`: 446 passed, 4 failed (plan: 448, 4). The four failing cases, each stopping at `v1 (frozen): pinned pending`:
+  - `history: every unattended body matches its pinned hash (v3 and the frozen copies)`
+  - `pins: a body change without a bump fails, naming v3`
+  - `pins: an edit to a frozen copy fails, naming v2`
+  - `pins: a bump with no pin for v4 fails`
+- **Task 3 pins**, from the plan's pipeline (`awk 'f { print } /^---$/ { f = 1 }' <file> | shasum -a 256`):
+  - v1 (`templates/history/shape-spec-unattended.v1.md`): `a408539181c8e3bc9719ad4b8544705158b0ce48a9cd69f25be3b2f3e6836421`
+  - v2 (`templates/history/shape-spec-unattended.v2.md`): `223a713c121ca604bdc5aba264485b3af64a5d49a0730d0ed9382ac94bacf9d4`
+  - v3 (`templates/shape-spec-unattended.md`): `e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a`
+- **Task 3 green.** `setup`: 450 passed, 0 failed (plan: 452). Every other check exit 0. Proof: `grep -c 'echo "pending"' tests/setup-test.sh` prints `0`; the 64-hex pin line count prints `3`. The gate's `setup` stdout is cut to its tail (`truncated: true`), so the four new names are not in it; the 0-failed count is the evidence that they pass.
+- **Task 4.** The standards commit is `redline: record the round 1 review lessons in the standards, finishing R1-2 (#15)`, not the plan's message without the finding: the approved item 3 (the `tests.md` exception and the `bash-conventions.md` pin clause) carries the rest of R1-2's decided fix, so R1-2's reply names both commits. Items 1 and 2 are lessons from R1-1 and name no finding.
+- **Gate step 10, Docs.** Task 2 (`scripts/redline-setup.sh`): commit `24d5661`, no reader-facing change, because the header, README "Upgrading", the `redline-setup.sh` table and the setup skill already say a conflict is a line. Task 2's and Task 3's cases (`tests/setup-test.sh`, commits `24d5661` and `17564c1`): not under a Docs directory. No new config key, subcommand, flag, allow rule, JSON key or exit code.
+- **Gate step 11.** Task 4, commit `f15cd40`.

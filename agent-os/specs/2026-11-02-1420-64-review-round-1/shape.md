@@ -51,6 +51,12 @@ Neither the PR description nor the original spec answers this (Unattended answer
 
 Decided by: @michaelfromtheoutfit
 
+### As built: the starting count and the standards commit's message
+
+`setup` read 436 passed before Task 2, not 438, so every planned count sits two lower (red 442/4 and green 446/0 for Task 2, red 446/4 and green 450/0 for Task 3); the cases and the failing names are as planned. The standards commit names R1-2 (`..., finishing R1-2 (#15)`), because its approved item 3 carries the rest of R1-2's decided fix. See plan.md, As built.
+
+Decided by: redline
+
 ## Unattended answers
 
 1. **Is a conflict meant to be the whole hunk or the one line? (R1-1)** Answered by the script's own header and the README. `scripts/redline-setup.sh:50-51`: "a hunk of one length on every side is merged line by line, and a line changed in both differently is a conflict". `README.md:36`, Upgrading: "merges the template's changes in while keeping the hand edits (`redline-setup.sh unattended ... --merge`), asking per conflicting line". `README.md:334`: "a same-length hunk merged line by line, a line changed differently on both sides a conflict settled by `--pick <n>=ours|theirs`". The original spec, `shape.md` decision 14: "a hunk of one length on every side whose lines each changed on at most one side is merged line by line, and a line changed differently on both sides still conflicts". The code is what disagrees, so the fix is in the code.
