@@ -1,0 +1,1 @@
+Redline round 1: fixed in 24d5661 (redline: R1-1 conflict a same-length hunk line by line so a pick settles only its line (#15)). · decided by: redline
