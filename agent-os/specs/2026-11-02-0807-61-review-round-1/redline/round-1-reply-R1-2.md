@@ -1,0 +1,1 @@
+Redline round 1: fixed in 8e2dda2 (redline: R1-2 let a reshape leave out a judgment call the round already decided (#57)). · decided by: redline

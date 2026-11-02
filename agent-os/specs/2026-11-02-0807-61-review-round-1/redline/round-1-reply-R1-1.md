@@ -1,0 +1,1 @@
+Redline round 1: fixed in 5bfb628 (redline: R1-1 let a stopped run relaunch from the command line in the relaunch rule and the README (#60)). · decided by: redline

@@ -488,6 +488,11 @@ redline:redline-reviewer	allow	Bash	cat .claude/redline/checks.json
 # with git status, stages them by name (agent-os/specs/ only, its write prefix), commits with the
 # redline: prefix and pushes. Read-only git is all it gains for reading: no file tools.
 redline:redline-github	allow	Bash	git -C REPO/ status --porcelain --untracked-files=all -- agent-os/specs/2026-10-20-1600-42-review-round-1/redline/ agent-os/specs/2026-10-20-1600-42-review-round-2/redline/
+# #57: the spec check runs two git grep lines as the GitHub role, which has git-read and no read group: git grep
+# --no-index lists untracked spec files and tests the Decisions heading; plain grep stays refused for the role.
+redline:redline-github	allow	Bash	git -C REPO/ grep --no-index -l -e '' -- agent-os/specs/2026-11-02-0744-57-review-round-1/plan.md agent-os/specs/2026-11-02-0744-57-review-round-1/shape.md agent-os/specs/2026-11-02-0744-57-review-round-1/standards.md agent-os/specs/2026-11-02-0744-57-review-round-1/references.md
+redline:redline-github	allow	Bash	git -C REPO/ grep --no-index -l -e '^## Decisions' -- agent-os/specs/2026-11-02-0744-57-review-round-1/shape.md
+redline:redline-github	deny	Bash	grep -l '^## Decisions' REPO/agent-os/specs/2026-11-02-0744-57-review-round-1/shape.md	not on the github's allowlist
 redline:redline-github	allow	Bash	git -C REPO/ add -- agent-os/specs/2026-10-20-1600-42-review-round-1/redline/round-1-reply-R1-1.md agent-os/specs/2026-10-20-1600-42-review-round-2/redline/handoff.md
 redline:redline-github	allow	Bash	git -C REPO/ commit -m "redline: record the run's replies, reviews and handoff for PR #42 (#42)"
 redline:redline-github	allow	Bash	git -C REPO/ rev-parse HEAD

@@ -258,7 +258,7 @@ const GH = `${pluginRoot}/scripts/redline-gh.sh`
 const CHECKS = `${repoRoot}/.claude/redline/checks.sh`
 const BACKGROUND = `${pluginRoot}/scripts/redline-background.sh`
 const README_URL = 'https://github.com/fromtheoutfit/redline/blob/main/README.md'
-const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (the launch command, or on a relaunch their last line in the session) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
+const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, or the word \`relaunch\` after a hand-off) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
@@ -508,6 +508,14 @@ const FILE_OP_SCHEMA = {
   type: 'object',
   required: ['operation', 'files', 'error'],
   properties: { operation: str, files: strings, error: str },
+}
+
+// The spec check (#57): the spec folder's files and the Decisions heading, as the GitHub agent's
+// two git grep commands print them.
+const SPEC_STATUS_SCHEMA = {
+  type: 'object',
+  required: ['operation', 'files', 'headings', 'error'],
+  properties: { operation: str, files: strings, headings: strings, error: str },
 }
 
 const JUDGMENT_CALL_SCHEMA = {
@@ -1438,6 +1446,23 @@ Set files to the path on each line it prints (the text after the two status lett
 Return only the JSON your instructions specify, with operation "record-status".`
 }
 
+// The spec check (#57). Read-only, two fixed commands: the GitHub role has git-read, not grep or
+// ls, and git grep --no-index lists untracked files. The prompt never mentions a decision, so it
+// replays from cache on every relaunch.
+function specStatusPrompt(pass, specFolder) {
+  return `${RUN_LINE}
+
+Operation: spec-status (${pass.name}). Read only. Run these two commands once each, exactly as given, and nothing else:
+
+git -C ${repoRoot} grep --no-index -l -e '' -- ${specFolder}/plan.md ${specFolder}/shape.md ${specFolder}/standards.md ${specFolder}/references.md
+
+git -C ${repoRoot} grep --no-index -l -e '^## Decisions' -- ${specFolder}/shape.md
+
+Set files to the paths the first printed and headings to the paths the second printed, each exactly as printed and [] when nothing was printed. A non-zero exit, or a warning that a directory could not be opened, means a file is missing and is not an error: leave error empty. Set error only when a command was refused or could not run.
+
+Return only the JSON your instructions specify, with operation "spec-status".`
+}
+
 function recordCommitPrompt(files, message) {
   const step3 = push
     ? `Step 3. Push: run \`git -C ${repoRoot} push origin ${headRef}\` once and set pushed true. If it is rejected, set error to git's message.`
@@ -1919,6 +1944,64 @@ function checkDispositions(pass, shaped) {
   }
 }
 
+// Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
+// shaper's rule 10 says; the script pins it, so a call can never stand in for a finding the shaper
+// did not write as an ask. Runs before forceAskRules, which adds the one call the workflow writes,
+// for a finding a repository ask rule covers. On a reshape, `known` is the round's calls so far: a
+// call the round already decided may be left out or kept beside a re-sorted finding, since the
+// reshape returns only the calls still pending or newly raised (#61, R1-2).
+function checkCalls(shaped, known = []) {
+  const decided = (id) => known.some((c) => c.id === id)
+  const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
+  if (noCall.length) {
+    throw stageError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
+  }
+  for (const call of shaped.judgmentCalls) {
+    if (decided(call.id)) {
+      continue
+    }
+    const f = shaped.findings.find((x) => x.id === call.id)
+    if (!f || f.disposition !== 'ask') {
+      throw stageError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
+    }
+  }
+}
+
+// The spec check (#57): the shaper's JSON can be valid while the folder behind it is not (PR #54
+// round 2: a halted shaper returned every finding as an ask with no shape.md, and the person was
+// handed eight placeholder calls). The GitHub agent's read-only spec-status operation lists the
+// four files and the Decisions heading, and the script decides. A missing plan.md, shape.md or
+// Decisions section is a shape-stage error that names the shaper, so a resume reruns it with the
+// replace sentence; the check's own failure keeps its own label, so a resume reruns the check.
+// A missing standards.md or references.md is a warning.
+async function checkSpec(pass, specFolder, shaperLabel, suffix) {
+  const status = await run('shape', specStatusPrompt(pass, specFolder), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `spec status ${pass.tag}${suffix}`, phase: 'Shape', schema: SPEC_STATUS_SCHEMA,
+  })
+  if (status.error) {
+    throw stageError('shape', `checking the ${pass.name} spec folder failed: ${status.error}`)
+  }
+  const listed = (list) => (Array.isArray(list) ? list : []).map((path) => String(path).trim())
+  const has = (name) => listed(status.files).includes(`${specFolder}/${name}`)
+  const missing = []
+  if (!has('plan.md')) {
+    missing.push('no plan.md')
+  }
+  if (!has('shape.md')) {
+    missing.push('no shape.md')
+  } else if (!listed(status.headings).includes(`${specFolder}/shape.md`)) {
+    missing.push('no "## Decisions" section in shape.md')
+  }
+  if (missing.length) {
+    throw stageError('shape', `the shaper wrote no usable spec in ${specFolder}: ${missing.join(', ')}`, { specFolder, missing }, shaperLabel)
+  }
+  for (const name of ['standards.md', 'references.md']) {
+    if (!has(name)) {
+      warnings.push(`${pass.name}: the shaper wrote no ${name} in ${specFolder}`)
+    }
+  }
+}
+
 // The forcing point (#49): after shaping, whatever fix, defer or ask the shaper returned, a finding
 // a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
 // and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
@@ -2093,6 +2176,8 @@ async function revise(record, inScope, reviewedKind) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
+  checkCalls(shaped)
+  await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
   record.dispositions = shaped.findings
 
@@ -2208,6 +2293,8 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
     })
     checkDispositions(pass, shaped)
+    checkCalls(shaped, calls)
+    await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
