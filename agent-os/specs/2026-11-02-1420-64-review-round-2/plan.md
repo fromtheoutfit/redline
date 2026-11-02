@@ -136,3 +136,17 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-1420-64-review-round-2/plan.md`, `agent-os/specs/2026-11-02-1420-64-review-round-2/shape.md`.
 
 **Commit:** `redline: record PR #64 round 2 as built (#15)`
+
+## As built
+
+Commits, in order: `65d1a4a` (Task 1, the spec folder), `75a40c8` (Task 2, R2-1), `91d7154` (Task 3, the standards retrospective, both approved edits), and this one (Task 4).
+
+- **Starting count.** `setup` read 450 passed, 0 failed before Task 2, as the plan took from round 1's As built.
+- **Task 2 red.** `setup`: 455 passed, 2 failed, as planned. The two failing cases, exactly the planned ones:
+  - `a shifted anchor in a same-length hunk: one conflict, the whole hunk`
+  - `a shifted anchor, --pick 1=theirs: point 2 once`
+- **Task 2 green.** `setup`: 457 passed, 0 failed. Every other check exit 0. Proof: `grep -c "#64, R2-1" scripts/redline-setup.sh` prints `2`; `grep -c "a shifted anchor" tests/setup-test.sh` prints `7`; `grep -c "whose lines line up merged line by line" README.md` prints `1`.
+- **Task 3.** The standards commit is the plan's message, naming no finding: both approved edits are lessons from R2-1 (missing detail), and R2-1's fix is whole in `75a40c8`.
+- **Gate step 10, Docs.** Task 2 (`scripts/redline-setup.sh`): README's `redline-setup.sh` table, `unattended` row, in commit `75a40c8`. Task 2's cases (`tests/setup-test.sh`, commit `75a40c8`): not under a Docs directory. No new config key, subcommand, flag, allow rule, JSON key or exit code.
+- **Gate step 11.** Task 3, commit `91d7154`.
+- **Deviations.** None.
