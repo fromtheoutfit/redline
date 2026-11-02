@@ -1,0 +1,43 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "58c0666b5bd931693c7fda65d5b1f2eefd3cab3e",
+    "to": "58c0666b5bd931693c7fda65d5b1f2eefd3cab3e"
+  },
+  "summary": "The spec check is narrow and well pinned. It is a read-only operation with two fixed `git grep --no-index` commands, which I confirmed list existing files and silently omit missing ones. Its errors carry resumeFrom labels that rerun the right agent, and the loop test gains guard rows and missing-file cases for it. Moving the #60 fix into the skill with a typed `relaunch` is the right layer. Both findings are about edges the new rules did not cover: the reshape path, where a decided ask's call is no longer returned and now trips checkCalls, and the stopped-run relaunch, which the relaunch rule and the README describe differently from the section that performs it.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "skills/redline/SKILL.md",
+      "line": 211,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Relaunch rule leaves out relaunching a stopped run from a command line",
+      "description": "Three places disagree on when a bare Redline command line counts as the relaunch line.\n\n- The relaunch rule (SKILL.md:211) calls `Workflow(...)` only in a turn whose user message is exactly `relaunch`, or whose message is a line holding only a Redline command, and it allows the command line only \"on a launch or a resume (section 2)\".\n- \"stopped before a result\" (SKILL.md:171) relaunches in the same session from a bare command line too, which is what plan.md Task 5.5 intends.\n- README.md:189 lists \"a stopped run\" among the cases that need `relaunch` typed.\n\nA skill that follows the rule or the README will ask for `relaunch` after a stop even when the launch command is still the last typed line. In a headless session nobody can answer that. A headless session is the first stop that section names (the background-task ceiling), and it relays nothing anyway. Also, the turn that sees a stopped run is a task notification, not a user message, so the rule's own wording forbids that relaunch.\n\nSKILL.md:52 says every relaunch from a marker \"starts from the line holding only the command ... nothing else is typed first\". But the `handoff` and `reviewed` sections it hands on to accept typed answer-form lines and then ask for the typed word.",
+      "proposedFix": "1. In the rule at SKILL.md:211, name the in-session relaunch of a stopped run next to a launch and a resume, and say \"the last typed line\" instead of \"a turn whose user message\".\n2. In README.md:189, move \"a stopped run\" to the command-line list, or say that both lines pass for it.\n3. Limit the sentence at SKILL.md:52 to the `error` and `stopped` marker kinds.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "workflows/redline-loop.js",
+      "line": 2290,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "likely",
+      "title": "A reshape after a decided ask fails the new checkCalls",
+      "description": "The reshape prompt (reshapePrompt, workflows/redline-loop.js:1172) asks for \"every judgment call still pending or newly raised\". By the time of a reshape, the resolve agent has already written the person's or the autopilot's decision into shape.md. A reshape that follows the prompt therefore returns the decided ask's finding without its call. The `decidedBy` enum leaves `ask`/`pending` as the natural way to report an accepted ask.\n\nThis PR now runs `checkCalls(shaped)` on the reshape (line 2290), which throws \"the shaper marked R1-2 as ask but returned no judgment call for it\". A reshape that re-sorts a decided \"Change it\" as `fix` but still returns its call (shaper rule 10) hits the other branch: \"returned a judgment call for R1-2, which it sorted as fix\". Before this PR the reshape path accepted both shapes, because `raised` (line 2296) looks only for calls the round has not seen.\n\nHow it happens:\n1. A guided hand-off on R1-2, then a relaunch with the decision.\n2. `resolve r1` writes the decision, then the plan approver bounces the plan.\n3. `reshape r1 #1` returns R1-2 without its call, and the run errors at stage `shape` with resumeFrom `reshape r1 #1`, after the person has already answered.\n4. A resume reruns the same prompt with the same ambiguity, so it can fail the same way.\n\nAutopilot hits the same path with nobody watching. The forced-ask finding is exposed too, because `checkCalls` runs before `forceAskRules` on the reshape. The loop test's mock reshape always re-returns every ask's call, so section 14 does not cover this.\n\nI traced this from the code: the reviewer role may not run `node`. The scratch harness I wrote (/tmp/redlinerepro/reviewer-r1-repro.mjs) runs the path and was not executed.",
+      "proposedFix": "Pass the round's known calls to the reshape check, `checkCalls(shaped, calls)`. An `ask` whose id is already in `calls` (decided this round) needs no new call, and a call whose id is in `calls` does not count as extra even if the reshape re-sorted that finding. Pin it with a loop-test scenario: a guided relaunch with R1-2 decided and `planBounce: 1`, where the reshape mock (a new scenario key, e.g. `reshapeOmitsDecided`) returns R1-2 as ask/pending with `judgmentCalls: []`; assert the run finishes `done`. Rewording reshapePrompt to require every ask finding's call, decided or not, would also help, but only the script check makes it certain.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "pr": 61,
+  "start_sha": "58c0666b5bd931693c7fda65d5b1f2eefd3cab3e",
+  "base_ref": "main",
+  "files": [
+    "README.md",
+    "agent-os/specs/2026-11-02-0744-57-60-relaunch-path-spec-check-and-relay/plan.md",
+    "agent-os/specs/2026-11-02-0744-57-60-relaunch-path-spec-check-and-relay/references.md",
+    "agent-os/specs/2026-11-02-0744-57-60-relaunch-path-spec-check-and-relay/shape.md",
+    "agent-os/specs/2026-11-02-0744-57-60-relaunch-path-spec-check-and-relay/standards.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/workflow/replay.md",
+    "agents/redline-github.md",
+    "skills/redline/SKILL.md",
+    "tests/guard-cases.tsv",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "workflows/redline-loop.js",
+    "tests/loop-test.mjs",
+    "README.md",
+    "skills/redline/SKILL.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/specs/2026-11-02-0807-61-review-round-1/"
+  ]
+}
