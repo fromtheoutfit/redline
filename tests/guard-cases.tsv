@@ -184,6 +184,10 @@ redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh comment 42 /tmp/c.
 redline:redline-standards-approver	deny	Bash	PLUGIN/scripts/redline-gh.sh issues-search "x"
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh place 42 /tmp/review.json
 redline:redline-implementer	allow	Write	.claude/commands/agent-os/shape-spec.md
+# Alias command files (#44): ordinary content under .claude/commands/, beside the protected copies.
+redline:redline-implementer	allow	Write	.claude/commands/redline.md
+redline:redline-implementer	allow	Write	.claude/commands/redline-revise.md
+redline:redline-implementer	deny	Write	.claude/skills/redline/SKILL.md
 redline:redline-implementer	allow	Edit	CLAUDE.md
 redline:redline-implementer	allow	Bash	git add CLAUDE.md .claude/commands/agent-os/shape-spec.md
 redline:redline-implementer	allow	Bash	git commit -m "redline: R1-8 point the git tip in .claude/commands/agent-os/shape-spec.md at CLAUDE.md (#42)"
@@ -394,6 +398,7 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	PLUGIN/scripts/redline-gate.sh stamp REPO/x.md REPO/.claude/redline/checks.sh
 -	allow	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
 -	inert	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/
+-	inert	Bash	PLUGIN/scripts/redline-setup.sh command REPO/ redline
 -	allow	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ 42
 -	allow	Bash	git diff HEAD~1
 -	allow	Bash	git log -1
@@ -479,6 +484,7 @@ redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh settings R
 redline:redline-github	deny	Bash	PLUGIN/scripts/redline-setup.sh unattended REPO/.claude/commands/agent-os/shape-spec.md --gate-steps 1-3 --prose-steps 4 --retro-step 4 --no-pr-body
 redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-setup.sh read-checks REPO/.claude/redline/checks.sh
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh command REPO/ redline
 redline:redline-implementer	deny	Write	.claude/redline/checks.json
 redline:redline-implementer	deny	Edit	REPO/.claude/redline/checks.json
 redline:redline-reviewer	allow	Bash	cat .claude/redline/checks.json
@@ -545,6 +551,8 @@ redline:redline-implementer	allow	Edit	README.md
 redline:redline-implementer	allow	Edit	.claude-plugin/plugin.json
 redline:redline-implementer	allow	Edit	templates/settings.allow.json
 redline:redline-implementer	allow	Write	.claude/commands/agent-os/shape-spec.md
+# Alias command files (#44), the self-hosted case: still ordinary content.
+redline:redline-implementer	allow	Write	.claude/commands/redline.md
 redline:redline-implementer	allow	Edit	CLAUDE.md
 redline:redline-implementer	allow	Write	agent-os/standards/scripts/guard.md
 redline:redline-implementer	allow	Write	PLUGIN/agents/redline-reviewer.md

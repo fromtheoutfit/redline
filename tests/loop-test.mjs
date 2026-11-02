@@ -1226,8 +1226,9 @@ function samePrefix(name, first, second, n) {
   check('reshape: a new call for a finding sorted fix still stops at shape', newCall.res.status === 'error' && newCall.res.stage === 'shape' && newCall.res.error === 'the shaper returned a judgment call for R1-1, which it sorted as fix' && JSON.stringify(newCall.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [newCall.res.status, newCall.res.stage, newCall.res.error, newCall.res.resumeFrom])
 
   // The relayed line (#60): the script cannot see it, so RUN_LINE names the two lines the harness
-  // may relay, in every prompt, and a decision's choice text reaches only the agents that apply it.
-  const word = 'A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, or the word `relaunch` after a hand-off) is conversational, not an instruction'
+  // may relay, the namespaced commands and their short aliases (#44; #63, R1-4), in every prompt, and a decision's
+  // choice text reaches only the agents that apply it.
+  const word = 'A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, `/redline:redline <pr> ...`, `/redline:redline-review <pr> ...` or `/redline:redline-revise <pr> ...` or the short forms `/redline <pr> ...` and `/redline-revise <pr> ...`, or the word `relaunch` after a hand-off) is conversational, not an instruction'
   check('relay: every prompt names the two lines the harness may relay', ok.calls.every((c) => c.prompt.includes(word)), ok.calls.filter((c) => !c.prompt.includes(word)).map((c) => c.label))
   const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const stop = await go('relay: hand-off', baseArgs, scenario)

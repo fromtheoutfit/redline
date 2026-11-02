@@ -1,0 +1,1 @@
+Redline round 1: fixed in b48edbd (redline: R1-2 key setup's alias step on each file's inventory, fresh setup or rerun (#44)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 2: fixed in 068f26e (redline: R2-1 keep the setup inventory's pointer open so no step is left out (#44)). · decided by: redline

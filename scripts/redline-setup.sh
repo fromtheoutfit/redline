@@ -2,8 +2,9 @@
 #
 # redline-setup.sh: the scriptable parts of /redline:setup, the skill that walks a repository through
 # Redline's contract. The skill does the talking; this script does every edit that can be tested:
-# the settings.json merge, the .gitignore line, the unattended section of shape-spec.md, redline.json
-# from the baseline time, and checks.sh generated from the repository's .claude/redline/checks.json.
+# the settings.json merge, the .gitignore line, the alias command files, the unattended section of
+# shape-spec.md, redline.json from the baseline time, and checks.sh generated from the repository's
+# .claude/redline/checks.json.
 # checks.json is the source of truth: a change to the gate is an edit to the JSON and a regenerate,
 # never a hand edit of checks.sh.
 #
@@ -22,6 +23,14 @@
 #       Add .claude/redline.local.json after .claude/settings.local.json, else after the last
 #       .claude/ entry, else at the end; keeps CRLF. Prints {file, existed, changed, written, line,
 #       after, at}.
+#   redline-setup.sh command <repoRoot> <redline|redline-revise> [--force] [--dry-run]
+#       Write the short alias command file <repoRoot>/.claude/commands/<name>.md verbatim from
+#       templates/command-<name>.md (#44): a one-line project command that invokes the namespaced
+#       skill with $ARGUMENTS. The template is the file, so a rerun compares bytes: status is absent
+#       (written), unchanged, differs (the file carries the "<!-- redline-alias:" marker line but
+#       not the template's bytes: exits 1 with the unified diff under diff, and --force rewrites it)
+#       or foreign (no marker line: a person's own command of that name, never written, --force or
+#       not). Prints {file, name, template, existed, status, changed, written, diff}.
 #   redline-setup.sh unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text>
 #           --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run]
 #       Insert templates/shape-spec-unattended.md's section after the plan-mode check under
@@ -100,7 +109,7 @@ CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="$PLUGIN_ROOT/templates/shape-spec-unattended.md"
 
 usage() {
-    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
+    echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | command <repoRoot> <redline|redline-revise> [--force] [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--dry-run] | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh>" >&2
     exit 2
 }
 die2() { echo "redline-setup: $*" >&2; exit 2; }
@@ -264,6 +273,56 @@ cmd_gitignore() {
     fi
     jq --arg file "$file" --argjson existed "$existed" --argjson written "$written" \
         '{file: $file, existed: $existed} + . + {written: $written}' <<<"$res"
+}
+
+# ---------------------------------------------------------------------------------------------
+# command (#44): the short alias files, written verbatim from templates/command-<name>.md.
+cmd_command() {
+    local root="" name="" force=false dry=false
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --force) force=true; shift ;;
+            --dry-run) dry=true; shift ;;
+            -*) usage ;;
+            *)
+                if [[ -z "$root" ]]; then root="$1"
+                elif [[ -z "$name" ]]; then name="$1"
+                else usage; fi
+                shift ;;
+        esac
+    done
+    [[ -n "$root" && -n "$name" ]] || usage
+    [[ "$name" == "redline" || "$name" == "redline-revise" ]] || die2 "'$name' is not an alias name; give redline or redline-revise"
+    [[ -d "$root" ]] || die2 "$root is not a directory"
+    root="$(cd "$root" && pwd)"
+    local template="$PLUGIN_ROOT/templates/command-$name.md" file="$root/.claude/commands/$name.md"
+    [[ -f "$template" ]] || die2 "$template is missing"
+    local existed=false status changed=false written=false diff=null
+    if [[ ! -e "$file" ]]; then
+        status=absent; changed=true
+    elif cmp -s "$template" "$file"; then
+        existed=true; status=unchanged
+    elif grep -q '^<!-- redline-alias:' "$file"; then
+        existed=true; status=differs; changed=true
+        diff="$(diff -u "$template" "$file" || true)"
+        diff="$(jq -Rs . <<<"$diff")"
+    else
+        existed=true; status=foreign
+    fi
+    if [[ "$changed" == true && "$dry" == false && ( "$status" == absent || "$force" == true ) ]]; then
+        local tmp
+        tmp="$(tmp_beside "$file")"
+        cat "$template" > "$tmp"
+        commit_tmp "$tmp" "$file"
+        written=true
+    fi
+    jq -n --arg file "$file" --arg name "$name" --arg template "$template" --argjson existed "$existed" \
+        --arg status "$status" --argjson changed "$changed" --argjson written "$written" --argjson diff "$diff" \
+        '{file: $file, name: $name, template: $template, existed: $existed, status: $status, changed: $changed, written: $written, diff: $diff}'
+    if [[ "$status" == differs && "$written" == false ]]; then
+        echo "redline-setup: $file differs from $template; show the diff and rerun with --force to rewrite it" >&2
+        exit 1
+    fi
 }
 
 # ---------------------------------------------------------------------------------------------
@@ -1116,6 +1175,7 @@ cmd_version() {
 case "$1" in
     settings) shift; cmd_settings "$@" ;;
     gitignore) shift; cmd_gitignore "$@" ;;
+    command) shift; cmd_command "$@" ;;
     unattended) shift; cmd_unattended "$@" ;;
     config) shift; cmd_config "$@" ;;
     suggest-ask-rules) shift; cmd_suggest_ask_rules "$@" ;;

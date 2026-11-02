@@ -1,0 +1,1 @@
+Redline round 1: fixed in 95b7319 (redline: R1-3 dry-run this checkout's alias cases so the gate never writes into the tree (#44)). · decided by: redline

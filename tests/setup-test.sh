@@ -2,7 +2,8 @@
 #
 # Unit test of scripts/redline-setup.sh: the scriptable parts of /redline:setup. The settings.json
 # merge, the .gitignore line, the unattended section of shape-spec.md, redline.json from a baseline
-# time, checks.sh generated from checks.json (and read back), and the template version line. Runs
+# time, checks.sh generated from checks.json (and read back), the alias command files (#44), and the
+# template version line. Runs
 # on the fixtures under tests/setup-fixtures/ (and two of tests/gate-fixtures/), copied into a
 # throwaway directory under the system temp directory. The last cases regenerate this checkout's own
 # .claude/redline/checks.sh from its committed .claude/redline/checks.json and compare.
@@ -498,6 +499,41 @@ REDLINE_TEMPLATE="$WORK/broken-template.sh" "$SETUP" checks "$LJ" "$WORK/x.sh" >
 grep -v '^# redline-template:' "$TEMPLATE" > "$WORK/noversion-template.sh"
 REDLINE_TEMPLATE="$WORK/noversion-template.sh" "$SETUP" checks "$LJ" "$WORK/x.sh" >/dev/null 2>&1; [[ $? -eq 1 ]] && ok "a template without a version line: exit 1" || bad "a template without a version line: exit 1" "exit $?"
 
+echo "# command: the alias files (#44)"
+A1="$WORK/a1"; mkdir -p "$A1"
+expect_json "fresh: absent, changed, written" '[.existed, .status, .changed, .written] | join(",")' "false,absent,true,true" command "$A1" redline
+same "fresh: byte-identical to the template" "$A1/.claude/commands/redline.md" "$PLUGIN/templates/command-redline.md"
+expect_json "fresh: the file and template are named" '[.name, (.file | sub(".*/"; "")), (.template | sub(".*/"; ""))] | join(",")' "redline,redline.md,command-redline.md" command "$A1" redline
+"$SETUP" command "$A1" redline-revise >/dev/null 2>&1
+same "fresh: the revise name writes redline-revise.md from its template" "$A1/.claude/commands/redline-revise.md" "$PLUGIN/templates/command-redline-revise.md"
+cp "$A1/.claude/commands/redline.md" "$WORK/a1-before.md"
+expect_json "drift-free rerun: unchanged, not written" '[.existed, .status, .changed, .written] | join(",")' "true,unchanged,false,false" command "$A1" redline
+same "drift-free rerun: byte-identical" "$A1/.claude/commands/redline.md" "$WORK/a1-before.md"
+sed 's/exactly as if/just as if/' "$PLUGIN/templates/command-redline.md" > "$A1/.claude/commands/redline.md"; cp "$A1/.claude/commands/redline.md" "$WORK/a1-changed.md"
+expect_exit "a changed file: exit 1" 1 command "$A1" redline
+expect_json "a changed file: differs, not written, the diff carries both lines" '[.status, .written, (.diff | test("\n-.*exactly as if")), (.diff | test("\n\\+.*just as if"))] | map(tostring) | join(",")' "differs,false,true,true" command "$A1" redline
+same "a changed file: untouched" "$A1/.claude/commands/redline.md" "$WORK/a1-changed.md"
+[[ "$("$SETUP" command "$A1" redline 2>&1 >/dev/null | wc -l | tr -d ' ')" == "1" ]] && ok "a changed file: one stderr line" || bad "a changed file: one stderr line" "$("$SETUP" command "$A1" redline 2>&1 >/dev/null)"
+expect_json "a changed file, dry run: still exit 1's shape, not written" '[.status, .changed, .written] | join(",")' "differs,true,false" command "$A1" redline --dry-run
+same "a changed file, dry run: untouched" "$A1/.claude/commands/redline.md" "$WORK/a1-changed.md"
+expect_json "--force: rewritten" '[.status, .changed, .written] | join(",")' "differs,true,true" command "$A1" redline --force
+same "--force: the template again" "$A1/.claude/commands/redline.md" "$PLUGIN/templates/command-redline.md"
+A2="$WORK/a2"; mkdir -p "$A2/.claude/commands"; printf 'Deploy the thing with $ARGUMENTS\n' > "$A2/.claude/commands/redline.md"; cp "$A2/.claude/commands/redline.md" "$WORK/a2-before.md"
+expect_exit "a foreign file (no marker line): exit 0" 0 command "$A2" redline
+expect_json "a foreign file: reported, not changed, no diff" '[.existed, .status, .changed, .written, (.diff|tostring)] | join(",")' "true,foreign,false,false,null" command "$A2" redline
+same "a foreign file: untouched" "$A2/.claude/commands/redline.md" "$WORK/a2-before.md"
+expect_json "a foreign file with --force: still left alone" '[.status, .written] | join(",")' "foreign,false" command "$A2" redline --force
+same "a foreign file with --force: untouched" "$A2/.claude/commands/redline.md" "$WORK/a2-before.md"
+A3="$WORK/a3"; mkdir -p "$A3"
+expect_json "dry run on an absent file: changed, not written" '[.status, .changed, .written] | join(",")' "absent,true,false" command "$A3" redline --dry-run
+[[ ! -e "$A3/.claude" ]] && ok "dry run on an absent file: not even the directory is created" || bad "dry run on an absent file: not even the directory is created" "$(ls -la "$A3/.claude")"
+expect_exit "command without a root: exit 2" 2 command
+expect_exit "command without a name: exit 2" 2 command "$A3"
+expect_exit "an unknown name: exit 2" 2 command "$A3" setup
+expect_stderr "an unknown name: named" "setup" command "$A3" setup
+expect_exit "a root that is not a directory: exit 2" 2 command "$WORK/nope" redline
+[[ ! -e "$A3/.claude" ]] && ok "usage errors write nothing" || bad "usage errors write nothing" "$(ls -la "$A3/.claude")"
+
 echo "# version"
 expect_exit "the template matches itself" 0 version "$TEMPLATE"
 expect_json "the template: match" '[.template, .file, (.match|tostring)] | join(",")' "$TV,$TV,true" version "$TEMPLATE"
@@ -526,6 +562,10 @@ same "generated from checks.json and stamped, it equals the committed checks.sh"
 cp "$PLUGIN/.claude/redline/checks.sh" "$WORK/plugin-rerun.sh"
 expect_json "regenerating over the committed file is a no-op" '[.changed, .written, .stampKept] | join(",")' "false,false,true" checks "$PJ" "$WORK/plugin-rerun.sh"
 same "regenerating over the committed file leaves it byte-identical" "$WORK/plugin-rerun.sh" "$PLUGIN/.claude/redline/checks.sh"
+
+# A dry run: a missing alias file reads absent and stays missing, never written into the checkout (#63, R1-3).
+expect_json "this checkout's /redline alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline --dry-run
+expect_json "this checkout's /redline-revise alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline-revise --dry-run
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]

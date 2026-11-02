@@ -1,0 +1,1 @@
+Redline round 1: fixed in c76e889 (redline: R1-1 point the setup inventory at the steps that read it (#44)). · decided by: redline
