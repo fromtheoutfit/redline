@@ -57,3 +57,16 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-1253-63-review-round-2/plan.md`, `agent-os/specs/2026-11-02-1253-63-review-round-2/shape.md`.
 
 **Commit:** `redline: record PR #63 round 2 as built (#44)`
+
+---
+
+## As built
+
+- **Task 1:** `93ef073` `redline: save review round 2 spec for PR #63 (#44)`.
+- **Task 2 (R2-1):** `068f26e` `redline: R2-1 keep the setup inventory's pointer open so no step is left out (#44)`. Proof:
+  - `grep -n "keep it for" skills/setup/SKILL.md` prints one line: `19:5. Inventory, so a rerun updates instead of duplicating; keep it for the steps below and for step 14's list of what a rerun checked:`.
+  - `grep -n "steps 5, 11 and 12" skills/setup/SKILL.md` prints nothing.
+- **Task 3 (gate):** `checks.sh` passed on its first run, every check exit 0: `setup` 330 passed, 0 failed; `loop` 495 passed, 0 failed. `unexpected_files` and `uncommitted` empty.
+  - Docs: Task 2's entry (`skills/setup/SKILL.md`, no reader-facing change) names its reason.
+  - Standards retrospective: the approver approved "no changes"; recorded under Decisions in `shape.md`.
+- **Deviations:** none.
