@@ -121,7 +121,12 @@ function mock(scenario) {
       // A human review pass (#36): a fix is the reviewer's (decidedBy "reviewer"), unless the
       // scenario scripts another owner (scenario.shaperOwner) to prove the workflow corrects it.
       const human = prompt.includes('a revise pass whose findings are the review comments')
-      const disposition = (id) => (ask.includes(id) ? 'ask' : defer.includes(id) ? 'defer' : none.includes(id) ? 'none' : 'fix')
+      // A reshape answers what the reshape prompt asks for (#61, R1-2), and only when scripted: the
+      // ids whose call it leaves out (reshapeOmitCall), sorts fix with the call kept (reshapeFix),
+      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall).
+      const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
+      const onReshape = (key) => (reshape && scenario[key]) || []
+      const disposition = (id) => (onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : none.includes(id) ? 'none' : 'fix')
       const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
@@ -135,7 +140,7 @@ function mock(scenario) {
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: 'a guard clause', fullFix: 'a lock' })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
-        judgmentCalls: ids.filter((id) => (ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id)).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
+        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
       }
     }
     if (t === 'redline:redline-resolve') {
@@ -1203,6 +1208,22 @@ function samePrefix(name, first, second, n) {
   // A reshape after a plan bounce is checked the same way and names its own label.
   const bounced = await go('spec: shape.md missing after a reshape', baseArgs, { ...two, planBounce: 1, specMissing: { 'spec status r1 #1': 'shape' } })
   check('spec: a reshape without a usable spec names the reshape label', bounced.res.status === 'error' && bounced.res.stage === 'shape' && JSON.stringify(bounced.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }) && labels(bounced.calls).slice(-2).join('|') === 'reshape r1 #1|spec status r1 #1', [bounced.res.status, bounced.res.stage, bounced.res.resumeFrom, labels(bounced.calls)])
+
+  // A reshape after a decided ask (#61, R1-2): the reshape returns only the calls still pending or
+  // newly raised, so a call the round already decided may be left out, or kept beside a finding the
+  // reshape re-sorted; a new ask without a call and a new call for a fix still stop at shape.
+  const decidedAsk = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
+  const decidedArgs = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'The author keeps it as it is.', date: '2026-11-02' } } }
+  const omitted = await go('reshape: a decided ask without its call', decidedArgs, { ...decidedAsk, reshapeOmitCall: ['R1-2'] })
+  check('reshape: a decided ask may leave out its call, and nothing new is resolved', omitted.res.status === 'done' && labels(omitted.calls).includes('reshape r1 #1') && labels(omitted.calls).includes('spec status r1 #1') && !labels(omitted.calls).includes('resolve r1 #1'), [omitted.res.status, omitted.res.error, labels(omitted.calls)])
+  const resorted = await go('reshape: a decided ask re-sorted fix with its call', decidedArgs, { ...decidedAsk, reshapeFix: ['R1-2'] })
+  check('reshape: a decided ask re-sorted fix may keep its call', resorted.res.status === 'done', [resorted.res.status, resorted.res.error])
+  const settled = await go('reshape: autopilot, the settled ask without its call', { ...baseArgs, interrupt: 'autopilot' }, { ...decidedAsk, reshapeOmitCall: ['R1-2'] })
+  check('reshape: on autopilot a settled ask may leave out its call', settled.res.status === 'done', [settled.res.status, settled.res.error])
+  const newAsk = await go('reshape: a new ask without a call', decidedArgs, { ...decidedAsk, reshapeAsk: ['R1-1'], reshapeOmitCall: ['R1-1'] })
+  check('reshape: a new ask without a call still stops at shape', newAsk.res.status === 'error' && newAsk.res.stage === 'shape' && newAsk.res.error === 'the shaper marked R1-1 as ask but returned no judgment call for it' && JSON.stringify(newAsk.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [newAsk.res.status, newAsk.res.stage, newAsk.res.error, newAsk.res.resumeFrom])
+  const newCall = await go('reshape: a new call for a fix', decidedArgs, { ...decidedAsk, reshapeExtraCall: ['R1-1'] })
+  check('reshape: a new call for a finding sorted fix still stops at shape', newCall.res.status === 'error' && newCall.res.stage === 'shape' && newCall.res.error === 'the shaper returned a judgment call for R1-1, which it sorted as fix' && JSON.stringify(newCall.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [newCall.res.status, newCall.res.stage, newCall.res.error, newCall.res.resumeFrom])
 
   // The relayed line (#60): the script cannot see it, so RUN_LINE names the two lines the harness
   // may relay, in every prompt, and a decision's choice text reaches only the agents that apply it.

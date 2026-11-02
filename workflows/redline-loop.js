@@ -1947,13 +1947,19 @@ function checkDispositions(pass, shaped) {
 // Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
 // shaper's rule 10 says; the script pins it, so a call can never stand in for a finding the shaper
 // did not write as an ask. Runs before forceAskRules, which adds the one call the workflow writes,
-// for a finding a repository ask rule covers.
-function checkCalls(shaped) {
-  const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
+// for a finding a repository ask rule covers. On a reshape, `known` is the round's calls so far: a
+// call the round already decided may be left out or kept beside a re-sorted finding, since the
+// reshape returns only the calls still pending or newly raised (#61, R1-2).
+function checkCalls(shaped, known = []) {
+  const decided = (id) => known.some((c) => c.id === id)
+  const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
     throw stageError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
   }
   for (const call of shaped.judgmentCalls) {
+    if (decided(call.id)) {
+      continue
+    }
     const f = shaped.findings.find((x) => x.id === call.id)
     if (!f || f.disposition !== 'ask') {
       throw stageError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
@@ -2287,7 +2293,7 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
     })
     checkDispositions(pass, shaped)
-    checkCalls(shaped)
+    checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
     record.dispositions = shaped.findings
