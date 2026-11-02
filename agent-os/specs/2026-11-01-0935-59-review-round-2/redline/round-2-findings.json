@@ -1,0 +1,27 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "c0ed05b9bc6e717a8432c9e63b79d08c07f9528f",
+    "to": "2b737ed0aca79255532163846d0ce89e577d8e1b"
+  },
+  "summary": "The round 1 fixes hold up. `run check` now counts a run's own folders from its launch stamp and snapshot path (checked by running the jq program on sample paths), refuses a hand commit after any stop other than an error, and carries a label's earlier hand list into a second resume. The skill asks about the stopped run before settling any settings, and a non-resumable error clears the stale marker. One problem remains, in the new Finish-comment resume clause: it asks the GitHub agent for a comment URL that `pr-comments` does not print, and never says what to report as `posted`. A resumed handoff can therefore be reported as not posted when it is already on the PR.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "workflows/redline-loop.js",
+      "line": 392,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The Finish comment resume clause asks for a URL pr-comments cannot give and leaves posted unset",
+      "description": "On a resume at `handoff comment`, `cap-hit comment` or `summary comment`, the new clause tells the GitHub agent to run `redline-gh.sh pr-comments <pr>`. When it finds the body there, the agent is to \"post nothing, return that comment's URL\". But `pr-comments` is `gh pr view <pr> --comments`, which prints author, association, edited, status and body for each comment, and no URL or id. Running it on #59 shows this. The GitHub role may not call `gh` directly, so it cannot get the URL, and the clause also does not say what `posted` should be.\n\nAn agent following \"post nothing\" will most likely return `posted: false` with an empty or made-up `comment_url`. The workflow passes `finished.posted` straight into the result as `handoffPosted` (redline-loop.js 2906-2946), `capCommentPosted` and `humanReview.summaryPosted`. So the case this clause exists for (the comment posted, then request-review failed) ends in a `done` result that says the handoff comment was not posted, although it is on the PR. The skill's `done` section then tells the person exactly that. An agent that treats the missing URL as a failure can instead set `error`, and the resume stops at the same label again.",
+      "proposedFix": "Make the clause match what the script can show. For example: \"... an earlier attempt posted it, so post nothing, set posted true and comment_url to \\\"\\\", and go on to Step 3.\" Then update `commentClause` in tests/loop-test.mjs to match. Optionally add a loop-test check that a resumed handoff whose mock returns `posted: true` with an empty `comment_url` yields `handoffPosted: true`.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

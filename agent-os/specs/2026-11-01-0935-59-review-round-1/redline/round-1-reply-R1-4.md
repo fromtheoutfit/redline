@@ -1,0 +1,1 @@
+Redline round 1: fixed in 59c1624 (redline: R1-4 keep a label's earlier hand commits on a second resume (#10)). · decided by: redline

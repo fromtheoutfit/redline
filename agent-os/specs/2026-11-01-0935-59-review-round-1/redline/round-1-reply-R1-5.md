@@ -1,0 +1,1 @@
+Redline round 1: fixed in 725803e (redline: R1-5 clear an earlier marker when an error cannot be resumed (#10)). · decided by: redline
