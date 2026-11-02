@@ -21,11 +21,18 @@ Then adjust the parts that are this repository's own (the text below comes from 
 
 If the gate text names a variable its checks.sh also reads (a scratch database for a migrations
 step, say), keep the two in step.
+
+The HTML comment under the heading, `<!-- redline-unattended: vN -->`, names this body's version (#15):
+redline-setup.sh unattended copies it on insert, reads it on a rerun, and merges the template's
+changes into a section made from an older body, keeping hand edits. A change to the body below the
+line bumps N and freezes the previous file as templates/history/shape-spec-unattended.v<N-1>.md in
+the same commit; tests/setup-test.sh checks every version below the current one is frozen.
 -->
 
 ---
 
 ## Unattended mode (Redline)
+<!-- redline-unattended: v3 -->
 
 This section applies only when the invoking prompt declares a Redline run, with the sentence **"This is a Redline run; follow shape-spec in unattended mode."** A person running this command by hand never sees any difference: every step, the gate and the output structure below stay exactly as written, and this section only says what changes when no person is present.
 

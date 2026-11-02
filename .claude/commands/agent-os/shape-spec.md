@@ -23,6 +23,7 @@ Shape-spec must be run in plan mode. Please enter plan mode first, then run /sha
 Do not proceed with any steps below until confirmed to be in plan mode.
 
 ## Unattended mode (Redline)
+<!-- redline-unattended: v3 -->
 
 This section applies only when the invoking prompt declares a Redline run, with the sentence **"This is a Redline run; follow shape-spec in unattended mode."** A person running this command by hand never sees any difference: every step, the gate and the output structure below stay exactly as written, and this section only says what changes when no person is present.
 

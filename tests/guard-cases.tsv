@@ -397,6 +397,11 @@ redline:reviewer	allow	Bash	git status
 -	allow	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 -	inert	Bash	PLUGIN/scripts/redline-gate.sh stamp REPO/x.md REPO/.claude/redline/checks.sh
 -	allow	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+# #15: the root form of version is the one call the launch precheck makes, approved like the file form; the
+# read-only --version of unattended and a --dry-run of settings are not, since the guard approves by subcommand word.
+-	allow	Bash	PLUGIN/scripts/redline-setup.sh version REPO/
+-	inert	Bash	PLUGIN/scripts/redline-setup.sh unattended --version REPO/.claude/commands/agent-os/shape-spec.md
+-	inert	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/ --dry-run
 -	inert	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/
 -	inert	Bash	PLUGIN/scripts/redline-setup.sh command REPO/ redline
 -	allow	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ 42
@@ -484,6 +489,7 @@ redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh settings R
 redline:redline-github	deny	Bash	PLUGIN/scripts/redline-setup.sh unattended REPO/.claude/commands/agent-os/shape-spec.md --gate-steps 1-3 --prose-steps 4 --retro-step 4 --no-pr-body
 redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-setup.sh read-checks REPO/.claude/redline/checks.sh
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-setup.sh version REPO/.claude/redline/checks.sh
+redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-setup.sh version REPO/
 redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-setup.sh command REPO/ redline
 redline:redline-implementer	deny	Write	.claude/redline/checks.json
 redline:redline-implementer	deny	Edit	REPO/.claude/redline/checks.json
