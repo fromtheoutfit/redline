@@ -146,7 +146,9 @@ From `${CLAUDE_PLUGIN_ROOT}/templates/claude-md-git-sentence.md`: append the sen
 
 The two project command files that make `/redline <pr> ...` and `/redline-revise <pr> ...` work beside the namespaced `/redline:redline` and `/redline:redline-revise` (#44): `.claude/commands/redline.md` and `.claude/commands/redline-revise.md`, each written verbatim from the plugin's `templates/command-redline.md` and `templates/command-redline-revise.md`, a one-line command that invokes the namespaced skill with `$ARGUMENTS`. They are ordinary repository files, not under `.claude/redline/` and not guarded.
 
-Fresh setup, or a rerun whose inventory found neither file: ask once with `AskUserQuestion`, "Write the short aliases `/redline` and `/redline-revise`?", with **Yes** first (the default; the namespaced commands keep working either way). Nothing records a no, so a later rerun that finds both absent asks again. On a yes, for each of `redline` and `redline-revise`:
+Each file follows what step 1's inventory found for it, on a fresh setup and a rerun alike: a fresh setup can find one already there (a hand-written one-liner, as #44 first suggested).
+
+Neither file present: ask once with `AskUserQuestion`, "Write the short aliases `/redline` and `/redline-revise`?", with **Yes** first (the default; the namespaced commands keep working either way). Nothing records a no, so a later rerun that finds both absent asks again. On a yes, for each of `redline` and `redline-revise`:
 
 ```
 ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh command <repoRoot> <name>
@@ -154,12 +156,12 @@ ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh command <repoRoot> <name>
 
 and say the file it wrote (`status: absent`, `written: true`).
 
-Rerun with a file present: run the same command with `--dry-run` first, for each name, and read `status`:
+Either file present, fresh setup or rerun: run the same command with `--dry-run` first, for each name, and read `status`:
 
 - `unchanged`: "nothing drifted".
 - `differs` (exit 1; the file carries the marker line but not the template's bytes): show the unified diff in `diff` and ask; on a yes rerun with `--force`, which rewrites the file from the template; on a no the file stays as the person's edit.
 - `foreign` (no marker line): a person's own `/redline` or `/redline-revise` command. Say so in one line ("`.claude/commands/redline.md` is not Redline's: no marker line; left alone, the namespaced command still works") and never write it, `--force` or not.
-- `absent` for one name while the other is present: ask for that one as a fresh setup does.
+- `absent` for one name while the other is present: ask for that one alone, as for neither present above, and on a yes run the command for it without `--dry-run`.
 
 ## 13. Verify
 
