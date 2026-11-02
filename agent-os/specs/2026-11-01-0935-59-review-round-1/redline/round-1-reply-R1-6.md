@@ -1,0 +1,1 @@
+Redline round 1: fixed in f544fd2 (redline: R1-6 give the Finish comment and record commit a resume duplicate check (#10)). · decided by: redline

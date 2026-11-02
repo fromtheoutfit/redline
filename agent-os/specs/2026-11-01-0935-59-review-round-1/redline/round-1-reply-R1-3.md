@@ -1,0 +1,1 @@
+Redline round 1: fixed in 7e67d07 (redline: R1-3 offer the resume before asking the settings (#10)). · decided by: redline

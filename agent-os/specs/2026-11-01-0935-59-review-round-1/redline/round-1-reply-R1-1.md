@@ -1,0 +1,1 @@
+Redline round 1: fixed in eaa86e2 (redline: R1-1 count a run's own spec folders from its args in run check (#10)). · decided by: redline

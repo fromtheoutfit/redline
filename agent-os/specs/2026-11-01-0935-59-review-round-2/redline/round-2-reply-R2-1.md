@@ -1,0 +1,1 @@
+Redline round 2: fixed in 1f3eece (redline: R2-1 report a resumed Finish comment found already posted as posted (#10)) and bca23c2 (redline: record the round 2 review lessons in the standards, finishing R2-1 (#10)). · decided by: redline
