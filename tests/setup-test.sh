@@ -392,6 +392,13 @@ sed 's/^#   REDLINE_MIGRATE_DB=[^ ]*   scratch database for the migrations check
 expect_json "read-checks: a hand-written var line without its default still yields the doc (#18)" '.input.vars[0].doc' "scratch database for the migrations check" read-checks "$WORK/hand-vars.sh"
 sed 's/^#   REDLINE_MIGRATE_DB=[^ ]*   /#   REDLINE_MIGRATE_DB=migrate_db   /' "$LC" > "$WORK/old-vars.sh"
 expect_json "read-checks: a header generated before #18 (ENV=identifier) still yields the doc" '.input.vars[0].doc' "scratch database for the migrations check" read-checks "$WORK/old-vars.sh"
+# A var default may hold a parenthesis (checks.json refuses only " $ ` \ }), so the reader's
+# "(default ...)" tail runs to the last ")" on the line (#62, R1-1).
+jq '.vars[0].default = "tcp(db)/x"' "$LJ" > "$WORK/paren-default.json"
+"$SETUP" checks "$WORK/paren-default.json" "$WORK/paren-default.sh" >/dev/null 2>&1
+expect_json "read-checks: a default holding a parenthesis stays out of the doc and reads back whole (#62, R1-1)" '[.input.vars[0].doc, .input.vars[0].default] | join("|")' "scratch database for the migrations check|tcp(db)/x" read-checks "$WORK/paren-default.sh"
+sed -e 's/^#   REDLINE_MIGRATE_DB=[^ ]*   /#   REDLINE_MIGRATE_DB=migrate_db   /' -e 's#(default chalkboard_redline_migrate)$#(default a)b)#' "$LC" > "$WORK/old-paren-default.sh"
+expect_json "read-checks: a header generated before #18 with a default holding a parenthesis still yields the doc alone (#62, R1-1)" '.input.vars[0].doc' "scratch database for the migrations check" read-checks "$WORK/old-paren-default.sh"
 jq '.input' <<<"$RC" > "$WORK/laravel-bootstrap.json"
 [[ "$(jq -S -c . "$WORK/laravel-bootstrap.json")" == "$(jq -S -c '. + {selfHosted: false}' "$LJ")" ]] && ok "read-checks: input recovers the whole checks.json" || bad "read-checks: input recovers the whole checks.json" "$(diff <(jq -S . "$WORK/laravel-bootstrap.json") <(jq -S '. + {selfHosted: false}' "$LJ"))"
 "$SETUP" checks "$WORK/laravel-bootstrap.json" "$WORK/laravel-bootstrap.sh" >/dev/null 2>&1

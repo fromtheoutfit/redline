@@ -954,8 +954,9 @@ if m:
 docs = {}
 for l in header:
     # ENV=<name> (generated since #18) or ENV=<identifier> (generated before it); the "(default ...)"
-    # tail is optional, since a hand-written header may carry it on the next line.
-    m = re.match(r"^#   ([A-Z_][A-Z0-9_]*)=(?:<name>|[A-Za-z_][A-Za-z0-9_]*)\s+(.*?)(?:\s+\(default [^)]*\))?\s*$", l)
+    # tail is optional, since a hand-written header may carry it on the next line, and runs to the
+    # last ")" on the line, since a default may hold one (#62, R1-1).
+    m = re.match(r"^#   ([A-Z_][A-Z0-9_]*)=(?:<name>|[A-Za-z_][A-Za-z0-9_]*)\s+(.*?)(?:\s+\(default .*\))?\s*$", l)
     if m:
         docs[m.group(1)] = m.group(2)
 allowed = []
