@@ -1,0 +1,1 @@
+Redline round 1: fixed in fb75176 (redline: R1-1 read a var default holding a parenthesis back out of the doc (#18)). · decided by: redline

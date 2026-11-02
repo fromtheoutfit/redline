@@ -1,0 +1,10 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "9d3b5773ef9c3f46b5892e938875ab287798fd6f",
+    "to": "377d2dae4eab5b43eeaa79fc25f8def7cd25abeb"
+  },
+  "summary": "The fix for R1-1 makes the optional `(default ...)` tail of the reader's docs regex greedy up to the last `)` on the line, so a default that contains a parenthesis no longer ends up in the doc. I traced it on the new `ENV=<name>` form, the pre-#18 `ENV=identifier` form and the hand-written line with no default, and each gives the doc alone. The two new setup-test cases cover both header forms, and the first one also checks that the default reads back whole from the assignment line. One limit carries over unchanged from main: the lazy doc group still stops at the first ` (default ` on the line, so a doc that itself contains that phrase gets cut short. This fix diff did not introduce that, so it is not reported. No scheduled or queued work touches these files.",
+  "findings": []
+}

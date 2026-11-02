@@ -79,7 +79,7 @@ The baseline in step 6 needs it: a gate that tests its own stamp (this plugin's 
 ${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh read-checks <repoRoot>/.claude/redline/checks.sh
 ```
 
-Its `input` field is a best-effort `checks.json`: the `run_check` lines with their gate step numbers and titles from the comments above them, the formatter and octane blocks, the `base_ref` guard, the variables and `ALWAYS_ALLOWED`, and `repo`, `gateFile` and `baseline` when the header carries them (fill what is null by asking). Write it to `checks.json`, show it, regenerate, and show `git diff .claude/redline/checks.sh`: the header prose and comments become the generator's, and the template's current functions replace the old ones. That diff is the person's to accept; on a no, revert both files and stop here.
+Its `input` field is a best-effort `checks.json`: the `run_check` lines with their gate step numbers and titles from the comments above them, the formatter and octane blocks, the `base_ref` guard, the variables and `ALWAYS_ALLOWED` (or the allowed list a hand-written git block hard-codes), and `repo`, `gateFile` and `baseline` when the header carries them (fill what is null by asking). Write it to `checks.json`, show it, regenerate, and show `git diff .claude/redline/checks.sh`: the header prose and comments become the generator's, and the template's current functions replace the old ones. That diff is the person's to accept; on a no, revert both files and stop here.
 
 ## 6. Baseline
 
