@@ -184,3 +184,21 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-1253-63-review-round-1/plan.md`, `agent-os/specs/2026-11-02-1253-63-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #63 round 1 as built (#44)`
+
+---
+
+## As built
+
+Built as planned, one commit per task:
+
+- Task 1, the spec folder: `4aead51`.
+- Task 2, R1-1: `c76e889`. `grep -n "keep it for" skills/setup/SKILL.md` prints line 19 alone.
+- Task 3, R1-2: `b48edbd`, `skills/setup/SKILL.md` and README "Set up a repository" item 7 together. The three greps read as the plan says: "Rerun with a file present" and "a rerun reports" print nothing, "Either file present, fresh setup or rerun" prints line 159.
+- Task 4, R1-3: `95b7319`. The gate's `setup` entry read `330 passed, 0 failed`, the same count as before. `git status --porcelain -- .claude/commands` printed nothing.
+- Task 5, R1-4: `b9ef59b`. With only `tests/loop-test.mjs` changed, the gate's `loop` entry read `493 checks passed, 2 failed`, exactly the two relay checks ("relay: every prompt names the two lines the harness may relay" and "relay: every relaunched prompt names the two lines too"). With `RUN_LINE` changed it read `495 checks passed, 0 failed`. `grep -c "redline:redline-review <pr>"` prints 1 for each file.
+- Task 6, the standards retrospective: `ca6e662`, the three approved edits (`testing/tests.md`, `workflow/replay.md`, `scripts/bash-conventions.md`), each a lesson that names no finding's unfinished fix.
+- Task 7, the gate: green, `setup` at 330 passed and `loop` at 495 passed, each with 0 failed.
+
+Docs (gate step 10): Task 2 and Task 5, no reader-facing change, as planned; Task 3, README "Set up a repository" item 7, in `b48edbd`; Task 4, not a Docs directory.
+
+Deviations: none. The R1-3 case ran through `checks.sh`, as Task 4 says; the harness itself is not on the implementer's allowlist.
