@@ -1,0 +1,11 @@
+{
+  "body": "Redline round 2\n\nReviewed only the fix diff from round 1 (9e26be8..6dafa4d).\n\nThe round 1 fixes hold. Step 12 now branches on what the inventory found for each file, so a fresh setup that finds a file already there takes the dry-run path. The this-checkout alias cases run as dry runs, which `cmd_command` honours, so a missing file is never written into the tree. RUN_LINE, the loop test's pinned sentence and the replay standard all name every command form, and no stale copy of the old sentence remains. One low nit is left: the inventory's new list of the steps that read it leaves out step 8. Nothing here touches data shared with scheduled or queued work.\n\n### Findings (0 correctness, 1 nit)\n\n- **R2-1** · nit · low · confirmed · `skills/setup/SKILL.md:19` · Inventory's new step list leaves out step 8, which line 21 says reads it\n\nEach finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding's thread, or in a PR comment that opens with its marker, once the round's fixes are committed.",
+  "comments": [
+    {
+      "path": "skills/setup/SKILL.md",
+      "line": 19,
+      "side": "RIGHT",
+      "body": "**R2-1** · nit · low · confirmed\n\n**Inventory's new step list leaves out step 8, which line 21 says reads it**\n\nThe R1-1 fix turns line 19's pointer into a closed list: \"steps 5, 11 and 12 read it, and step 14 lists what a rerun checked\". Two lines down, the same inventory item says its retired allow entries are found here and that \"step 8 reports them as `stale`\". So step 8 reads the inventory too, and the list now contradicts its own sub-bullet. The round 1 shape.md investigation (R1-1) counted only the steps that say \"step 1's\" or \"inventory\" in their own text, and that is how step 8 was missed.\n\nProposed fix: On line 19, either add step 8 (\"steps 5, 8, 11 and 12 read it, and step 14 lists what a rerun checked\"), or drop the closed list and keep \"keep it for the steps below and for step 14's list of what a rerun checked\", so a future renumber cannot leave it stale again."
+    }
+  ]
+}

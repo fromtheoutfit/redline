@@ -1,0 +1,27 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "9e26be8c4e54b7524eb6f666a990da71429b4565",
+    "to": "6dafa4d5459f922daa7c7b61d39ea8737157e30d"
+  },
+  "summary": "The round 1 fixes hold. Step 12 now branches on what the inventory found for each file, so a fresh setup that finds a file already there takes the dry-run path. The this-checkout alias cases run as dry runs, which `cmd_command` honours, so a missing file is never written into the tree. RUN_LINE, the loop test's pinned sentence and the replay standard all name every command form, and no stale copy of the old sentence remains. One low nit is left: the inventory's new list of the steps that read it leaves out step 8. Nothing here touches data shared with scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "skills/setup/SKILL.md",
+      "line": 19,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Inventory's new step list leaves out step 8, which line 21 says reads it",
+      "description": "The R1-1 fix turns line 19's pointer into a closed list: \"steps 5, 11 and 12 read it, and step 14 lists what a rerun checked\". Two lines down, the same inventory item says its retired allow entries are found here and that \"step 8 reports them as `stale`\". So step 8 reads the inventory too, and the list now contradicts its own sub-bullet. The round 1 shape.md investigation (R1-1) counted only the steps that say \"step 1's\" or \"inventory\" in their own text, and that is how step 8 was missed.",
+      "proposedFix": "On line 19, either add step 8 (\"steps 5, 8, 11 and 12 read it, and step 14 lists what a rerun checked\"), or drop the closed list and keep \"keep it for the steps below and for step 14's list of what a rerun checked\", so a future renumber cannot leave it stale again.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}
