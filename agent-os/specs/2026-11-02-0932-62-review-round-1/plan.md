@@ -98,3 +98,14 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-0932-62-review-round-1/plan.md`, `agent-os/specs/2026-11-02-0932-62-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #62 round 1 as built (#18)`
+
+---
+
+## As built
+
+- **Task 1:** the spec folder's four files, committed alone; nothing under `redline/` staged.
+- **Task 2, red:** with the two new cases in `tests/setup-test.sh` and no fix, the gate's `setup` entry showed `299 passed, 2 failed`. Exactly the two new cases failed, with the values the plan predicted: `scratch database for the migrations check (default tcp(db)/x)|tcp(db)/x` and `scratch database for the migrations check (default a)b)`. Every other check exited 0.
+- **Task 2, green:** after the tail became `(?:\s+\(default .*\))?\s*$` and the comment the three lines the plan gives, the gate exited 0 with `setup` at `301 passed, 0 failed`. The test and the fix went in one commit, `redline: R1-1 read a var default holding a parenthesis back out of the doc (#18)`.
+- **Task 3:** the approved edit to `agent-os/standards/scripts/bash-conventions.md` line 40, applied as worded, in its own commit. It is a lesson only (R1-1's fix is whole in Task 2), so the message names no finding.
+- **Task 4:** the gate exits 0; the Docs entry in Task 2 names its reason (no reader-facing change).
+- **Deviation:** two commit messages follow the implementer's fixed wording for Redline rounds rather than the plan's: Task 1 is `redline: save review round 1 spec for PR #62 (#18)` (the plan said `redline: shape PR #62 review round 1 (#18)`), and Task 3 is `redline: record the round 1 review lessons in the standards (#18)` (the plan said `redline: record the PR #62 round 1 lesson in the standards (#18)`). The commits' contents are as planned.
