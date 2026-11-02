@@ -92,3 +92,14 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-02-0807-61-review-round-1/plan.md`, `agent-os/specs/2026-11-02-0807-61-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #61 round 1 as built (#57)`
+
+---
+
+## As built
+
+- **Red (Task 2 step 3):** the `loop` check ran 489 passed, 3 failed. The three failures were the first three new checks (a decided ask without its call, a decided ask re-sorted `fix` with its call, autopilot's settled ask without its call), each stopping at `shape` with the error the finding names. Both neighbours passed.
+- **Green:** the `loop` check runs 495 passed, 0 failed; every other check exits 0.
+- **Deviation, the green count:** Task 5 expected 487 plus the five new checks (492). The count is 495, because `go()` adds its own "the run-record commit is the last call" check to every run that reaches Finish, and the three new scenarios that finish `done` each add one. No check was added beyond the five Task 2 names.
+- **Deviation, the mock comment:** the comment above the four reshape keys in the shaper mock is three lines rather than two, to name all four keys.
+- **Deviation, commit messages:** the spec folder and standards commits use the implementer's fixed wording (`redline: save review round 1 spec for PR #61 (#57)`, `redline: record the round 1 review lessons in the standards (#57)`) instead of Task 1's and Task 4's. The standards commit names no finding, since `shape.md` sends no part of a finding's fix through the retrospective.
+- **Standards retrospective:** both approved edits applied as worded, `agent-os/standards/workflow/agents.md` line 32 and `agent-os/standards/testing/tests.md` line 7.

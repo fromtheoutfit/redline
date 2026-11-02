@@ -44,6 +44,12 @@ Decided by: redline
 
 Proposed below; the standards approver approves the list and the implementer applies it in its own commit.
 
+### As built
+
+The `loop` check's green count is 495, not the 492 Task 5 expected: `go()` adds a run-record check to each run that reaches Finish, and three of the five new scenarios finish. The spec and standards commits use the implementer's fixed message wording. See plan.md, As built.
+
+Decided by: redline
+
 ## Unattended answers
 
 1. **Does a bare command line relaunch a stopped run in its own session, or must the person type `relaunch`? (R1-1)** Answered by the original spec. `agent-os/specs/2026-11-02-0744-57-60-relaunch-path-spec-check-and-relay/plan.md`, Task 5, item 5: "A resume and a stopped-run relaunch start from the command line, which the rule accepts; 'stopped before a result' adds: when the last typed line is neither the word nor a command line, ask for `relaunch` first." Its `shape.md`, decision 5: "`relaunch`, and a line holding only a Redline command also passes, so a first launch and an error resume stay as they are". So a stopped run takes either line. The rule at `SKILL.md:211` and the README's list are what disagree with the spec, and they are the fix.
