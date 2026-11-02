@@ -506,7 +506,9 @@ def ndiff(a, b):
     return sum((i2 - i1) + (j2 - j1) for tag, i1, i2, j1, j2 in sm.get_opcodes() if tag != "equal")
 
 # merge3(base, ours, theirs): a diff3 over matching blocks. A hunk changed on one side is taken from that
-# side; changed the same way on both, once; changed differently, a conflict, left as ("conflict", n).
+# side; changed the same way on both, once; changed differently, a conflict, left as ("conflict", n):
+# in a hunk of one length on every side, each line changed differently on both is a conflict alone,
+# so a pick settles that line and never the lines beside it (#64, R1-1); any other hunk is one conflict.
 def merge3(base, ours, theirs):
     def anchors(a, b):
         m = {}
@@ -532,9 +534,17 @@ def merge3(base, ours, theirs):
             out.extend(ct)
         elif ct == cb:
             out.extend(co)
-        elif len(cb) == len(co) == len(ct) and all(x == y or x == z or y == z for x, y, z in zip(cb, co, ct)):
-            # Adjacent lines changed on different sides: a same-length hunk merges line by line.
-            out.extend(z if y == x else y for x, y, z in zip(cb, co, ct))
+        elif len(cb) == len(co) == len(ct):
+            # A same-length hunk merges line by line: adjacent lines changed on different sides both come
+            # through, and only a line changed differently on both sides is a conflict, that line alone.
+            for x, y, z in zip(cb, co, ct):
+                if y == x or y == z:
+                    out.append(z)
+                elif z == x:
+                    out.append(y)
+                else:
+                    conflicts.append({"n": len(conflicts) + 1, "base": [x], "ours": [y], "theirs": [z]})
+                    out.append(("conflict", len(conflicts)))
         else:
             conflicts.append({"n": len(conflicts) + 1, "base": cb, "ours": co, "theirs": ct})
             out.append(("conflict", len(conflicts)))

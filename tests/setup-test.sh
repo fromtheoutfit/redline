@@ -630,6 +630,22 @@ REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "adjacent
 REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "adjacent changes, --merge: written" '[.changed, .written] | join(",")' "true,true" unattended "$ADJ" "${FILL[@]}" --merge
 check "adjacent changes: the template's line taken" grep -q 'TEMPLATE REWORDED' "$ADJ"
 check "adjacent changes: the hand edit kept" grep -q 'HAND EDIT beside' "$ADJ"
+# A conflicting line beside a one-sided change in the same hunk (#64, R1-1): the conflict is that line
+# alone, so a pick settles it and the change beside it comes through whichever side is picked.
+AC="$WORK/adj-conflict.md"; sed -e 's/^1\. \*\*Plan mode\.\*\*.*/1. **Plan mode.** HAND EDIT kept./' -e 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** HAND EDIT two./' "$WORK/u-before.md" > "$AC"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "a conflict beside a hand edit: one conflict, that line alone" '[(.conflicts|length|tostring), (.conflicts[0].base|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs|length|tostring), (.conflicts[0].ours[0]|test("HAND EDIT kept")|tostring)] | join(",")' "1,1,1,1,true" unattended "$AC" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4/shape-spec-unattended.md" expect_json "a conflict beside a hand edit, --pick 1=theirs: written" '[.changed, .written] | join(",")' "true,true" unattended "$AC" "${FILL[@]}" --merge --pick 1=theirs
+check "a conflict beside a hand edit, --pick 1=theirs: the template's line taken" grep -q 'TEMPLATE REWORDED' "$AC"
+check "a conflict beside a hand edit, --pick 1=theirs: the hand edit beside it kept" grep -q 'HAND EDIT two' "$AC"
+# The mirror: the template also rewords line 2, which the section left alone; --pick 1=ours keeps the
+# hand edit on line 1 and still takes the template's line 2.
+V4B="$WORK/v4b"; mkdir -p "$V4B/history"; cp "$V4"/history/shape-spec-unattended.v*.md "$V4B/history/"
+sed 's/^2\. \*\*No questions\.\*\*.*/2. **No questions.** TEMPLATE REWORDED TWO./' "$V4/shape-spec-unattended.md" > "$V4B/shape-spec-unattended.md"
+AO="$WORK/adj-ours.md"; cp "$WORK/u-hand.md" "$AO"
+REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a conflict beside a template change: one conflict, that line alone" '[(.conflicts|length|tostring), (.conflicts[0].ours|length|tostring), (.conflicts[0].theirs[0]|test("TEMPLATE REWORDED\\.")|tostring)] | join(",")' "1,1,true" unattended "$AO" "${FILL[@]}"
+REDLINE_UNATTENDED_TEMPLATE="$V4B/shape-spec-unattended.md" expect_json "a conflict beside a template change, --pick 1=ours: written" '[.changed, .written] | join(",")' "true,true" unattended "$AO" "${FILL[@]}" --merge --pick 1=ours
+check "a conflict beside a template change, --pick 1=ours: the hand edit kept" grep -q 'HAND EDIT kept' "$AO"
+check "a conflict beside a template change, --pick 1=ours: the template's line beside it taken" grep -q 'TEMPLATE REWORDED TWO' "$AO"
 
 # --keep: the marker alone.
 K="$WORK/keep.md"; cp "$WORK/u-old.md" "$K"
