@@ -9,7 +9,8 @@
 #
 # The stub reads STUB_SLEEP (seconds) and STUB_EXIT (0, 1, 2, or 3 for a checks.sh that left its contract) from the environment start passes
 # it, and prints one JSON object echoing its arguments and REDLINE_OCTANE. REDLINE_BACKGROUND_POLL
-# is set to 0.2 so the waits finish fast; the slice, limit and grace cases take a few seconds each.
+# is set to 0.2 so the waits finish fast; the slice, limit and grace cases take a few seconds each, and
+# the short-slice cases wait for the runner's pid file first, since a short slice is a short grace.
 
 set -uo pipefail
 PLUGIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -104,7 +105,12 @@ same "start in a repository without checks.sh exits 2" "$code" "2"
 has "start names the missing checks.sh" "$(cat "$WORK/err")" ".claude/redline/checks.sh"
 
 echo "# a run still going, past its limit, or gone"
+# The slice sets wait's grace for the run to appear (min(slice, 10) in the script), so a one-second
+# slice gives the runner one second to write its pid file, which a loaded CI runner missed once on
+# PR #65; the role's default slice gives ten. Polling for the pid file first puts the case under the
+# role's conditions, and the neverstarted case below still proves exit 5 when nothing was started.
 STUB_SLEEP=3 bg slow
+within 5 -f "$FILES/slow.pid" || bad "the slow runner writes its pid file" "no $FILES/slow.pid after 5 s"
 waitfor slow --slice 1
 same "--slice: still running exits 3" "$code" "3"
 has "--slice: says to run the same wait again" "$err" "run the same wait again"
@@ -114,6 +120,7 @@ same "a second wait returns the result" "$code" "0"
 same "a second wait prints the JSON" "$(jq -r '.mode' <<<"$out")" "stub"
 
 STUB_SLEEP=6 bg long
+within 5 -f "$FILES/long.pid" || bad "the long runner writes its pid file" "no $FILES/long.pid after 5 s"
 waitfor long --limit 1 --slice 5
 same "--limit: past the limit exits 4" "$code" "4"
 has "--limit: names the limit" "$err" "past the limit of 1 s"
