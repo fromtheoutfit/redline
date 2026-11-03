@@ -210,3 +210,36 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-03-0852-65-review-round-1/plan.md`, `agent-os/specs/2026-11-03-0852-65-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #65 round 1 as built (#16)`
+
+---
+
+## As built
+
+Built as planned, one commit per task, on top of `3587774`.
+
+| Task | Finding | Commit | Message |
+|---|---|---|---|
+| 1 | spec | `abc1e08` | `redline: save review round 1 spec for PR #65 (#16)` |
+| 2 | R1-2 | `e522439` | `redline: R1-2 commit the CHANGELOG entry before the tag in the README's Releases paragraph (#16)` |
+| 3 | R1-4 | `7536d4f` | `redline: R1-4 name a root plugin.json that is not JSON in the version header's exit-2 list (#16)` |
+| 4 | R1-3 | `4884677` | `redline: R1-3 say the guard refuses its own two files only when the checkout loads in place (#16)` |
+| 5 | R1-1 | `57664a5` | `redline: R1-1 the Redline reviewer reports a missing version bump as a nit (#16)` |
+| 6 | R1-1, R1-2 | `a3d420b` | `redline: record the round 1 review lessons in the standards, finishing R1-1 and R1-2 (#16)` |
+| 7 | as built | this commit | `redline: record PR #65 round 1 as built (#16)` |
+
+**Proofs.** Every grep count came out as the plan says:
+
+- Task 2: `so the tag names a commit that carries its own entry` 1; `pushes the annotated tag; then the` 0; `the reviewer treats a missing bump as a nit` 1 (before Task 5).
+- Task 3: `plugin.json is not JSON` 2; `byte-order mark, or` 1.
+- Task 4: README `Loaded from a cached release, the guard treats this checkout as an ordinary repository` 1, `are refused for every role here` 0; CLAUDE.md `loaded from a cached release, it treats this checkout as an ordinary repository` 1, `when this checkout loads in place, the guard refuses them for every role` 1; shape-spec.md `loaded from a cached release, it treats the checkout as an ordinary repository` 1, `In this repository the guard refuses` 0, `^11\. \*\*The guard and the hook\.\*\*` 1.
+- Task 5: reviewer `^- \*\*Version\.\*\*` 1; shape-spec.md `The Redline reviewer reports a missing bump as a nit` 1, `The reviewer treats a missing bump as a nit` 0; README `the Redline reviewer reports a missing bump as a nit` 1, `the reviewer treats a missing bump as a nit` 0.
+
+**Task 6.** All three approved edits were applied as written: `release.md` line 5 (item 3, R1-1) and line 8 (item 1, R1-2), and `guard.md` line 9 (item 4, R1-3). The commit names R1-1 and R1-2, whose fixes the plan sends partly through the retrospective (shape.md: R1-2, "The change"; R1-1, option 1's cost, and Task 5). Item 4 is a lesson: R1-3's mitigation is Task 4's three sentences, so the commit does not name it. Headings unchanged.
+
+**Gate (Task 7).** `checks.sh` with the round's snapshot exited 0 on its first run: `syntax` 0, `validate` 0 (the usual CLAUDE.md-at-root and missing-icon warnings), `guard` 588 passed, 0 mismatched, `loop` 495 passed, 0 failed, `prefs` 101 passed, 0 failed, `gate` 117 passed, 0 failed (this checkout's stamp still matches after the step 11 rewording), `setup` 468 passed, 0 failed (the hand-edit case still finds "The guard and the hook"), `gh` 113 passed, 0 failed, `background` 39 passed, 0 failed. No `unexpected_files`, nothing `uncommitted`. Every count is the same as before the round.
+
+**Docs (gate step 10).** As planned: Task 2, Task 4: the README is the reader-facing text; Task 3: no reader-facing change, since the README's `version <repoRoot>` row already lists the case; Task 5: README Contributing, "Releases", in `57664a5`.
+
+**Version (gate step 11).** `.claude-plugin/plugin.json` and the marketplace entry stay `0.1.0`; the setup test's last cases pass.
+
+**Deviation.** Task 3's proof `bash -n scripts/redline-setup.sh` was not run on its own: the guard refuses `bash` to the implementer except as `bash -c <string>`. The gate's `syntax` check runs `bash -n` over every script under `scripts/`, this one included, and exited 0. Recorded under Decisions in `shape.md`.

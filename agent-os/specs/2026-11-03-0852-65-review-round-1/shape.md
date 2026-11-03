@@ -97,6 +97,12 @@ Recommendation as returned: option 1. Name the Redline reviewer and give `agents
 
 Decided by: @michaelfromtheoutfit
 
+### As built: Task 3's syntax proof came from the gate
+
+The guard refuses `bash` to the implementer except as `bash -c <string>`, so plan.md Task 3's `bash -n scripts/redline-setup.sh` was not run on its own. The gate's `syntax` check (`ls scripts/*.sh | xargs -n1 bash -n`) covers the same file and exited 0 in Task 7's run. The change is a comment, so nothing else in the proof moves.
+
+Decided by: redline
+
 ## Unattended answers
 
 1. **In which order do the CHANGELOG commit and the tag go? (R1-2)** The entry is committed first and the tag points at it. The evidence: the original `plan.md`, Task 8, step 2: "commit `redline: CHANGELOG for 0.1.0`. (The tag then points at this commit.)", then step 3: "`claude plugin tag --push`". Decision 4: "The `0.1.0` entry is written by this spec (Task 5) with `(unreleased)` after the heading, which the tag checklist replaces with the tag date". The PR description, "After merging": "Task 8 of the plan, by hand: fill the CHANGELOG's date and this PR's line, `claude plugin tag --push`, ...". Task 6.3's earlier draft of the README ("then the `CHANGELOG.md` entry ..., in the same commit as the next bump or on its own") put the entry after the tag. The as-built README dropped its "same commit as the next bump" half and kept the order, and the plan's own release checklist, written for the actual release with a stated reason, and the PR description both reverse that order. So the README disagrees with the answer, and the README is what changes.
