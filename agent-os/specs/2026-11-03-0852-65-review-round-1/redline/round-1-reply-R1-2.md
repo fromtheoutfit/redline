@@ -1,0 +1,1 @@
+Redline round 1: fixed in e522439 (redline: R1-2 commit the CHANGELOG entry before the tag in the README's Releases paragraph (#16)) and a3d420b (redline: record the round 1 review lessons in the standards, finishing R1-1 and R1-2 (#16)). · decided by: redline

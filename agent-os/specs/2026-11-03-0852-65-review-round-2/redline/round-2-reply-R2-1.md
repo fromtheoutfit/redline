@@ -1,0 +1,1 @@
+Redline round 2: fixed in d763617 (redline: R2-1 drop the plan approver from what keeps the guard and hook files out of a cached-mode run (#16)) and 425df9a (redline: record the round 2 review lessons in the standards, finishing R2-1 (#16)). · decided by: redline
