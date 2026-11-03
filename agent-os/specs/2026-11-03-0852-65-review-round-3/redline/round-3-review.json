@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 3\n\nReviewed only the fix diff from round 2 (862ab55..57c96d0).\n\nReviewed only the round 2 fix diff (862ab55..57c96d0). R2-1 is fixed everywhere it needed to be. README Known limits, CLAUDE.md, point 11 of shape-spec.md and the guard standard now say that in a cached-mode run only point 11 keeps the guard and hook files out of a plan, with the teammate's review as the backstop. No other sentence still credits the plan approver with this. The new agents.md standard describes the approver's file-scope check accurately. The fixes change only documentation and standards, so no scheduled or queued work in this repository touches them.\n\nNo findings.",
+  "comments": []
+}

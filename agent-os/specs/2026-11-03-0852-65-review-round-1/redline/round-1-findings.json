@@ -1,0 +1,75 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "3587774c53ecf6d73a2695aa5fb9153a1fa46558",
+    "to": "3587774c53ecf6d73a2695aa5fb9153a1fa46558"
+  },
+  "summary": "The PR keeps the manifest and the marketplace entry on one version, and the setup test proves they agree. The precheck works out which copy the session loaded from the script's own path, so there is no flag to pass wrong, and the new `version` cases run red first. The background test's pid-file poll gives the short-slice cases the same conditions the agents run under. All four findings sit at the edges of the release process the PR documents: nothing tells a Redline role to flag a missing bump, the README tags before the changelog commit, the guard does not protect the guard and hook files when a run loads the cached release, and one header line is missing an exit code. No scheduled or queued work in this repository touches the changed files.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": ".claude/commands/agent-os/shape-spec.md",
+      "line": 252,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Version step says the reviewer flags a missing bump, but no Redline role is told to",
+      "description": "Gate step 11 says \"The reviewer treats a missing bump as a nit\". README \"Releases\" (line 210) and agent-os/standards/process/release.md say the same. No Redline role carries that rule. Step 10, Docs, is wired into agents/redline-reviewer.md (its Docs bullet) and agents/redline-plan-approver.md (check 8). Nothing like that exists for a Version step: a grep for bump, semver and \"Version step\" over agents/, workflows/ and templates/ finds only the unattended template's marker note. So a Redline review of a PR that forgets the bump stays silent. The miss shows up only after the merge, when `claude plugin tag` refuses a tag that already exists. The text also never says whether \"the reviewer\" means the Redline reviewer or the teammate. Question for the person: which reviewer is meant?",
+      "proposedFix": "If it means the Redline reviewer: add a bullet beside Docs in agents/redline-reviewer.md: \"Version. In a repository whose Verification Gate has a Version step, a PR whose `.claude-plugin/plugin.json` version equals the base branch's is a nit whose proposedFix names the bump the step asks for (minor when it changes what a setup rerun writes, with the markers; patch otherwise).\" Add a Docs entry for agents/ naming README Contributing → \"Releases\", and say \"the Redline reviewer\" there as the Docs paragraph does. If it means the teammate: write \"the teammate reviewing the PR\" in step 11, README \"Releases\" and release.md. That wording sits outside backticks, so the gate stamp does not move.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "README.md",
+      "line": 210,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Releases tags before the CHANGELOG commit; Task 8 commits it first",
+      "description": "The Releases paragraph runs `claude plugin tag --push` first and then commits the CHANGELOG.md entry on main (\"...pushes the annotated tag; then the `CHANGELOG.md` entry ..., committed on `main`\"). The spec's plan.md, Task 8, does the opposite on purpose. Its step 2 commits `redline: CHANGELOG for 0.1.0` and its step 3 tags, noting \"(The tag then points at this commit.)\". Followed as the README says, `redline--v<version>` names a commit whose CHANGELOG.md still reads `## <version> (unreleased)`; for 0.1.0 that includes the `#NN` placeholder line. The released commit then has no changelog entry for its own version. The entry cannot be left uncommitted at tag time either, because `claude plugin tag` refuses a dirty tree. The CHANGELOG header and release.md say only \"at tag time\", so they do not settle the order.",
+      "proposedFix": "Reorder README \"Releases\" to match Task 8. On main, first write the CHANGELOG entry (the dated version heading and one line per PR since the previous tag) and commit it. Then run `claude plugin tag --dry-run .` and `claude plugin tag --push`. Say the same in the CHANGELOG bullet of agent-os/standards/process/release.md (\"committed on `main` before the tag\").",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "README.md",
+      "line": 221,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Guard and hook files go unprotected when the run loads the cached release",
+      "description": "The bullet's new first sentence limits it to runs that load the plugin in place. The next sentence still says \"The guard script and the hook registration are refused for every role here\". In fact the guard adds `scripts/redline-guard.sh` and `hooks/hooks.json` to PROTECTED_FILES only when SELF_HOSTED is true (scripts/redline-guard.sh:237-243). SELF_HOSTED compares the repository's real path with CLAUDE_PLUGIN_ROOT. After Task 8 the machine's `redline` marketplace is the GitHub one. A session on this checkout started without `--plugin-dir` therefore loads the cached release. The new precheck warns and the launch continues (skills/redline/SKILL.md:85, \"A warning, never a stop\"). The cached guard then treats the checkout's guard and hook files as ordinary content, the decision guard-cases.tsv rows 446-450 pin for \"a repository that is not the plugin\". In that mode only the shaper's prose (point 11 of the unattended section) keeps them out of a plan. CLAUDE.md says the guard refuses them \"even when this repository is the one under review\". The same path comparison sets /redline:setup's `selfHosted`, so a setup rerun from the cached copy would propose the cache's paths in checks.sh's header.",
+      "proposedFix": "Options for the person (decision 8 chose warn, not stop): (a) the launch precheck stops, instead of warning, when `plugin.self` is true and `plugin.inPlace` is false (SKILL.md precheck step 1). (b) A person, outside any Redline run, changes the guard so that a repository whose `.claude-plugin/plugin.json` names `redline` protects the two files whatever CLAUDE_PLUGIN_ROOT is, with guard-cases rows for the new decision and its neighbour. (c) Keep the warning, and say in this bullet and in CLAUDE.md that the guard refuses the two files only when the checkout loads in place; otherwise only the shaper's point 11 defers them.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "scripts/redline-setup.sh",
+      "line": 123,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Header's exit-2 list leaves out a root plugin.json that is not JSON",
+      "description": "The `version <repoRoot>` header text was extended for the new `plugin` part, but its exit-code sentence still ends \"2 when checks.sh or shape-spec.md is missing or settings.json is not JSON or has a byte-order mark\". `version_plugin` now also exits 2 when jq cannot read `<repoRoot>/.claude-plugin/plugin.json` (line 1460, `die2 ... is not JSON`). The README's `version <repoRoot>` row (line 349) lists that case, and the setup test pins it (\"a root whose manifest is not JSON: exit 2\"). The script's own usage header is the one place that misses it.",
+      "proposedFix": "Extend line 123 to \"... settings.json is not JSON or has a byte-order mark, or <repoRoot>/.claude-plugin/plugin.json is not JSON.\"",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ]
+}

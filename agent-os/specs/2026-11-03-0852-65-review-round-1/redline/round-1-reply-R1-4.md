@@ -1,0 +1,1 @@
+Redline round 1: fixed in 7536d4f (redline: R1-4 name a root plugin.json that is not JSON in the version header's exit-2 list (#16)). · decided by: redline
