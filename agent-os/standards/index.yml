@@ -5,6 +5,8 @@ process:
     description: Every spec names the README section (and template) each touched plugin file needs, or says why there is no reader-facing change
   internal-notes:
     description: The public repo carries the tool and its README; design records and step notes live in redline-internal
+  release:
+    description: Every PR bumps the manifest's semver version, the marketplace entry matches, the tag and the CHANGELOG are a person's step after the merge, development loads the checkout with --plugin-dir
   standards-retrospective:
     description: Every spec ends by checking what it taught against these files, in its own commit or as "no changes"
 
