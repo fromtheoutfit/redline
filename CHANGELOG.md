@@ -2,9 +2,9 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" under Contributing in the README). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
-## 0.1.0 (unreleased)
+## 0.1.0 (2026-11-03)
 
-The first release: Redline extracted from Chalkboard as a single-plugin marketplace, dogfooded on itself, Chalkboard, Losers League and Vestmark.
+The first release: Redline as a single-plugin marketplace.
 
 ### Features
 
