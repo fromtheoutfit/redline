@@ -794,10 +794,11 @@ echo "# version <repoRoot>: a self-hosted root, and whether the run loads it in 
 # root is what loads; a root whose manifest names the same plugin from another path is the released copy
 # reviewing a checkout.
 expect_json "a root that is not the plugin: self false, inPlace null, pluginRoot the plugin" '[(.plugin.self|tostring), (.plugin.inPlace|tostring), .plugin.pluginRoot] | join(",")' "false,null,$PLUGIN" version "$VR"
-SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
+# The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.
+SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; SRP="$(cd "$SR" && pwd)"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
 expect_exit "a self-hosted root loaded from elsewhere: exit 1" 1 version "$SR"
 expect_json "a self-hosted root loaded from elsewhere: self true, inPlace false, the rest current" '[(.plugin.self|tostring), (.plugin.inPlace|tostring), (.checks.match|tostring), (.unattended.match|tostring), (.settings.missing|length|tostring)] | join(",")' "true,false,true,true,0" version "$SR"
-expect_stderr "a self-hosted root loaded from elsewhere: the line names the loaded copy and claude --plugin-dir" "this repository is the plugin, but the run loads Redline from $PLUGIN; start the session with claude --plugin-dir $SR to run this checkout's own code" version "$SR"
+expect_stderr "a self-hosted root loaded from elsewhere: the line names the loaded copy and claude --plugin-dir" "this repository is the plugin, but the run loads Redline from $PLUGIN; start the session with claude --plugin-dir $SRP to run this checkout's own code" version "$SR"
 printf '{"name": "other"}\n' > "$SR/.claude-plugin/plugin.json"
 expect_exit "a root that is another plugin: exit 0" 0 version "$SR"
 expect_json "a root that is another plugin: self false" '.plugin.self' "false" version "$SR"

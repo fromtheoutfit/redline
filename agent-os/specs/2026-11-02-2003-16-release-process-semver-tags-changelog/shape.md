@@ -29,6 +29,8 @@ So Claude Code reads the manifest to resolve a version; the tag names the releas
 
 **Auto-update** (loading reference, "Which marketplaces and plugins auto-update"): the default is "off for every other marketplace" than Anthropic's; a user turns it on under `/plugin` → Marketplaces, or runs `claude plugin update redline@redline` ("restart required to apply", `claude plugin update --help`).
 
+**Deviation (as built), decided by: @michaelwitwicki (shaping session, 2026-11-02):** `version <repoRoot>` takes no `--plugin` flag; the script's own root is the copy the session loaded, since the skill runs it by `${CLAUDE_PLUGIN_ROOT}`. See `plan.md`, As built.
+
 ## Context
 
 - **Visuals:** None.
@@ -36,9 +38,9 @@ So Claude Code reads the manifest to resolve a version; the tag names the releas
 - **Product alignment:** roadmap Phase 1, dogfood; item 6 (a second machine) stays open, since the done-when test runs on this machine against the GitHub marketplace, not on a machine that never saw the checkout. The roadmap gains item 8 (the release process) and its Open Item on the PR's own code is amended for `--plugin-dir`.
 - 21 merged PRs (#5 to #64) and five direct commits on 2026-10-20 before PR #5 make up `0.1.0`; no tag exists locally or on `origin`.
 
-## Standards retrospective (proposed)
+## Standards retrospective
 
-See `plan.md`, Task 7, "Standards retrospective (proposed)": a new `process/release.md`, a parenthetical in `process/docs-gate.md`, the step number in `process/standards-retrospective.md` (applied in Task 3), and a line in `testing/tests.md`. Presented with AskUserQuestion at the gate.
+Proposed under `plan.md`, Task 7, and presented with AskUserQuestion at the gate on 2026-11-02; approved as proposed, decided by: @michaelwitwicki. Applied, for their own commit: `agent-os/standards/process/release.md` (new, indexed), the step-number parenthetical in `process/docs-gate.md`, the setup-test sentence in `testing/tests.md`; `process/standards-retrospective.md`'s step number landed earlier in commit a128ce4. Items reviewed: the ten decisions (release.md carries 1, 2, 3, 4, 8 and 9; 5, 6, 7 and 10 are already in docs-gate, attribution and the README), the As built deviation (release.md's last bullet), and the one red run (the swallowed test line: nothing about the tooling, the harness caught it).
 
 ## Standards Applied
 

@@ -134,7 +134,7 @@ Run `.claude/redline/checks.sh --baseline` until it exits 0 (gate steps 1 to 9),
 | `.claude/commands/agent-os/shape-spec.md` (gate step 11) | Contributing, "Releases" (by title, never by number) | Task 3 / Task 6 |
 | `scripts/redline-setup.sh` (`version --plugin`) | `redline-setup.sh` table `version` row; "Template version" under `checks.sh`; Install, "Developing the plugin" | Task 4 |
 | `skills/redline/SKILL.md` (precheck step 1) | Files table `skills/redline/SKILL.md` row | Task 4 |
-| `tests/guard-cases.tsv` (two rows) | no reader-facing change: pins a decision the guard already makes | Task 4 |
+| `tests/guard-cases.tsv` | unchanged: as built, `version` takes no new argument (As built, 1) | – |
 | `CHANGELOG.md` | Files table; Contributing, "Releases" | Task 5 / Task 6 |
 | `.github/workflows/gate.yml` | unchanged (decision 9) | – |
 
@@ -160,3 +160,16 @@ Run `.claude/redline/checks.sh --baseline` until it exits 0 (gate steps 1 to 9),
 - `.claude/redline/checks.sh --baseline` exits 0; `scripts/redline-gate.sh check .` and `scripts/redline-setup.sh version .` exit 0; `claude plugin validate .` passes with the icon warning only; `claude plugin tag --dry-run .` exits 0.
 - A dry-run launch on this PR's branch with `claude --plugin-dir` set runs the precheck with no in-place warning; without it, the warning line appears and the launch goes on.
 - Task 8's checklist is the done-when: `claude plugin list` in Losers League shows `0.1.0` from the GitHub marketplace.
+
+## As built
+
+Built on 2026-11-02 by hand from this plan; the person makes the commits. Deviations:
+
+1. **No `--plugin <dir>` flag** (Task 4, decision 8). The skill runs `redline-setup.sh` by `${CLAUDE_PLUGIN_ROOT}`, so the script's own root (`PLUGIN_ROOT`, line 143) is the copy the session loaded, and `version <repoRoot>` reports `plugin: {self, inPlace, pluginRoot}` without being told where it runs from: `self` when the root's `plugin.json` names the same plugin as the script's own manifest, `inPlace` when the two real paths are one directory (`null` unless `self`). A flag could be passed wrong; the script's path cannot. So no guard rows (no new argument), the skill's call is unchanged, and CI's `version .` reports `inPlace: true` from the checkout. The setup test's cases: a root that is not the plugin, a self-hosted root at another path (exit 1, the stderr line naming the loaded copy and `claude --plugin-dir <root>`), a root that is another plugin, a root manifest that is not JSON (exit 2), and this checkout (`self` and `inPlace` true).
+2. **The test's fixture path**: `TMPDIR` ends in a slash on macOS, so `$WORK/selfroot` carries a double slash the script's `cd && pwd` normalises; the stderr case compares against the normalised path.
+   A first fix put a trailing comment on that line and swallowed the manifest write after it; the setup check went red in the baseline and the fix moved the comment to its own line. Nothing learned about the tooling; the harness caught it.
+3. Task 3's fill-in patch touched point 7 and point 8 of the unattended section as planned; the stamp moved from `a7ef5783…` to `a6972391…`.
+
+Docs entries: every row above names its section; the commits are the person's, one per task, titled at commit time.
+
+Gate: `.claude/redline/checks.sh --baseline` exit 0 (see the gate run recorded in the shaping session); `scripts/redline-gate.sh check .` and `scripts/redline-setup.sh version .` exit 0; `claude plugin validate .` passes with the icon warning; `claude plugin tag --dry-run .` exits 1 on the uncommitted tree (`Uncommitted changes affecting this release`, the check working as designed) and 0 once the tree is committed, with `(version: 0.1.0)` on the entry.
