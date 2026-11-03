@@ -119,8 +119,9 @@
 #       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot}}
 #       (inPlace null unless self), one stderr line per
-#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing or
-#       settings.json is not JSON or has a byte-order mark.
+#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
+#       settings.json is not JSON or has a byte-order mark, or
+#       <repoRoot>/.claude-plugin/plugin.json is not JSON.
 #
 # Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, and REDLINE_UNATTENDED_TEMPLATE
 # templates/shape-spec-unattended.md, whose history/ directory sits beside it (tests).
