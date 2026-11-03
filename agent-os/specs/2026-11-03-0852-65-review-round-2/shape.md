@@ -43,6 +43,12 @@ Plan: Task 2 (the three sentences) and Task 3 (the retrospective, item 1).
 
 Decided by: redline
 
+### As built: retrospective item 1's "plan approver" count is 1, not 0
+
+plan.md Task 3 expects `grep -c "plan approver" agent-os/standards/scripts/guard.md` to print `0` once item 1 is applied. The approved replacement sentence says "the plan approver has no check that names them", so line 9 still holds the phrase and the count is `1`. The plan's second proof for item 1 expects that same phrase to count `1`, and it does. The removed claim (`and the plan approver keep the two files`) counts `0`. The edit went in as approved. Only the plan's first expected count was wrong.
+
+Decided by: redline
+
 ## Unattended answers
 
 1. **Does R2-1 correct the docs or add the check to the approver?** It corrects the docs. The evidence is the person's R1-3 decision on this PR (round 1 `shape.md:42`): "The author keeps the precheck warning and corrects the README's Known limits, CLAUDE.md and point 11 of the unattended section to say the guard refuses the guard and hook files only when the checkout loads in place, leaving a guard that protects them by manifest to a follow-up issue for 0.1.1." The chosen option's effect (round 1 `shape.md:68`): "the docs say what the code does". The PR description: "A warning, never a stop; no new argument, so no guard change." The code (`agents/redline-plan-approver.md`, `workflows/redline-loop.js` `planPrompt`) has no check that names the two files. So the docs disagree with the code on that point, and the docs are what change. The reviewer marked the finding `needsDecision: false` and gave the doc correction as its first fix.

@@ -116,3 +116,28 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-03-0852-65-review-round-2/plan.md`, `agent-os/specs/2026-11-03-0852-65-review-round-2/shape.md`.
 
 **Commit:** `redline: record PR #65 round 2 as built (#16)`
+
+## As built
+
+Built as planned, one commit per task, on top of `862ab55`.
+
+| Task | Finding | Commit | Message |
+|---|---|---|---|
+| 1 | spec | `b23d603` | `redline: save review round 2 spec for PR #65 (#16)` |
+| 2 | R2-1 | `d763617` | `redline: R2-1 drop the plan approver from what keeps the guard and hook files out of a cached-mode run (#16)` |
+| 3 | R2-1 | `425df9a` | `redline: record the round 2 review lessons in the standards, finishing R2-1 (#16)` |
+| 4 | as built | this commit | `redline: record PR #65 round 2 as built (#16)` |
+
+**Proofs.** Task 2: every grep count came out as the plan says. README `the plan approver and the teammate's review` 0, `shape-spec.md. and the teammate's review keep a change to them out of a run` 1, `plan approver` 7. CLAUDE.md `plan approver` 0, `so only point 11 of the unattended section` 1. shape-spec.md `plan approver` 0, `so only this point keeps them out of a plan` 1, `^11\. \*\*The guard and the hook\.\*\*` 1.
+
+**Task 3.** The standards approver approved both items, and both were applied as written. Item 1 is `guard.md` line 9 and finishes R2-1, so the commit names R2-1. Item 2 is a new `agents.md` bullet after line 17; it is a lesson only. Item 3 needs no change. Headings are unchanged: the standards diff against `origin/main` has no `#` line. Proofs: `guard.md` `the plan approver has no check that names them` 1; `agents.md` `credits a role only with a check its prompt carries` 1. `guard.md` `plan approver` prints 1, not the 0 the plan expected (see Deviation). The removed claim, `and the plan approver keep the two files`, prints 0.
+
+**Gate (Task 4).** `checks.sh` with the round's snapshot exited 0 on its first run: `syntax` 0; `validate` 0, with the usual warnings for CLAUDE.md at the root and the missing icon; `guard` 588 passed, 0 mismatched; `loop` 495 passed, 0 failed; `prefs` 101 passed, 0 failed; `gate` 117 passed, 0 failed, so this checkout's stamp still matches; `setup` 468 passed, 0 failed, so the hand-edit case still finds "The guard and the hook"; `gh` 113 passed, 0 failed; `background` 39 passed, 0 failed. No `unexpected_files`, nothing `uncommitted`. Every count is the same as before the round.
+
+**Docs (gate step 10).** As planned. Task 2: none of the three files is under a Docs directory, and the README's Known limits bullet is itself the reader-facing text (`d763617`). Task 3: these are standards, not under a Docs directory (`425df9a`). No new config key, subcommand, allow rule or exit code.
+
+**Version (gate step 11).** `.claude-plugin/plugin.json` and the marketplace entry stay `0.1.0`, and the setup test's last cases pass.
+
+**Standards retrospective (gate step 12).** Task 3, items 1 and 2, in `425df9a`.
+
+**Deviation.** The plan's item 1 proof `grep -c "plan approver" agent-os/standards/scripts/guard.md` prints `1`, not `0`. The approved replacement sentence names the approver itself ("the plan approver has no check that names them"), and `grep -c` counts that line. The plan's other item 1 proof, which expects `1` for that same phrase, confirms it. The old claim is gone. Recorded under Decisions in `shape.md`.
