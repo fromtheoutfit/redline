@@ -11,6 +11,7 @@ Redline runs on the repositories its author works in, and on itself. Agent OS is
 5. **A seeded PR per repository before the first real one**: a branch with planted bugs whose answer key lives outside the repository, to measure the reviewer's recall there. Three seeds in Chalkboard so far: 7 of 7 in-function bugs found on the right line, one race missed.
 6. **A second machine**: a teammate installing from `extraKnownMarketplaces` in a repository's `.claude/settings.json` has not been tried.
 7. **Setup and the gate stamp** (#6): first the stamp (done, 2026-10-21): `checks.sh` carries a hash of the gate's backticked text and a launch refuses a gate that moved, so a step added to `shape-spec.md` later cannot go unnoticed. Then `/redline:setup` (done, 2026-10-22): walks a repository through the contract in conversation, writes `.claude/redline/checks.json` and generates `checks.sh` from it, runs the baseline, stamps the gate, and hands back a file list and a commit message; a rerun changes nothing when nothing drifted. This repository's own contract is reproduced by it from a clean clone.
+8. **Release process** (#16): semver in `plugin.json` and the marketplace entry, kept equal and tested; the gate's Version step, so every PR bumps; `claude plugin tag --push` by hand after the merge; `CHANGELOG.md` at tag time; the README's install, update and developing instructions. `v0.1.0` is cut after it lands, and Losers League moves to the GitHub marketplace as the test.
 
 ## Phase 2: Beyond Agent OS and GitHub
 
@@ -23,4 +24,4 @@ Each is a backlog issue; none is built until Phase 1 has run for a while.
 ## Open Items
 
 - **The missed race.** The reviewer is now asked about scheduled and queued work on the same data; until a seed shows the check working, concurrency belongs to the human review.
-- **A run on this repository runs the PR's own code.** Loaded in place, the plugin that reviews a PR here is the PR branch's skill, workflow, agents and guard, not a released copy. Acceptable while the gate protects the guard; a released copy would need a cache install.
+- **A run on this repository runs the PR's own code.** Loaded in place, the plugin that reviews a PR here is the PR branch's skill, workflow, agents and guard, not a released copy. Acceptable while the gate protects the guard. Since #16 the machine's marketplace is the GitHub one and a session on this checkout starts with `claude --plugin-dir`; the launch precheck warns when it did not.

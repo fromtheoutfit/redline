@@ -112,7 +112,13 @@
 #       <repoRoot>/.claude/settings.json against templates/settings.allow.json and
 #       settings.retired.json (missing: the template's entries the file lacks; stale: the retired
 #       ones it carries; the repository's own entries are never listed; no file is every entry
-#       missing). Prints {checks, unattended, settings: {missing, stale}}, one stderr line per
+#       missing), and whether <repoRoot> is this plugin and loads in place (#16): a root whose
+#       .claude-plugin/plugin.json names the same plugin as this script's own manifest is self-hosted,
+#       and since the skill runs this script by CLAUDE_PLUGIN_ROOT, this script's own root is the
+#       copy the session loaded; a self-hosted root at another real path is the released copy
+#       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
+#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot}}
+#       (inPlace null unless self), one stderr line per
 #       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing or
 #       settings.json is not JSON or has a byte-order mark.
 #
@@ -1440,9 +1446,29 @@ version_settings() {
     [[ $nm -eq 0 && $ns -eq 0 ]]
 }
 entries() { [[ "$1" -eq 1 ]] && echo entry || echo entries; }
+# version_plugin <repoRoot>: is the root this plugin (its .claude-plugin/plugin.json names the same
+# plugin as the plugin's own manifest), and does the run load it in place (the two real paths are one
+# directory)? The skill runs this script by CLAUDE_PLUGIN_ROOT, so this script's own root is the copy
+# the session loaded: a self-hosted root at another path means the released copy's skill, workflow,
+# agents and guard review the checkout, not the branch's own (#16). Prints {self, inPlace, pluginRoot}
+# (inPlace null unless self); returns 1 with the stderr line when self and not in place; exits 2 on a
+# root manifest that is not JSON.
+version_plugin() {
+    local root="$1" self=false inplace=null name="" own
+    own="$(jq -r '.name // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+    if [[ -f "$root/.claude-plugin/plugin.json" ]]; then
+        name="$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null)" || die2 "$root/.claude-plugin/plugin.json is not JSON"
+    fi
+    if [[ -n "$name" && "$name" == "$own" ]]; then
+        self=true
+        [[ "$(cd "$root" && pwd -P)" == "$(cd "$PLUGIN_ROOT" && pwd -P)" ]] && inplace=true || inplace=false
+    fi
+    jq -n --argjson s "$self" --argjson i "$inplace" --arg p "$PLUGIN_ROOT" '{self: $s, inPlace: $i, pluginRoot: $p}'
+    [[ "$inplace" != false ]] || { echo "redline-setup: this repository is the plugin, but the run loads Redline from $PLUGIN_ROOT; start the session with claude --plugin-dir $root to run this checkout's own code" >&2; return 1; }
+}
 # version <checks.sh>: the file form. version <repoRoot>: the root form, the one call the launch
-# precheck makes (#15): checks.sh, the unattended section and settings.json, one stderr line per
-# warning, exit 1 when any warns.
+# precheck makes (#15): checks.sh, the unattended section, settings.json and, since #16, whether a
+# self-hosted root loads in place; one stderr line per warning, exit 1 when any warns.
 cmd_version() {
     [[ $# -eq 1 ]] || usage
     if [[ -f "$1" ]]; then
@@ -1462,7 +1488,9 @@ cmd_version() {
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
     part=0; st="$(version_settings "$root")" || part=$?
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
-    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" '{checks: $c, unattended: $u, settings: $s}'
+    local pl; part=0; pl="$(version_plugin "$root")" || part=$?
+    [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
+    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" '{checks: $c, unattended: $u, settings: $s, plugin: $p}'
     return $rc
 }
 

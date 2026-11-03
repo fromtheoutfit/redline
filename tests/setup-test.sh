@@ -3,7 +3,7 @@
 # Unit test of scripts/redline-setup.sh: the scriptable parts of /redline:setup. The settings.json
 # merge, the .gitignore line, the unattended section of shape-spec.md, redline.json from a baseline
 # time, checks.sh generated from checks.json (and read back), the alias command files (#44), and the
-# template version line. Runs
+# template version line, and the plugin's own manifest and marketplace entry (one semver version, #16). Runs
 # on the fixtures under tests/setup-fixtures/ (and two of tests/gate-fixtures/), copied into a
 # throwaway directory under the system temp directory. The last cases regenerate this checkout's own
 # .claude/redline/checks.sh from its committed .claude/redline/checks.json and compare.
@@ -592,7 +592,7 @@ expect_exit "--merge, then --version: current" 0 unattended --version "$V1"
 
 # This checkout's own section is the hand-edit fixture (decision 4): three hand edits beside the fill-ins.
 SELF="$WORK/self.md"; grep -v '^<!-- redline-unattended:' "$PLUGIN/.claude/commands/agent-os/shape-spec.md" > "$SELF"
-SFILL=(--gate-steps 1-9 --prose-steps "10, 11 and 12" --retro-step 11 --no-pr-body)
+SFILL=(--gate-steps 1-9 --prose-steps "10, 11, 12 and 13" --retro-step 12 --no-pr-body)
 sha_self="$("$GATE" extract "$SELF" 2>/dev/null | jq -r .sha256)"
 expect_exit "this checkout's section without its marker: exit 1" 1 unattended "$SELF" "${SFILL[@]}"
 expect_json "this checkout's section: base guessed as the current version, no conflicts" '[(.version.file|tostring), .base, (.guessed|tostring), (.conflicts|length|tostring)] | join(",")' "null,$UV,true,0" unattended "$SELF" "${SFILL[@]}"
@@ -788,6 +788,21 @@ expect_json "no settings.json: every template entry is missing" '.settings.missi
 printf '\xef\xbb\xbf{}' > "$VR/.claude/settings.json"
 expect_exit "a settings.json with a BOM: exit 2" 2 version "$VR"
 cp "$WORK/vroot-settings.json" "$VR/.claude/settings.json"
+
+echo "# version <repoRoot>: a self-hosted root, and whether the run loads it in place (#16)"
+# The script runs from the plugin the session loaded (the skill calls it by CLAUDE_PLUGIN_ROOT), so its own
+# root is what loads; a root whose manifest names the same plugin from another path is the released copy
+# reviewing a checkout.
+expect_json "a root that is not the plugin: self false, inPlace null, pluginRoot the plugin" '[(.plugin.self|tostring), (.plugin.inPlace|tostring), .plugin.pluginRoot] | join(",")' "false,null,$PLUGIN" version "$VR"
+SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
+expect_exit "a self-hosted root loaded from elsewhere: exit 1" 1 version "$SR"
+expect_json "a self-hosted root loaded from elsewhere: self true, inPlace false, the rest current" '[(.plugin.self|tostring), (.plugin.inPlace|tostring), (.checks.match|tostring), (.unattended.match|tostring), (.settings.missing|length|tostring)] | join(",")' "true,false,true,true,0" version "$SR"
+expect_stderr "a self-hosted root loaded from elsewhere: the line names the loaded copy and claude --plugin-dir" "this repository is the plugin, but the run loads Redline from $PLUGIN; start the session with claude --plugin-dir $SR to run this checkout's own code" version "$SR"
+printf '{"name": "other"}\n' > "$SR/.claude-plugin/plugin.json"
+expect_exit "a root that is another plugin: exit 0" 0 version "$SR"
+expect_json "a root that is another plugin: self false" '.plugin.self' "false" version "$SR"
+printf 'not json\n' > "$SR/.claude-plugin/plugin.json"
+expect_exit "a root whose manifest is not JSON: exit 2" 2 version "$SR"
 mv "$VR/.claude/commands/agent-os/shape-spec.md" "$WORK/vroot-spec-moved.md"
 expect_exit "no shape-spec.md: exit 2" 2 version "$VR"
 mv "$WORK/vroot-spec-moved.md" "$VR/.claude/commands/agent-os/shape-spec.md"
@@ -806,11 +821,19 @@ cp "$PLUGIN/.claude/redline/checks.sh" "$WORK/plugin-rerun.sh"
 expect_json "regenerating over the committed file is a no-op" '[.changed, .written, .stampKept] | join(",")' "false,false,true" checks "$PJ" "$WORK/plugin-rerun.sh"
 same "regenerating over the committed file leaves it byte-identical" "$WORK/plugin-rerun.sh" "$PLUGIN/.claude/redline/checks.sh"
 
+echo "# this checkout: the manifest and the marketplace entry carry one semver version (#16)"
+PV="$(jq -r .version "$PLUGIN/.claude-plugin/plugin.json")"
+MV="$(jq -r '.plugins[0].version' "$PLUGIN/.claude-plugin/marketplace.json")"
+[[ "$PV" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && ok "plugin.json carries a semver version" || bad "plugin.json carries a semver version" "$PV"
+[[ "$MV" == "$PV" ]] && ok "the marketplace entry carries the same version (claude plugin tag refuses a disagreement)" || bad "the marketplace entry carries the same version (claude plugin tag refuses a disagreement)" "entry $MV, manifest $PV"
+[[ "$(jq -r '.plugins[0].name' "$PLUGIN/.claude-plugin/marketplace.json")" == "$(jq -r .name "$PLUGIN/.claude-plugin/plugin.json")" ]] && ok "the marketplace entry's name is the manifest's name" || bad "the marketplace entry's name is the manifest's name" "$(jq -c '{entry: .plugins[0].name}' "$PLUGIN/.claude-plugin/marketplace.json")"
+
 # A dry run: a missing alias file reads absent and stays missing, never written into the checkout (#63, R1-3).
 expect_json "this checkout's /redline alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline --dry-run
 expect_json "this checkout's /redline-revise alias is the template (#44)" '.status' "unchanged" command "$PLUGIN" redline-revise --dry-run
 # The whole contract, as the launch precheck reads it (#15): checks.sh, the section and settings.json current.
 expect_exit "this checkout's contract is current: version <repoRoot> exits 0 (#15)" 0 version "$PLUGIN"
+expect_json "this checkout is the plugin and loads in place: self true, inPlace true (#16)" '[(.plugin.self|tostring), (.plugin.inPlace|tostring)] | join(",")' "true,true" version "$PLUGIN"
 
 printf '\n%s passed, %s failed\n' "$pass" "$fail"
 [[ $fail -eq 0 ]]
