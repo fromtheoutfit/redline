@@ -6,7 +6,7 @@ argument-hint: ""
 
 # /redline:setup
 
-You walk one repository through Redline's per-repository contract, in conversation with the person, from the repository's root. Everything that can be scripted is: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh` does the edits (its header is the reference; the README's "Set up a repository" and `checks.sh` sections say what each file is for), `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh` finds the gate and stamps it. You do the reading, the asking and the explaining. You never commit, stage or push: the person does, with the message you suggest at the end.
+You walk one repository through Redline's per-repository contract, in conversation with the person, from the repository's root. Everything that can be scripted is: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh` does the edits (its header is the reference; `docs/setup.md` and `docs/contract.md` in the plugin say what each file is for), `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh` finds the gate and stamps it. You do the reading, the asking and the explaining. You never commit, stage or push: the person does, with the message you suggest at the end.
 
 The fourteen steps below are the issue's (#6), plus the short aliases of #44 as step 12; do them in order. A **rerun** on a repository that already has the contract follows the same steps, and each one either reports "nothing drifted" or shows the diff and asks before writing. Everything you write is on a branch; nothing touches `.claude/settings.local.json` or the plugin's own files.
 

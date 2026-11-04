@@ -1,0 +1,1 @@
+Redline round 1: fixed in 21d038e (redline: R1-7 drop the bold lead-ins that repeat their headings, in docs/upgrading.md (#14)). · decided by: redline

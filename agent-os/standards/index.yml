@@ -2,9 +2,9 @@
 
 process:
   docs-gate:
-    description: Every spec names the README section (and template) each touched plugin file needs, or says why there is no reader-facing change
+    description: Every spec names the README or docs/ section (and template) each touched plugin file needs, or says why there is no reader-facing change
   internal-notes:
-    description: The public repo carries the tool and its README; design records and step notes live in redline-internal
+    description: The public repo carries the tool, its README and docs/; design records and step notes live in redline-internal
   release:
     description: Every PR bumps the manifest's semver version, the marketplace entry matches, the tag and the CHANGELOG are a person's step after the merge, development loads the checkout with --plugin-dir
   standards-retrospective:
@@ -16,7 +16,7 @@ prompts:
 
 scripts:
   bash-conventions:
-    description: set -euo pipefail, one JSON object on stdout and progress on stderr, usage errors exit 2, every subcommand in the guard's groups
+    description: set -euo pipefail, one JSON object on stdout for what a workflow reads and progress on stderr, usage errors exit 2, every subcommand in the guard's groups
   guard:
     description: Default deny, literal allowlists in the table, every change proven by a guard-cases row, the self-hosted case
 

@@ -1,0 +1,1 @@
+Redline round 1: fixed in c6aeb9e (redline: R1-5 drop the repeated background sentence in docs/running.md Precheck (#14)). · decided by: redline

@@ -23,4 +23,4 @@
 
 ## Where the rest lives
 
-- The design record, step notes and spike notes are in the private sibling repository `redline-internal`; this repository carries the tool and its README only
+- The design record, step notes and spike notes are in the private sibling repository `redline-internal`; this repository carries the tool, its README and `docs/` only

@@ -8,7 +8,7 @@
   "plugins": [
     {
       "name": "redline",
-      "version": "0.1.0",
+      "version": "0.1.1",
       "source": "./",
       "description": "Review a pull request, fix what the review finds through Agent OS, re-review the fixes, and hand the PR to a teammate once no correctness bugs remain."
     }

@@ -6,15 +6,15 @@ argument-hint: "<pr> [autopilot|guided|plan|review|review only] [correctness onl
 
 # /redline:redline
 
-You are the only part of Redline that can talk to the person. You parse what they typed, settle the run's settings (asked once, then remembered in `.claude/redline.local.json`), check the checkout, write the start snapshot, launch the plugin's `redline:redline-loop` workflow, and handle what it returns: a hand-off (judgment calls to decide, or a plan to approve), a posted review to pick findings from, a finished run (deferred items to triage), a capped run, or an error. Every stop leaves a run marker in the same file (`redline-prefs.sh run save`), so the next `/redline:redline <pr>` can offer to resume it, from the session that launched it (#10). The workflow, the agents and the scripts do everything else; see `${CLAUDE_PLUGIN_ROOT}/README.md`.
+You are the only part of Redline that can talk to the person. You parse what they typed, settle the run's settings (asked once, then remembered in `.claude/redline.local.json`), check the checkout, write the start snapshot, launch the plugin's `redline:redline-loop` workflow, and handle what it returns: a hand-off (judgment calls to decide, or a plan to approve), a posted review to pick findings from, a finished run (deferred items to triage), a capped run, or an error. Every stop leaves a run marker in the same file (`redline-prefs.sh run save`), so the next `/redline:redline <pr>` can offer to resume it, from the session that launched it (#10). The workflow, the agents and the scripts do everything else; see `${CLAUDE_PLUGIN_ROOT}/README.md` and `${CLAUDE_PLUGIN_ROOT}/docs/`.
 
 Arguments: `$ARGUMENTS`
 
 ## 1. Resolve the repository
 
-Run `git rev-parse --show-toplevel`. That absolute path is `repoRoot`; every path below is absolute from it. Read `<repoRoot>/.claude/redline.json` (the per-repo config). If it does not exist, stop with one line: this repository is not set up for Redline yet (see "Set up a repository" in `${CLAUDE_PLUGIN_ROOT}/README.md`).
+Run `git rev-parse --show-toplevel`. That absolute path is `repoRoot`; every path below is absolute from it. Read `<repoRoot>/.claude/redline.json` (the per-repo config). If it does not exist, stop with one line: this repository is not set up for Redline yet (see `${CLAUDE_PLUGIN_ROOT}/docs/setup.md`).
 
-The plugin's root is `${CLAUDE_PLUGIN_ROOT}`: its scripts, workflow and README are there. Everything per repository (`checks.sh`, `redline.json`, the spec folders) is under `repoRoot`.
+The plugin's root is `${CLAUDE_PLUGIN_ROOT}`: its scripts, workflow, README and `docs/` are there. Everything per repository (`checks.sh`, `redline.json`, the spec folders) is under `repoRoot`.
 
 ## 2. Parse the arguments
 
@@ -81,7 +81,7 @@ The revise model holds for every round of the run and every relaunch. A `review 
 
 Skip this on a relaunch after a hand-off: the round's spec folder is uncommitted in the tree by design.
 
-1. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` must exit 0: the gate stamp in `<repoRoot>/.claude/redline/checks.sh` still matches the repository's Verification Gate (see "Gate stamp" in the README). On exit 1, stop the launch with the script's one stderr line, verbatim: the gate has changed since `checks.sh` was stamped, or `checks.sh` carries no stamp. On exit 2, stop as section 1 does: this repository is not set up for Redline yet.
+1. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` must exit 0: the gate stamp in `<repoRoot>/.claude/redline/checks.sh` still matches the repository's Verification Gate (see "Gate stamp" in `${CLAUDE_PLUGIN_ROOT}/docs/contract.md`). On exit 1, stop the launch with the script's one stderr line, verbatim: the gate has changed since `checks.sh` was stamped, or `checks.sh` carries no stamp. On exit 2, stop as section 1 does: this repository is not set up for Redline yet.
    Then `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh version <repoRoot>`, the contract's versions in one read-only call (#15): on exit 1, say each stderr line it printed, verbatim, and go on. There are four kinds: `checks.sh` was made from an older template, or carries no version line (run `/redline:setup` to port it), or from a newer one than this plugin ships (update the plugin); the unattended section in `shape-spec.md` was made from an older template, or carries no version marker (run `/redline:setup` to see the change), or a newer one (update the plugin); `settings.json` lacks entries the plugin now expects, or carries entries it retired (run `/redline:setup`); and, when this repository is the plugin itself, the session loads Redline from another copy, so the run would review the branch with the released skill, workflow, agents and guard instead of its own (start the session with `claude --plugin-dir <repoRoot>`, #16). A warning, never a stop; on exit 2, stop as section 1 does.
 2. `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr <n>`: the PR must be `OPEN`, except in a `dry run`, which posts and pushes nothing and so may read a closed PR (a seed for a recall test). Keep `headRefName`, `headRefOid`, `baseRefName`, `title`.
 3. `git rev-parse --abbrev-ref HEAD` must equal `headRefName`.
@@ -164,7 +164,7 @@ The workflow returns `{status, rounds, judgmentCalls, deferred, openFindings, de
 
 ### `review-only`
 
-Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-prefs.sh run clear <repoRoot> <n>` first. Summarise the first round's review (round `firstRound`) in a few lines: how many findings by category, the correctness ones by title (a finding with `carriedFrom` as "first reported as <that id>"), where the review sits (`reviewFile`; in a dry run, say plainly that nothing was posted), and the run-record commit (`recordCommit`: the review-only run commits its review, findings and start snapshot like a full run, so the tree is clean for the next launch). Say in one line that a later `/redline:redline <pr>` carries these findings into its first round, so no separate revise launch is needed. Stop.
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-prefs.sh run clear <repoRoot> <n>` first. Summarise the first round's review (round `firstRound`) in a few lines: how many findings by category, the correctness ones by title (a finding with `carriedFrom` as "first reported as <that id>"), where the review sits (`reviewFile`; in a dry run, say plainly that nothing was posted), and the run-record commit (`recordCommit`: the review-only run commits its review, findings and start snapshot like a full run, so the tree is clean for the next launch). Say in one line that a later `/redline:redline <pr>` carries these findings into its first round, so no separate revise launch is needed; in a dry run say instead that nothing reached GitHub and the record commit is local only: before the next launch, copy the round's spec folder outside the repository if the review is worth keeping and drop the commit (`git reset --hard origin/<branch>`), since the precheck stops while HEAD is ahead of the PR; a later run then starts at round 1 and carries nothing, and the review is the record under the round's spec folder until then. Stop.
 
 ### stopped before a result
 
