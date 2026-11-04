@@ -167,7 +167,7 @@ Run it from a repository that uses Redline; from the plugin's own checkout, or o
 <plugin>/tests/guard-test.sh my-new-rows.tsv
 ```
 
-About 60 ms a row (389 rows took 78 seconds on 2026-10-26, most of this repository's gate). Set `REDLINE_GUARD_LOG=<file>` in the environment Claude Code starts from to log every decision, inert ones included: `agent_type`, decision, reason, command or path, one line each.
+About 60 ms a row; this repository's whole baseline, the guard table included (389 rows then), took 78 seconds on 2026-10-26. Set `REDLINE_GUARD_LOG=<file>` in the environment Claude Code starts from to log every decision, inert ones included: `agent_type`, decision, reason, command or path, one line each.
 
 ## Self-hosted: Redline reviewing itself
 
