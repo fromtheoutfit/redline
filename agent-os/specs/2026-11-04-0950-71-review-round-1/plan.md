@@ -273,3 +273,45 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 **Files:** `agent-os/specs/2026-11-04-0950-71-review-round-1/plan.md`, `agent-os/specs/2026-11-04-0950-71-review-round-1/shape.md`.
 
 **Commit:** `redline: record PR #71 round 1 as built (#14)`
+
+---
+
+## As built
+
+Built by Redline in unattended mode on 2026-11-04, on the PR's head `89dcbfe`. One deviation: Task 3's commit message (below). Every other task landed as planned, with the exact replace strings above.
+
+| Task | Finding | Commit | Message |
+| --- | --- | --- | --- |
+| 1 | spec | `a65c471` | `redline: save review round 1 spec for PR #71 (#14)` |
+| 2 | R1-1 | `8e08d79` | `redline: R1-1 point "Template version" at docs/contract.md in CONTRIBUTING.md (#14)` |
+| 3 | R1-2 | `b2964f4` | `redline: R1-2 say which version the plugin tag subcommand needs, in CONTRIBUTING.md Releases (#14)` |
+| 4 | R1-3 | `0110a03` | `redline: R1-3 say the 78 seconds was the whole baseline, in docs/guard.md (#14)` |
+| 5 | R1-5 | `c6aeb9e` | `redline: R1-5 drop the repeated background sentence in docs/running.md Precheck (#14)` |
+| 6 | R1-6 | `e580596` | `redline: R1-6 say what the scripts print, in docs/scripts.md (#14)` |
+| 7 | R1-7 | `21d038e` | `redline: R1-7 drop the bold lead-ins that repeat their headings, in docs/upgrading.md (#14)` |
+| 8 | R1-4 | `545b6c9` | `redline: R1-4 tell a person to drop a dry run's commits before the next run (#14)` |
+| 9 | standards | `23755c9` | `redline: record the round 1 review lessons in the standards (#14)` |
+| 10 | as built | this commit | `redline: record PR #71 round 1 as built (#14)` |
+
+**Deviation, Task 3 (R1-2).** The planned message, `redline: R1-2 say which Claude Code claude plugin tag needs, in CONTRIBUTING.md Releases (#14)`, was refused by the guard: `ATTRIBUTION` in `scripts/redline-guard.sh` matches the product name in any case once `.claude/` and `CLAUDE.md` are stripped, so a message that names the subcommand or its host cannot pass. The commit went in as `redline: R1-2 say which version the plugin tag subcommand needs, in CONTRIBUTING.md Releases (#14)`. The change itself is the planned one; only the message differs. Recorded under Decisions in `shape.md`.
+
+**Proofs** (run from the repository root after each task; each count's "before" matched the plan's):
+
+- Task 2: `"Template version" in [docs/contract.md](docs/contract.md)` in `CONTRIBUTING.md` 0 to `1`; `"Template version" under` 1 to `0`; `^## Template version` in `docs/contract.md` `1`.
+- Task 3: `is Claude Code 2.1.316's)` in `CONTRIBUTING.md` 0 to `1`; `grep -rn 2.1.316 README.md docs CONTRIBUTING.md` lists `README.md:9`, `docs/setup.md:16` and `CONTRIBUTING.md:29`.
+- Task 4: the new sentence in `docs/guard.md` 0 to `1`; `most of this repository's gate` 1 to `0`.
+- Task 5: the background sentence in `docs/running.md` 2 to `1`; `"Snapshot file"). The workflow runs` 1 to `0`.
+- Task 6: `prints one JSON object on stdout and progress on stderr` in `docs/scripts.md` 1 to `0`; `What a subcommand prints is in its header` 0 to `1`.
+- Task 7: each of the three bold lead-ins in `docs/upgrading.md` 1 to `0`; `^## ` `5` before and after.
+- Task 8: `Do not push them: copy the round` in `docs/running.md` 0 to `1`; `git reset --hard origin/<branch>` 0 to `1` in each of `docs/running.md` and `skills/redline/SKILL.md`; `a dry run's review is a record under its spec folder` 1 to `0`; `stay on the local branch until you drop them before the next launch` 0 to `1`; `the record commit is local only: before the next launch` 0 to `1`; `so a later run starts at round 1 and carries nothing` 1 to `0`; `Its record commit stays local; drop it before the next launch` in `docs/setup.md` 0 to `1`; `^## ` counts `docs/running.md` 13 and `docs/setup.md` 5, before and after. `grep -rnF` of each replaced sentence over `tests/`, `scripts/` and `workflows/` found nothing.
+- Task 9: the two approved edits, `agent-os/standards/scripts/bash-conventions.md` line 6 and the `bash-conventions` description in `agent-os/standards/index.yml`, as the standards approver worded them; no heading changed. The message names no finding: R1-6's fix is Task 6's commit, and these edits are the lesson.
+
+**Gate (steps 1 to 9).** `.claude/redline/checks.sh` on this round's snapshot exited 0 on its first run after Task 9 (`ok: true`, every check exit 0): syntax; validate (`Validation passed with warnings`); guard 588 passed, 0 mismatched; loop 495 checks passed; prefs 101; gate 117; setup 468; gh 113; background 39; `unexpected_files` and `uncommitted` empty. No task added or changed a case, so these are the counts before the round (the guard's 588 is the case-row count `shape.md` R1-3 records).
+
+**Step 10, Docs.** As planned: Tasks 2 and 3 change `CONTRIBUTING.md`, the reader-facing text itself; Tasks 4 to 7 change `docs/`; Task 8's `skills/redline/SKILL.md` entry is `docs/running.md` "Launching a run" (and "The run record"), updated in `545b6c9`. No config key, subcommand, allow rule or exit code was added.
+
+**Step 11, Version.** `.claude-plugin/plugin.json` and the marketplace entry are both `0.1.1`, the PR's own patch bump; the setup test's last cases passed.
+
+**Step 12, Standards retrospective.** Task 9, `23755c9`, the two edits the standards approver approved.
+
+**Step 13, Spec folder.** This section, and the R1-2 deviation under Decisions in `shape.md`, in this commit.

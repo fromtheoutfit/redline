@@ -55,6 +55,8 @@ Decided by: redline
 
 **The change.** After `claude plugin tag --push` in "Releases": "(`claude plugin tag` is Claude Code 2.1.316's)". Placement: Unattended answer 7. plan.md, Task 3.
 
+**As built (deviation).** The commit message plan.md gave Task 3 names the subcommand and its host, and the guard's `ATTRIBUTION` pattern refuses that name in any case in a commit message. The commit went in as `redline: R1-2 say which version the plugin tag subcommand needs, in CONTRIBUTING.md Releases (#14)` (`b2964f4`). The file change is the planned one. A later plan that names a commit message should keep the product name out of it, even where the finding is about that product's version.
+
 Decided by: redline
 
 ### R1-3: fix — say the 78 seconds was the whole baseline, in docs/guard.md
