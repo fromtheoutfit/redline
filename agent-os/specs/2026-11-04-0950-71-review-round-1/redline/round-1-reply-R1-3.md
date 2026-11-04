@@ -1,0 +1,1 @@
+Redline round 1: fixed in 0110a03 (redline: R1-3 say the 78 seconds was the whole baseline, in docs/guard.md (#14)). · decided by: redline

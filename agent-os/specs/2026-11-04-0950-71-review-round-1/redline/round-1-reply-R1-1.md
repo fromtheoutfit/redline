@@ -1,0 +1,1 @@
+Redline round 1: fixed in 8e08d79 (redline: R1-1 point "Template version" at docs/contract.md in CONTRIBUTING.md (#14)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 1: fixed in e580596 (redline: R1-6 say what the scripts print, in docs/scripts.md (#14)). · decided by: redline

@@ -1,0 +1,47 @@
+{
+  "body": "Redline round 1\n\nReviewed the whole pull request.\n\nEvery section of the old README has a new home in the README, a `docs/` file or CONTRIBUTING.md. Git rules for Redline agents and Known limits moved byte for byte, and each script header quoted in docs/scripts.md and docs/guard.md matches its script exactly. The PR bumps the patch version and has a Docs entry for each touched plugin file, and no scheduled or queued work touches these files. The nits are leftovers from the move: a cross-reference and a timing figure that no longer fit where they landed, one version detail with no home, a new sentence that overstates what every script prints, and repeated text. The one correctness finding is in the walkthrough fix: it says the next run after a dry run starts at round 1, but the dry run's local record commit puts HEAD ahead of the PR head and stops the precheck. What should happen to that commit is left to the person.\n\n### Findings (1 correctness, 6 nit)\n\n- **R1-1** · nit · low · confirmed · `CONTRIBUTING.md:7` · Stale pointer to \"Template version\" under checks.sh\n- **R1-2** · nit · low · confirmed · `CONTRIBUTING.md:29` · The Claude Code version `claude plugin tag` needs was dropped\n- **R1-3** · nit · low · confirmed · `docs/guard.md:170` · The guard-table timing contradicts itself\n- **R1-4** · correctness · medium · confirmed · `docs/running.md:23` · After a dry run, the next launch stops at the precheck; it does not start at round 1 · needs a decision\n- **R1-5** · nit · low · confirmed · `docs/running.md:29` · Precheck repeats \"The workflow runs in the background\"\n- **R1-6** · nit · low · confirmed · `docs/scripts.md:5` · \"Every script prints one JSON object on stdout\" is not true\n- **R1-7** · nit · low · confirmed · `docs/upgrading.md:7` · Three sections repeat their heading as a bold lead-in\n\nEach finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding's thread, or in a PR comment that opens with its marker, once the round's fixes are committed.",
+  "comments": [
+    {
+      "path": "CONTRIBUTING.md",
+      "line": 7,
+      "side": "RIGHT",
+      "body": "**R1-1** · nit · low · confirmed\n\n**Stale pointer to \"Template version\" under checks.sh**\n\n\"Developing the plugin\" moved over word for word, including its cross-reference `(redline-setup.sh version, \"Template version\" under checks.sh)`. That phrase pointed at the old README's `## checks.sh` section. Neither the new README nor CONTRIBUTING.md has that section now. \"Template version\" is a heading in docs/contract.md. The PR's rule is that every reference moves with its section, and this one did not.\n\nProposed fix: Replace `\"Template version\" under \\`checks.sh\\`` with `\"Template version\" in [docs/contract.md](docs/contract.md)`."
+    },
+    {
+      "path": "CONTRIBUTING.md",
+      "line": 29,
+      "side": "RIGHT",
+      "body": "**R1-2** · nit · low · confirmed\n\n**The Claude Code version `claude plugin tag` needs was dropped**\n\nThe old README's Requirements line said \"proven on 2.1.303 to 2.1.316; `claude plugin tag` is 2.1.316's\" (`git show origin/main:README.md`, line 24). The new README's Requirements and docs/setup.md keep only the proven range. Releases here tells the person to run `claude plugin tag --dry-run .` and `claude plugin tag --push` but never says they need 2.1.316. `git grep 2.1.316` finds no other place that says it. This is the one piece of the old README I found with no destination. Someone on 2.1.303, which the Requirements line calls proven, would hit a missing subcommand at tag time.\n\nProposed fix: In Releases, after `claude plugin tag --push`, add \"(the subcommand is Claude Code 2.1.316's)\", or put the same clause back on the README's Requirements line."
+    },
+    {
+      "path": "docs/guard.md",
+      "line": 170,
+      "side": "RIGHT",
+      "body": "**R1-3** · nit · low · confirmed\n\n**The guard-table timing contradicts itself**\n\n\"About 60 ms a row (389 rows took 78 seconds on 2026-10-26, most of this repository's gate)\" puts two figures together that do not fit: 389 rows at 60 ms is about 23 s, not 78 s. The source is the header of `.claude/redline/checks.sh` (line 28), \"Baseline on 2026-10-26: 78 seconds, most of it the guard table (389 rows at about 60 ms each)\". There, 78 s is the whole baseline, not the table alone. The table now has 588 case rows.\n\nProposed fix: Say the 78 seconds was the whole baseline. For example: \"About 60 ms a row; this repository's whole baseline, the guard table included (389 rows then), took 78 seconds on 2026-10-26.\" Or drop the parenthetical."
+    },
+    {
+      "path": "docs/running.md",
+      "line": 23,
+      "side": "RIGHT",
+      "body": "**R1-4** · correctness · medium · confirmed\n\n**After a dry run, the next launch stops at the precheck; it does not start at round 1**\n\nThe walkthrough fix says a dry run's commits \"stay on the local branch, unpushed\", so a `dry run review only` leaves exactly one commit, the record. It then says \"the next `/redline:redline <pr>` finds no Redline round on the PR ... and starts at round 1 with no carried findings\". The same claim is now in the skill's review-only summary, `skills/redline/SKILL.md:167` (\"a later run starts at round 1 and carries nothing\").\n\nThe next fresh launch never gets that far. The review-only path commits the record (`workflows/redline-loop.js:2968-2972`), and in a dry run the record-commit prompt does not push (`:1469`). So HEAD ends one commit ahead of the PR's head. Precheck step 5 (`skills/redline/SKILL.md:89`) requires `git rev-parse HEAD` to equal `headRefOid`. The launch therefore stops with \"pull or push so HEAD matches the PR\" (`:98`), as Git rule 7 in the README says a fresh launch must.\n\nThe path is a recommended one: setup's hand-back suggests a `dry run review only` on a real PR before the first real run. On that path the doc and the skill tell the person something the tool does not do. The stop line's \"push\" also steers them toward pushing the dry run's record onto the PR.\n\nProposed fix: Question for the person: before the next run, what should happen to a dry run's local record commit? Options: (a) The docs and the SKILL.md summary say to drop it first, with `git reset --hard origin/<branch>`, after copying the spec folder out if the review is worth keeping. The next run then starts at round 1 with nothing carried. This is a docs change only. (b) They say to push it. The dry run's spec folder then lands on the PR branch, and the next run still starts at round 1. (c) The workflow changes so a dry run leaves its record uncommitted or off the branch. That is outside this PR, which leaves `workflows/` untouched, and it conflicts with #10's clean-tree rule. Whichever is chosen, `docs/running.md` \"Launching a run\" and \"The run record\" and `skills/redline/SKILL.md:167` should say the same thing.\n\nThis needs a decision from the author; Redline does not decide it."
+    },
+    {
+      "path": "docs/running.md",
+      "line": 29,
+      "side": "RIGHT",
+      "body": "**R1-5** · nit · low · confirmed\n\n**Precheck repeats \"The workflow runs in the background\"**\n\n\"The workflow runs in the background and the session waits for it.\" appears in the Precheck section's first paragraph (line 27, from the old Launching section) and again at the end of the second paragraph (line 29). Line 29 is written as the step \"before any of that\", so ending it with the same sentence reads as a copy left behind.\n\nProposed fix: Delete the last sentence of line 29."
+    },
+    {
+      "path": "docs/scripts.md",
+      "line": 5,
+      "side": "RIGHT",
+      "body": "**R1-6** · nit · low · confirmed\n\n**\"Every script prints one JSON object on stdout\" is not true**\n\nThis sentence is new (it was not moved from the old README). It says every script \"prints one JSON object on stdout and progress on stderr\". The headers quoted just below say otherwise for several subcommands. `redline-gh.sh diff` prints a unified diff, `pr-comments` and `issues-search` print text and a table, `has-review` prints nothing and answers by exit code, and `comment`, `request-review` and `issue-create` print a URL. `redline-gate.sh stamp` prints the stamp line. The `set -euo pipefail` and exit-2 parts are accurate.\n\nProposed fix: Change it to: \"Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 on a usage error; each header says what its subcommands print (most print one JSON object; `redline-gh.sh diff` prints a unified diff, `redline-gate.sh stamp` the stamp line).\""
+    },
+    {
+      "path": "docs/upgrading.md",
+      "line": 7,
+      "side": "RIGHT",
+      "body": "**R1-7** · nit · low · confirmed\n\n**Three sections repeat their heading as a bold lead-in**\n\nThe old README's bold paragraph lead-ins became headings but were also kept as text. So `## Updating the plugin` is followed by **Updating the plugin.** (line 7), `## Allow-list entries retired by #50` by **Allow-list entries retired by #50.** (line 21), and `## Unattended section versions (#15)` by **Unattended section versions (#15).** (line 25). Each title reads twice in a row.\n\nProposed fix: Drop the bold lead-in sentence at the start of lines 7, 21 and 25 and keep the headings."
+    }
+  ]
+}

@@ -1,0 +1,1 @@
+Redline round 1: fixed in b2964f4 (redline: R1-2 say which version the plugin tag subcommand needs, in CONTRIBUTING.md Releases (#14)). · decided by: redline
