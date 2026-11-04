@@ -16,7 +16,7 @@ prompts:
 
 scripts:
   bash-conventions:
-    description: set -euo pipefail, one JSON object on stdout and progress on stderr, usage errors exit 2, every subcommand in the guard's groups
+    description: set -euo pipefail, one JSON object on stdout for what a workflow reads and progress on stderr, usage errors exit 2, every subcommand in the guard's groups
   guard:
     description: Default deny, literal allowlists in the table, every change proven by a guard-cases row, the self-hosted case
 
