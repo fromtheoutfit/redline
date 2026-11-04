@@ -12,6 +12,7 @@ Redline runs on the repositories its author works in, and on itself. Agent OS is
 6. **A second machine**: a teammate installing from `extraKnownMarketplaces` in a repository's `.claude/settings.json` has not been tried.
 7. **Setup and the gate stamp** (#6): first the stamp (done, 2026-10-21): `checks.sh` carries a hash of the gate's backticked text and a launch refuses a gate that moved, so a step added to `shape-spec.md` later cannot go unnoticed. Then `/redline:setup` (done, 2026-10-22): walks a repository through the contract in conversation, writes `.claude/redline/checks.json` and generates `checks.sh` from it, runs the baseline, stamps the gate, and hands back a file list and a commit message; a rerun changes nothing when nothing drifted. This repository's own contract is reproduced by it from a clean clone.
 8. **Release process** (#16): semver in `plugin.json` and the marketplace entry, kept equal and tested; the gate's Version step, so every PR bumps; `claude plugin tag --push` by hand after the merge; `CHANGELOG.md` at tag time; the README's install, update and developing instructions. `v0.1.0` is cut after it lands, and Losers League moves to the GitHub marketplace as the test.
+9. **Public docs** (#14): the README for installation and use, the reference under `docs/` (setup, contract, running, guard, upgrading, scripts), Contributing at the root, every reference to a README section moved with its section; the two sections the setup template and the workflow name by heading stay in the README.
 
 ## Phase 2: Beyond Agent OS and GitHub
 

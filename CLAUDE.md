@@ -1,6 +1,6 @@
 # Redline
 
-This repository is the Redline plugin: a Claude Code command that reviews and revises pull requests through Agent OS. `README.md` is the operating document, the one an agent or a teammate needs while a run is going; read it before changing anything a run touches.
+This repository is the Redline plugin: a Claude Code command that reviews and revises pull requests through Agent OS. `README.md` and `docs/` are the operating documents, what an agent or a teammate needs while a run is going; read them before changing anything a run touches.
 
 ## Git
 
@@ -53,5 +53,5 @@ as `models` in `.claude/redline.json`, is not attribution and is allowed.
 
 ## This repository
 
-- **The public repo carries no internal design record.** Step notes, spike notes and the design document live in the private sibling repository `redline-internal`. A spec here may cite one by file name; it never copies the text in. The README is the only long-form document here.
+- **The public repo carries no internal design record.** Step notes, spike notes and the design document live in the private sibling repository `redline-internal`. A spec here may cite one by file name; it never copies the text in. The README, `docs/` and `CONTRIBUTING.md` are the only long-form documents here.
 - **Every guard change updates `tests/guard-cases.tsv`** in the same commit, with a row for the new decision and a row for the neighbouring decision that must not change. `scripts/redline-guard.sh` and `hooks/hooks.json` are changed by a person, never by a Redline run: when this checkout loads in place, the guard refuses them for every role even when this repository is the one under review; loaded from a cached release, it treats this checkout as an ordinary repository and does not refuse them, so only point 11 of the unattended section in `.claude/commands/agent-os/shape-spec.md` keeps them out of a plan.
