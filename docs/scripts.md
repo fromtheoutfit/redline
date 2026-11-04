@@ -2,7 +2,7 @@
 
 Each block below is the script's own header, copied verbatim at version 0.1.1 (the comment lines after the shebang, as the file carries them). The header is the source: a change to a script changes its header first, and this file follows in the same commit. With the plugin installed, `claude plugin list` prints the directory it is read from (`Read from:`), and each script's header is the top of the file there. `redline-guard.sh`'s header is quoted in [guard.md](guard.md); the repository's generated `checks.sh` is described in [contract.md](contract.md).
 
-Every script starts `set -euo pipefail`, prints one JSON object on stdout and progress on stderr, and exits 2 on a usage error; a script whose exit code is an answer says so in its header. Who may run each one is the guard's table ([guard.md](guard.md)): a role runs only what its command groups name, and the skills run the rest by `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`.
+Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 on a usage error. What a subcommand prints is in its header: most print one JSON object, but `redline-gh.sh diff` prints a unified diff, `pr-comments` and `issues-search` print text, `redline-gate.sh stamp` prints the stamp line, and a subcommand whose exit code is the answer (`redline-gh.sh has-review`) says so. Who may run each one is the guard's table ([guard.md](guard.md)): a role runs only what its command groups name, and the skills run the rest by `${CLAUDE_PLUGIN_ROOT}/scripts/<name>`.
 
 ## `redline-gh.sh`
 
