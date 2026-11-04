@@ -141,6 +141,6 @@ The skill prints the files written or changed, the baseline result and wall time
 
 ## Before the first real PR
 
-Run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there: `/redline:redline <pr> dry run review only` posts and pushes nothing and writes every body under the round's spec folder. Three seeds so far found 7 of 7 in-function bugs on the right line and missed one race (the README, Known limits).
+Run a dry run on a seeded PR (a branch with planted bugs whose answer key lives outside the repository) to measure the reviewer's recall there: `/redline:redline <pr> dry run review only` posts and pushes nothing and writes every body under the round's spec folder. Three seeds so far found 7 of 7 in-function bugs on the right line and missed one race (the README, Known limits). Its record commit stays local; drop it before the next launch ([running.md](running.md), "Launching a run").
 
 See also: [contract.md](contract.md) for each file, [running.md](running.md) for the first run, [upgrading.md](upgrading.md) for the rerun.
