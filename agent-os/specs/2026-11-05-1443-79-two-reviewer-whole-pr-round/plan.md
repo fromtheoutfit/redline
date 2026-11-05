@@ -1,0 +1,212 @@
+# Issue #79: two-reviewer whole-PR round, the code-review skill as the finder, Redline's reviewer as the verifier
+
+Spec folder: `agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/`
+
+Shaped by hand on 2026-11-05 with `/agent-os:shape-spec` in plan mode, on `feature/79-two-reviewer-whole-pr-round-…` at dfc9190 with a clean tree. The person makes every commit, push, PR and close. Nothing is committed, pushed or staged by the implementation.
+
+## Context
+
+Spike #72 (PR #78) answered **spec it**: on Losers League #817 at its pre-Redline SHA, today's reviewer reported three confirmed findings and none of the teammate's seven primary items; the built-in `code-review` skill, run from a default workflow subagent at the same model and effort, reported seventeen with no false finding, a strict superset. The union is the skill's list; what Redline adds is the contract (collapse by cause, known-finding check, reproduction, ids, severities, a line inside the diff, ask rules, carry-forward). So on whole-PR rounds the skill becomes the **finder** and Redline's reviewer the **verifier**. Fix-diff rounds (round 2 and later, the nit pass) keep today's reviewer: the skill reviews a branch, not a fix diff.
+
+The spike's evidence is one PR, so the first task is a second corpus PR, and its decision rule picks between **verify-only** (the verifier replaces the reviewer's discovery pass) and **union** (both passes in parallel, the verifier merging both lists). The three harness facts the design builds around are now in `agent-os/standards/`: the guard does not see a skill fork (`scripts/guard.md`); a role launched with a `schema` swallows the skill's output (`workflow/agents.md`); the run record counts the calling agent only (`workflow/agents.md`). Measurements are in `redline-internal/docs/SPIKE-72-NOTES.md` §3 to §5 and §7, cited by file name only; no figure enters the public spec.
+
+## Decisions (for `shape.md`, each with its owner)
+
+1. **The second corpus PR is Losers League #778 at `db3eedbe2`** (2026-10-24, the commit before `redline: record round 1 review of PR #778`). Its key (the teammate's round 4 and round 5 comments) is seven correctness items (F4-1 to F4-6, F5-1) and five nits (F4-7 to F4-11), every one at a file and line in app code, in a 374-file PR: the same shape and size as #817's key, and it exercises what the decision rule turns on, whether a reproduction-focused pass adds subtle bugs a coverage pass misses. #790's key is half ops and discussion no code reviewer can find (F1 a ruleset, F3 a Cloud environment, F7 tracked in #771, F8 standards wording, F2 a design call) and its five code items are one class Redline already found three of. Same recipe as #818: the pre-Redline SHA pushed as a throwaway draft PR, the old-contract warning expected at launch (the branch predates Losers League's 2026-11-02 setup rerun), never merge `main` into it. Decided by: @michaelwitwicki, 2026-11-05.
+2. **The decision rule is applied in Task 3, before Tasks 4 to 10 are built**, and the chosen mode (verify-only or union) is written into `shape.md` under `## Decision` with its evidence (the recall and cost tables in the internal note, cited by section). If the skill's pass misses what the reviewer finds or reports false findings, the spec stops at Task 3 and the decision is reopened. Decided by: @michaelwitwicki (the issue).
+3. **No candidates is a stage error, an empty array is zero candidates.** When the coverage pass returns nothing usable, the round stops at stage `review` with `resumeFrom: "coverage r<n>"`, and the message names one of three causes with its fix: the Skill tool was denied (the session's permission mode or allow list), the skill is absent on this Claude Code version (`claude --version`; the recipe was validated on 2.1.318), or the fork's text holds no fenced JSON array (the skill's recipe drifted). A resume replays the coverage agent; the message also says the alternative is a fresh launch with `coverage off`. An empty array the skill returned on purpose is not an error: the verifier runs on the carried findings alone. Decided by: @michaelwitwicki, 2026-11-05.
+4. **`--max-findings all`, always, fixed in the workflow.** The spike's probe A and the saved per-machine choice (`codeReviewLastMaxFindings` in `~/.claude.json`) were both `all`, so the seventeen-candidate, zero-false-finding evidence is for `all`; Task 2 passes it explicitly to stay like for like with #818. The spec records that the decision rule's evidence is for `all`, so a later cap is measured, not assumed. No `maxFindings` key. Decided by: @michaelwitwicki, 2026-11-05.
+5. **The coverage agent is the default workflow agent type with no schema.** Never a Redline role (the guard does not see the fork; the role's output contract leaks into it) and no `schema` on the calling agent (a schema gives the fork a StructuredOutput tool to call itself). Without a schema `agent()` returns the fork's final text as a string (workflow-authoring reference); the workflow reads from it only the skill's own documented contract, one fenced ```json array of `{file, line, summary, failure_scenario}`, and two fixed marker lines the prompt asks for (`coverage: skill denied`, `coverage: skill absent`), and passes the parsed array to the verifier as JSON. This is the one place the workflow reads an agent's text, recorded in the standards retrospective. Decided by: @michaelwitwicki (the type and the schema), redline (the extraction).
+6. **`coverage off`, or `models.coverage: null`, runs today's reviewer-only whole-PR round.** It is the fallback, never the default. The word is a per-run verb the skill translates into `args.models.coverage = null` and never saves (like `autopilot` and `review only`); the config key is the persistent form for a repository whose Claude Code lacks the skill. `models.coverage` absent means on, with the first-round reviewer's model and effort. Decided by: @michaelwitwicki (the dial), redline (not saved; one signal in `args`).
+7. **Effort is always passed to the skill.** The coverage prompt's level is `models.coverage.effort`, else `models.reviewerFirstRound.effort`, else `high`, so the skill never reads its per-machine "level you typed last". The skill's `max` recipe fans out through the Agent tool, which a workflow subagent never has, so `max` degrades to a single pass; `xhigh` on the opus-5 family is ten inline angles and loses nothing (spike note §2). The docs say so. Decided by: redline.
+8. **Labels and phase.** Under verify-only the Review phase of a whole-PR round is `coverage r<n>` then `review r<n>` (the reviewer's call keeps its label: it is still the round's review, and every resume marker, doc sentence and loop-test label that names `review r<n>` stays true). Under the union the Review phase is `parallel([coverage r<n>, review r<n>])` then `verify r<n>`. Fix-diff rounds and the final nit pass have no coverage call. Decided by: redline.
+9. **The reviewer prompt under `coverage off` is byte-identical to today's.** The candidates section is added to `reviewPrompt()` only when the round ran a coverage pass; the For the person instruction and the reworded precision sentence live in `agents/redline-reviewer.md`, not in the prompt. So the loop test's existing scenarios run with `models.coverage: null` and every existing check holds unchanged, which is the proof. Decided by: redline (workflow/replay).
+10. **The verifier accounts for every candidate.** Its JSON gains `coverage: [{index, outcome, ref}]`, one entry per candidate index: `finding` (ref the id), `forThePerson`, `duplicate` (ref the id it collapsed into), `known` (ref `#N` or the comment), `refuted` (ref one sentence why). A candidate it leaves out is listed under For the person as reported (its file, line and summary) with a warning, mirroring the carry-forward rule: never a quiet drop. Decided by: redline.
+11. **For the person entries** are `{file, line, text}` (one line each, no id, no thread, never shaped or fixed), rendered `- \`file:line\` · text` under `### For the person`: in the review body after `### Already tracked` and before the closing "Each finding has an inline comment" sentence; in the handoff comment after `### Left to you (repository rules)` and before `### Commits`, carried verbatim from every whole-PR round of the run. The known-finding check does not suppress an entry: "already tracked in #N" is still said, with the one line #N lacks. `redline-gh.sh prior-findings` reads only lines of the form `- **R<n>-<k>** · <category> · …` (its header, lines 26 to 28), so the section is never read back as a finding. The field exists on every whole-PR review, `coverage off` included (#73 item 3: the reviewer may add its own unreproduced observations there). Decided by: redline.
+12. **The verifier keeps its rule-driven checks and drops only the open-ended read.** Under verify-only "no discovery pass of your own" means no general read of the diff for bugs; the scheduled-and-queued overlap check, the Docs nit and the Version nit in the reviewer's instructions still run, since they are rules the coverage pass does not know and the README's Known limits promise one of them. Decided by: redline.
+13. **The reviewer prompt's precision sentence is reworded here (#73 item 4) and `### For the person` is built here (#73 item 3).** #73's regression pass and `cost` class, #74 and #75 stay open. Decided by: @michaelwitwicki.
+14. **The guard cannot vet the skill fork.** `docs/running.md` and the README's Known limits say so and list what the fork runs (read-only git, `cat`, `grep`, `gh` reads); its safety is the skill's own read-only recipe and the session's permission mode. Read-only git from the fork is approved by the guard for any session (`docs/guard.md`, "The hook"); everything else meets the session's allow list or permission prompt, so a default-mode session may be asked once by the fork. Decided by: @michaelwitwicki.
+15. **Minor bump to `0.2.0`** in `plugin.json` and `marketplace.json`: `templates/redline.json.example` gains the `coverage` entry, which a setup rerun writes. No template marker moves (`checks-template.sh` and the unattended section are untouched). The `CHANGELOG.md` entry is added in this PR, undated. Decided by: @michaelwitwicki.
+16. **No AI attribution anywhere**, the spec files included. Decided by: @michaelwitwicki.
+17. **Standards in `standards.md`**: workflow/agents, scripts/guard, workflow/replay, testing/tests, process/docs-gate, process/release, process/internal-notes, process/standards-retrospective, prompts/attribution. `scripts/bash-conventions` left out: nothing under `scripts/` changes. Decided by: @michaelwitwicki.
+18. **The #817 rerun in the issue's Done when is the end-to-end verification** (Task 10): the person pushes `da44437` again as a throwaway draft PR, since #818 is closed and its branch gone. Decided by: redline.
+19. **Task 2's skill pass passes `--max-findings all` through a one-line change to the spike's private script** (`args.extra`, appended to the skill's args), committed by the person in redline-internal. The #818 runs had no such argument and relied on the saved choice, which was `all`, so the two passes are like for like. Decided by: redline.
+
+## Facts established during shaping (the evidence the tasks build on)
+
+- `agent()` without `schema` returns the subagent's final text as a string; with `schema` the agent is forced to call StructuredOutput (workflow-authoring reference). The spike's probe A used a schema on a default agent and the caller still got the array, probe B under the reviewer role did not; Decision 5 takes the conservative design.
+- `run()` (`workflows/redline-loop.js:409`) wraps `agent()`, throws on a null result, applies the resume line by `opts.label`, and copies `error` only when the result is an object, so a string result passes through unchanged. `modelOpts(key)` (line 357) reads `models[key]`.
+- `review()` (line 1717) is one `agent()` with `agentType: 'redline:redline-reviewer'`, `modelOpts('reviewerFirstRound')` on `reviewed === 'pr'`, `label: review r<n>`, `phase: 'Review'`, `schema: REVIEW_SCHEMA`; the first-round flow (line 2949) calls it once per round. `reviewPrompt()` (line 1009) builds the lines; `REVIEW_SCHEMA` and `FINDING_SCHEMA` (446 to 479); `reviewBody()` (769 to 801); `handoffComment()` (2455 to 2507); the Approve phase's `parallel([...])` (2272) is the pattern for the union; `result()` (1644) maps each round record for the skill.
+- The loop test mock (`tests/loop-test.mjs:36`) dispatches on `opts.agentType`; a call with none falls through every branch, so the coverage call needs a branch keyed by label (`coverage r<n>`), answered from `scenario.coverage[n-1]` as a string. The reviewer branch counts `reviewN` per reviewer-type call, so the union's `verify r<n>` would need its own answer keyed by label.
+- `skills/redline/SKILL.md` section 2 is the argument table (a word that fits none stops the launch), section 5 item 5 the `args` block (`models` entries other than `revise` come from `redline.json` verbatim), section 6 the launch line, section 7 `review-only` the summary.
+- `tests/setup-test.sh:200` compares `config`'s `models` with `templates/redline.json.example`'s, so a new key in the template passes as the template.
+- `scripts/redline-gh.sh` header lines 26 to 28: a finding is a review body line `- **R<n>-<k>** · <category> · <severity> · <confidence> · \`file:line\` · title`; an "Already tracked" line is not one. A `### For the person` line with no id is not one either.
+- `~/.claude.json` holds `codeReviewLastMaxFindings: "all"` on this machine (the spike's effective choice).
+- Losers League #778: 374 files, base `main`, head `epic/723-live-commenting`, merged 2026-10-26; title `Live comments and the reaction picker (epic #723)`; body line 1 `Closes #723. Round 2 is #738.`; `db3eedbe2` is a commit in `~/Code/Sites/loser`. The key: the teammate's 2026-10-25T21:53Z comment (F4-1 to F4-11) and 2026-10-26T14:27Z comment (F5-1, reproduced on `/dev/comment-harness`). #738's body names none of the items, so `issues-search` exposure is limited to what the forks read of PR #778 itself; Task 2 tracks exposure as the spike note's §3 does.
+- Redline's own findings on #778 for comparison: R1-1 to R1-3 (round 1, 2026-10-24) and R2-1, R2-4, R2-5 (round 2, whole-PR again, 2026-10-25), all at post-`db3eedbe2` heads.
+
+## Tasks
+
+### Task 1: Save spec documentation
+
+Create `agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/`:
+
+- `plan.md`: this plan; the As built section filled at the end.
+- `shape.md`: Scope; Decisions 1 to 19 with their evidence and owners; `## Decision` (filled by Task 3: verify-only, union, or reopened, with the internal note's sections cited); `## Unattended answers` (not applicable: shaped by hand, four questions asked one at a time: the corpus PR, no candidates, max findings, standards); Context (visuals none; references; product alignment: `mission.md`'s "the second developer's review stays in place" and "a clean run means no correctness bug … the reviewer could read or reproduce" both hold, since what Redline acts on is still what the verifier reproduced and For the person serves the teammate's read; `roadmap.md` item 5 on seeded PRs); Standards retrospective (filled at the gate); Standards Applied (Decision 17, with why each applies and why bash-conventions is out).
+- `standards.md`: full text, as it reads at shaping time, of the nine standards in Decision 17.
+- `references.md`: `workflows/redline-loop.js` (`run()`, `modelOpts()`, `review()`, `reviewPrompt()`, `REVIEW_SCHEMA`, `reviewBody()`, `handoffComment()`, `result()`, the Approve `parallel`), `agents/redline-reviewer.md` (line 8, the known-finding check 16 to 22, reproduction 26 to 27, the return block), `tests/loop-test.mjs` (the mock's dispatch, `go()`, `samePrefix()`), `skills/redline/SKILL.md` sections 2, 5, 6 and 7, `scripts/redline-gh.sh` header (prior-findings), `templates/redline.json.example`, the spike's spec folder, and by name only `redline-internal/docs/SPIKE-72-NOTES.md` §2 to §5 and §7, `docs/spike-72/skill-pass.workflow.js` and `RUNBOOK.md`.
+- No `visuals/`.
+
+**Docs entry:** spec folder only; no reader-facing change. **Commit:** the person's.
+
+### Task 2: The second corpus PR, #778 at `db3eedbe2` (the person's steps, then mine)
+
+The person, in `~/Code/Sites/loser`:
+
+```
+git fetch origin
+git push origin db3eedbe2:refs/heads/spike/778-second-reviewer-baseline
+gh pr view 778 --json body -q .body | sed '1s/^Closes/Covers/' > /tmp/spike-778-body.md
+gh pr create --draft --base main --head spike/778-second-reviewer-baseline --title "Live comments and the reaction picker (epic #723)" --body-file /tmp/spike-778-body.md
+```
+
+The body is #778's byte for byte except the first word (`Closes #723. Round 2 is #738.` becomes `Covers #723. …`), so the draft links no issue for closing. Do not merge `main` into the branch. Record the new PR number as `<spikePr>`.
+
+Then: `git worktree add ~/Code/Sites/loser-spike-778-second-reviewer-baseline spike/778-second-reviewer-baseline`, provisioned as the spike's was (`vendor` and `.env` copied from a sibling worktree whose lockfiles match `db3eedbe2`; tests use in-memory SQLite). A session opened **in** the worktree with `claude --plugin-dir /Users/michaelwitwicki/Code/Claude/redline`, in the permission mode Redline is normally launched in (a subagent's shell runs in the session's starting directory, spike As built deviation 1). The runbook is the spike's `RUNBOOK.md` with the names changed.
+
+Runs, in this order, both at `claude-opus-5-5` / `xhigh` (Losers League's `reviewerFirstRound`):
+
+1. **The skill's pass**: `redline-internal/docs/spike-72/skill-pass.workflow.js` passed inline (the Workflow tool refuses `scriptPath` outside the session's directories), with one edit first: an optional `args.extra` string appended to the skill's args, so the call is `Skill("code-review", "xhigh spike/778-second-reviewer-baseline --max-findings all")` (Decision 19). Args `{variant: "A-778", repoRoot, branch: "spike/778-second-reviewer-baseline", effort: "xhigh", model: "claude-opus-5-5", extra: "--max-findings all"}`, no `agentType`. Save the run record as `docs/spike-72/skill-pass-778-A.json`, the returned value as `skill-findings-778-A.json`, and note the fork transcript path (`subagents/agent-*.jsonl` under the worktree session), since the record sees the calling agent only.
+2. **Today's single pass**: `/redline <spikePr> dry run review only`. Expected: the old-contract warning (not fixed), `374 files on GitHub` with the over-300 warning, round 1, nothing posted, the record commit on the throwaway branch. Save the record as `docs/spike-72/baseline-778.json` and the round folder's `redline/round-1-findings.json` and `round-1-review.json` as `baseline-778-findings.json` and `baseline-778-review.json`. Then `git reset --hard origin/spike/778-second-reviewer-baseline` so the tree is back at `db3eedbe2`.
+
+Then, in `redline-internal/docs/SPIKE-72-NOTES.md`, a new section **9. The second corpus PR: #778** beside #817's tables (same shapes as §3 and §4):
+
+- **Recall**: the key is F4-1 to F4-6 and F5-1 (primary, 7) and F4-7 to F4-11 (nits, 5), read from the two comments at execution time and quoted into the note only. "Found" means the same file and cause; the key's lines are at post-Redline heads, so map by cause. For each item: Redline today (R1-n), the skill's pass, both, neither. Exposure as §3 does it: the first tool call that touched the item's file or symbol against the call at which the fork first read PR #778's comments or rounds (the fork follows CLAUDE.md's known-finding section and may run `gh pr view 778 --comments`); an item first touched after that point is marked *adopted*. Every non-key finding each pass raised, checked in the tree, so precision is visible.
+- **Cost**: per pass and for the union, from the transcripts (assistant messages deduplicated by message id, first-to-last timestamps), as §4: wall, tool uses, output tokens, cache-creation and cache-read input; the union's wall as the longer of the two in parallel and the sum sequential.
+- **The decision rule's inputs**, one paragraph: does the reviewer's independent pass add any finding the skill's pass lacks; does the skill's pass miss anything the reviewer found; any false finding in the skill's pass.
+
+The figures stay in the internal note; the public spec cites §9 by name. The person commits the note and the raw files in redline-internal, then closes the throwaway PR and deletes `spike/778-second-reviewer-baseline` and the worktree.
+
+**Docs entry:** nothing in this repository changes; no reader-facing change.
+
+### Task 3: Apply the decision rule
+
+From §9 of the internal note, write `## Decision` in `shape.md`:
+
+- **Verify-only** when the reviewer's independent pass adds no finding the skill's pass lacks on #778, as on #817: Tasks 4 to 10 are built as written; the independent pass exists only behind `coverage off`.
+- **Union** when it adds findings: Tasks 4, 5 and 7 are built with their "Union variant" paragraphs; both passes run in parallel on whole-PR rounds and `verify r<n>` merges both lists; `coverage off` still exists.
+- **Stop** when the skill's pass misses what the reviewer finds or reports a false finding: the decision is recorded as reopened with the evidence, Tasks 4 to 10 are not built, and the spec ends at the gate over Tasks 1 to 3 (no code change, version kept on purpose, recorded as such).
+
+The Decision names the mode, cites §3, §4 and §9 of the note, and ends `Decided by: @michaelwitwicki`. Also record that the evidence is for `--max-findings all` (Decision 4).
+
+**Docs entry:** spec folder only.
+
+### Task 4: The workflow: a coverage agent, the verify stage, `forThePerson` (`workflows/redline-loop.js`)
+
+1. **Config.** `coverageOn = models.coverage !== null` (absent means on). `coverageOpts()` returns `modelOpts('coverage')` when the key is an object, else `modelOpts('reviewerFirstRound')`. `coverageEffort()` is `models.coverage.effort`, else `models.reviewerFirstRound.effort`, else `'high'` (Decision 7).
+2. **`coveragePrompt(round, facts)`**, replayable (no clock, everything from `args`): the working directory (`repoRoot`, absolute paths, git from there); "This is the coverage pass of Redline round `<n>` on pull request #`<pr>`, head branch `<headRef>`, base `<baseRef>`"; invoke the Skill tool with skill `code-review` and args `"<effort> <headRef> --max-findings all"`; do not review the diff yourself and do not post, write or commit anything; return exactly what the Skill tool returned, complete and unchanged, its fenced json array included; if the Skill tool was denied, return one line `coverage: skill denied` followed by the denial text; if there is no Skill tool, or it reports no skill named `code-review`, return one line `coverage: skill absent` followed by what it said; and the relay sentence every agent's prompt carries (#60; the loop test's `relay` check requires it of every call).
+3. **`coverageCandidates(text)`**: a string starting `coverage: skill denied` or `coverage: skill absent` gives that cause; else the first fenced ```json block whose content parses to an array gives the candidates (each normalised to `{file, line, summary, failure_scenario}`, `line` an integer or 0); no such block gives the cause `no array`. The three causes become `stageError('review', <message>, {cause, text: first 2000 chars}, 'coverage r<n>')`, each message naming the fix: the session's permission mode or allow list; `claude --version` against the validated version; the skill's recipe drifted; and the alternative, a fresh launch with `coverage off` (Decision 3). An empty array is zero candidates.
+4. **`review()`**: on `reviewed === 'pr' && coverageOn`, first `run('review', coveragePrompt(...), { ...coverageOpts(), label: 'coverage r<n>', phase: 'Review' })` (no `agentType`, no `schema`), then the reviewer call as today with `reviewPrompt(..., candidates)`. `reviewPrompt()` gains, only when `candidates` is an array, a block **"Candidates from the coverage pass"**: the array as JSON; one line saying the pass ran the `code-review` skill over the head branch at `<effort>` with `--max-findings all`; the verify instruction (Decision 12: no discovery pass of your own; the candidates and the carry-forward list are what you verify; the scheduled-and-queued, Docs and Version checks in your instructions still apply); the rules per candidate (collapse by cause, not by line or file; the known-finding check; reproduction for correctness; a line inside the diff; `category`, `severity`, `confidence`, `side`, `needsDecision`, `askRule`); the rest to `forThePerson` with one line each; account for every candidate index in `coverage[]`. With zero candidates the block says so and the verifier runs on the carry-forward list.
+5. **Schema.** `REVIEW_SCHEMA` gains `forThePerson: [{file, line, text}]` and `coverage: [{index, outcome, ref}]` (outcome enum `finding | forThePerson | duplicate | known | refuted`), both optional in `required` and normalised in `review()` to `[]`. After the reviewer returns: every candidate index with no `coverage` entry is appended to `forThePerson` as `{file, line, text: summary}` with a warning `round <n>: the reviewer did not account for coverage candidate <i> (<file>:<line>); listed under For the person as reported` (Decision 10). On a fix-diff round or the final nit pass, `coverage` is cleared with a warning if present.
+6. **Rendering.** `reviewBody()` adds `### For the person` after Already tracked (Decision 11); the round record and `result()`'s round mapping carry `forThePerson` and `coverage`; `handoffComment()` adds `### For the person` after Left to you and before Commits, every whole-PR round's entries in order. The review file (`round-<n>-review.json`) carries both fields.
+7. **The `coverage off` launch message**: nothing in the workflow; the skill names it (Task 6).
+
+**Union variant** (only if Task 3 says union): the Review phase runs `parallel([() => run(... coverage ...), () => run(... review r<n> as today ...)])`, then `run('review', verifyPrompt(...), { agentType: 'redline:redline-reviewer', ...modelOpts('reviewerFirstRound'), label: 'verify r<n>', phase: 'Review', schema: REVIEW_SCHEMA })` whose prompt gives both lists (the reviewer's findings as JSON beside the candidates) and asks for one merged list with the same rules, ids renumbered by the workflow as today; `priorFindings` handling and `reconcilePrior()` run on the verify output. A null from either parallel thunk is a stage error naming its label.
+
+**Docs entries:** `docs/running.md` "Rounds" step 1 and a new subsection "The coverage pass" (Task 8); README "Dials" and "Known limits" (Task 8).
+
+### Task 5: The reviewer's instructions (`agents/redline-reviewer.md`)
+
+1. Line 8, the precision sentence, reworded (#73 item 4). Draft: "No person is watching. A finding you report becomes a GitHub review comment and a plan task without anyone reading it first, so a finding is held to precision: confirmed or traced, reproduced where cheap. What you would not act on but a person should see goes under For the person, where coverage counts: a plausible observation in one line costs the person a glance and the run nothing."
+2. The description line names the verify role on whole-PR rounds.
+3. A section **"Candidates from the coverage pass"** after "Check for known findings first": what the candidates are (the `code-review` skill's `{file, line, summary, failure_scenario}`), that on a round with candidates the reviewer verifies rather than discovers (Decision 12, naming the three rule checks that still apply), and the per-candidate rules with the three evidence points from the spike: collapse by cause (one pair in the spike shared no file), the known-finding check does not suppress a For the person entry, a line inside the diff (the skill anchors at untouched code GitHub cannot take inline), and the accounting in `coverage[]`.
+4. **For the person** in "How to review" and in the return block (#73 item 3): one line each, `{file, line, text}`, no id; what goes there (copy and naming, a missing test of a claim the PR makes, a design that works today and will not survive the next field, a candidate that is plausible but not reproduced); "already tracked in #N" with the line #N lacks; never shaped or fixed; allowed on any whole-PR review, candidates or not.
+5. The return block gains `forThePerson` and `coverage`, each documented in the sentence under the block.
+
+**Union variant**: the section says the verifier merges its own findings and the candidates into one list by cause.
+
+**Docs entry:** `docs/running.md` "Rounds" step 1 (the finder and the verifier; the For the person section) and "The handoff comment" (the section carried verbatim).
+
+### Task 6: The launch skill and the config (`skills/redline/SKILL.md`, `templates/redline.json.example`, `docs/contract.md`)
+
+1. Section 2's table: a row `coverage off` → "`models.coverage = null` in `args`: the whole-PR round runs today's reviewer alone, with no coverage pass. The fallback when the `code-review` skill is absent or has drifted, never the default; a per-run word, never saved". Section 5's `args` block gains `"coverage": {"model": "claude-opus-5-5", "effort": "xhigh"}` under `models` with the sentence: `models.coverage` comes from `redline.json` verbatim, `null` when `coverage off` was typed; absent means on with `reviewerFirstRound`'s model and effort. Section 6's launch line names `coverage off` when typed. Section 7's `review-only` summary adds how many For the person entries the review carries. `/redline:redline-review` inherits through section 2.
+2. `templates/redline.json.example`: `"coverage": { "model": "claude-opus-5-5", "effort": "xhigh" }` after `reviewerFirstRound`. `tests/setup-test.sh:200` compares against the template, so it passes as is; a case is added only if `config` needs to treat `null` specially (it does not: the person edits the file).
+3. `docs/contract.md`, the `redline.json` table's `models` row: add `coverage` (the whole-PR round's finder, the `code-review` skill from a default workflow agent; `null` turns the pass off; absent means the first-round reviewer's model and effort; `xhigh` is the recipe the spike validated, `max` degrades to a single pass since a workflow subagent has no Agent tool).
+
+**Docs entries:** README "Dials" (the `coverage off` row, Task 8); `docs/contract.md` "`redline.json`" (this task); `docs/running.md` "Launching a run" example list gains `/redline:redline 21 coverage off` (Task 8).
+
+### Task 7: The loop test (`tests/loop-test.mjs`)
+
+1. `baseArgs.models.coverage = null`, so every existing scenario runs today's round and every existing check holds unchanged (Decision 9's proof).
+2. The mock: a branch for a call with no `agentType` and a label starting `coverage` returns `scenario.coverage[n-1]` (a string; default a fenced `[]`); the mock refuses (throws) a coverage call that carries `agentType` or `schema`, so a regression to either is a red check.
+3. New scenarios, each a `go()` with `models.coverage` set, checks:
+   - **coverage on, whole-PR**: labels `gather r1|coverage r1|review r1|post r1|…`; the coverage call's opts have no `agentType` and no `schema`, model and effort from `models.coverage`; its prompt holds `--max-findings all`, the head branch and the effort; the review prompt holds the candidates JSON and the verify instruction; round 2 (fix-diff) has no coverage call and no candidates block.
+   - **defaults**: `models.coverage` absent → the coverage opts equal `reviewerFirstRound`'s; no `effort` anywhere → the prompt passes `high`.
+   - **rendering**: the review body has `### For the person` with one `- \`file:line\` · text` line per entry after Already tracked; the handoff comment carries the same lines under the same heading before Commits; `result().rounds[0].forThePerson` and `.coverage` are set.
+   - **accounting**: a candidate with no `coverage` entry appears under For the person as reported and a warning names its index.
+   - **three causes**: `coverage: skill denied …`, `coverage: skill absent …`, and text with no fenced array each end as `status: error`, `stage: review`, `resumeFrom: coverage r1`, with the cause's own words in `error`; an empty fenced array is not an error and the review prompt says zero candidates.
+   - **resume**: `resume: { 'coverage r1': {...} }` appends the resume line to the coverage prompt only; `samePrefix` over the gather prompt.
+   - **replay**: a hand-off and relaunch with coverage on replay `gather r1|coverage r1|review r1|post r1|shape r1|spec status r1` byte-identically.
+   - **coverage off**: with `models.coverage: null` the review prompt has no candidates block and equals the prompt of a run whose args lack the key entirely only in the places the block would add (both have none); `forThePerson` from a reviewer-only round still renders.
+   - **Union variant**: `coverage r1` and `review r1` both before `verify r1`; the verify prompt holds both lists; ids are renumbered from the verify output.
+4. The final count line changes; `node tests/loop-test.mjs` prints `N checks passed, 0 failed`.
+
+**Docs entry:** `tests/` is not a Docs-step directory; README "Files" row for `tests/` unchanged; no reader-facing change.
+
+### Task 8: Docs (`docs/running.md`, `README.md`, `docs/guard.md`)
+
+1. `docs/running.md`: "Launching a run" example list gains `coverage off`; "Rounds" step 1 becomes: on a whole-PR round the **coverage pass** (the built-in `code-review` skill, run from a plain workflow agent over the head branch at the configured effort with every finding) is the finder and the **reviewer** the verifier, applying its rules to each candidate (the list), returning findings as today plus `### For the person`; fix-diff rounds and the nit pass are the reviewer alone. A new subsection **"The coverage pass"** after "Rounds": what it runs and returns, `models.coverage` and `coverage off`, the three stop causes and their fixes, what the guard does not vet (the fork carries no Redline `agent_type`; the guard approves its read-only git as it does for any session; `cat`, `grep` and `gh` reads meet the session's allow list or prompt), what the fork ran in the spike (git, cat, grep, gh reads), and that `max` degrades. "The handoff comment": `### For the person` carried verbatim, after Left to you.
+2. `README.md`: Requirements, "proven on 2.1.303 to 2.1.316" gains 2.1.318 and "the built-in `code-review` skill (the coverage pass; `coverage off` runs without it)"; Dials: a row `coverage off` → "the whole-PR round runs the reviewer alone, without the coverage pass; the fallback when the skill is absent or drifted"; Known limits: a bullet **"The coverage pass runs outside the guard."** (Decision 14).
+3. `docs/guard.md`, "The hook": one sentence that a skill fork carries no `agent_type`, so a `Skill` call runs the skill's commands with the guard inert, which is why the coverage pass is a plain workflow agent and never a role (spike #72), pointing at the README's Known limits.
+
+**Docs entries:** each is the reader-facing change for Tasks 4 to 6; named per file in the plan's Docs table below.
+
+### Task 9: Version, changelog, drift
+
+1. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`: `0.2.0` (Decision 15); `tests/setup-test.sh`'s last cases check they agree.
+2. `CHANGELOG.md`: `## 0.2.0` with no date, under Features one line for this PR (`#NN Two-reviewer whole-PR round: the code-review skill as the finder, Redline's reviewer as the verifier (#79)`), and under Setup and templates one line (`redline.json.example` gains `models.coverage`).
+3. `agent-os/product/tech-stack.md` line 5 already records 2.1.318 as the validated version; add the clause "and runs it as the coverage pass since #79", nothing else. #19's benchmark reruns the pass per version, as the issue says.
+
+**Docs entries:** `.claude-plugin/` → README "Files" row unchanged, `CHANGELOG.md` entry is the change; `agent-os/product/` is not a Docs-step directory.
+
+### Task 10: Verification Gate
+
+1. Run `.claude/redline/checks.sh --baseline` in this checkout until it exits 0; its JSON is the evidence (gate steps 1 to 9). Expected movers: the loop test's count (Task 7) and the setup test's version cases (Task 9); every other harness at its prior count.
+2. Docs (step 10): the table below, each entry naming its section and its commit.
+3. Version (step 11): `0.2.0` in both manifests, Decision 15.
+4. Standards retrospective (step 12): list Decisions 1 to 19, the As built deviations and any red check; classify each; present with AskUserQuestion; approved edits in their own commit, else "Standards retrospective: no changes" in `shape.md`. Candidates to expect: `workflow/agents` ("a schema-less agent that relays a skill returns text; the workflow reads only the skill's documented fenced array and two fixed marker lines"; "a role's rule-driven checks survive a verify-only round"); `workflow/replay` (a dial that turns a pass off keeps every prompt byte-identical, proven by running the existing scenarios under the off value); `testing/tests` (the mock refuses the forbidden options so a regression is red).
+5. Spec folder (step 13): `plan.md` reflects what was built; deviations under Decisions in `shape.md`.
+6. **End to end (the issue's Done when):** the person pushes `da4443727a9082d896e314cef8ea3e7023a68840` again as `spike/817-second-reviewer-rerun`, opens a draft PR with #817's title and body (`Closes` to `Covers`), and in a session opened in a worktree on it with `claude --plugin-dir` runs `/redline <pr> dry run review only`. Expected: `coverage r1` then `review r1`; the review reports the canonical 301 (item 1) and the `''` fallback (item 5) as correctness findings with ids, severities and lines inside the diff, and carries the brand-twice copy (item 3) under `### For the person`; `handoff.md` is not written on a review-only run, so the handoff carry-over is proven by the loop test. Then a second launch with `coverage off` posts (writes) today's review. The person closes the PR and deletes the branch. Figures, if any, go to the internal note.
+
+## Docs entries (gate step 10)
+
+| File | Section | Commit |
+| --- | --- | --- |
+| `workflows/redline-loop.js` | `docs/running.md` "Rounds" step 1, "The coverage pass", "The handoff comment"; README "Known limits" | Task 8's |
+| `agents/redline-reviewer.md` | `docs/running.md` "Rounds" step 1 | Task 8's |
+| `skills/redline/SKILL.md` | README "Dials"; `docs/running.md` "Launching a run" | Task 8's |
+| `templates/redline.json.example`, config key `models.coverage` | `docs/contract.md` "`redline.json`" | Task 6's |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | `CHANGELOG.md` | Task 9's |
+| `tests/loop-test.mjs` | no reader-facing change: the README's `tests/` row already names it | — |
+| `agent-os/specs/…`, `agent-os/product/tech-stack.md` | no reader-facing change: outside the Docs-step directories | — |
+
+## Commits (the person makes them, in this order)
+
+1. The spec folder (Task 1; updated through Task 10).
+2. In redline-internal: the script edit, `SPIKE-72-NOTES.md` §9 and `docs/spike-72/*-778-*` (Task 2).
+3. The spec folder's Decision (Task 3), amended into commit 1's file.
+4. `workflows/redline-loop.js` (Task 4).
+5. `agents/redline-reviewer.md` (Task 5).
+6. `skills/redline/SKILL.md`, `templates/redline.json.example`, `docs/contract.md` (Task 6).
+7. `tests/loop-test.mjs` (Task 7; red before green: each new check written against the unchanged workflow first where it can be).
+8. `docs/running.md`, `README.md`, `docs/guard.md` (Task 8).
+9. The two manifests, `CHANGELOG.md`, `tech-stack.md` (Task 9).
+10. Standards edits, if any (Task 10.4), on their own.
+11. The As built notes (Task 10.5).
+
+## Verification (end to end)
+
+- `.claude/redline/checks.sh --baseline` exits 0; `node tests/loop-test.mjs` prints `N checks passed, 0 failed` with N above today's count; `tests/setup-test.sh` green with `0.2.0`.
+- `git diff --stat main` touches nothing under `scripts/`, `hooks/`, `.claude/redline/`; `grep -ri "claude\|anthropic\|co-authored" agent-os/specs/2026-11-05-1443-79-*/` finds only product-version strings and model ids in configuration; no token or cost figure in the public spec.
+- The #817 rerun (Task 10.6) shows the two correctness findings and the For the person entry; the `coverage off` run shows today's review.
+- The #778 throwaway PR and the #817 rerun PR are closed and their branches gone.
