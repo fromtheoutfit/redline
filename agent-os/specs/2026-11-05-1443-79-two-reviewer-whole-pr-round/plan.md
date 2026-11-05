@@ -191,13 +191,25 @@ The verifier on a fix-diff round runs at `reviewerLaterRounds`, as the re-review
 
 | File | Section | Commit |
 | --- | --- | --- |
-| `workflows/redline-loop.js` | `docs/running.md` "Rounds" steps 1 and 7, "The coverage pass", "The handoff comment"; README the loop paragraph, "Known limits" | Task 8's |
-| `agents/redline-reviewer.md` | `docs/running.md` "Rounds" steps 1 and 7, "The coverage pass" (the outcomes and the guards) | Task 8's |
-| `skills/redline/SKILL.md` | README "Dials"; `docs/running.md` "Launching a run" | Task 8's |
-| `templates/redline.json.example`, config key `models.coverage` | `docs/contract.md` "`redline.json`" | Task 6's |
-| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | `CHANGELOG.md` | Task 9's |
+| `workflows/redline-loop.js` | `docs/running.md` "Rounds" steps 1 and 7, "The coverage pass", "The handoff comment", "Run markers and resume" (the `coverage r1` label); README the loop paragraph, "Files", "Known limits" | Task 8's, b465be7 |
+| `agents/redline-reviewer.md` | `docs/running.md` "Rounds" steps 1 and 7, "The coverage pass" (the outcomes and the guards) | Task 8's, b465be7 |
+| `skills/redline/SKILL.md` | README "Requirements", "Dials"; `docs/running.md` "Launching a run" | Task 8's, b465be7 |
+| `templates/redline.json.example`, config key `models.coverage` (and this checkout's `.claude/redline.json`) | `docs/contract.md` "`redline.json`" | Task 6's, e7afb14 |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | `CHANGELOG.md` | Task 9's, 0e35dea |
 | `tests/loop-test.mjs` | no reader-facing change: the README's `tests/` row already names it | — |
 | `agent-os/specs/…`, `agent-os/product/tech-stack.md` | no reader-facing change: outside the Docs-step directories | — |
+
+## As built (2026-11-05)
+
+Tasks 4 to 9 were built in the plan's order after the revision for every-round coverage, each task paused at its commit for the person; the gate (Task 10) exited 0 on its first run, with every one of the nine checks at exit 0 (`node tests/loop-test.mjs` 551 checks, up from 495; `tests/setup-test.sh` 468 passed). Deviations from the plan as written:
+
+1. **Tasks 4 and 7 landed in one commit** (d46e771), not commits 4 and 7: the person's build rule puts every test change in the same commit as the change it covers, and the loop test's base args needed `coverage: null` the moment the workflow treated an absent key as on. The "red before green" clause of Task 7 therefore did not apply; the pre-existing 495 checks holding unchanged under `coverage: null` is the proof Decision 9 asked for.
+2. **Two small calls in Task 4 the spec did not decide**, made without asking and reported at the commit: an `effort` of `ultra` (or any word outside `low | medium | high | xhigh | max`) fails at launch, since that word would start the skill's cloud review from inside a run; and under a correctness-only scope the candidates block sends a nit candidate to For the person rather than leaving it unaccounted.
+3. **The accounting outcome `duplicate` takes an index or an id** (a candidate collapsing into another candidate, or into a rule-check finding of the round); `settled` is the earlier-round case. A `finding` entry whose ref is not an id of the round warns; an entry with an outcome outside the eight is treated as unaccounted.
+4. **Task 6 touched a fourth file**, this checkout's `.claude/redline.json`: `tests/setup-test.sh` pins it byte for byte to the template with the reviewer substituted, so the `coverage` entry went into both in one commit (e7afb14).
+5. **The review body's candidate sentence sits after the scope line, before the summary**, and a fix-diff round's scope line names both the fix diff and the whole PR; the handoff's whole-PR sentence changes only when a round ran coverage, so `coverage off` keeps today's words. The findings file carries `forThePerson` on every review and `coverage` only when a pass ran.
+6. **Task 10.6, the #817 rerun:** #817 is still open on 2026-11-05, so the draft PR's base is `main` as #818's was; the second throwaway branch of Task 2's deviation 1 applies only once #817 merges. The rerun is the person's to run after this PR's gate, with the plugin loaded from this branch; its result goes to the internal note.
+7. **The spike's recall tables measured sampling in part** (Decision 20), which the revision recorded before the build; nothing in the build depended on the #817 and #778 figures beyond the decision rule already applied.
 
 ## Commits (the person makes them, in this order)
 
