@@ -2,7 +2,7 @@
 
 ## Runtime
 
-- A Claude Code plugin: dynamic workflows (research preview; proven on 2.1.303, 2.1.304 and 2.1.306), subagents, a plugin `PreToolUse` hook, and skills. The built-in `code-review` skill, a candidate second reviewer on whole-PR rounds, had its recipe read from and its workflow-subagent route checked against 2.1.318 on 2026-11-05 (spike #72); its recipe is keyed by model family, so #19's benchmark checks later versions. One workflow (`workflows/redline-loop.js`, run as `redline:redline-loop`), eight agents (`agents/redline-*.md`), four skills (`/redline:redline`, its two debug halves, and `/redline:setup`)
+- A Claude Code plugin: dynamic workflows (research preview; proven on 2.1.303, 2.1.304 and 2.1.306), subagents, a plugin `PreToolUse` hook, and skills. The built-in `code-review` skill, a candidate second reviewer on whole-PR rounds, had its recipe read from and its workflow-subagent route checked against 2.1.318 on 2026-11-05 (spike #72), and runs it as the coverage pass since #79; its recipe is keyed by model family, so #19's benchmark checks later versions. One workflow (`workflows/redline-loop.js`, run as `redline:redline-loop`), eight agents (`agents/redline-*.md`), four skills (`/redline:redline`, its two debug halves, and `/redline:setup`)
 - Models per role from `.claude/redline.json` (Opus for the roles that read code, Haiku for the ones that move files and post); the revise model is chosen at launch and remembered per person
 
 ## Scripts

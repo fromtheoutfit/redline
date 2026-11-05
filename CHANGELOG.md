@@ -2,6 +2,16 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.2.0
+
+### Features
+
+- #NN Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
+
+### Setup and templates
+
+- `redline.json.example` gains `models.coverage`, the coverage pass's model and effort; a rerun of `/redline:setup` offers the new key
+
 ## 0.1.0 (2026-11-03)
 
 The first release: Redline as a single-plugin marketplace.
