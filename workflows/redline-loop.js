@@ -1,11 +1,11 @@
 export const meta = {
   name: 'redline-loop',
-  description: 'Redline: review a pull request, post the review, shape and implement the fixes through Agent OS, check, push, reply and re-review until no correctness bugs remain',
+  description: 'Redline: review a pull request (the code-review skill finds, Redline\'s reviewer verifies), post the review, shape and implement the fixes through Agent OS, check, push, reply and re-review until a round confirms no new correctness finding',
   whenToUse: 'Launched only by the /redline:redline skill (and its /redline:redline-review and /redline:redline-revise variants), which builds args from the repository\'s .claude/redline.json and the command line. Never launched by hand.',
   phases: [
     { title: 'Gather', detail: 'PR facts through redline-gh.sh (GitHub agent)' },
-    { title: 'Review', detail: 'the first round: the whole PR (reviewer, first-round model)' },
-    { title: 'Re-review', detail: 'later rounds: the fix diff only (reviewer, later-round model)' },
+    { title: 'Review', detail: 'the first round: the coverage pass over the whole PR, then the reviewer as verifier (first-round model)' },
+    { title: 'Re-review', detail: 'later rounds: the coverage pass over the whole PR at the new head, then the reviewer rechecks the fix diff and verifies the candidates (later-round model)' },
     { title: 'Post', detail: 'one Redline review per round, files under <specFolder>/redline/' },
     { title: 'Shape', detail: 'shape-spec in unattended mode (revise model)' },
     { title: 'Resolve', detail: 'only after a hand-off: decisions into the spec folder' },
@@ -220,6 +220,34 @@ const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.han
 const models = A.models && typeof A.models === 'object' ? A.models : {}
 if (!models.revise || typeof models.revise.model !== 'string') {
   fail('args.models.revise.model is required: the revise model picked at launch')
+}
+// The coverage pass (#79): the built-in code-review skill is the finder on every whole-PR and
+// fix-diff round, run from the default workflow agent with no schema on the agent that calls the
+// Skill tool (spike #72: the guard does not see a skill fork, so the pass is never a role, and a
+// schema on the calling agent can make the fork call StructuredOutput itself and return nothing).
+// `coverage off` reaches here as models.coverage null: every round is the reviewer alone, as before
+// the pass existed. The key absent means on, at the first-round reviewer's model and effort.
+if (models.coverage !== undefined && models.coverage !== null && (typeof models.coverage !== 'object' || Array.isArray(models.coverage))) {
+  fail('args.models.coverage must be an object ({model, effort}), null (coverage off) or absent; got ' + JSON.stringify(models.coverage))
+}
+const coverageOn = models.coverage !== null
+const COVERAGE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max']
+// The effort word the skill is given, always explicit: without one the skill reuses the level typed
+// last on the machine. `max` fans out through the Agent tool, which a workflow subagent never has,
+// so it runs as a single pass; `xhigh` on the opus-5 family is the recipe the spike validated.
+function coverageEffort() {
+  const picked = models.coverage && typeof models.coverage.effort === 'string' && models.coverage.effort !== ''
+    ? models.coverage.effort
+    : models.reviewerFirstRound && typeof models.reviewerFirstRound.effort === 'string' && models.reviewerFirstRound.effort !== ''
+      ? models.reviewerFirstRound.effort
+      : 'high'
+  if (!COVERAGE_EFFORTS.includes(picked)) {
+    fail(`the coverage pass's effort must be one of ${COVERAGE_EFFORTS.join(' | ')} (models.coverage.effort, else models.reviewerFirstRound.effort); got ${JSON.stringify(picked)}`)
+  }
+  return picked
+}
+if (coverageOn) {
+  coverageEffort()
 }
 // /redline:redline-revise <pr> review <selector> (#36): a revise pass over a teammate's review. The
 // skill ingested the comments (redline-gh.sh human-review), numbered them H<n>-k and passes them
@@ -466,6 +494,23 @@ const FINDING_SCHEMA = {
   },
 }
 
+// What the reviewer would not act on but a person should see (#79, #73 item 3): one line each, no
+// id, no thread, never shaped or fixed. Rendered under "### For the person" in the review body and
+// carried into the handoff; redline-gh.sh prior-findings never reads one back as a finding.
+const PERSON_SCHEMA = {
+  type: 'object',
+  required: ['file', 'line', 'text'],
+  properties: { file: str, line: int, text: str },
+}
+
+// The verifier's accounting for the coverage pass's candidates (#79): one entry per candidate index.
+const COVERAGE_OUTCOMES = ['finding', 'forThePerson', 'duplicate', 'settled', 'known', 'refuted', 'outside', 'disproportionate']
+const COVERAGE_SCHEMA = {
+  type: 'object',
+  required: ['index', 'outcome', 'ref'],
+  properties: { index: int, outcome: { type: 'string', enum: COVERAGE_OUTCOMES }, ref: str },
+}
+
 const REVIEW_SCHEMA = {
   type: 'object',
   required: ['round', 'reviewed', 'findings', 'resolved', 'summary'],
@@ -475,6 +520,8 @@ const REVIEW_SCHEMA = {
     findings: { type: 'array', items: FINDING_SCHEMA },
     resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
+    forThePerson: { type: 'array', items: PERSON_SCHEMA },
+    coverage: { type: 'array', items: COVERAGE_SCHEMA },
   },
 }
 
@@ -768,15 +815,22 @@ function findingLine(f) {
 // fixes of a human review pass, #36); empty for a Redline round's nit fixes.
 function reviewBody(round, reviewed, range, review, active, known, source) {
   const earlier = firstRound === 2 ? ' Round 1 is already on this PR' : ` Rounds 1 to ${firstRound - 1} are already on this PR`
+  const coverage = review.coverage && !Array.isArray(review.coverage) ? review.coverage : null
   const scope = reviewed === 'pr'
     ? `Reviewed the whole pull request.${firstRound > 1 ? `${earlier}; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
-      ? `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
+      ? coverage
+        ? `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
+        : `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
   const fresh = active.filter((f) => !f.carriedFrom)
   const carried = active.filter((f) => f.carriedFrom)
   const counts = (list) => `${list.filter((f) => f.category === 'correctness').length} correctness, ${list.filter((f) => f.category === 'nit').length} nit`
-  const lines = [`Redline round ${round}`, '', scope, '', review.summary.trim(), '']
+  const lines = [`Redline round ${round}`, '', scope]
+  if (coverage) {
+    lines.push('', coverageSentence(coverage))
+  }
+  lines.push('', review.summary.trim(), '')
   if (active.length === 0) {
     lines.push('No findings.')
   }
@@ -794,10 +848,31 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (known.length) {
     lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
   }
+  const forThePerson = review.forThePerson || []
+  if (forThePerson.length) {
+    lines.push('', '### For the person', '', ...forThePerson.map(personLine))
+  }
   if (active.length) {
     lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
   }
   return lines.join('\n')
+}
+
+// A For the person entry as it reads in the review body and the handoff: no id, so
+// redline-gh.sh prior-findings (which reads "- **R<n>-<k>** · ..." lines only) never takes it
+// for a finding.
+function personLine(entry) {
+  return `- \`${entry.file}:${entry.line}\` · ${entry.text}`
+}
+
+// Why nineteen candidates became four findings: the coverage record's counts, by outcome.
+function coverageSentence(coverage) {
+  const c = coverage.counts
+  const n = coverage.candidates
+  if (n === 0) {
+    return `The coverage pass over the whole pull request at ${short(coverage.head)} returned no candidates.`
+  }
+  return `The coverage pass over the whole pull request at ${short(coverage.head)} returned ${n} candidate${n === 1 ? '' : 's'}: ${c.finding} confirmed, ${c.forThePerson} for the person, ${c.duplicate + c.settled} collapsed into findings already reported or settled, ${c.known} already tracked, ${c.refuted + c.outside + c.disproportionate} dropped (refuted, outside the diff or disproportionate).`
 }
 
 function commentBody(f) {
@@ -1006,7 +1081,9 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 }
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round.
-function reviewPrompt(round, reviewed, range, facts, history, source) {
+// `candidates` is the coverage pass's list on a round that ran one (#79), null otherwise: with
+// null the prompt is byte for byte what it was before the pass existed, so `coverage off` replays.
+function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
   const diff = reviewed === 'pr'
     ? `the whole pull request: \`${GH} diff ${pr}\``
     : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
@@ -1046,6 +1123,9 @@ function reviewPrompt(round, reviewed, range, facts, history, source) {
   if (askRules.length) {
     lines.push('', 'Repository ask rules, as JSON: what a person is always brought in for, declared in .claude/redline.json. Report a finding one covers (its file under a paths rule, or its change doing what a prose rule\'s sentence says) as usual, with askRule set to the rule\'s id; the review then marks it as the person\'s to act on. The tag is advisory: the shaper applies the rules.', json(askRules))
   }
+  if (Array.isArray(candidates)) {
+    lines.push('', ...candidatesBlock(reviewed, range, candidates))
+  }
   lines.push(
     '',
     `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${priorBlock ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
@@ -1057,6 +1137,131 @@ function reviewPrompt(round, reviewed, range, facts, history, source) {
   }
   lines.push('', NEVER_DECIDE + ' Report such a finding with needsDecision true and the question stated plainly.', '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
+}
+
+// The verify instruction (#79): the coverage pass found, the reviewer verifies. "New" is defined
+// here because it carries the run's done rule: the finder never returns an empty list, so the
+// verifier's collapse is what ends the run. The two guards are the issue's own words.
+function candidatesBlock(reviewed, range, candidates) {
+  const head = reviewed === 'pr' ? startSha : range.to
+  const lines = []
+  if (candidates.length === 0) {
+    lines.push(`Candidates from the coverage pass: the pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all and returned no candidates. Run no discovery pass of your own over the pull request${reviewed === 'fix-diff' ? '; your recheck of the fix diff named above stays as your instructions say' : ''}. The scheduled-and-queued, Docs and Version checks in your instructions still apply. Return coverage as an empty list.`)
+    return lines
+  }
+  lines.push(
+    `Candidates from the coverage pass. The pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all, and returned these ${candidates.length} candidates, as JSON with an index each:`,
+    json(candidates.map((c, i) => ({ index: i + 1, ...c }))),
+    `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.' : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
+    'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks. The run ends when a round confirms no new correctness finding, so this collapse is the stop rule: never re-raise a settled finding as new, and never drop a candidate silently.',
+    'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file); run the known-finding check; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline); and give it category, severity, confidence, side, needsDecision and askRule as for any finding. Two guards. A candidate anchored outside the diff is never a finding: when its cause is in the diff, re-anchor it on a line inside the diff; when its cause is in code this pull request did not change, put it under forThePerson if a person should see it, else account for it as outside with the reason. A candidate that is technically true but needs implausible conditions to bite is disproportionate: account for it with that word and one sentence naming the conditions, never a finding, never shaped. A candidate that is plausible but not reproduced, or not worth a plan task, goes under forThePerson, one line each (file, line, text); under a correctness-only scope a nit candidate goes there too.',
+    'Account for every index in coverage, one entry each, with outcome and ref: finding (ref the finding\'s id), forThePerson, duplicate (ref the index or the id it collapses into), settled (ref the earlier finding\'s id), known (ref the issue number or the comment), refuted (ref one sentence why), outside (ref the reason), disproportionate (ref the conditions). An index you leave out is listed under For the person as reported, with a warning.',
+  )
+  return lines
+}
+
+// The coverage pass's prompt (#79): a plain workflow agent that invokes the code-review skill over
+// the head branch at this round's head and relays the skill's own text. No role, no schema (see
+// coverageOn). `head` is startSha on the first round and range.to after, so a relaunch replays.
+function coveragePrompt(round, head) {
+  return `${RUN_LINE}
+
+This is the coverage pass of Redline round ${round} on pull request #${pr}: head branch ${headRef} at ${head}, base ${baseRef}. It covers the whole pull request at this round's head, not only the last round's fixes; the working tree is at that head.
+
+Invoke the Skill tool exactly once, with skill "code-review" and args "${coverageEffort()} ${headRef} --max-findings all", from the repository root (${repoRoot}). Do not review the diff yourself, do not post anything anywhere, and do not write or commit any file.
+
+Your final text is the Skill tool's result, complete and unchanged, including the fenced json array of findings it holds; add nothing before or after it. If the Skill tool was denied, your final text is one line \`coverage: skill denied\` followed by the denial as given. If you have no Skill tool, or it reports no skill named code-review, your final text is one line \`coverage: skill absent\` followed by what it said.`
+}
+
+// What the workflow reads from the coverage agent's text: the two marker lines above, else the
+// first fenced json block that parses to an array (the skill's documented contract: objects with
+// file, line, summary and failure_scenario). Anything else is a cause, never a list.
+function coverageCandidates(text) {
+  const raw = typeof text === 'string' ? text : text === null || text === undefined ? '' : typeof text === 'object' ? JSON.stringify(text) : String(text)
+  const t = raw.trim()
+  if (/^coverage: skill denied/i.test(t)) {
+    return { cause: 'denied', text: t }
+  }
+  if (/^coverage: skill absent/i.test(t)) {
+    return { cause: 'absent', text: t }
+  }
+  const fence = /```json[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/g
+  let m
+  while ((m = fence.exec(t)) !== null) {
+    let value
+    try {
+      value = JSON.parse(m[1])
+    } catch (error) {
+      continue
+    }
+    if (Array.isArray(value)) {
+      return {
+        candidates: value.filter((c) => c && typeof c === 'object').map((c) => ({
+          file: typeof c.file === 'string' ? c.file : '',
+          line: Number.isInteger(c.line) ? c.line : Number.isInteger(Number(c.line)) ? Number(c.line) : 0,
+          summary: typeof c.summary === 'string' ? c.summary : '',
+          failure_scenario: typeof c.failure_scenario === 'string' ? c.failure_scenario : '',
+        })),
+      }
+    }
+  }
+  return { cause: 'no array', text: t }
+}
+
+// The three ways a coverage pass yields nothing usable, each with its fix; the round stops at
+// stage review with resumeFrom at the coverage label, so a resume replays the pass, and a fresh
+// launch with `coverage off` is the alternative.
+function coverageMessage(cause) {
+  const again = 'Resume the run once it is fixed, or launch again with coverage off (the reviewer alone, as before the pass existed).'
+  switch (cause) {
+    case 'denied':
+      return `the coverage pass could not run the code-review skill: the Skill tool was denied (the session's permission mode or allow list). Allow the Skill tool for this session. ${again}`
+    case 'absent':
+      return `the coverage pass could not run the code-review skill: this Claude Code has no Skill tool or no skill named code-review (check \`claude --version\`; the pass was validated on 2.1.318). ${again}`
+    default:
+      return `the coverage pass ran but its text holds no fenced json array of findings (the skill's recipe may have drifted on this Claude Code version; check \`claude --version\` against 2.1.318). ${again}`
+  }
+}
+
+// The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior): every
+// candidate has exactly one entry; one the reviewer left out, or placed with an outcome the
+// schema does not name, is listed under For the person as reported, with a warning, never
+// dropped. A finding entry must name a finding of this round.
+function accountCoverage(round, out, candidates) {
+  const ids = new Set(out.findings.map((f) => f.id))
+  const seen = new Map()
+  for (const entry of out.coverage) {
+    const index = Number(entry.index)
+    if (!Number.isInteger(index) || index < 1 || index > candidates.length) {
+      warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${JSON.stringify(entry.index)}, which is not an index of this round's ${candidates.length} candidates; ignored`)
+      continue
+    }
+    if (seen.has(index)) {
+      warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} twice; the first entry stands`)
+      continue
+    }
+    if (!COVERAGE_OUTCOMES.includes(entry.outcome)) {
+      warnings.push(`round ${round}: the reviewer gave coverage candidate ${index} the outcome ${JSON.stringify(entry.outcome)}, which is not one of ${COVERAGE_OUTCOMES.join(' | ')}; listed under For the person as reported`)
+      continue
+    }
+    const ref = typeof entry.ref === 'string' ? entry.ref.trim() : String(entry.ref === undefined || entry.ref === null ? '' : entry.ref)
+    if (entry.outcome === 'finding' && !ids.has(ref)) {
+      warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as a finding with ref ${JSON.stringify(ref)}, which is not a finding of this round`)
+    }
+    seen.set(index, { index, outcome: entry.outcome, ref })
+  }
+  candidates.forEach((c, i) => {
+    const index = i + 1
+    if (seen.has(index)) {
+      return
+    }
+    warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file}:${c.line}); listed under For the person as reported`)
+    out.forThePerson.push({ file: c.file, line: c.line, text: c.summary })
+    seen.set(index, { index, outcome: 'forThePerson', ref: 'unaccounted' })
+  })
+  out.coverage = [...seen.values()].sort((a, b) => a.index - b.index)
+  const counts = Object.fromEntries(COVERAGE_OUTCOMES.map((o) => [o, out.coverage.filter((e) => e.outcome === o).length]))
+  return counts
 }
 
 function postPrompt(round, specFolder, reviewFile, findingsFile) {
@@ -1668,6 +1873,8 @@ function result(status, extra) {
       dropped: (record.dropped || []).map((f) => ({ id: f.id, reason: f.reason })),
       carried: record.carried || {},
       resolvedPrior: record.resolvedPrior || [],
+      forThePerson: record.forThePerson || [],
+      coverage: record.coverage || null,
       files: record.files || [],
       replyIds: record.replyIds || {},
       human: record.human || null,
@@ -1718,7 +1925,27 @@ async function review(round, reviewed, range, facts, source) {
   // What is reviewed, not the round number, picks the model and the label: a human review pass's
   // final nit pass carries the run's first round number and is still a nit pass (#36).
   const key = reviewed === 'pr' ? 'reviewerFirstRound' : 'reviewerLaterRounds'
-  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history(), source), {
+  // The coverage pass first (#79), on every round but the final nit pass: the default workflow
+  // agent, no agentType, no schema, its text read by coverageCandidates. A pass that yields
+  // nothing usable stops the round here, resumable at its own label.
+  let candidates = null
+  let coverageHead = ''
+  if (coverageOn && reviewed !== 'final-nit-pass') {
+    coverageHead = reviewed === 'pr' ? startSha : range.to
+    const label = `coverage r${round}`
+    const text = await run('review', coveragePrompt(round, coverageHead), {
+      ...modelOpts(models.coverage && typeof models.coverage === 'object' ? 'coverage' : 'reviewerFirstRound'),
+      effort: coverageEffort(),
+      label,
+      phase: reviewed === 'pr' ? 'Review' : 'Re-review',
+    })
+    const parsed = coverageCandidates(text)
+    if (parsed.cause) {
+      throw stageError('review', coverageMessage(parsed.cause), { cause: parsed.cause, text: parsed.text.slice(0, 2000) }, label)
+    }
+    candidates = parsed.candidates
+  }
+  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history(), source, candidates), {
     agentType: 'redline:redline-reviewer',
     ...modelOpts(key),
     label: `${reviewed === 'pr' ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
@@ -1740,6 +1967,21 @@ async function review(round, reviewed, range, facts, source) {
     }
   })
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
+  // For the person and the coverage accounting (#79). Without a coverage pass there is nothing to
+  // account for, so an accounting the reviewer wrote anyway is cleared.
+  out.forThePerson = (Array.isArray(out.forThePerson) ? out.forThePerson : [])
+    .filter((e) => e && typeof e === 'object')
+    .map((e) => ({ file: typeof e.file === 'string' ? e.file : '', line: Number.isInteger(e.line) ? e.line : 0, text: typeof e.text === 'string' ? e.text.trim() : '' }))
+  out.coverage = Array.isArray(out.coverage) ? out.coverage.filter((e) => e && typeof e === 'object') : []
+  if (candidates) {
+    const counts = accountCoverage(round, out, candidates)
+    out.coverage = { head: coverageHead, candidates: candidates.length, counts, accounting: out.coverage }
+  } else {
+    if (out.coverage.length) {
+      warnings.push(`round ${round}: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared`)
+    }
+    out.coverage = null
+  }
   // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
   // spec), so any other review clears what a reviewer copied from the history (#46, R1-1).
   if (reviewed === 'pr' && priorFindings.length) {
@@ -1823,7 +2065,7 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   }
   const findingsFile = {
     path: `${specFolder}/redline/round-${round}-findings.json`,
-    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings }),
+    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings, forThePerson: reviewOut.forThePerson || [], ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, candidates: reviewOut.candidates || reviewOut.coverage.candidates } } : {}) }),
   }
   const posted = await run('post', postPrompt(round, specFolder, reviewFile, findingsFile), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `post r${round}`, phase: 'Post', schema: POST_SCHEMA,
@@ -2456,10 +2698,15 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   const lines = ['Redline handoff', '']
   const reviews = rounds.length
   const last = rounds[reviews - 1]
+  // With the coverage pass (#79) every round but the nit pass reviewed the whole PR at its head;
+  // under coverage off only the first round did, as before the pass existed.
+  const wholePr = rounds.some((record) => record.coverage)
+    ? `The coverage pass reviewed the whole PR at every round's head; see ${knownLimits()}.`
+    : `Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`
   if (lastFixUnreviewed) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`)
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`)
   } else if (last && last.reviewed === 'final-nit-pass') {
-    lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`)
+    lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
   } else {
     lines.push(`Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}; the last one found no correctness bugs.`)
   }
@@ -2496,6 +2743,12 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   const left = leftToYou()
   if (left.length) {
     lines.push('', '### Left to you (repository rules)', '', ...left)
+  }
+  // What the reviewer would not act on but the teammate should see (#79), every round's entries
+  // in order, verbatim from the review bodies.
+  const forThePerson = rounds.flatMap((record) => record.forThePerson || [])
+  if (forThePerson.length) {
+    lines.push('', '### For the person', '', ...forThePerson.map(personLine))
   }
   if (commitsAll.length) {
     lines.push('', '### Commits', '', ...commitsAll.map((c) => `- ${short(c.sha)} ${c.message}`))
@@ -2958,11 +3211,14 @@ try {
     }
     const known = considered.filter((f) => f.knownAs)
     let active = considered.filter((f) => !f.knownAs)
-    log(`round ${round} (${reviewed}): ${active.filter((f) => f.category === 'correctness').length} correctness, ${active.filter((f) => f.category === 'nit').length} nit, ${known.length} already tracked`)
+    const coverageNote = reviewOut.coverage
+      ? `, coverage ${reviewOut.coverage.candidates} candidates: ${reviewOut.coverage.counts.finding} confirmed, ${reviewOut.coverage.counts.forThePerson} for the person, ${reviewOut.coverage.counts.duplicate + reviewOut.coverage.counts.settled} collapsed, ${reviewOut.coverage.counts.known} tracked, ${reviewOut.coverage.counts.refuted + reviewOut.coverage.counts.outside + reviewOut.coverage.counts.disproportionate} dropped`
+      : ''
+    log(`round ${round} (${reviewed}${coverageNote}): ${active.filter((f) => f.category === 'correctness').length} correctness, ${active.filter((f) => f.category === 'nit').length} nit, ${known.length} already tracked`)
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], forThePerson: reviewOut.forThePerson || [], coverage: reviewOut.coverage || null, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
