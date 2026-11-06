@@ -1387,6 +1387,15 @@ function samePrefix(name, first, second, n) {
     run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
     check(`coverage: ${name} stops the round at review, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off') && run.res.rounds.length === 0, [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
   }
+  // A marker is read on any line, after optional backticks or quotes, since the agent may copy the
+  // prompt's formatting or lead with a sentence; it is read only when no list was found, so a skill
+  // result that quotes a marker is still the list (#80, R2-2).
+  for (const [name, text, words] of [['a backticked denied marker stops with the denied cause', '`coverage: skill denied`\nSkill tool is not allowed in this session', 'the Skill tool was denied'], ['an absent marker after a leading line stops with the absent cause', 'The Skill tool reported no such skill.\ncoverage: skill absent\nNo such skill: code-review', 'no skill named code-review']]) {
+    run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
+    check(`coverage: ${name}`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
+  }
+  run = await go('coverage: a skill result that quotes a marker', covArgs, { reviews: [[]], coverage: ['`coverage: skill denied` is one of the markers the prompt names.\n' + two], coverageOut: [settledAll] })
+  check('coverage: a skill result that quotes a marker is still the list', run.res.status === 'done' && labels(run.calls).includes('review r1') && pick(run.calls, 'review r1').prompt.includes('"summary": "the real one"'), [run.res.status, run.res.error, labels(run.calls)])
   // An array with none of the skill's fields is not the skill's list (#80, R1-3): renamed keys or
   // bare strings are the recipe-drift stop, never blank candidates.
   for (const [name, list] of [['renamed keys', [{ path: 'app/x.php', start_line: 3, description: 'real bug' }]], ['strings', ['real bug']]]) {

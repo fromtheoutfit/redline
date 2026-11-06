@@ -1179,22 +1179,20 @@ Invoke the Skill tool exactly once, with skill "code-review" and args "${coverag
 Your final text is the Skill tool's result, complete and unchanged, including the fenced json array of findings it holds; add nothing before or after it. If the Skill tool was denied, your final text is one line \`coverage: skill denied\` followed by the denial as given. If you have no Skill tool, or it reports no skill named code-review, your final text is one line \`coverage: skill absent\` followed by what it said.`
 }
 
-// What the workflow reads from the coverage agent's text: the two marker lines above, else the
-// first fenced json block that parses to an array (the skill's documented contract: objects with
-// file, line, summary and failure_scenario). Anything else is a cause, never a list. An array
-// that holds entries, none of them an object with a non-empty summary or failure_scenario, is not
-// that contract (renamed keys, bare strings): the scan moves on, and with no other array it is
-// the no-array cause, the recipe-drift stop, never blank candidates (#80, R1-3). An empty array
-// stays zero candidates.
+// What the workflow reads from the coverage agent's text: the first fenced json block that parses
+// to an array (the skill's documented contract: objects with file, line, summary and
+// failure_scenario), else the two marker lines above. Anything else is a cause, never a list. An
+// array that holds entries, none of them an object with a non-empty summary or failure_scenario,
+// is not that contract (renamed keys, bare strings): the scan moves on, and with no other array it
+// is the no-array cause, the recipe-drift stop, never blank candidates (#80, R1-3). An empty array
+// stays zero candidates. Only when the scan finds no list are the markers read, denied before
+// absent, each at the start of any line with leading backticks or quotes allowed, since the agent
+// may copy the prompt's formatting or lead with a sentence (#80, R2-2). The markers come after the
+// scan so that a skill result quoting a marker at a line start is still the list; a real denied or
+// absent reply holds no such array.
 function coverageCandidates(text) {
   const raw = typeof text === 'string' ? text : text === null || text === undefined ? '' : typeof text === 'object' ? JSON.stringify(text) : String(text)
   const t = raw.trim()
-  if (/^coverage: skill denied/i.test(t)) {
-    return { cause: 'denied', text: t }
-  }
-  if (/^coverage: skill absent/i.test(t)) {
-    return { cause: 'absent', text: t }
-  }
   const fence = /```json[ \t]*\r?\n([\s\S]*?)\r?\n[ \t]*```/g
   let m
   while ((m = fence.exec(t)) !== null) {
@@ -1218,6 +1216,12 @@ function coverageCandidates(text) {
         })),
       }
     }
+  }
+  if (/^[ \t]*[`'"]*coverage: skill denied/im.test(t)) {
+    return { cause: 'denied', text: t }
+  }
+  if (/^[ \t]*[`'"]*coverage: skill absent/im.test(t)) {
+    return { cause: 'absent', text: t }
   }
   return { cause: 'no array', text: t }
 }
