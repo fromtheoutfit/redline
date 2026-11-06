@@ -1306,6 +1306,10 @@ function samePrefix(name, first, second, n) {
   check('coverage: the round 2 body names both the fix diff and the whole PR', b2.startsWith(`Redline round 2\n\nReviewed the fix diff from round 1 (aaaaaaa..${run.res.rounds[1].range.to.slice(0, 7)}), and the coverage pass's candidates over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)}.\n\nThe coverage pass over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)} returned 2 candidates: 0 confirmed, 0 for the person, 1 collapsed into findings already reported or settled, 0 already tracked, 1 dropped`), b2)
   const findingsFile = pick(run.calls, 'post r1').prompt
   check('coverage: the findings file carries forThePerson and the coverage record', findingsFile.includes('"forThePerson": [\n    {\n      "file": "app/y.php"') && findingsFile.includes('"coverage": {\n    "head": "aaaaaaaaaa') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-900))
+  // The findings file keeps the candidate list its accounting indexes point into (#80, R1-5); the
+  // round record and the result keep the count only.
+  check('coverage: the findings file carries the candidate list beside the accounting', findingsFile.includes('"list": [') && findingsFile.includes('"index": 1') && findingsFile.includes('"summary": "the real one"') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-1200))
+  check('coverage: the result\'s coverage record has no candidate list', !('list' in run.res.rounds[0].coverage) && run.res.rounds[0].coverage.candidates === 2, run.res.rounds[0].coverage)
   let handoff = comment(run.calls, 'handoff comment')
   check('coverage: the handoff carries For the person before Commits', handoff.indexOf('### For the person\n\n- `app/y.php:9` · a nit for the person') > 0 && handoff.indexOf('### For the person') < handoff.indexOf('### Commits'), handoff)
   check('coverage: the log line names the accounting (no throw, two rounds)', run.res.rounds[1].coverage.candidates === 2)

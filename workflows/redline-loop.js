@@ -2030,6 +2030,9 @@ async function review(round, reviewed, range, facts, source) {
   if (candidates) {
     const counts = accountCoverage(round, out, candidates)
     out.coverage = { head: coverageHead, candidates: candidates.length, counts, accounting: out.coverage }
+    // The list the accounting's indexes point into, as the verifier saw it, for the findings file
+    // only; the round record and the result keep the count (#80, R1-5).
+    out.coverageList = candidates.map((c, i) => ({ index: i + 1, ...c }))
   } else {
     if (out.coverage.length) {
       warnings.push(`round ${round}: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared`)
@@ -2105,7 +2108,7 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
   }
   const findingsFile = {
     path: `${specFolder}/redline/round-${round}-findings.json`,
-    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings, forThePerson: reviewOut.forThePerson || [], ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, candidates: reviewOut.candidates || reviewOut.coverage.candidates } } : {}) }),
+    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings, forThePerson: reviewOut.forThePerson || [], ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, list: reviewOut.coverageList } } : {}) }),
   }
   const posted = await run('post', postPrompt(round, specFolder, reviewFile, findingsFile), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `post r${round}`, phase: 'Post', schema: POST_SCHEMA,
