@@ -46,6 +46,9 @@ Line numbers below are at `bac0b25`, the PR head this round reviewed. This folde
 7. **Plan approver adjustment 1 (Task 5's proof label): applied.** The approver found that Task 5's proof read `pick(run.calls, 'review r2').prompt` in the `coverage: a new verified finding runs another round` run (`tests/loop-test.mjs:1320`). Round 2 of that run is a fix-diff round, which the workflow labels `re-review r2` (`workflows/redline-loop.js:1989`: `reviewed === 'pr' ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'`), and the existing check at `tests/loop-test.mjs:1321` already reads `re-review r3` in the same run. `pick` matches a label exactly (`tests/loop-test.mjs:241`, `calls.find((c) => c.label === label)`), so the planned check would have thrown a TypeError instead of failing red. Confirmed by reading those lines. The proof now reads `pick(run.calls, 're-review r2').prompt` (the round with R1-1 listed as an earlier finding, where the sentence applies) and also `pick(run.calls, 'review r1').prompt` (round 1 ran the pass with `two` too, and the sentence sits in every candidates block), placed right after line 1321 and before line 1322 reassigns `run`. The `coverage: off` neighbour's labels, `review r1` and `final nit pass r2`, were checked against `tests/loop-test.mjs:1420`, where both are already read. The change is a test label only; Decision 4, Task 5's code and docs changes and every other task are unchanged, so no new decision arises.
    Decided by: redline
 
+8. **As built: the red step was not run on its own.** Tasks 2, 3 and 5 each added their loop-test checks with the fix and ran the gate once, green, rather than running the gate red before the fix. The checks and the fixes are as planned; only the extra gate run is missing. Recorded in `plan.md`, As built.
+   Decided by: redline
+
 ### Proportionality (correctness findings)
 
 | Finding | Likelihood and visibility | What it costs | Verdict |

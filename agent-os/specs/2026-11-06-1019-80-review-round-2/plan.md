@@ -141,3 +141,14 @@ Files: `agent-os/standards/workflow/agents.md`, `agent-os/standards/process/rele
 3. Step 11, Version: `0.2.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged. The PR already bumps the minor version, and no fix changes what a setup rerun writes (`shape.md`, Decision 6).
 4. Step 12, Standards retrospective: apply the list under `## Standards retrospective (proposed)` in `shape.md`, as the standards approver approves it, in its own commit. Items 1, 2 and 4 edit `agent-os/standards/workflow/agents.md`; item 3 edits `agent-os/standards/process/release.md`; item 5 edits `agent-os/standards/scripts/guard.md`. Items 4 and 5 were drafted after the person decided R2-1 and R2-5.
 5. Step 13, Spec folder: `plan.md` reflects what was built; any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+One commit per task, in plan order: the spec folder (`03d55f1`), R2-2 (`b999be2`), R2-3 (`ece89ba`), R2-4 (`85c88b6`), R2-1 (`3a34dd3`), R2-5's mitigation (`970506a`), the standards retrospective (`af36f74`, all five approved edits), and this as-built commit. Every task was built as planned, with these notes:
+
+- **Red first.** Each loop-test check went in with its fix in the same edit pass, and the gate ran once per task, green; the red run the plan asked for before each fix was not taken separately. The checks read the behaviour the fixes add (a backticked or later-line marker, a renamed ref, the reopen sentence), which the code at `bac0b25` does not have.
+- **Counts.** The loop test ends at 577 checks (the gate after Task 2 read 573, after Task 3 575, after Task 5 577); the guard test at 589 rows passed, one more for Task 6's pinned row. Every other harness is unchanged.
+- **Task 6's row.** The comment and the `reply 1` row sit directly after `-	allow	Bash	PLUGIN/scripts/redline-gh.sh pr 1`, so the rows after it are three lines lower; none moved in order.
+- **The standards commit names no finding.** No task in this plan sends part of a finding's fix through the retrospective, so every edit there is a lesson, and the message is `redline: record the round 2 review lessons in the standards (#79)`.
+- **R2-5 stays deferred.** `scripts/redline-guard.sh` and `hooks/hooks.json` are untouched; the narrowing in `shape.md`'s Deferred entry is a person's change after the run.
+- **Version.** `0.2.0`, unchanged (Decision 6).
