@@ -153,3 +153,24 @@ Proof: the gate's `setup` check (the alias equals its template) and `manifest` c
 3. Step 11, Version: `0.2.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged (Task 7).
 4. Step 12, Standards retrospective: apply the list under `## Standards retrospective (proposed)` in `shape.md`, as the standards approver approves it, in its own commit.
 5. Step 13, Spec folder: `plan.md` reflects what was built; any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Commits, one per task:
+
+- Task 1: `c8fda55` redline: save review round 1 spec for PR #80 (#79)
+- Task 2 (R1-2): `4e67915`. Docs entry: `docs/running.md` "The coverage pass", in this commit.
+- Task 3 (R1-3): `aacc55f`. Docs entry: `docs/running.md` "The coverage pass", in this commit.
+- Task 4 (R1-4): `96da90b`. Docs entry: `docs/running.md` "The coverage pass", in this commit.
+- Task 5 (R1-5): `e1cc411`. Docs entry: `docs/running.md` "The coverage pass", in this commit.
+- Task 6 (R1-6): `7ed770a`. No reader-facing change; `docs/running.md` "The handoff comment" already said it.
+- Task 7 (R1-1): `129ae48`. `CHANGELOG.md` carries the line; the version stays `0.2.0`.
+- Standards retrospective: `f711196`, the four approved edits (two bullets of `workflow/agents.md` extended, one new bullet in `process/docs-gate.md`).
+
+Each fix went red through the gate before its fix and green after it; the loop test ends at 569 checks. Every other harness kept its count.
+
+Deviations, none of them needing a decision:
+
+1. Task 4's scope-`all` neighbour runs as its own scenario (`coverage: a nit under scope all`, the same script as `coverage: nits only end in the final nit pass`), not as a further check on that scenario, so the existing scenario's checks are untouched.
+2. Task 3's message names the shape as ", objects with file, line, summary and failure_scenario" before the existing parenthetical, rather than in a second pair of parentheses; the pinned words `holds no fenced json array` are kept.
+3. The standards edits drop the approved text's final period where it ends a bullet, matching the files' bullets, which end without one; the new `process/docs-gate.md` bullet sits before the last bullet of the file.
