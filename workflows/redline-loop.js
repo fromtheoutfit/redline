@@ -2741,10 +2741,11 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   const lines = ['Redline handoff', '']
   const reviews = rounds.length
   const last = rounds[reviews - 1]
-  // With the coverage pass (#79) every round but the nit pass reviewed the whole PR at its head;
-  // under coverage off only the first round did, as before the pass existed.
+  // With the coverage pass (#79) every round but the nit pass reviewed the whole PR at its head,
+  // and the sentence says so, since it is posted only in the two branches that end in a final nit
+  // pass (#80, R1-6); under coverage off only the first round did, as before the pass existed.
   const wholePr = rounds.some((record) => record.coverage)
-    ? `The coverage pass reviewed the whole PR at every round's head; see ${knownLimits()}.`
+    ? `The coverage pass reviewed the whole PR at the head of every round but the final nit pass; see ${knownLimits()}.`
     : `Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`
   if (lastFixUnreviewed) {
     lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`)
