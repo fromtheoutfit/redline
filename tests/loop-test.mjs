@@ -584,6 +584,9 @@ function samePrefix(name, first, second, n) {
   check('carry: a re-review\'s carriedFrom is cleared with a warning', run.res.rounds[1].findings[0].carriedFrom === '' && run.res.warnings.includes('round 3: the reviewer marked R3-1 as carried from R1-2, but this review has no carry-forward list; cleared'), [run.res.rounds[1].findings[0], run.res.warnings])
   check('carry: a re-review posts no carried heading and no origin note', !pick(run.calls, 'post r3').prompt.includes('### Carried forward') && !pick(run.calls, 'post r3').prompt.includes('irst reported as R1-2'), pick(run.calls, 'post r3').prompt.slice(0, 1500))
   check('carry: a re-review sends no reply to the earlier thread; the first round\'s reply stands', !replies(run.calls, 'push and reply r3').some((x) => x.finding === 'R1-2') && replyFor(run.calls, 'push and reply r2', 'R1-2').startsWith('Redline round 2: carried forward as R2-1; '), [replies(run.calls, 'push and reply r3'), replyFor(run.calls, 'push and reply r2', 'R1-2')])
+  // The known-finding sentence has its own gate (#80, R1-2): a whole-PR round with carry-forward
+  // priors only keeps it; a re-review with no coverage pass has neither the handled list nor it.
+  check('carry: a whole-PR round with only carry-forward priors keeps the match sentence; the re-review has neither', pick(run.calls, 'review r2').prompt.includes('match against them, not against their review comments') && !pick(run.calls, 're-review r3').prompt.includes('already handled') && !pick(run.calls, 're-review r3').prompt.includes('match against them'), pick(run.calls, 're-review r3').prompt.slice(-1500))
   run = await go('carry: no list at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit', { carriedFrom: 'R0-1' })]], commitIds: [['R1-1']] })
   check('carry: a first round with no earlier findings clears a carriedFrom with a warning', run.res.rounds[0].findings[0].carriedFrom === '' && !pick(run.calls, 'post r1').prompt.includes('### Carried forward') && run.res.warnings.includes('round 1: the reviewer marked R1-1 as carried from R0-1, but this review has no carry-forward list; cleared'), [run.res.rounds[0].findings[0], run.res.warnings])
   // The fallback carry is numbered after the highest id in use, so a gap in the reviewer's ids
@@ -1323,6 +1326,19 @@ function samePrefix(name, first, second, n) {
   check('coverage: the correctness-only prompt tells the verifier where a nit candidate goes', pick(run.calls, 'review r1').prompt.includes('under a correctness-only scope a nit candidate goes there too'))
   run = await go('coverage: the cap holds', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'x' }]] })
   check('coverage: capped with a new finding every round', run.res.status === 'capped' && labels(run.calls).includes('coverage r2'), [run.res.status, labels(run.calls)])
+
+  // An earlier run's handled findings (#80, R1-2): the pass samples the whole PR at every head, so
+  // a fix-diff round that ran it is shown the handled list and the sentence that matches against
+  // it; the carry-forward list stays on the whole-PR round. With coverage off the re-review's
+  // prompt is as before: neither the list nor the sentence.
+  const handled = { firstRound: 2, priorFindings: [prior('R1-1', 'deferred', { comment_id: 11 })] }
+  const handledScenario = (cov) => ({ reviews: [[f('R2-1', 'correctness')], []], commitIds: [['R2-1']], ...(cov ? { coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] } : {}) })
+  run = await go('coverage: an earlier run\'s handled findings on a fix-diff round', { ...covArgs, ...handled }, handledScenario(true))
+  const handledR3 = pick(run.calls, 're-review r3').prompt
+  check('coverage: a fix-diff round that ran the pass lists the earlier run\'s handled findings and matches against them', handledR3.includes('Findings Redline\'s earlier rounds on this PR already handled') && handledR3.includes('"id": "R1-1"') && handledR3.includes('match against them, not against their review comments') && !handledR3.includes('Findings from earlier rounds with no disposition'), handledR3.slice(0, 2500))
+  run = await go('coverage: off, an earlier run\'s handled findings on a fix-diff round', { ...baseArgs, ...handled }, handledScenario(false))
+  const handledOff = pick(run.calls, 're-review r3').prompt
+  check('coverage: off, the fix-diff round has neither the handled list nor the sentence, as before', !handledOff.includes('already handled') && !handledOff.includes('match against them') && pick(run.calls, 'review r2').prompt.includes('"id": "R1-1"'), handledOff.slice(0, 2500))
 
   // Defaults: models.coverage absent means on, at reviewerFirstRound's model and effort; with no
   // effort anywhere the pass is told high.

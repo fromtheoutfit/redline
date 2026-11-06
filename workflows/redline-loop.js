@@ -1112,9 +1112,15 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     lines.push('', 'Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one):', json(history))
   }
   // The PR's earlier Redline rounds, from an earlier run (#35): tracked ones are matched into
-  // knownAs; undispositioned ones are re-verified and carried or resolved, never dropped.
+  // knownAs; undispositioned ones are re-verified and carried or resolved, never dropped. The
+  // coverage pass samples the whole PR at every head, so every round that ran it is shown the
+  // handled list too (#80, R1-2); only the whole-PR round carries. The closing sentence below has
+  // its own gate, so a whole-PR round with carry-forward priors only keeps it, and with coverage
+  // off (candidates null) every prompt is as before.
   const priorBlock = reviewed === 'pr' && priorFindings.length
-  if (priorBlock && trackedList.length) {
+  const handledBlock = trackedList.length && (reviewed === 'pr' || Array.isArray(candidates))
+  const matchSentence = priorBlock || (Array.isArray(candidates) && trackedList.length)
+  if (handledBlock) {
     lines.push('', 'Findings Redline\'s earlier rounds on this PR already handled (a match goes in knownAs as "<id>: <disposition>"; never re-raise one):', json(trackedList.map((p) => ({ id: p.id, round: p.round, category: p.category, title: p.title, file: p.file, line: p.line, disposition: p.disposition, reply: p.reply ? p.reply.body : '' }))))
   }
   if (priorBlock && carryList.length) {
@@ -1128,7 +1134,7 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   }
   lines.push(
     '',
-    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${priorBlock ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
+    `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${matchSentence ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
   )
   if (reviewed === 'final-nit-pass') {
     lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce.')
