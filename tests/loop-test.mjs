@@ -1365,6 +1365,12 @@ function samePrefix(name, first, second, n) {
     run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
     check(`coverage: ${name} stops the round at review, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off') && run.res.rounds.length === 0, [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
   }
+  // An array with none of the skill's fields is not the skill's list (#80, R1-3): renamed keys or
+  // bare strings are the recipe-drift stop, never blank candidates.
+  for (const [name, list] of [['renamed keys', [{ path: 'app/x.php', start_line: 3, description: 'real bug' }]], ['strings', ['real bug']]]) {
+    run = await go(`coverage: an array of ${name}`, covArgs, { reviews: [[]], coverage: [fenced(list)] })
+    check(`coverage: an array of ${name} stops the round as recipe drift, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes('holds no fenced json array') && run.res.error.includes('launch again with coverage off') && !labels(run.calls).includes('review r1'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
+  }
   run = await go('coverage: denied on round 2', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, 'coverage: skill denied\nno'], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }]] })
   check('coverage: a cause on round 2 resumes at coverage r2 with round 1 intact', run.res.status === 'error' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r2', attempt: 2 }) && run.res.rounds.length === 1, [run.res.status, run.res.resumeFrom, run.res.rounds.length])
   run = await go('coverage: empty array', covArgs, { reviews: [[]], coverage: ['```json\n[]\n```'] })

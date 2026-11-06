@@ -1181,7 +1181,11 @@ Your final text is the Skill tool's result, complete and unchanged, including th
 
 // What the workflow reads from the coverage agent's text: the two marker lines above, else the
 // first fenced json block that parses to an array (the skill's documented contract: objects with
-// file, line, summary and failure_scenario). Anything else is a cause, never a list.
+// file, line, summary and failure_scenario). Anything else is a cause, never a list. An array
+// that holds entries, none of them an object with a non-empty summary or failure_scenario, is not
+// that contract (renamed keys, bare strings): the scan moves on, and with no other array it is
+// the no-array cause, the recipe-drift stop, never blank candidates (#80, R1-3). An empty array
+// stays zero candidates.
 function coverageCandidates(text) {
   const raw = typeof text === 'string' ? text : text === null || text === undefined ? '' : typeof text === 'object' ? JSON.stringify(text) : String(text)
   const t = raw.trim()
@@ -1201,6 +1205,10 @@ function coverageCandidates(text) {
       continue
     }
     if (Array.isArray(value)) {
+      const filled = (s) => typeof s === 'string' && s.trim() !== ''
+      if (value.length && !value.some((c) => c && typeof c === 'object' && (filled(c.summary) || filled(c.failure_scenario)))) {
+        continue
+      }
       return {
         candidates: value.filter((c) => c && typeof c === 'object').map((c) => ({
           file: typeof c.file === 'string' ? c.file : '',
@@ -1225,7 +1233,7 @@ function coverageMessage(cause) {
     case 'absent':
       return `the coverage pass could not run the code-review skill: this Claude Code has no Skill tool or no skill named code-review (check \`claude --version\`; the pass was validated on 2.1.318). ${again}`
     default:
-      return `the coverage pass ran but its text holds no fenced json array of findings (the skill's recipe may have drifted on this Claude Code version; check \`claude --version\` against 2.1.318). ${again}`
+      return `the coverage pass ran but its text holds no fenced json array of findings in the skill's shape, objects with file, line, summary and failure_scenario (the skill's recipe may have drifted on this Claude Code version; check \`claude --version\` against 2.1.318). ${again}`
   }
 }
 
