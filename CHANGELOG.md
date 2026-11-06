@@ -10,7 +10,7 @@ One heading per tagged version, newest first, and one line per merged pull reque
 
 ### Setup and templates
 
-- `redline.json.example` gains `models.coverage`, the coverage pass's model and effort; a rerun of `/redline:setup` offers the new key
+- `redline.json.example` gains `models.coverage`, the coverage pass's model and effort. A rerun of `/redline:setup` keeps an existing `redline.json` as it is and lists the template's `models` under differs without writing them; the key absent means the pass is on at the first-round reviewer's model and effort, so add it by hand only to pick another
 - The `/redline` alias's argument hint names `coverage off`; a rerun of `/redline:setup` offers the changed alias
 
 ## 0.1.0 (2026-11-03)
