@@ -6,7 +6,7 @@ One heading per tagged version, newest first, and one line per merged pull reque
 
 ### Features
 
-- #NN Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
+- #80 Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
 
 ### Setup and templates
 
@@ -30,7 +30,7 @@ The first release: Redline as a single-plugin marketplace.
 - #51 Gate step 10, Docs: every spec names the README changes it needs (#13)
 - #59 Resume a run that ended in error from the failed step (#10)
 - #61 Check the shaper's spec folder and relaunch only from a typed `relaunch` (#57, #60)
-- #NN Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
+- #80 Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
 
 ### Fixes
 
