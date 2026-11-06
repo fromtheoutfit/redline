@@ -1995,9 +1995,16 @@ async function review(round, reviewed, range, facts, source) {
     schema: REVIEW_SCHEMA,
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
+  // Each rename is recorded, old id to new, so the coverage refs naming it follow (#80, R2-3); the
+  // first finding with an old id keeps it.
+  const renamed = new Map()
   out.findings.forEach((f, index) => {
     if (!new RegExp(`^R${round}-\\d+$`).test(f.id)) {
       warnings.push(`round ${round}: reviewer returned id ${JSON.stringify(f.id)}; renamed R${round}-${index + 1}`)
+      const oldId = typeof f.id === 'string' ? f.id.trim() : f.id
+      if (!renamed.has(oldId)) {
+        renamed.set(oldId, `R${round}-${index + 1}`)
+      }
       f.id = `R${round}-${index + 1}`
     }
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
@@ -2032,6 +2039,18 @@ async function review(round, reviewed, range, facts, source) {
   // The accounting runs after the carry-forward reconcile, which can clear a knownAs, so it reads
   // each finding as the round will post it (#80, R1-4).
   if (candidates) {
+    // A finding or duplicate entry naming an id the rename above changed names that finding by its
+    // new id, a finding of this round, so the R1-4 rule for a ref naming no finding does not apply
+    // to it (#80, R2-3).
+    for (const entry of out.coverage) {
+      if (entry.outcome !== 'finding' && entry.outcome !== 'duplicate') {
+        continue
+      }
+      const ref = typeof entry.ref === 'string' ? entry.ref.trim() : entry.ref
+      if (renamed.has(ref)) {
+        entry.ref = renamed.get(ref)
+      }
+    }
     const counts = accountCoverage(round, out, candidates)
     out.coverage = { head: coverageHead, candidates: candidates.length, counts, accounting: out.coverage }
     // The list the accounting's indexes point into, as the verifier saw it, for the findings file
