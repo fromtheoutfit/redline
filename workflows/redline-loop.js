@@ -1240,9 +1240,14 @@ function coverageMessage(cause) {
 // The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior): every
 // candidate has exactly one entry; one the reviewer left out, or placed with an outcome the
 // schema does not name, is listed under For the person as reported, with a warning, never
-// dropped. A finding entry must name a finding of this round.
+// dropped. A finding entry is counted where the round puts it (#80, R1-4): one whose ref names no
+// finding of this round is listed under For the person as reported, with a warning, like an
+// unaccounted one; under correctness only, one naming a nit is For the person and the nit is
+// listed there, since the main loop drops it before the known split; otherwise one naming a
+// finding with a knownAs is known, since the body lists it under Already tracked.
 function accountCoverage(round, out, candidates) {
-  const ids = new Set(out.findings.map((f) => f.id))
+  const byId = new Map(out.findings.map((f) => [f.id, f]))
+  const listedNits = new Set()
   const seen = new Map()
   for (const entry of out.coverage) {
     const index = Number(entry.index)
@@ -1259,8 +1264,27 @@ function accountCoverage(round, out, candidates) {
       continue
     }
     const ref = typeof entry.ref === 'string' ? entry.ref.trim() : String(entry.ref === undefined || entry.ref === null ? '' : entry.ref)
-    if (entry.outcome === 'finding' && !ids.has(ref)) {
-      warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as a finding with ref ${JSON.stringify(ref)}, which is not a finding of this round`)
+    if (entry.outcome === 'finding') {
+      const finding = byId.get(ref)
+      if (!finding) {
+        const c = candidates[index - 1]
+        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as a finding with ref ${JSON.stringify(ref)}, which is not a finding of this round; listed under For the person as reported`)
+        out.forThePerson.push({ file: c.file, line: c.line, text: c.summary })
+        seen.set(index, { index, outcome: 'forThePerson', ref: `finding ref ${ref} names no finding` })
+        continue
+      }
+      if (scope === 'correctness' && finding.category === 'nit') {
+        if (!listedNits.has(finding.id)) {
+          listedNits.add(finding.id)
+          out.forThePerson.push({ file: finding.file, line: finding.line, text: finding.title })
+        }
+        seen.set(index, { index, outcome: 'forThePerson', ref: `${finding.id}: a nit under correctness only` })
+        continue
+      }
+      if (finding.knownAs) {
+        seen.set(index, { index, outcome: 'known', ref: `${finding.id}: ${finding.knownAs}` })
+        continue
+      }
     }
     seen.set(index, { index, outcome: entry.outcome, ref })
   }
@@ -1987,15 +2011,6 @@ async function review(round, reviewed, range, facts, source) {
     .filter((e) => e && typeof e === 'object')
     .map((e) => ({ file: typeof e.file === 'string' ? e.file : '', line: Number.isInteger(e.line) ? e.line : 0, text: typeof e.text === 'string' ? e.text.trim() : '' }))
   out.coverage = Array.isArray(out.coverage) ? out.coverage.filter((e) => e && typeof e === 'object') : []
-  if (candidates) {
-    const counts = accountCoverage(round, out, candidates)
-    out.coverage = { head: coverageHead, candidates: candidates.length, counts, accounting: out.coverage }
-  } else {
-    if (out.coverage.length) {
-      warnings.push(`round ${round}: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared`)
-    }
-    out.coverage = null
-  }
   // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
   // spec), so any other review clears what a reviewer copied from the history (#46, R1-1).
   if (reviewed === 'pr' && priorFindings.length) {
@@ -2009,6 +2024,17 @@ async function review(round, reviewed, range, facts, source) {
     }
     out.carried = {}
     out.resolved = []
+  }
+  // The accounting runs after the carry-forward reconcile, which can clear a knownAs, so it reads
+  // each finding as the round will post it (#80, R1-4).
+  if (candidates) {
+    const counts = accountCoverage(round, out, candidates)
+    out.coverage = { head: coverageHead, candidates: candidates.length, counts, accounting: out.coverage }
+  } else {
+    if (out.coverage.length) {
+      warnings.push(`round ${round}: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared`)
+    }
+    out.coverage = null
   }
   return out
 }

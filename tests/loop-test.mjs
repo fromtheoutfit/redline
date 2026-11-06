@@ -1350,13 +1350,31 @@ function samePrefix(name, first, second, n) {
   check('coverage: an effort word the skill would run elsewhere fails at launch', run.thrown && run.thrown.message.includes('must be one of low | medium | high | xhigh | max'), run.thrown && run.thrown.message)
 
   // Accounting: an index the verifier left out, or gave an unknown outcome, is For the person as
-  // reported, with a warning; a finding ref that names no finding warns; a disproportionate
-  // candidate is in no list.
+  // reported, with a warning; a finding ref that names no finding is For the person as reported
+  // too, with a warning, and never counted confirmed (#80, R1-4); a disproportionate candidate is
+  // in no list.
   const three = fenced([cand('app/x.php', 3, 'one'), cand('app/y.php', 4, 'two'), cand('app/z.php', 5, 'three')])
   run = await go('coverage: accounting', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R9-9' }, { index: 3, outcome: 'maybe', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'disproportionate', ref: 'needs the clock to run backwards' }, { index: 3, outcome: 'settled', ref: 'R1-1' }]] })
-  check('coverage: unaccounted and unknown-outcome candidates are For the person as reported', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 4, text: 'two' }, { file: 'app/z.php', line: 5, text: 'three' }]) && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:finding:R9-9,2:forThePerson:unaccounted,3:forThePerson:unaccounted', run.res.rounds[0])
+  check('coverage: unaccounted, unknown-outcome and no-finding-ref candidates are For the person as reported', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/x.php', line: 3, text: 'one' }, { file: 'app/y.php', line: 4, text: 'two' }, { file: 'app/z.php', line: 5, text: 'three' }]) && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:forThePerson:finding ref R9-9 names no finding,2:forThePerson:unaccounted,3:forThePerson:unaccounted', run.res.rounds[0])
+  check('coverage: a finding ref that names no finding is not counted confirmed', run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 3, run.res.rounds[0].coverage.counts)
   check('coverage: the warnings name the index and the bad ref', run.res.warnings.some((w) => w === 'round 1: the reviewer did not account for coverage candidate 2 (app/y.php:4); listed under For the person as reported') && run.res.warnings.some((w) => w.includes('coverage candidate 3 the outcome "maybe"')) && run.res.warnings.some((w) => w.includes('as a finding with ref "R9-9", which is not a finding of this round')), run.res.warnings)
   check('coverage: a disproportionate candidate is dropped with its sentence and is in no list', run.res.rounds[1].coverage.accounting[1].outcome === 'disproportionate' && run.res.rounds[1].coverage.accounting[1].ref === 'needs the clock to run backwards' && run.res.rounds[1].forThePerson.length === 0 && run.res.rounds[1].findings.length === 0 && run.res.status === 'done', run.res.rounds[1])
+
+  // A candidate is counted where the round puts it (#80, R1-4): under correctness only a nit the
+  // verifier reported from a candidate goes under For the person, knownAs or not (the nit rule runs
+  // first); otherwise a finding listed under Already tracked counts as already tracked.
+  const nitCorrectness = (nit) => ({ reviews: [[f('R1-1', 'correctness'), nit], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R1-2' }], settledAll] })
+  run = await go('coverage: a nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9 })))
+  let nb = body(run.calls, 'post r1')
+  check('coverage: under correctness only a nit from a candidate is For the person, listed and counted there', nb.includes('returned 2 candidates: 1 confirmed, 1 for the person,') && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2') && JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'title R1-2' }]) && run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson', [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a known nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9, knownAs: '#7' })))
+  nb = body(run.calls, 'post r1')
+  check('coverage: under correctness only a known nit is still For the person, not already tracked', run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson' && run.res.rounds[0].coverage.counts.known === 0 && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2'), [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a known finding from a candidate', covArgs, { reviews: [[f('R1-1', 'correctness', { knownAs: '#7' })]], coverage: [two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }]] })
+  nb = body(run.calls, 'post r1')
+  check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 confirmed') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
+  check('coverage: under scope all a nit from a candidate is still confirmed', run.res.rounds[1].coverage.counts.finding === 1 && run.res.rounds[1].coverage.counts.forThePerson === 0, run.res.rounds[1].coverage)
   check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
 
   // The three causes stop the round at review, resumable at the coverage label; an empty array is
