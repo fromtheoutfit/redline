@@ -1,7 +1,7 @@
 ---
 name: redline
-description: "Redline review/revise loop on a pull request: /redline:redline <pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [reviewer @handle] [no push] [dry run]. Reviews the PR, posts one Redline review per round, shapes and implements the fixes through Agent OS, checks, pushes, replies and re-reviews until no correctness bugs remain, then hands the PR to the teammate. The interrupt dial says where it stops for the person; .claude/redline.local.json remembers the settings. Use only when the person types /redline:redline (or /redline:redline-review, /redline:redline-revise, which follow this file). Never start a run on your own initiative."
-argument-hint: "<pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [reviewer @handle] [no push] [dry run]"
+description: "Redline review/revise loop on a pull request: /redline:redline <pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [reviewer @handle] [no push] [dry run] [coverage off]. Reviews the PR, posts one Redline review per round, shapes and implements the fixes through Agent OS, checks, pushes, replies and re-reviews until a round confirms no new correctness finding, then hands the PR to the teammate. The interrupt dial says where it stops for the person; .claude/redline.local.json remembers the settings. Use only when the person types /redline:redline (or /redline:redline-review, /redline:redline-revise, which follow this file). Never start a run on your own initiative."
+argument-hint: "<pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [reviewer @handle] [no push] [dry run] [coverage off]"
 ---
 
 # /redline:redline
