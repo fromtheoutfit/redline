@@ -30,7 +30,7 @@ The first release: Redline as a single-plugin marketplace.
 - #51 Gate step 10, Docs: every spec names the README changes it needs (#13)
 - #59 Resume a run that ended in error from the failed step (#10)
 - #61 Check the shaper's spec folder and relaunch only from a typed `relaunch` (#57, #60)
-- #80 Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
+- #65 Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
 
 ### Fixes
 
