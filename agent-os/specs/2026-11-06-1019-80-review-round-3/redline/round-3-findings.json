@@ -1,0 +1,269 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "bac0b2566f3fbc2a1dc0c2596a5809601e991289",
+    "to": "474593fe4fd661972e32296653c9096b5af772a3"
+  },
+  "summary": "The round 2 fix diff closes R2-2 to R2-5 as planned. The markers are read after the list scan, so a quoted marker cannot hide the list. A renamed id's coverage refs follow it, the changelog and guard docs now describe what the rerun and the fork actually do, and a guard-case row pins the write approval. Both correctness findings are edges of the R2-1 reopen rule: the handled-list header and the knownAs example still tell the verifier to settle a fixed match, and a decided-then-applied finding never shows as fixed, so whether it should reopen is returned to the person. The two nits are doc sentences the PR left stale. This repository has no routes/console.php, so no scheduled or queued work applies.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "agent-os/product/tech-stack.md",
+      "line": 5,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The tech stack still calls the code-review skill a candidate second reviewer, and the edited sentence has lost its subject",
+      "description": "This PR changes the line to append \", and runs it as the coverage pass since #79\" but keeps \"a candidate second reviewer on whole-PR rounds\". The skill is now the finder on every whole-PR and fix-diff round. The appended clause also leaves the skill as the subject of \"runs it\", so the sentence says the skill runs itself.",
+      "proposedFix": "Rewrite the sentence, for example: \"The built-in `code-review` skill is the finder on every whole-PR and fix-diff round since #79 (the coverage pass); its recipe was read and its workflow-subagent route checked against 2.1.318 on 2026-11-05 (spike #72), and since it is keyed by model family, #19's benchmark checks later versions.\"",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "docs/running.md",
+      "line": 54,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The empty-candidates sentence names the wrong remaining work",
+      "description": "\"An empty array the skill returned on purpose is zero candidates, not an error: the reviewer runs on the recheck and the carry-forward list alone.\" That is wrong for both kinds of round. A whole-PR round has no fix-diff recheck. A fix-diff round has no carry-forward list (only the first round carries). The checks that do still run, the scheduled-and-queued check and the Docs and Version nits, are not mentioned. candidatesBlock's empty branch (workflows/redline-loop.js:1158) says what actually happens: no discovery pass, the recheck on a fix-diff round, and the rule checks. So a reader is told a round-1 pass that returns [] still checks something it never checks.",
+      "proposedFix": "Update \"The coverage pass\" in `docs/running.md`, line 54, to match the prompt: \"...is zero candidates, not an error: the reviewer runs no discovery pass of its own; it runs the scheduled-and-queued, Docs and Version checks, the fix-diff recheck on a later round, and the carry-forward list on a first round that has one.\"",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1124,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The handled-list header and the knownAs example still say a fixed match is never re-raised, against the R2-1 reopen rule",
+      "description": "The R2-1 fix added the reopen sentence to candidatesBlock (line 1165) and an exception to agents/redline-reviewer.md line 20. On every coverage round with an earlier run's findings, the prompt's handled-list header (line 1124) still says \"a match goes in knownAs as \\\"<id>: <disposition>\\\"; never re-raise one\". That covers trackedList entries with disposition `fixed`. The reviewer's output contract (agents/redline-reviewer.md line 98) still gives `R1-2: fixed` as its example `knownAs` value, and neither the reopen sentence nor the agent file says a reopened finding's knownAs stays empty. A verifier can therefore report the reopened finding and also tag it `knownAs: \"R1-3: fixed\"`. Then accountCoverage (line 1291) counts it `known`, the main loop moves it to Already tracked (lines 3203-3204), and reconcilePrior clears a Redline id from knownAs only on carried findings (line 2094). The round confirms nothing new, and the run ends with the bug the decision meant to reopen. Alternatively the verifier follows the header and settles an earlier run's fixed finding outright. Traced through the prompt text and the knownAs path. Which instruction an agent follows depends on the model.",
+      "proposedFix": "In reviewPrompt's handled-list header (line 1124), add the exception when candidates is an array, for example: \"never re-raise one, except a fixed one a coverage candidate shows still reproduces at this head, which is new\". In candidatesBlock's reopen sentence, say the reopened finding's knownAs stays empty (the earlier id goes in its description only). In agents/redline-reviewer.md line 98, say a reopened fixed finding carries no knownAs. Add a loop-test check that a coverage round with trackedList [prior('R1-1', 'fixed')] carries the exception in the header, and that the coverage-off prompt is unchanged.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "workflows/redline-loop.js",
+      "line": 1165,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A decided finding whose decision was applied in commits never reopens, and the verifier cannot tell it was fixed",
+      "description": "The reopen rule keys on an earlier finding \"whose outcome is fixed\". outcomesFor (line 2199) records any finding with a decision as kind `decided`, even when commits applied it. describeOutcome (line 2221) then gives only the decision sentence and owner, with no commit and no word `fixed`. The thread reply says \"Applied in <sha>\", but history() hands the verifier describeOutcome's text. This round's own prompt shows it: R2-1's and R2-5's outcomes carry no commit and no `fixed`. Across runs, prior-findings classifies such a reply as `decided`. Nothing in the reopen sentence's settled list names `decided` either, and agents/redline-reviewer.md line 22 says a decided finding is not raised again. So a needsDecision finding the person chose to fix, whose fix covered one of two paths, settles when the next pass re-finds it on the other path: the case R2-1 closed for `fixed`. The R2-1 decision names only findings \"marked fixed\", so whether this case should reopen too is the person's call.",
+      "proposedFix": "Decision needed: should a coverage candidate that matches a `decided` finding whose decision was applied in commits, and that still reproduces at this head, also be new? If yes: have describeOutcome's `decided` case append the commits (for example \"; applied in <sha>\"), so history() shows them. Add \"or decided and applied in commits\" to the reopen sentence in candidatesBlock and agents/redline-reviewer.md, and say a decided finding with no code change stays settled. Add a loop check for the history text and the sentence. If no: add a sentence that a decided finding stays settled whatever its commits, so the prompt and docs/running.md step 7 say so.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1180,
+      "text": "The coverage prompt names the skill by its bare name \"code-review\". A repository's own `.claude/commands/code-review.md` or project skill of that name could shadow the built-in one and run unvetted in the fork. Not verified which one Claude Code picks; if a shadow returns no array, the drift message points at the version instead."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2009,
+      "text": "Already noted in the round 2 spec's \"Observed, not in scope\" (positional renaming can mint a duplicate id). The point that note lacks: the R2-1 reopen asks the verifier to name the earlier id, which an agent may put in `id` (e.g. [\"R1-3\", \"R2-1\"]), and the R2-3 map then points a `finding` ref at one of two findings that share an id."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1223,
+      "text": "The R2-2 marker match allows leading backticks and quotes only. A marker written in bold (`**coverage: skill denied**`), as a list item or as a blockquote still falls through to the drift message. Not observed, and the prompt asks for one plain line."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1279,
+      "text": "An unaccounted candidate, or one whose `finding` ref names no finding, is listed with `text: c.summary` only (also line 1304). A candidate that passed the R1-3 check on `failure_scenario` alone shows as an empty line; falling back to failure_scenario would keep it readable."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2821,
+      "text": "The repetition of For the person entries across rounds is already noted in the round 1 review's For the person. The point it lacks: the handoff body has no length cap, so a long run on a large PR could exceed GitHub's 65,536-character comment limit and fail at Finish. Not reproduced."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2026,
+      "text": "The For the person cleanup sets a non-integer `line` to 0, while coverageCandidates (line 1216) coerces a numeric string. Only the reviewer schema keeps the two rules from giving different lines for the same input; one shared helper would remove the second rule."
+    }
+  ],
+  "coverage": {
+    "head": "474593fe4fd661972e32296653c9096b5af772a3",
+    "candidates": 12,
+    "counts": {
+      "finding": 4,
+      "forThePerson": 6,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 2
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "disproportionate",
+        "ref": "Needs the person to update the plugin between a hand-off and its relaunch in the same session. Any version change rewrites the prompt builders and re-keys the replay, so this is not specific to the absent models.coverage key (the version check at launch is #27's backlog)."
+      },
+      {
+        "index": 2,
+        "outcome": "finding",
+        "ref": "R3-4"
+      },
+      {
+        "index": 3,
+        "outcome": "finding",
+        "ref": "R3-3"
+      },
+      {
+        "index": 4,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 9,
+        "outcome": "disproportionate",
+        "ref": "Needs agent() to return an object for a call with no schema. It returns text, so the stringify branch never sees a list and is only a defensive fallback."
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": ""
+      },
+      {
+        "index": 11,
+        "outcome": "finding",
+        "ref": "R3-2"
+      },
+      {
+        "index": 12,
+        "outcome": "finding",
+        "ref": "R3-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 233,
+        "summary": "A missing `models.coverage` key now means the coverage pass is on. A run launched on 0.1.x and relaunched or resumed after updating to 0.2.0 has no such key in its saved args, so a new `coverage r<n>` agent runs before the review that was already cached and posted.",
+        "failure_scenario": "Launch `/redline 42` on 0.1.1 and stop at a guided hand-off. The person updates the plugin, reopens the session and types `relaunch`. `gather r1` replays from cache. `coverage r1` is new, so the `review r1` prompt changes and the reviewer reruns, producing a different set of findings. `post r1` reruns, finds the round already posted, posts nothing, and maps the old inline comments to the new findings by their `**R1-` prefix. `shape r1` runs on the new findings, and `args.decisions` (keyed to the old R1-k findings) are applied to whatever the new R1-k findings are. Replies land in the wrong threads and decisions attach to the wrong findings. The `coverage off`-means-identical-prompts rule does not protect this case, because old args have no key rather than `null`."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 1888,
+        "summary": "`history()` gives the verifier the outcome as prose, not its kind. A finding the person decided to fix is recorded as kind `decided` even when commits fixed it, and its text is only the decision sentence. The verifier never sees the word \"fixed\", so the R2-1 rule (a fixed finding that still reproduces is new) can never apply to it.",
+        "failure_scenario": "Round 1 reports R1-2 with `needsDecision`. The person answers \"fix it by guarding both paths\" and the implementer commits a fix for one path. `outcomesFor` checks `decision` before commits and records kind `decided`, and `describeOutcome` prints only the decision sentence. On round 2 the coverage pass finds the same bug on the other path. The verifier sees a decided outcome, treats it as settled, and the run hands off with the bug in place. The same applies across runs, because `prior-findings` classifies any reply that does not start with \"fixed in\" as `decided`. This PR's own R2-1 and R2-5 are decided findings. The candidates block also names the outcomes \"accepted\" and \"still open\", which never appear as words in the history data."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1124,
+        "summary": "The R2-1 reopen rule contradicts other text the reviewer is given. The list header in this prompt still says to put every match in `knownAs` and \"never re-raise one\", and `agents/redline-reviewer.md:98` gives `R1-2: fixed` as its example `knownAs` value. A reproduced fixed finding tagged that way is counted `known` and silently dropped, and nothing in the workflow clears that tag.",
+        "failure_scenario": "On round 2 a candidate re-finds R1-3, which was fixed but still reproduces. The verifier follows the `R1-2: fixed` example: it reports the finding and also sets `knownAs: \"R1-3: fixed\"`. `accountCoverage` (line 1291) counts it `known`, and the main loop drops it from the active findings. The round confirms nothing new and the run hands off with the bug unfixed. `reconcilePrior` clears a Redline id from `knownAs` only on carried findings, so nothing catches this on later rounds."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 1180,
+        "summary": "The coverage prompt calls the skill by its bare name, \"code-review\". A project, user or plugin skill or custom command with that name can shadow the built-in one. Its recipe is unknown, and it runs in a fork the guard does not check.",
+        "failure_scenario": "A repository under review has its own `.claude/commands/code-review.md` or `.claude/skills/code-review/SKILL.md`, which is a common setup. The coverage agent's call may run that one instead. If it runs `gh pr comment` or writes files, and the repository's allow list permits that, it posts or writes with no Redline vetting. The docs base the pass's safety on \"the skill's own read-only recipe\". If it returns no fenced array, the round stops with the recipe-drift message telling the person to check `claude --version`, which is the wrong fix."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2011,
+        "summary": "Renamed ids are numbered by position (`R<round>-<index+1>`), not after the highest id in use. The new R2-1 instruction makes that collision more likely, because it asks the reviewer to report a reopened finding while naming the earlier id. Already noted under \"Observed, not in scope\" in the round 2 spec; what that note lacks is that R2-1 now invites the earlier id.",
+        "failure_scenario": "On round 2 the reviewer returns the reopened finding first with `id: \"R1-3\"`, then a new finding `R2-1`. The first is renamed to `R2-1`, so two findings share that id. Inline comment ids, outcomes, replies and `accountCoverage`'s id map all overwrite each other, and the R2-3 fix maps a `finding` entry with ref `R1-3` to the wrong one of the two. Numbering after the highest id in use, as `workflow/agents.md` requires, avoids it."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 1223,
+        "summary": "The R2-2 marker match accepts only leading spaces, backticks and quotes. A marker the agent writes in bold, as a list item or as a quote still falls through to the \"no array\" cause.",
+        "failure_scenario": "The Skill tool is denied and the agent replies `**coverage: skill denied**`, `- coverage: skill denied` or `> coverage: skill denied`. Neither marker regex matches, the cause becomes `no array`, and the stop message tells the person to check the Claude Code version instead of allowing the Skill tool. This is the misdirection R2-2 set out to fix."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 1304,
+        "summary": "A candidate that is unaccounted for, or whose `finding` ref names no finding, goes under For the person with `text: c.summary` only. A candidate that has a `failure_scenario` but no `summary` passes the R1-3 check and then appears as an empty line.",
+        "failure_scenario": "The skill returns `[{\"file\":\"a.php\",\"line\":3,\"failure_scenario\":\"x\"}]` and the verifier skips index 1. The review body and the handoff show \"- `a.php:3` · \" with no text, so the person cannot tell what the candidate was. The same happens at line 1279."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 2819,
+        "summary": "The handoff joins every round's For the person entries with no limit and no de-duplication. Entries repeat across rounds; the round 1 review already lists the repetition for the person. On a long run the comment can exceed GitHub's 65,536-character limit and fail at Finish.",
+        "failure_scenario": "Take a three-round run with the coverage pass at xhigh with every finding reported, on a large PR. Round 2 of this PR alone listed 22 entries of 300 to 500 characters. Each round lists the same entries again, so a run on a 300-file PR can reach well over 100 long lines plus the decisions and commits sections. The handoff comment post fails with a body-too-long error after the threads are resolved, and the run stops at Finish."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 1197,
+        "summary": "`coverageCandidates` turns an object result into text with `JSON.stringify`, which escapes newlines. The fence regex needs real newlines, so this branch can never find a list and always ends in the \"no array\" cause.",
+        "failure_scenario": "If `agent()` ever returns structured content, such as an object or the parsed array itself, the stringified text has `\\n` instead of newlines. No fence matches and the round stops with the recipe-drift message, even when the value is a valid candidate list. Either read the text field or array directly, or drop the branch."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 2026,
+        "summary": "The For the person cleanup in `review()` handles `line` differently from the candidate cleanup in `coverageCandidates` (line 1213), so the same input gives different lines.",
+        "failure_scenario": "A For the person entry with `line: \"12\"` becomes `:0`, while a candidate with `line: \"12\"` becomes `:12`. That is two cleanup rules for one shape where one shared helper would do; today only the schema keeps the two from producing different lines."
+      },
+      {
+        "index": 11,
+        "file": "docs/running.md",
+        "line": 54,
+        "summary": "The docs say an empty candidate list leaves the reviewer running \"on the recheck and the carry-forward list alone\". Round 1 has no recheck, fix-diff rounds have no carry-forward list, and the rule checks (scheduled and queued work, Docs, Version) that still run are not mentioned.",
+        "failure_scenario": "A reader expects a round-1 pass that returns `[]` to still re-check something. In fact the reviewer runs no discovery pass and only the rule checks, so round 1 can end the run having reviewed almost nothing. The sentence hides that."
+      },
+      {
+        "index": 12,
+        "file": "agent-os/product/tech-stack.md",
+        "line": 5,
+        "summary": "The tech stack still calls the `code-review` skill \"a candidate second reviewer on whole-PR rounds\". This PR makes it the finder on every whole-PR and fix-diff round, and the sentence has lost its subject (\"had its recipe read ... and runs it\").",
+        "failure_scenario": "Someone reading the product docs comes away thinking the skill is an optional second reviewer on round 1 only. In fact it runs every round and decides when the run ends."
+      }
+    ]
+  }
+}
