@@ -39,9 +39,10 @@
 #                                  this run." dropped, "not changed in this round." not-changed,
 #                                  "carried forward as R<n>-<k>;" carried (carried_to), "left to
 #                                  the author" left (a finding a repository ask rule left to the
-#                                  person, #49), any other reply decided, no reply none; a
-#                                  finding a later round's line
-#                                  names as first reported is carried (carried_to that id)
+#                                  person, #49), "resolved; first reported as" fixed (a later
+#                                  run's reviewer found the code no longer has it, #80, R4-3), any
+#                                  other reply decided, no reply none; a finding a later round's
+#                                  line names as first reported is carried (carried_to that id)
 #                                  whatever its thread says. Exit 2 on a gh error
 #   human-review <n> <selector>    a teammate's review comments as one list, for a revise pass over
 #                                  a human review (#36). <selector> is a review id, @login or
@@ -339,6 +340,7 @@ case "$cmd" in
                 elif startswith("not changed in this round.") then "not-changed"
                 elif startswith("carried forward as R") then "carried"
                 elif startswith("left to the author") then "left"
+                elif startswith("resolved; first reported as ") then "fixed"
                 else "decided" end;
             ($comments[0]) as $all
             | ($issues[0]) as $issue_comments

@@ -1,0 +1,1 @@
+Redline round 2: fixed in b999be2 (redline: R2-2 read the coverage markers on any line, after the fenced-list scan (#79)). · decided by: redline

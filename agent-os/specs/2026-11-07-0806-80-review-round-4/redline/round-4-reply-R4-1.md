@@ -1,0 +1,1 @@
+Redline round 4: fixed in 2118e85 (redline: R4-1, R4-2, R4-3 record round 3's reopen and decided rules, the landed guard narrowing and the resolved-as-fixed reading in the standards (#79)) and d7f2a4d (redline: R4-1 record the R3-4 decision, its hand commit and the landed retrospective in round 3's shape (#79)). · decided by: redline

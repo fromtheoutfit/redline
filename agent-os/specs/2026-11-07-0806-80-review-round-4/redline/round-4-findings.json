@@ -1,0 +1,270 @@
+{
+  "round": 4,
+  "reviewed": "pr",
+  "range": {
+    "from": "a70c243c8808de20fa893e4ce8d74247614c8157",
+    "to": "a70c243c8808de20fa893e4ce8d74247614c8157"
+  },
+  "summary": "This round reviewed the whole PR at a70c243 and verified the coverage pass's 13 candidates. The hand commits for round 3 (6ef58a9, with R3-4 as option B) and for R2-5's guard narrowing (a70c243) landed cleanly, so R3-1 to R3-4 are resolved. Two nits are records that did not follow those commits: the guard standard still calls the narrowing pending, and round 3's standards retrospective never landed. The one correctness finding is an edge of the reopen rule, returned to the person: Redline's own `resolved` reply is read back as `decided`, so a wrongly resolved finding can never reopen. No scheduled or queued work applies (this repository has no routes/console.php), and the version moves from main's 0.1.1 to 0.2.0.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "agent-os/specs/2026-11-06-1019-80-review-round-3/shape.md",
+      "line": 105,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Round 3's standards retrospective never landed, and its shape.md still records R3-4 as pending",
+      "description": "The round 3 spec ends at '## Standards retrospective (proposed)' (line 105). It proposes two edits to agent-os/standards/workflow/agents.md for R3-3 and holds a third for the R3-4 decision. Commit 6ef58a9 applied R3-3 and R3-4 (option B: a decided finding stays settled whatever its commits) but changed no standard. agents.md has no R3-3 or R3-4 text. Its coverage-pass bullet (line 35) still names `fixed` as the only reopen and says nothing about a decided finding going under For the person or a reopened finding keeping an empty knownAs. shape.md still lists R3-4 as a pending decision (line 28). It has neither the applied edits nor 'Standards retrospective: no changes'. CLAUDE.md (Specs) says a spec is not complete until its retrospective lands or that line is recorded. Task 6 step 4 of the round 3 plan (plan.md:169) planned that commit.",
+      "proposedFix": "Land the round 3 retrospective in its own commit, as the standards approver approves it. In the coverage-pass bullet of workflow/agents.md: item 1 (a reopened finding carries no knownAs, and every sentence the verifier reads states the reopen rule); item 3 as option B (a decided finding stays settled whatever its commits, and a candidate that still reproduces one goes under For the person, naming the earlier id); and item 2 if approved. Then update round 3's shape.md: Decision 4 records the person's choice of B and commit 6ef58a9. The retrospective heading records what landed, with its commit, or 'Standards retrospective: no changes' for any item declined.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "agent-os/standards/scripts/guard.md",
+      "line": 23,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The guard standard still says a skill fork is approved every redline-gh.sh subcommand and the narrowing is pending",
+      "description": "Line 23, added by this PR, says three things. A non-role session such as the coverage fork is approved 'every `redline-gh.sh` subcommand, the writes included'. tests/guard-cases.tsv pins that approval until a person narrows it. The README, docs/running.md and docs/guard.md name the narrowing as pending. Commit a70c243 landed the narrowing, so all three are now wrong. The guard approves the main group only the GH_READ subcommands (scripts/redline-guard.sh:1076). The tsv's `reply` row for a non-role session is `inert`. The three docs describe the narrowing as landed. Line 14, which this PR did not touch, still lists `redline-gh.sh` as a whole among the scripts approved for any session. The next shaper reads this standard (CLAUDE.md: work follows agent-os/standards/), so it would plan guard rows against a rule that no longer holds.",
+      "proposedFix": "Rewrite the last sentence of line 23 to match docs/guard.md: of redline-gh.sh, the fork is approved only the read subcommands. A write (a review, a reply, a comment, an issue, a thread resolve) is inert and meets the session's permission prompt (#80, R2-5; tests/guard-cases.tsv pins it). Change `redline-gh.sh` in line 14 to `redline-gh.sh`'s read subcommands. The README and docs/ need no change, since they already say this.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1169,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A finding an earlier run resolved is read back as decided, so a candidate that still reproduces it can never reopen",
+      "description": "A run's reviewer can put a carried finding in `resolved`. resolvedReplies (line 2411) then answers its thread with `Redline round N: resolved; first reported as R3-3 in Redline round 3. <why> · decided by: redline`. In the next run, `redline-gh.sh prior-findings` strips the round prefix. Its `classify` matches none of its known prefixes, so the reply falls through to `decided` (scripts/redline-gh.sh:342). Reproduced: that classify, run with jq on this reply text, returns \"decided\". On every coverage round, the handled-list header (line 1126) and this sentence (line 1169) tell the verifier a decided finding stays settled whatever its commits and goes under For the person. A resolved finding is the reviewer's own claim that the code no longer has the bug, the same claim a `fixed` reply makes. The R2-1 reopen names only findings marked fixed. R3-4's reason for keeping decided findings settled (an applied decision is often a deliberate keep or mitigation) does not apply here, since nobody decided anything. Suppose the resolution was wrong, or the bug comes back. A later run's coverage pass can re-find it, and the round still confirms nothing new. The run then ends with the bug listed only under For the person. This round resolves R3-1 to R3-4, so the next run will read their threads as decided. Whether a resolved finding should reopen like a fixed one changes the done rule the person set in R2-1 and R3-4, so this is the person's call.",
+      "proposedFix": "Decision needed: should a coverage candidate that still reproduces a finding an earlier run resolved count as new, as a fixed one does? If yes: in the `classify` of `prior-findings` in scripts/redline-gh.sh, read a reply that opens with `resolved; first reported as` as `fixed`. Alternatively, add a `resolved` disposition to PRIOR_DISPOSITIONS and name it beside fixed in the handled-list header (line 1126), the reopen sentence (line 1169), agents/redline-reviewer.md and the prior-findings paragraph of docs/running.md. Either way, add a tests/gh-test.sh prior-findings case for the resolved reply and a loop-test check. If no: say in the same sentences and in docs/running.md that a finding an earlier run resolved is read as decided and stays settled.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1892,
+      "text": "R3-4 was decided (option B in 6ef58a9), and this still reproduces its remaining point: history() gives each earlier finding describeOutcome's text but not record.outcomeKinds. So within a run, the verifier can only tell a decided outcome (the decision's notes plus 'decided by') from a fixed one ('fixed in <sha> · decided by: redline') by its wording, while the reopen and settle rules now depend on that kind."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2785,
+      "text": "The handoff's fallback line 'the last one found no correctness bugs' is also posted after a round that did report correctness findings: when the review dial selects none, or when every finding settles with no commit. The sentence and both paths are unchanged from main. Round 2's For the person already asked for the done rule's own wording here."
+    },
+    {
+      "file": "agent-os/specs/2026-11-06-1019-80-review-round-1/redline/round-1-findings.json",
+      "line": 1,
+      "text": "The posted handoff's For the person already says the self-hosted relaunch rewrote round 1's findings and review files. What it leaves out: 5e2a42e then committed those rewritten files and handoff.md as round 1's record. The folder now says round 1 found 0 findings, while the posted round 1 review and the reply files beside them list R1-1 to R1-6."
+    },
+    {
+      "file": "agent-os/standards/workflow/replay.md",
+      "line": 15,
+      "text": "The new bullet says coverage off keeps every prompt byte-identical to the time before the pass existed. But the findings file built in post() (workflows/redline-loop.js:2141) now always carries \"forThePerson\": [], so every `post r<n>` prompt differs from 0.1.x. Harmless within a run, since has-review skips a repost, but the claim goes further than the loop test proves."
+    },
+    {
+      "file": "docs/running.md",
+      "line": 50,
+      "text": "'The skill never returns an empty list' reads as a guarantee. The same claim is in agents/redline-reviewer.md:30, the workflow comment at line 1152 and the PR description. Yet line 54 handles an empty array on purpose, and round 1's For the person noted that a round-1 [] ends the run with no discovery pass. Saying 'has not returned an empty list in any run so far' would fit both."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1203,
+      "text": "The fence pattern needs a lowercase ```json opener on its own line. A ```JSON opener, a bare ``` or an opener with extra text after it stops the round as recipe drift, with the Claude Code version message. This has not been seen in any run; matching the opener case-insensitively would be a cheap hardening."
+    },
+    {
+      "file": "scripts/redline-guard.sh",
+      "line": 1076,
+      "text": "The PR description still says nothing under scripts/ changed, but a70c243 narrowed the guard here, along with its docs and tsv rows. No spec plan in the PR names this change, since the R2-5 decision in round 2 left it for a person to make after the run."
+    }
+  ],
+  "coverage": {
+    "head": "a70c243c8808de20fa893e4ce8d74247614c8157",
+    "candidates": 13,
+    "counts": {
+      "finding": 3,
+      "forThePerson": 6,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 1,
+      "outside": 0,
+      "disproportionate": 3
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "finding",
+        "ref": "R4-3"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "R3-4 was decided (option B in 6ef58a9), and this still reproduces its remaining point: history() carries no outcome kind"
+      },
+      {
+        "index": 3,
+        "outcome": "disproportionate",
+        "ref": "Needs a skill result that mixes contract objects with bare strings or field-less objects in one array; the skill emits one uniform array, and R1-3's all-renamed case now stops as drift."
+      },
+      {
+        "index": 4,
+        "outcome": "finding",
+        "ref": "R4-2"
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "The sentence and both paths are unchanged from main; listed for the person."
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "Already in the posted handoff's For the person; listed with the part it leaves out (5e2a42e committed the rewritten files)."
+      },
+      {
+        "index": 7,
+        "outcome": "finding",
+        "ref": "R4-1"
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "True but harmless within a run; listed as a copy point about the standard."
+      },
+      {
+        "index": 9,
+        "outcome": "refuted",
+        "ref": "The #79 spec records the undated 0.2.0 entry as the person's choice (shape.md Decision 15 and plan.md line 31, decided by @michaelwitwicki), and the PR description says so."
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "A wording point on the person's own Decision 21; round 1's For the person already covers the behaviour."
+      },
+      {
+        "index": 11,
+        "outcome": "forThePerson",
+        "ref": "Plausible, not observed in any run; a cheap hardening."
+      },
+      {
+        "index": 12,
+        "outcome": "disproportionate",
+        "ref": "Needs a head branch whose name is all digits or exactly a path in the repository; Redline's head branches are feature/<n>-<slug>."
+      },
+      {
+        "index": 13,
+        "outcome": "disproportionate",
+        "ref": "Needs a coverage outcome outside the enum in COVERAGE_SCHEMA (line 511), which the reviewer's output schema refuses before accountCoverage runs."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 1169,
+        "summary": "The R3-4 rule says a decided finding is never reopened, but `redline-gh.sh prior-findings` labels any reply it does not recognise as 'decided'. That includes Redline's own 'resolved; first reported as ...' reply, which means the reviewer judged the bug gone. So a finding an earlier run wrongly resolved can never be reported again, even when the coverage pass shows it still reproduces.",
+        "failure_scenario": "Run A's first round puts a carried finding R1-3 in `resolved` (the reviewer thinks the code no longer has it). `resolvedReplies` posts 'Redline round 2: resolved; first reported as R1-3 ... · decided by: redline'. In run B, `classify` (scripts/redline-gh.sh:342) matches no known prefix, so R1-3 lands in `trackedList` as 'decided'. The coverage pass finds the same bug at the new head. The handled-list header and the candidates block both say a decided finding stays settled and goes under forThePerson, never as a finding. The round confirms nothing new and the run hands off with the bug open. R3-4's reason for keeping decided findings settled ('the person chose what to change') does not apply: no person decided anything, Redline's reviewer made the claim."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 1892,
+        "summary": "The rules from R2-1 and R3-4 depend on telling a 'fixed' outcome (reopens) from a 'decided' one (stays settled). But `history()` gives the verifier only the free-text outcome string from `describeOutcome`, not the outcome kind. A decided outcome is just the person's or autopilot's notes, and every outcome string, fixed ones included, ends in ' · decided by: …'.",
+        "failure_scenario": "Round 1 finding R1-2 is decided under autopilot. Its history outcome reads 'Autopilot took the shaper's recommendation: Fix it with a guard. · decided by: redline (autopilot)'. Round 1 finding R1-3 is fixed: 'fixed in b123456 · decided by: redline'. In round 2 the verifier has to work out which list each belongs to from that prose. If it reads R1-2 as fixed, it reopens a decided finding and spends a round against the R3-4 decision. If it reads 'decided by' on R1-3 as decided, a fix that did not fully land is settled and the run ends. `record.outcomeKinds` already holds the kind; `history()` does not pass it. Within-run decided findings are not covered by any loop check; the R3-4 test uses priorFindings, which carry an explicit disposition."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1218,
+        "summary": "`coverageCandidates` accepts an array once any one entry has a summary or failure_scenario. It then drops every non-object entry without a warning, and passes objects with neither field through as blank candidates. This breaks the 'never drop a candidate silently' rule. The R1-3 check only covers an array where no entry matches.",
+        "failure_scenario": "The skill's fenced block is `[{file,line,summary,failure_scenario}, \"second bug as a bare string\", {file:'b',line:2}]`. Probe result: `candidates` is the first object plus `{file:'b',line:2,summary:'',failure_scenario:''}`. The string candidate vanishes: it never reaches the verifier, is not counted in `coverage.candidates`, and raises no warning. The blank one can only end up under For the person as a bare '- `b:2` · ' line."
+      },
+      {
+        "index": 4,
+        "file": "agent-os/standards/scripts/guard.md",
+        "line": 23,
+        "summary": "The guard standard's skill-fork bullet still says a fork is approved 'every `redline-gh.sh` subcommand, the writes included' and that the narrowing is pending. Commit a70c243 already narrowed the guard to the read subcommands (scripts/redline-guard.sh:1076) and flipped the tsv row. README, docs/guard.md and docs/running.md were updated in that commit; this standard was not.",
+        "failure_scenario": "A shaper or reviewer reads agent-os/standards/scripts/guard.md (CLAUDE.md says work follows those standards). It concludes that a non-role session or skill fork may run `redline-gh.sh reply` or `post-review` without a prompt, and that `tests/guard-cases.tsv` pins an 'allow' row. In fact the guard leaves those calls inert and the row is now `-\tinert\tBash\tPLUGIN/scripts/redline-gh.sh reply 1`. A plan built on the standard would add or expect the wrong guard rows. This is the follow-up R2-5 (Decision 5, option B) promised but did not carry into the standard."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2785,
+        "summary": "`handoffComment`'s fallback line says 'the last one found no correctness bugs' even on the two ways a run can end after a round that did find correctness findings. One is the review dial with nothing selected; the other is a revise pass that settles every finding without a commit.",
+        "failure_scenario": "Round 1 reports R1-1 and R1-2 (correctness). Either the person picks none on the `review` dial (the main loop calls `handoffComment(false, …)`), or the shaper and the person accept or decide both with no commit (the `!outcome.newHead` branch). `last.reviewed` is 'pr', so the else branch posts 'Redline ran 1 review round; the last one found no correctness bugs.' to the teammate, although the same comment lists two correctness findings under Decisions. The earlier R2 note only covers the wording of the normal done path, not these branches."
+      },
+      {
+        "index": 6,
+        "file": "agent-os/specs/2026-11-06-1019-80-review-round-1/redline/round-1-findings.json",
+        "line": 1,
+        "summary": "Commit 5e2a42e saved the self-hosted rerun's round 1 files as the round 1 record. The committed findings file lists 0 findings, the review body says '0 confirmed', and handoff.md says the run had '1 review round; ... no correctness bugs'. The round 1 review actually posted on the PR has R1-1 to R1-6, whose reply files sit in the same folder.",
+        "failure_scenario": "A later review follows CLAUDE.md's known-finding check and reads the round folders off the PR ref (`git show origin/<branch>:.../round-1-findings.json`). It finds no R1-x findings and a handoff saying round 1 found nothing, which contradicts both the replies beside it and the posted GitHub review. The rerun's own For the person entry says these files were rewritten; it does not say they were then committed as the PR's record."
+      },
+      {
+        "index": 7,
+        "file": "agent-os/specs/2026-11-06-1019-80-review-round-3/plan.md",
+        "line": 169,
+        "summary": "Round 3's spec is in the PR, but its standards retrospective (Task 6 step 4) never landed. agents.md has no R3-3/R3-4 edit, and shape.md has neither 'Standards retrospective: no changes' nor an As built section, although commit 6ef58a9 shipped the round's fixes.",
+        "failure_scenario": "/Users/michaelwitwicki/Code/Claude/redline/CLAUDE.md, Specs: \"A spec is not complete until the Verification Gate ... passes ..., including its standards retrospective: ... land approved edits in their own commit, or record 'Standards retrospective: no changes' in the spec's shape.md.\" `grep -c 'R3-3\\|R3-4' agent-os/standards/workflow/agents.md` returns 0, and shape.md:105 is still headed '## Standards retrospective (proposed)'. The R3-4 answer (option B, decided findings stay settled) is therefore missing from the coverage-pass standard that the next shaper reads."
+      },
+      {
+        "index": 8,
+        "file": "agent-os/standards/workflow/replay.md",
+        "line": 15,
+        "summary": "The new replay standard says `coverage off` keeps every prompt byte-identical to before the pass existed. But `post()` now always writes `\"forThePerson\": []` into the findings file, and that file is embedded verbatim in the post prompt.",
+        "failure_scenario": "With models.coverage null, `post()` builds the findings file at workflows/redline-loop.js:2141 with an unconditional `forThePerson: reviewOut.forThePerson || []`. So every `post r<n>` prompt differs from what 0.1.x produced. The loop test never compares prompts against the old version, so the standard's claim that the loop test proves it is untrue for the post prompt. A relaunch that relies on the claim would rerun `post r<n>` instead of replaying it."
+      },
+      {
+        "index": 9,
+        "file": "CHANGELOG.md",
+        "line": 5,
+        "summary": "The PR adds an undated '## 0.2.0' changelog heading with entries. The repository's Version gate step says the changelog entry is written by a person after the merge.",
+        "failure_scenario": ".claude/commands/agent-os/shape-spec.md step 11 (the Verification Gate, which /Users/michaelwitwicki/Code/Claude/redline/CLAUDE.md requires a spec to pass): \"The tag and the `CHANGELOG.md` entry are a person's step after the merge\". The file's own header and agent-os/standards/process/release.md say the same, with a dated heading at tag time. Merging this puts an undated 0.2.0 section on main before the tag, against the release recipe. Note that R1-1's proposed fix itself asked for a CHANGELOG line, so the person may have chosen this on purpose."
+      },
+      {
+        "index": 10,
+        "file": "docs/running.md",
+        "line": 50,
+        "summary": "The coverage pass section contradicts itself. It says 'The skill never returns an empty list, so the stop rule is the verifier's collapse', then, at line 54, describes 'An empty array the skill returned on purpose is zero candidates'. The skill's own output contract also returns `[]` when nothing survives. agents/redline-reviewer.md:30 and the workflow comment at 1152 repeat the 'never returns an empty list' claim.",
+        "failure_scenario": "A reader or the verifier is told the stop rule can never be the skill's empty list. Yet a round-1 pass that returns `[]` makes the reviewer run no discovery pass of its own, and the run ends on the skill's output alone. The docs hide the one case where that is exactly what happens."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 1207,
+        "summary": "The fence pattern only accepts a lowercase '```json' opener followed directly by a newline, with the closing fence on its own line. A '```JSON' block, a plain '```' block, an opener with extra text after it, or a closing fence on the same line as ']' all hit the recipe-drift stop, even though they hold a valid list.",
+        "failure_scenario": "Probe: the same valid one-candidate array under '```JSON', a plain '```', '```json title=\"findings\"', or with '```' directly after ']' each return `{cause:'no array'}`. The round stops at stage review, and the message blames recipe drift and the Claude Code version for what is a formatting variation."
+      },
+      {
+        "index": 12,
+        "file": "workflows/redline-loop.js",
+        "line": 1184,
+        "summary": "The coverage prompt passes the PR's head branch name, unquoted, as the code-review skill's target. The skill takes a PR number, a branch or a path in that slot, so a branch name that is all digits, or that matches a path, may be read as a different target.",
+        "failure_scenario": "headRef '123' (a legal git branch name) gives the args 'xhigh 123 --max-findings all'. The skill reviews PR #123 instead of this PR's branch, its candidates are about another PR, and the verifier accounts them all as outside or refuted. A head branch named like an existing directory (e.g. 'docs') may be reviewed as a path. The earlier R1/R2 notes cover the missing base and the stale-push cases, not the target being misread."
+      },
+      {
+        "index": 13,
+        "file": "workflows/redline-loop.js",
+        "line": 1321,
+        "summary": "An accounting entry with an outcome the schema does not name produces two warnings for one candidate. It is skipped without being recorded, so the unaccounted sweep catches it a second time, and its saved ref says 'unaccounted' instead of the real reason.",
+        "failure_scenario": "The reviewer returns `{index: 3, outcome: 'maybe'}`. The run warns 'gave coverage candidate 3 the outcome \"maybe\" ... listed under For the person', then also 'did not account for coverage candidate 3', and the findings file records `3:forThePerson:unaccounted`. That misstates why the candidate was moved and doubles the warning count. Recording the entry at the first warning with its own ref fixes both."
+      }
+    ]
+  }
+}

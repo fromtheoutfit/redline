@@ -193,5 +193,31 @@
     "pull_request_review_id": 23,
     "body": "Redline round 2: left to the author under repository rule craft-config (Craft project config is applied through the control panel). The author applies the rename through the control panel after the merge. · decided by: @author",
     "created_at": "2026-10-27T12:30:00Z"
+  },
+  {
+    "id": 1424,
+    "in_reply_to_id": null,
+    "path": "app/g.php",
+    "line": 6,
+    "side": "RIGHT",
+    "user": {
+      "login": "author"
+    },
+    "pull_request_review_id": 23,
+    "body": "**R2-4** · correctness · low · likely\n\n**Cache key ignores locale**\n\nThe cache key leaves out the locale, so one locale's page is served to every other.",
+    "created_at": "2026-10-27T13:00:00Z"
+  },
+  {
+    "id": 1434,
+    "in_reply_to_id": 1424,
+    "path": "app/g.php",
+    "line": 6,
+    "side": "RIGHT",
+    "user": {
+      "login": "author"
+    },
+    "pull_request_review_id": 23,
+    "body": "Redline round 3: resolved; first reported as R2-4 in Redline round 2. The cache key now includes the locale. · decided by: redline",
+    "created_at": "2026-10-29T10:00:00Z"
   }
 ]

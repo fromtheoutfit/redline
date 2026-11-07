@@ -1,0 +1,1 @@
+Redline round 4: resolved; first reported as R3-2 in Redline round 3. docs/running.md:54 now says what the reviewer still runs on an empty array: no discovery pass of its own, the scheduled-and-queued, Docs and Version checks, the fix-diff recheck on a later round, and the carry-forward list on a first round that has one (6ef58a9). · decided by: redline

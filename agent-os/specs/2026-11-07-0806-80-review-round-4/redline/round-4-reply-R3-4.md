@@ -1,0 +1,1 @@
+Redline round 4: resolved; first reported as R3-4 in Redline round 3. The person chose option B in 6ef58a9: the header (line 1126), the candidates block (line 1169), agents/redline-reviewer.md and docs/running.md step 7 now say a decided finding stays settled whatever its commits, and that a candidate still reproducing one goes under For the person. · decided by: redline

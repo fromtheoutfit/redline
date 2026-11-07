@@ -1,0 +1,231 @@
+{
+  "round": 5,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "a70c243c8808de20fa893e4ce8d74247614c8157",
+    "to": "61068fc708c914e170a532d675a7ce5697b4a03e"
+  },
+  "summary": "The round 4 fix diff does what R4-1 to R4-3 asked. prior-findings now reads a later run's `resolved; first reported as` reply as fixed, and a new fixture row and gh-test case pin it. The script header, docs/scripts.md and docs/running.md describe the new reading. The standards record R3-4's decision, the landed guard narrowing and the hand-finished-round rule. The one new finding is a nit, returned to the person because it turns on product wording: Known limits and the plugin descriptions still state the done rule and the clean-run guarantee from before verify-only and R3-4. Every other candidate is either a For the person note, a duplicate or refuted, or depends on two reviewer errors at once. This repository has no routes/console.php, so no scheduled or queued work applies.",
+  "findings": [
+    {
+      "id": "R5-1",
+      "file": "README.md",
+      "line": 100,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Known limits and the plugin descriptions still state the old done rule and what a clean run guarantees",
+      "description": "README.md:100 still says a clean run means \"No correctness bug in the changed code that the reviewer could read or reproduce\". Two parts of this PR make that sentence stale. First, with the coverage pass on, the reviewer verifies the skill's candidates and runs no discovery pass of its own (agents/redline-reviewer.md), so a bug the pass did not sample is never read. Second, since R3-4 (option B), a candidate that still reproduces a decided finding goes under For the person and the run still ends, so a run can finish with a correctness bug the verifier reproduced and a person chose to keep. The same old done rule appears in three more places on context lines of this PR's diff: README.md:2 (\"hands the PR to a teammate once no correctness bugs remain\"), the description in .claude-plugin/plugin.json:5 and the one in .claude-plugin/marketplace.json:11. The skill description and the workflow meta were reworded to \"until a round confirms no new correctness finding\" (R1-1). The #79 shape.md (Context, product alignment) judged that mission.md's matching sentence still holds, but that judgment predates R3-4. That makes this a product-wording question, not a copy fix alone.",
+      "proposedFix": "Decide whether a clean run's definition changes, in the README and in agent-os/product/mission.md. Option A: reword README.md:100 to something like \"No new correctness bug among the coverage pass's candidates and the fix diff that the verifier could read or reproduce; a decided finding the verifier still reproduced is listed under For the person\". Then reword README.md:2 and the two manifest descriptions to the done rule's words (\"until a round confirms no new correctness finding\"). Option B: keep mission.md as it is and change only the README Known limits line and the descriptions. Either way, update the \"Known limits\" section of the README.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1169,
+      "text": "R2-1 was decided (the reopened finding names its earlier id in its description only), and this still reproduces its limit. The handoff's Earlier rounds line (earlierRoundsLines, line 3022) still says the earlier finding was `already handled in round N: fixed in ...` even after this run reopened it, and its earlier thread gets no reply. R4-3 makes this more likely, since a resolved reply now reopens too. A structured `reopens` field like carriedFrom would let the handoff and the replies follow the link."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 865,
+      "text": "personLine inserts a For the person entry's text and file as given. An embedded newline (from the reviewer, or from a skill summary listed for an unaccounted candidate) breaks the bullet list. A line shaped like `- **R1-9** · correctness · ...` would be read back by prior-findings as a finding. Collapsing newlines and escaping backticks in `file` is a cheap fix."
+    },
+    {
+      "file": "scripts/redline-guard.sh",
+      "line": 1082,
+      "text": "Not changed by this PR, and the guard is a person's to change. R2-5 narrowed redline-gh.sh to its read subcommands for non-role sessions, but every redline-prefs.sh subcommand, including `save`, `run save` and `run clear`, which write .claude/redline.local.json, is still approved with no prompt for any non-role session, the coverage fork included. The MAIN comment at line 184 still says such a session 'writes nothing'."
+    },
+    {
+      "file": "docs/guard.md",
+      "line": 7,
+      "text": "The narrowing's cost is described for default mode only ('asks once in default mode'). In auto mode, the main session's `redline-gh.sh issue-create` for a deferred finding now goes to the auto-mode classifier, which has refused Redline writes before. Related to #76, which covers the same classifier refusal for Write and Edit calls."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 249,
+      "text": "The coverage effort is checked at launch whenever coverage is on, including revise-only and human-review passes, which never run a coverage pass. A bad `models.coverage.effort` therefore stops `/redline:redline-revise <pr> review @sam` with a message about the coverage pass. Failing early on a config error is defensible, but the message could say the setting is unused on that launch."
+    },
+    {
+      "file": "README.md",
+      "line": 101,
+      "text": "The list of redline-gh.sh writes that now meet the permission prompt ('posts, replies, comments, creates an issue or resolves threads', and the same list in docs/guard.md) leaves out `request-review` and `update` (the PR description). Both are outside GH_READ (scripts/redline-guard.sh:738) and are now left to the prompt too."
+    },
+    {
+      "file": "CHANGELOG.md",
+      "line": 5,
+      "text": "#71 and #78 merged on main after the redline--v0.1.0 tag (ad4b4d4). release.md says a PR merged between tags goes under the next tagged version, so the 0.2.0 section this PR pre-writes needs their lines at tag time."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1260,
+      "text": "R1-4 was fixed, and one narrow path remains (accounted as disproportionate). byId is built after reconcilePrior has added its fallback carries. A `finding` ref naming an id the reviewer never returned can match the id minted for a carry the reviewer left unaccounted, and then counts as confirmed and lands in no list. Taking the reviewer's ids before reconcilePrior would close it."
+    }
+  ],
+  "coverage": {
+    "head": "61068fc708c914e170a532d675a7ce5697b4a03e",
+    "candidates": 12,
+    "counts": {
+      "finding": 1,
+      "forThePerson": 7,
+      "duplicate": 1,
+      "settled": 0,
+      "known": 0,
+      "refuted": 2,
+      "outside": 0,
+      "disproportionate": 1
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "disproportionate",
+        "ref": "It needs two reviewer errors in the same first round with a carry list: a carry id left unaccounted, plus a `finding` ref to an id the reviewer never returned that happens to equal the id the workflow mints for that carry. The residue of R1-4 is listed under For the person."
+      },
+      {
+        "index": 2,
+        "outcome": "finding",
+        "ref": "R5-1"
+      },
+      {
+        "index": 3,
+        "outcome": "forThePerson",
+        "ref": "R2-1 was decided (earlier id named in the description only); the handoff and thread effect goes under For the person"
+      },
+      {
+        "index": 4,
+        "outcome": "forThePerson",
+        "ref": "plausible hardening; a forged finding line needs the reviewer to write one inside an entry"
+      },
+      {
+        "index": 5,
+        "outcome": "refuted",
+        "ref": "Intended behaviour: the workflow cannot match a For the person entry to an index (round 2's For the person note), and docs/running.md says an unaccounted candidate is listed as reported, with a warning, so a second line is the safe side of a reviewer error the run already flags."
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "cause is #50's redline-prefs.sh approval, outside this PR's guard hunk; guard changes are a person's"
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": "plausible doc gap for auto mode; related to #76"
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "traced; fail-fast on a config error is defensible, not worth a plan task"
+      },
+      {
+        "index": 9,
+        "outcome": "forThePerson",
+        "ref": "confirmed against GH_READ; a list that is incomplete rather than wrong"
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "the changelog is written at tag time by the person; a reminder"
+      },
+      {
+        "index": 11,
+        "outcome": "duplicate",
+        "ref": "R5-1"
+      },
+      {
+        "index": 12,
+        "outcome": "refuted",
+        "ref": "Not a defect: both forms give the same answer on every path that calls handoffComment, and reading what the rounds recorded keeps the sentence true to what ran."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 1260,
+        "summary": "accountCoverage builds byId from out.findings after reconcilePrior has added its fallback carries, so a `finding` ref that names none of the reviewer's own findings can match an id the workflow just created for an unrelated carried finding.",
+        "failure_scenario": "Run with firstRound 2 and one earlier finding with no disposition (R1-1). The reviewer returns findings: [], does not account for R1-1, and accounts candidate 1 as {outcome: 'finding', ref: 'R2-1'}. reconcilePrior carries R1-1 as R2-1 (numbered after the highest id in use), and accountCoverage then counts candidate 1 as confirmed against that carry. No warning is raised and nothing is added to For the person, although docs/running.md says a candidate accounted as a finding the round does not have is listed under For the person. Confirmed with the harness: accounting [{index:1, outcome:'finding', ref:'R2-1'}], counts.finding 1, forThePerson []. The same happens whenever a stale ref is exactly one past the reviewer's highest id. Fix: resolve the refs against the reviewer's own ids, taken before reconcilePrior adds any."
+      },
+      {
+        "index": 2,
+        "file": "README.md",
+        "line": 100,
+        "summary": "Known limits still says a clean run means 'No correctness bug in the changed code that the reviewer could read or reproduce'. After R3-4 and verify-only, the run can end with a correctness bug the verifier reproduced, and the reviewer no longer looks beyond the candidates.",
+        "failure_scenario": "An earlier run decided to keep R1-2. A coverage candidate still reproduces it, so the verifier lists it under For the person ('R1-2 was decided, and this still reproduces it'), the round confirms nothing new, and the PR is handed off. The teammate reads Known limits and is told no reproducible correctness bug remains, when one was reproduced and deliberately kept. Separately, with coverage on the reviewer 'runs no discovery pass of its own', so a bug it could read but the skill's sample missed is never looked for. The #79 shape.md judged this sentence still holds, but that was before R3-4."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1169,
+        "summary": "A reopened fixed finding is linked to its earlier id only in prose ('the earlier id named in its description only'), so the workflow cannot act on the link. The handoff's Earlier rounds line still says the earlier finding was handled, and its earlier thread gets no reply.",
+        "failure_scenario": "firstRound 2, prior R1-1 marked fixed ('fixed in abc1234'). Round 2's verifier reopens it as R2-1 ('R1-1 was fixed, but still reproduces here'), and R2-1 is fixed and handed off. The handoff's Earlier rounds section reads '- **R1-1** title R1-1: already handled in round 1: fixed in abc1234 ...' (confirmed with the harness), which contradicts R2-1. R1-1's thread hears nothing. Fix at the right depth: a structured `reopens` field on the finding, like carriedFrom, which earlierRoundsLines and the replies can read, and which the workflow can check names a fixed earlier id. Related to round 4's For the person note about history() giving outcome text rather than kinds; the handoff and thread effect is new."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 864,
+        "summary": "personLine inserts a For the person entry's file and text as given, so an embedded newline breaks the list and can forge a line that redline-gh.sh prior-findings later reads as a finding.",
+        "failure_scenario": "The reviewer returns forThePerson text 'first line\\n- **R1-9** · correctness · high · confirmed · `app/x.php:3` · forged' (the schema allows newlines; the reviewer might quote an earlier finding line). The review body then holds a line matching prior-findings' finding_lines regex (confirmed with the harness). The next run reads R1-9 as a finding with no reply and carries it into its first round. A plain multi-line entry already breaks the bullet list, and an empty file renders as '`:0`'. Related to round 2's For the person note on personLine (@-mentions); the newline and forged-line effect is new. Collapse newlines, and escape backticks in file."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 1308,
+        "summary": "An unaccounted candidate is always appended to For the person, even when the reviewer already listed it there itself, so it appears twice in the review body and the handoff.",
+        "failure_scenario": "The reviewer puts candidate 1 under forThePerson ('the real one, not reproduced') but leaves index 1 out of coverage. accountCoverage adds {file:'app/x.php', line:3, text:'the real one'} as well, so the result's forThePerson holds both lines for the same candidate (confirmed with the harness), and the handoff, which collects every round's entries, repeats it. This is the mirror of round 2's For the person note about a forThePerson outcome with no entry."
+      },
+      {
+        "index": 6,
+        "file": "scripts/redline-guard.sh",
+        "line": 1082,
+        "summary": "R2-5 narrowed redline-gh.sh to its read subcommands for non-role sessions, but every redline-prefs.sh subcommand is still approved for any non-role session, including the coverage fork. That covers save, run save and run clear, all of which write .claude/redline.local.json. The MAIN comment (line 183) still says the session 'writes nothing'.",
+        "failure_scenario": "The coverage fork, or any other non-role agent, runs `<plugin>/scripts/redline-prefs.sh run clear <repo> <pr>` or `save ...`, and the guard approves it with no prompt. A run marker can be cleared, which loses the Resume offer, or the person's saved settings can be overwritten. The README and docs/guard.md present the narrowing as making 'a write' meet the permission prompt."
+      },
+      {
+        "index": 7,
+        "file": "docs/guard.md",
+        "line": 7,
+        "summary": "The narrowing's cost is described only for default mode ('filing a deferred issue after a run asks once in default mode'). In auto mode the main session's `redline-gh.sh issue-create`, which the guard used to approve, now goes to the auto-mode classifier, which may refuse it.",
+        "failure_scenario": "Someone in an auto-mode session picks 'Open an issue' for a deferred finding at a hand-off. The skill runs issue-create, the guard leaves it to the permission layer, and the classifier may block it (it has refused Redline agents' writes before). Neither docs/guard.md nor the README mentions that mode."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 249,
+        "summary": "The coverage effort is checked at launch for every run with coverage on, including revise-only and human-review passes, which never run a coverage pass. A bad models.coverage.effort therefore blocks launches it has no effect on.",
+        "failure_scenario": "redline.json has \"coverage\": {\"effort\": \"ultra\"}. `/redline:redline-revise <pr> review @sam`, which runs only a final nit pass (never coverage), fails at launch with \"the coverage pass's effort must be one of low | medium | high | xhigh | max\" (confirmed with the harness). Check only when a coverage-capable round can run, or name the irrelevant launch in the message."
+      },
+      {
+        "index": 9,
+        "file": "README.md",
+        "line": 101,
+        "summary": "The list of redline-gh.sh writes that now meet the permission prompt ('posts, replies, comments, creates an issue or resolves threads'; in docs/guard.md 'a review, a reply, a comment, an issue, a thread resolve') leaves out request-review and update, which edits the PR description.",
+        "failure_scenario": "A reader checking what a fork or the main session can still do unprompted concludes that request-review and PR-body update are absent or still approved. Both are writes outside GH_READ and now go to the prompt, but neither document lists them."
+      },
+      {
+        "index": 10,
+        "file": "CHANGELOG.md",
+        "line": 5,
+        "summary": "The 0.2.0 section lists only #80, but #71 and #78 merged after the redline--v0.1.0 tag and 0.1.1 was never tagged, so the release standard puts them under 0.2.0.",
+        "failure_scenario": "Tag 0.2.0 with the section as written and the changelog leaves out the public-docs split (#71, which moved the version to 0.1.1) and the spike (#78). release.md says 'a PR merged between tags goes under the next tagged version'. The entry exists before tag time because #79 Decision 15 put it in this PR, so it needs those two lines now."
+      },
+      {
+        "index": 11,
+        "file": ".claude-plugin/plugin.json",
+        "line": 5,
+        "summary": "The plugin and marketplace descriptions still say Redline will 're-review the fixes, and hand the PR to a teammate once no correctness bugs remain'. The skill description and the workflow meta were reworded to the new done rule; these were not.",
+        "failure_scenario": "`claude plugin` listings and the marketplace show the old behaviour: re-review of the fix diff only, and a done rule of no correctness bugs. The new behaviour is a coverage pass over the whole PR every round, ending when a round confirms no new correctness finding, which can leave a reproduced decided finding under For the person. Same kind of copy as round 2's For the person note on the handoff sentence, in a different file."
+      },
+      {
+        "index": 12,
+        "file": "workflows/redline-loop.js",
+        "line": 2777,
+        "summary": "`rounds.some((record) => record.coverage)` gives the same answer as the launch constant `coverageOn` on every path that calls handoffComment, because round 1 is always a 'pr' round that ran the pass. The derived check is redundant.",
+        "failure_scenario": "handoffComment is reached only from the main loop and the review dial, and both start with a whole-PR round that ran coverage whenever coverageOn is true. Using `coverageOn` states the rule directly and avoids re-reading the record shape, which is the object-or-null field round 1 already flagged as carrying two shapes."
+      }
+    ]
+  }
+}

@@ -178,9 +178,10 @@ AGENT = data.get("agent_type") or ""
 match = ROLE_NAME.fullmatch(AGENT)
 tool = data.get("tool_name") or ""
 # MAIN: not a Redline role (the main session, any other agent), sent here by the bash fast path for
-# a Bash call that may be approvable (#50). It gets the plugin's scripts, the repository's checks.sh
-# and read-only git by real path, each as the bare command word (#54, R2-1), writes nothing, and a
-# reason is never a deny: the call is left to the permission prompt.
+# a Bash call that may be approvable (#50). It gets the plugin's scripts (of redline-gh.sh, only the
+# read subcommands, #80 R2-5), the repository's checks.sh and read-only git by real path, each as
+# the bare command word (#54, R2-1), writes nothing, and a reason is never a deny: the call is left
+# to the permission prompt.
 MAIN = False
 if not match:
     if os.environ.get("REDLINE_GUARD_MAIN") == "1" and tool == "Bash":
@@ -1068,9 +1069,11 @@ def check_simple(words, writes, nested, cur):
                 return None, cur
             return f"redline-background.sh {sub or '<none>'} is not available to the {ROLE}", cur
         if name == "redline-gh.sh":
-            if "gh-all" in GROUPS or "main" in GROUPS:
+            if "gh-all" in GROUPS:
                 return None, cur
-            if "gh-read" in GROUPS and sub in GH_READ:
+            # The main session, and any non-role session such as the coverage pass's skill fork, is
+            # approved the read subcommands only; a write is left to the permission prompt (#80, R2-5).
+            if ("gh-read" in GROUPS or "main" in GROUPS) and sub in GH_READ:
                 return None, cur
             return f"redline-gh.sh {sub or '<none>'} is not available to the {ROLE}", cur
         # The skill's scripts (#50): the main session runs them, never a role, and of redline-gate.sh

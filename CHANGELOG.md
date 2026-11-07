@@ -2,6 +2,17 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.2.0
+
+### Features
+
+- #80 Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
+
+### Setup and templates
+
+- `redline.json.example` gains `models.coverage`, the coverage pass's model and effort. A rerun of `/redline:setup` keeps an existing `redline.json` as it is and lists the template's `models` under differs without writing them; the key absent means the pass is on at the first-round reviewer's model and effort, so add it by hand only to pick another
+- The `/redline` alias's argument hint names `coverage off`; a rerun of `/redline:setup` offers the changed alias
+
 ## 0.1.0 (2026-11-03)
 
 The first release: Redline as a single-plugin marketplace.
@@ -20,7 +31,7 @@ The first release: Redline as a single-plugin marketplace.
 - #51 Gate step 10, Docs: every spec names the README changes it needs (#13)
 - #59 Resume a run that ended in error from the failed step (#10)
 - #61 Check the shaper's spec folder and relaunch only from a typed `relaunch` (#57, #60)
-- #NN Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
+- #65 Release process: semver in plugin.json, `redline--v` tags, update instructions, CHANGELOG (#16)
 
 ### Fixes
 

@@ -1,0 +1,1 @@
+Redline round 4: resolved; first reported as R3-1 in Redline round 3. agent-os/product/tech-stack.md:5 now says the built-in code-review skill is the finder on every whole-PR and fix-diff round since #79, and the sentence has its own subject (6ef58a9). · decided by: redline
