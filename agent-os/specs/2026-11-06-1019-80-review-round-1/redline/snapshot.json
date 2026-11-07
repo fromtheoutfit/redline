@@ -1,0 +1,42 @@
+{
+  "pr": 80,
+  "start_sha": "48c971b6e48284111913fa2b5bb9eb6bcb279a0b",
+  "base_ref": "main",
+  "files": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    ".claude/redline.json",
+    "CHANGELOG.md",
+    "README.md",
+    "agent-os/product/tech-stack.md",
+    "agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/plan.md",
+    "agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/references.md",
+    "agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/shape.md",
+    "agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/standards.md",
+    "agent-os/standards/process/internal-notes.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/workflow/replay.md",
+    "agents/redline-reviewer.md",
+    "docs/contract.md",
+    "docs/guard.md",
+    "docs/running.md",
+    "skills/redline/SKILL.md",
+    "templates/redline.json.example",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "workflows/redline-loop.js",
+    "agents/redline-reviewer.md",
+    "tests/loop-test.mjs",
+    "docs/running.md",
+    "skills/redline/SKILL.md",
+    "templates/command-redline.md",
+    ".claude/commands/redline.md",
+    "CHANGELOG.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/process/docs-gate.md",
+    "agent-os/specs/2026-11-06-1019-80-review-round-1/"
+  ]
+}
