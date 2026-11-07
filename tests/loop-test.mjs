@@ -1347,6 +1347,20 @@ function samePrefix(name, first, second, n) {
   run = await go('coverage: off, an earlier run\'s handled findings on a fix-diff round', { ...baseArgs, ...handled }, handledScenario(false))
   const handledOff = pick(run.calls, 're-review r3').prompt
   check('coverage: off, the fix-diff round has neither the handled list nor the sentence, as before', !handledOff.includes('already handled') && !handledOff.includes('match against them') && pick(run.calls, 'review r2').prompt.includes('"id": "R1-1"'), handledOff.slice(0, 2500))
+  const handledOffR2 = pick(run.calls, 'review r2').prompt
+
+  // A decided finding stays settled whatever its commits (#80, R3-4): a candidate that still
+  // reproduces one goes under For the person naming its id, counts as no finding, and the run ends.
+  // A fixed one that still reproduces is new and runs another round, and the handled-list header
+  // carries that exception only when the pass ran (#80, R2-1, R3-3).
+  const decidedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'decided', { comment_id: 11 })] }
+  run = await go('coverage: a decided finding that still reproduces', { ...covArgs, ...decidedPrior }, { reviews: [[]], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'forThePerson', ref: '' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]], forThePerson: [[{ file: 'app/x.php', line: 3, text: 'R1-1 was decided, and this still reproduces it' }]] })
+  const decidedR2 = pick(run.calls, 'review r2').prompt
+  check('coverage: a decided finding that still reproduces is For the person with its id, not new, and the run ends', run.res.status === 'done' && run.res.rounds.length === 1 && run.res.rounds[0].findings.length === 0 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 1 && comment(run.calls, 'handoff comment').includes('- `app/x.php:3` · R1-1 was decided, and this still reproduces it') && decidedR2.includes('A decided finding stays settled whatever its commits') && decidedR2.includes('a decided one stays settled whatever its commits'), [run.res.status, run.res.rounds.length, run.res.rounds[0].coverage, decidedR2.slice(0, 2500)])
+  const fixedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { comment_id: 11 })] }
+  run = await go('coverage: a fixed finding that still reproduces', { ...covArgs, ...fixedPrior }, { reviews: [[f('R2-1', 'correctness', { description: 'R1-1 was fixed, but still reproduces here' })], []], commitIds: [['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] })
+  const fixedR2 = pick(run.calls, 'review r2').prompt
+  check('coverage: a fixed finding that still reproduces is new and runs another round; the header says so only with the pass', run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].findings[0].knownAs === '' && run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r3') && fixedR2.includes('never re-raise one, except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs') && handledOffR2.includes('"<id>: <disposition>"; never re-raise one):'), [run.res.status, run.res.rounds.map((r) => r.coverage && r.coverage.counts), labels(run.calls), fixedR2.slice(0, 2500)])
 
   // Defaults: models.coverage absent means on, at reviewerFirstRound's model and effort; with no
   // effort anywhere the pass is told high.
