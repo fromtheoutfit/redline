@@ -385,14 +385,18 @@ Explore	inert	Bash	git push --force
 other-plugin:redline-reviewer	inert	Bash	git push --force
 redline:reviewer	allow	Bash	git status
 # #50, the one exception: for any session that is not a Redline role, a Bash call that is one of the plugin's own
-# scripts by real path (redline-gh.sh, redline-prefs.sh, redline-gate.sh check, redline-setup.sh version), the
+# scripts by real path (redline-gh.sh's read subcommands, redline-prefs.sh, redline-gate.sh check, redline-setup.sh version), the
 # repository's own checks.sh, or read-only git under the same flag vetting, is approved, so the shared allow list
 # carries no Bash(/*/scripts/...) rule that a script of that name anywhere could match. Anything else stays inert:
 # never a deny, the permission prompt decides.
 -	allow	Bash	PLUGIN/scripts/redline-gh.sh pr 1
-# #80, R2-5: a non-role session, the coverage pass's skill fork included, gets every redline-gh.sh subcommand approved
-# today, the writes included. A person's later change narrows this to the read subcommands and flips this row to inert.
--	allow	Bash	PLUGIN/scripts/redline-gh.sh reply 1
+# #80, R2-5, landed: a non-role session, the coverage pass's skill fork included, is approved redline-gh.sh's read
+# subcommands only; a write is inert, never a deny, and the permission prompt decides. The pr row above must not change.
+-	inert	Bash	PLUGIN/scripts/redline-gh.sh reply 1
+general-purpose	allow	Bash	PLUGIN/scripts/redline-gh.sh pr 1
+general-purpose	inert	Bash	PLUGIN/scripts/redline-gh.sh post-review 1 /tmp/r.json
+# Filing a deferred issue from the main session now meets the permission prompt once.
+-	inert	Bash	PLUGIN/scripts/redline-gh.sh issue-create 1 /tmp/i.md
 -	inert	Bash	/tmp/x/scripts/redline-gh.sh pr 1
 -	allow	Bash	REDLINE_OCTANE=1 REPO/.claude/redline/checks.sh /tmp/s.json
 -	allow	Bash	.claude/redline/checks.sh --baseline
