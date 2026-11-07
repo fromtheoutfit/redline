@@ -221,3 +221,45 @@ Proof:
 5. Step 13, Spec folder: add an "As built" section to this file. It records each task's commit, the proof outputs, the gate's counts, and which retrospective items the approver approved, declined or deferred. It also records any deviation, which goes under Decisions in `shape.md` too. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #80 round 4 as built (#79)`
+
+---
+
+## As built
+
+- **Commits, in the plan's order:**
+  - Task 1: `0093f66`, `redline: save review round 4 spec for PR #80 (#79)`.
+  - Task 2: `2118e85`, `redline: R4-1, R4-2, R4-3 record round 3's reopen and decided rules, the landed guard narrowing and the resolved-as-fixed reading in the standards (#79)`.
+  - Task 3: `d7f2a4d`, `redline: R4-1 record the R3-4 decision, its hand commit and the landed retrospective in round 3's shape (#79)`.
+  - Task 4: `a8497eb`, `redline: R4-3 read an earlier run's resolved reply as fixed in prior-findings (#79)`.
+  - Task 5: this commit.
+- **Retrospective.** The standards approver approved items 1 to 5, each as drafted in `shape.md`. Item 6 is no change, as proposed. Nothing was declined or deferred, so item 5 landed in Task 2's commit and the message names R4-1, R4-2 and R4-3.
+- **Task 2 proofs**, all as expected:
+  - Items 1, 2, 4 and 5 each print `1`, and so do item 3's two new phrases.
+  - Item 3's `the writes included` and `narrowing as pending` print `0`.
+  - The neighbours (`Redline never edits Redline`, `the one disposition a candidate may reopen`) print `1`.
+  - The heading check prints `0`.
+  - The commit lists only the four standards files.
+- **Task 3 proofs**, all as expected:
+  - `R3-4: pending decision` prints `0`.
+  - `Decided: B. Keep it settled, say so, and show the gap.` prints `1`.
+  - `Decided by: @michaelfromtheoutfit` prints `2`.
+  - `^## Standards retrospective (proposed)` prints `0`, and `^## Standards retrospective` prints `1`.
+  - `Decided by: redline` prints `10`.
+  - The commit lists only round 3's `shape.md`.
+  - The retrospective paragraph names `2118e85` and the approved items 1 and 2.
+- **Task 4 proofs**, all as expected:
+  - The `classify` line, the header phrase in both `scripts/redline-gh.sh` and `docs/scripts.md`, and `#80, R4-3` in `docs/running.md` each print `1`.
+  - The neighbour `else "decided" end` prints `1`.
+  - The commit lists only the six planned files.
+  - Red before green: with the fixtures and the case in place and before the `classify` line, the gate's `gh` check read `113 passed, 1 failed`. The new case got `["R2-4","decided",1424,1434,2]`, and every other case passed, the id list and `any other reply is decided` included. After the fix it read `114 passed, 0 failed`.
+- **Gate** (`checks.sh` on this round's snapshot), green on the committed state with nothing unexpected or uncommitted:
+  - Every check exits 0.
+  - `guard`: 592 passed.
+  - `loop`: 581 checks passed.
+  - `gh`: 114 passed, one more than before the round.
+  - `prefs`: 101, `gate`: 117, `setup`: 468, `background`: 39, none touched by this round.
+  - `validate` passes with its usual marketplace-folder warnings.
+- **Counts against the plan.** `loop` reads 581, not the 579 the top of this plan expected. No loop case changed this round. The plan counted `6ef58a9`'s two explicit checks but missed the run-record check that `go()` adds for each scenario that reaches Finish (`tests/loop-test.mjs:232-236`). That commit's two new scenarios both reach Finish, so it added four checks, and 577 + 4 = 581. `guard` is 592, as planned.
+- **Docs (step 10).** Tasks 2 and 3 touch no Docs directory: no reader-facing change, as their entries say. Task 4's `scripts/redline-gh.sh` change is in `docs/running.md` "Earlier rounds" and in the quoted header in `docs/scripts.md`, both in `a8497eb`.
+- **Version (step 11).** `0.2.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged.
+- **Deviation (Task 3, step 1).** Round 3's Decision 4 quotes `6ef58a9`'s message verbatim. The planned text said "in their own words" before a close paraphrase of it. The plan approver noted that it was a paraphrase and asked for an exact quote or for the phrase to go. Recorded in `shape.md`, Decision 6.

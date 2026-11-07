@@ -37,6 +37,8 @@ Line numbers below are at `a70c243`, the PR head this round reviewed (`origin` a
    Decided by: redline
 5. **Task order: the standards commit comes before round 3's record.** R4-1's second commit names the standards commit's sha, so Task 2 (the standards retrospective, which is the whole of R4-2's fix and the standards half of R4-1's) runs before Task 3. #65 round 2 ran its retrospective as a task of its own before the gate the same way (its `plan.md`, Task 3). An item held for R4-3 joins Task 2's one commit once the person decides, before the standards approver runs; Task 4's code, if any, follows it.
    Decided by: redline
+6. **As built: round 3's Decision 4 quotes `6ef58a9`'s message exactly.** Plan Task 3 drafted that line as "in their own words" before a close paraphrase of the commit message. The plan approver noted that it was a paraphrase and asked for an exact quote or for the phrase to go. The line now says "whose message says:" and gives the message's two R3-4 sentences verbatim. Nothing else in Task 3 changed (`plan.md`, As built).
+   Decided by: redline
 
 ### Proportionality (correctness findings)
 
