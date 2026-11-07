@@ -114,3 +114,27 @@ Each command prints the count shown. A count was `0` before unless it says other
 5. Step 13, Spec folder: add an "As built" section to this file. It records the person's choice for R5-1 and its owner, each task's commit, the proof outputs, the gate's counts, and which retrospective items the approver approved, declined or deferred. It also records any deviation, which goes under Decisions in `shape.md` too. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #80 round 5 as built (#79)`
+
+## As built
+
+- **R5-1, the person's choice.** Option A, reword the README, both plugin descriptions and the mission (`shape.md`, Decision 1; decided by @michaelfromtheoutfit, 2026-11-07). E1 to E5 landed as drafted, with no rewording.
+- **Commits, in the plan's order:**
+  - Task 1: `972946e`, `redline: save review round 5 spec for PR #80 (#79)`.
+  - Task 2: `fc410ae`, `redline: R5-1 state the done rule and what a clean run checks in the README, the plugin descriptions and the mission (#79)`.
+  - Task 3, step 12: `3cec25d`, `redline: R5-1 record that a done-rule change rewords every statement of it in the standards (#79)`.
+  - Task 3, step 13: this commit.
+- **Retrospective.** The standards approver approved item 1 as drafted in `shape.md`: one bullet after line 14 of `agent-os/standards/process/docs-gate.md`, in `3cec25d`. Item 2 is no change, as proposed (already covered by `process/release`). Nothing was declined or deferred.
+- **Task 2 proofs**, all as expected:
+  - The done-rule edits: `once no correctness bugs remain` prints `0` in `README.md`, `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`. `once a round confirms no new correctness finding` prints `1` in each. `re-review the whole PR and the fixes` prints `1` in both manifests.
+  - The manifest neighbours: `with a per-role command guard on every agent` prints `1` in `plugin.json`, and `0.2.0` prints `1` in each manifest.
+  - The README's clean-run line: `No correctness bug in the changed code that the reviewer could read or reproduce` prints `0`. `runs no discovery pass of its own, so a bug no pass sampled is never read` and the `coverage off` sentence each print `1`, and so does the neighbour `Until a seed shows the check working, concurrency belongs to the human review.`.
+  - The mission: `finds no correctness bug` prints `0`, `confirms no new correctness finding` prints `2`, `not that no bug remains` prints `1` and `no correctness bug in the changed code` prints `0`. The neighbours `Honest about its reach` and the concurrency sentence each print `1`.
+  - `jq` reads both manifests' `description` with the new text, and the commit lists exactly `.claude-plugin/marketplace.json`, `.claude-plugin/plugin.json`, `README.md` and `agent-os/product/mission.md`.
+- **Step 12 proofs.** The heading check prints `0`, and the commit lists only `agent-os/standards/process/docs-gate.md`.
+- **Gate** (`checks.sh` on this round's snapshot), green on the committed state with nothing unexpected or uncommitted:
+  - Every check exits 0.
+  - `guard`: 592 passed. `loop`: 581 checks passed. `gh`: 114. `prefs`: 101. `gate`: 117. `setup`: 468. `background`: 39. Every count is the same as before the round, as planned.
+  - `validate` parses both manifests after E2 and E3 and passes with its usual warnings: the root `CLAUDE.md`, and no plugin icon. Neither is about a description.
+- **Docs (step 10).** Task 2's entry is confirmed against `fc410ae`: the README's opening paragraph, the done rule both `.claude-plugin/` descriptions state, is reworded in that same commit (E1). `README.md` and `agent-os/product/mission.md` are not under a Docs-step directory.
+- **Version (step 11).** `0.2.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged (`shape.md`, Decision 2).
+- **Deviations.** None.
