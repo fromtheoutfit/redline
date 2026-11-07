@@ -1,0 +1,1 @@
+Redline round 2: fixed in ece89ba (redline: R2-3 rename a coverage entry's ref with the finding it names (#79)). · decided by: redline

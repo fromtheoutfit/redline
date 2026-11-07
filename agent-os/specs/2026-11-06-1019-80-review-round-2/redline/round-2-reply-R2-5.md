@@ -1,0 +1,4 @@
+<!-- redline:R2-5 -->
+**R2-5** · `docs/running.md:56` · from the Redline round 2 review body
+
+Redline round 2: The author has the docs corrected to say the guard approves every Redline script in the coverage fork without a prompt, pins that behaviour with a guard test row this round, and will narrow the guard by hand after the run so a session that is not a Redline role is approved only the read subcommands of redline-gh.sh. Applied in 970506a (redline: R2-5 say the guard approves Redline's scripts in the coverage fork and pin it, the narrowing deferred (#79)). · decided by: @michaelfromtheoutfit

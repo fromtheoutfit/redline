@@ -37,6 +37,19 @@ function mock(scenario) {
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
     const t = opts.agentType
+    // The coverage pass (#79): a call with no agent type and the label `coverage r<n>`, answered
+    // with scenario.coverage[n-1] as the agent's final text (a string; by default a fenced empty
+    // array). A coverage call that carries an agent type or a schema is a regression (the guard
+    // does not see a skill fork, and a schema on the caller can swallow the fork's output), so the
+    // mock refuses it outright.
+    if (/^coverage r\d+$/.test(opts.label || '')) {
+      if (t !== undefined || opts.schema !== undefined) {
+        throw new Error(`coverage call ${opts.label} carries ${t !== undefined ? 'an agent type' : 'a schema'}`)
+      }
+      const n = Number(opts.label.slice('coverage r'.length))
+      const scripted = scenario.coverage ? scenario.coverage[n - 1] : undefined
+      return scripted === undefined ? '```json\n[]\n```' : scripted
+    }
     if (t === 'redline:redline-github') {
       if (opts.label.startsWith('gather')) {
         return { number: 114, title: 'T', body: 'PR BODY TEXT', state: 'OPEN', baseRefName: 'main', headRefName: 'redline-seed-3', headRefOid: scenario.heads ? scenario.heads.shift() : 'a'.repeat(40), url: 'https://github.com/example/repo/pull/114', error: '' }
@@ -110,7 +123,14 @@ function mock(scenario) {
     if (t === 'redline:redline-reviewer') {
       reviewN += 1
       // scenario.resolved[n] is the nth review's resolved list (#35): earlier findings the reviewer found gone.
-      return { round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: 'S' }
+      // scenario.coverageOut[n] is the nth review's accounting of the coverage candidates and
+      // scenario.forThePerson[n] its For the person entries (#79); absent, the keys are left out,
+      // as a reviewer before the pass existed would.
+      return {
+        round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: 'S',
+        ...(scenario.coverageOut ? { coverage: scenario.coverageOut[reviewN - 1] || [] } : {}),
+        ...(scenario.forThePerson ? { forThePerson: scenario.forThePerson[reviewN - 1] || [] } : {}),
+      }
     }
     if (t === 'redline:redline-shaper') {
       // scenario.shaperDrop (#10): the ids the shaper leaves out of its findings, a shape-stage error.
@@ -188,7 +208,9 @@ const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
-  models: { revise: { model: 'claude-opus-5-5' } }, baselineSeconds: 33,
+  // coverage null: the reviewer alone, as before the coverage pass existed (#79), so every scenario
+  // below section 15 runs today's rounds and today's done rule byte for byte.
+  models: { revise: { model: 'claude-opus-5-5' }, coverage: null }, baselineSeconds: 33,
 }
 
 async function go(name, args, scenario) {
@@ -562,6 +584,9 @@ function samePrefix(name, first, second, n) {
   check('carry: a re-review\'s carriedFrom is cleared with a warning', run.res.rounds[1].findings[0].carriedFrom === '' && run.res.warnings.includes('round 3: the reviewer marked R3-1 as carried from R1-2, but this review has no carry-forward list; cleared'), [run.res.rounds[1].findings[0], run.res.warnings])
   check('carry: a re-review posts no carried heading and no origin note', !pick(run.calls, 'post r3').prompt.includes('### Carried forward') && !pick(run.calls, 'post r3').prompt.includes('irst reported as R1-2'), pick(run.calls, 'post r3').prompt.slice(0, 1500))
   check('carry: a re-review sends no reply to the earlier thread; the first round\'s reply stands', !replies(run.calls, 'push and reply r3').some((x) => x.finding === 'R1-2') && replyFor(run.calls, 'push and reply r2', 'R1-2').startsWith('Redline round 2: carried forward as R2-1; '), [replies(run.calls, 'push and reply r3'), replyFor(run.calls, 'push and reply r2', 'R1-2')])
+  // The known-finding sentence has its own gate (#80, R1-2): a whole-PR round with carry-forward
+  // priors only keeps it; a re-review with no coverage pass has neither the handled list nor it.
+  check('carry: a whole-PR round with only carry-forward priors keeps the match sentence; the re-review has neither', pick(run.calls, 'review r2').prompt.includes('match against them, not against their review comments') && !pick(run.calls, 're-review r3').prompt.includes('already handled') && !pick(run.calls, 're-review r3').prompt.includes('match against them'), pick(run.calls, 're-review r3').prompt.slice(-1500))
   run = await go('carry: no list at round 1', { ...baseArgs, priorFindings: [] }, { reviews: [[f('R1-1', 'nit', { carriedFrom: 'R0-1' })]], commitIds: [['R1-1']] })
   check('carry: a first round with no earlier findings clears a carriedFrom with a warning', run.res.rounds[0].findings[0].carriedFrom === '' && !pick(run.calls, 'post r1').prompt.includes('### Carried forward') && run.res.warnings.includes('round 1: the reviewer marked R1-1 as carried from R0-1, but this review has no carry-forward list; cleared'), [run.res.rounds[0].findings[0], run.res.warnings])
   // The fallback carry is numbered after the highest id in use, so a gap in the reviewer's ids
@@ -1237,6 +1262,199 @@ function samePrefix(name, first, second, n) {
   check('relay: the relaunch finishes', answered.res.status === 'done', [answered.res.status, answered.res.error])
   check('relay: the choice text reaches only the agents that apply the decision', answered.calls.filter((c) => c.prompt.includes('Refuse it')).map((c) => c.label).join() === 'resolve r1,plan approver r1,implement r1', answered.calls.filter((c) => c.prompt.includes('Refuse it')).map((c) => c.label))
   check('relay: every relaunched prompt names the two lines too', answered.calls.every((c) => c.prompt.includes(word)), answered.calls.filter((c) => !c.prompt.includes(word)).map((c) => c.label))
+}
+
+// ---------------------------------------------------------------------------
+// 15. The coverage pass (#79): the code-review skill finds on every whole-PR and fix-diff round,
+//     from a plain workflow agent with no schema; the reviewer verifies its candidates and accounts
+//     for every one; the run ends when a round confirms no new correctness finding; For the person
+//     is rendered in the body and carried into the handoff; coverage off is today's run.
+// ---------------------------------------------------------------------------
+{
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const cand = (file, line, summary) => ({ file, line, summary, failure_scenario: 'f' })
+  const fenced = (list) => 'Reviewed.\n\n```json\n' + JSON.stringify(list) + '\n```\n'
+  const two = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit for the person')])
+  const body = (calls, label) => {
+    const p = pick(calls, label).prompt
+    return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2)).body
+  }
+
+  // Every round: coverage r1 before review r1, coverage r2 before re-review r2, none on the nit pass.
+  const every = {
+    reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']],
+    coverage: [two, two],
+    coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'disproportionate', ref: 'needs every player to send in the same microsecond' }]],
+    forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []],
+  }
+  let run = await go('coverage: every round', covArgs, every)
+  check('coverage: round 1 runs the pass before the review, round 2 before the re-review', labels(run.calls).slice(0, 5).join('|') === 'gather r1|coverage r1|review r1|post r1|shape r1' && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|'), labels(run.calls))
+  check('coverage: a round whose verifier confirms nothing new ends the run (non-empty list, all settled or dropped)', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('coverage r3')), [run.res.status, run.res.rounds.length])
+  const c1 = pick(run.calls, 'coverage r1')
+  const c2 = pick(run.calls, 'coverage r2')
+  check('coverage: the pass is the default workflow agent with no schema, at models.coverage', c1.opts.agentType === undefined && c1.opts.schema === undefined && c1.opts.model === 'm-cov' && c1.opts.effort === 'xhigh' && c1.opts.phase === 'Review' && c2.opts.phase === 'Re-review', [c1.opts, c2.opts])
+  check('coverage: the prompt names the skill, the effort, the head branch and every finding', c1.prompt.includes('skill "code-review" and args "xhigh redline-seed-3 --max-findings all"') && c1.prompt.includes(`at ${'a'.repeat(40)}`) && c1.prompt.includes('coverage: skill denied') && c1.prompt.includes('coverage: skill absent'), c1.prompt.slice(-600))
+  check('coverage: round 2 runs the pass over the whole PR at the pushed head', c2.prompt.includes(`at ${run.res.rounds[1].range.to}`) && c2.prompt.includes('not only the last round\'s fixes'), c2.prompt.slice(0, 400))
+  const r1 = pick(run.calls, 'review r1').prompt
+  const r2 = pick(run.calls, 're-review r2').prompt
+  check('coverage: the review prompt carries the candidates, the verify instruction and the definition of new', r1.includes('Candidates from the coverage pass.') && r1.includes('"index": 1') && r1.includes('"summary": "the real one"') && r1.includes('you run no discovery pass of your own') && r1.includes('A candidate is new when it collapses into none of these') && r1.includes('disproportionate') && r1.includes('anchored outside the diff is never a finding'), r1.slice(-1500))
+  check('coverage: the re-review prompt keeps the fix-diff recheck beside the candidates', r2.includes('only the fix diff') && r2.includes('Candidates from the coverage pass.') && r2.includes('Your recheck of the fix diff named above stays as your instructions say'), r2.slice(-800))
+  check('coverage: the result carries each round\'s For the person and accounting', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'a nit for the person' }]) && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.forThePerson === 1 && run.res.rounds[1].coverage.counts.settled === 1 && run.res.rounds[1].coverage.counts.disproportionate === 1 && run.res.rounds[1].coverage.accounting[1].ref === 'needs every player to send in the same microsecond', [run.res.rounds[0].coverage, run.res.rounds[1].coverage])
+  const b1 = body(run.calls, 'post r1')
+  const b2 = body(run.calls, 'post r2')
+  check('coverage: the round 1 body counts the candidates and lists For the person after Already tracked', b1.includes('Reviewed the whole pull request.\n\nThe coverage pass over the whole pull request at aaaaaaa returned 2 candidates: 1 confirmed, 1 for the person, 0 collapsed into findings already reported or settled, 0 already tracked, 0 dropped (refuted, outside the diff or disproportionate).') && b1.includes('### For the person\n\n- `app/y.php:9` · a nit for the person\n\nEach finding has an inline comment'), b1)
+  check('coverage: the round 2 body names both the fix diff and the whole PR', b2.startsWith(`Redline round 2\n\nReviewed the fix diff from round 1 (aaaaaaa..${run.res.rounds[1].range.to.slice(0, 7)}), and the coverage pass's candidates over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)}.\n\nThe coverage pass over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)} returned 2 candidates: 0 confirmed, 0 for the person, 1 collapsed into findings already reported or settled, 0 already tracked, 1 dropped`), b2)
+  const findingsFile = pick(run.calls, 'post r1').prompt
+  check('coverage: the findings file carries forThePerson and the coverage record', findingsFile.includes('"forThePerson": [\n    {\n      "file": "app/y.php"') && findingsFile.includes('"coverage": {\n    "head": "aaaaaaaaaa') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-900))
+  // The findings file keeps the candidate list its accounting indexes point into (#80, R1-5); the
+  // round record and the result keep the count only.
+  check('coverage: the findings file carries the candidate list beside the accounting', findingsFile.includes('"list": [') && findingsFile.includes('"index": 1') && findingsFile.includes('"summary": "the real one"') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-1200))
+  check('coverage: the result\'s coverage record has no candidate list', !('list' in run.res.rounds[0].coverage) && run.res.rounds[0].coverage.candidates === 2, run.res.rounds[0].coverage)
+  let handoff = comment(run.calls, 'handoff comment')
+  check('coverage: the handoff carries For the person before Commits', handoff.indexOf('### For the person\n\n- `app/y.php:9` · a nit for the person') > 0 && handoff.indexOf('### For the person') < handoff.indexOf('### Commits'), handoff)
+  check('coverage: the log line names the accounting (no throw, two rounds)', run.res.rounds[1].coverage.candidates === 2)
+
+  // The done rule's other branches: a new verified finding runs another round; nits only end in the
+  // final nit pass with no coverage call; correctness only is done at once; the cap holds.
+  const settledAll = [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]
+  run = await go('coverage: a new verified finding runs another round', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'known', ref: '#7' }], settledAll] })
+  check('coverage: round 3 runs after a new finding in round 2, then the run is done', run.res.status === 'done' && run.res.rounds.length === 3 && labels(run.calls).join('|').includes('|gather r3|coverage r3|re-review r3|'), [run.res.status, labels(run.calls)])
+  // A candidate matching a fixed finding that still reproduces at this head is new, named with the
+  // earlier id, so a fix that did not fully land runs another round (#80, R2-1).
+  const reopens = (p) => p.includes('whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new') && p.includes('the earlier id named in its description')
+  check('coverage: a fixed finding that still reproduces is new', reopens(pick(run.calls, 're-review r2').prompt) && reopens(pick(run.calls, 'review r1').prompt), pick(run.calls, 're-review r2').prompt.slice(-2500))
+  run = await go('coverage: nits only end in the final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
+  check('coverage: the final nit pass has no coverage call and the run is done', run.res.status === 'done' && run.res.rounds.length === 3 && labels(run.calls).includes('final nit pass r3') && !labels(run.calls).includes('coverage r3'), labels(run.calls))
+  check('coverage: the final nit pass review has no candidates block and no accounting', !pick(run.calls, 'final nit pass r3').prompt.includes('Candidates from the coverage pass') && run.res.rounds[2].coverage === null, run.res.rounds[2].coverage)
+  handoff = comment(run.calls, 'handoff comment')
+  check('coverage: the handoff says the coverage pass reviewed the whole PR at every round\'s head but the final nit pass\'s', handoff.includes('The coverage pass reviewed the whole PR at the head of every round but the final nit pass; see [Known limits]') && !handoff.includes('Only round 1 reviewed the whole PR'), handoff.split('\n')[2])
+  check('coverage: the handoff carries round 1\'s For the person through a three-round run', handoff.includes('### For the person\n\n- `app/y.php:9` · a nit for the person'), handoff)
+  run = await go('coverage: correctness only is done at once', { ...covArgs, scope: 'correctness' }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], settledAll] })
+  check('coverage: correctness only, nothing new in round 2, no nit pass', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('final nit pass')), labels(run.calls))
+  check('coverage: the correctness-only prompt tells the verifier where a nit candidate goes', pick(run.calls, 'review r1').prompt.includes('under a correctness-only scope a nit candidate goes there too'))
+  run = await go('coverage: the cap holds', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'x' }]] })
+  check('coverage: capped with a new finding every round', run.res.status === 'capped' && labels(run.calls).includes('coverage r2'), [run.res.status, labels(run.calls)])
+
+  // An earlier run's handled findings (#80, R1-2): the pass samples the whole PR at every head, so
+  // a fix-diff round that ran it is shown the handled list and the sentence that matches against
+  // it; the carry-forward list stays on the whole-PR round. With coverage off the re-review's
+  // prompt is as before: neither the list nor the sentence.
+  const handled = { firstRound: 2, priorFindings: [prior('R1-1', 'deferred', { comment_id: 11 })] }
+  const handledScenario = (cov) => ({ reviews: [[f('R2-1', 'correctness')], []], commitIds: [['R2-1']], ...(cov ? { coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] } : {}) })
+  run = await go('coverage: an earlier run\'s handled findings on a fix-diff round', { ...covArgs, ...handled }, handledScenario(true))
+  const handledR3 = pick(run.calls, 're-review r3').prompt
+  check('coverage: a fix-diff round that ran the pass lists the earlier run\'s handled findings and matches against them', handledR3.includes('Findings Redline\'s earlier rounds on this PR already handled') && handledR3.includes('"id": "R1-1"') && handledR3.includes('match against them, not against their review comments') && !handledR3.includes('Findings from earlier rounds with no disposition'), handledR3.slice(0, 2500))
+  run = await go('coverage: off, an earlier run\'s handled findings on a fix-diff round', { ...baseArgs, ...handled }, handledScenario(false))
+  const handledOff = pick(run.calls, 're-review r3').prompt
+  check('coverage: off, the fix-diff round has neither the handled list nor the sentence, as before', !handledOff.includes('already handled') && !handledOff.includes('match against them') && pick(run.calls, 'review r2').prompt.includes('"id": "R1-1"'), handledOff.slice(0, 2500))
+  const handledOffR2 = pick(run.calls, 'review r2').prompt
+
+  // A decided finding stays settled whatever its commits (#80, R3-4): a candidate that still
+  // reproduces one goes under For the person naming its id, counts as no finding, and the run ends.
+  // A fixed one that still reproduces is new and runs another round, and the handled-list header
+  // carries that exception only when the pass ran (#80, R2-1, R3-3).
+  const decidedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'decided', { comment_id: 11 })] }
+  run = await go('coverage: a decided finding that still reproduces', { ...covArgs, ...decidedPrior }, { reviews: [[]], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'forThePerson', ref: '' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]], forThePerson: [[{ file: 'app/x.php', line: 3, text: 'R1-1 was decided, and this still reproduces it' }]] })
+  const decidedR2 = pick(run.calls, 'review r2').prompt
+  check('coverage: a decided finding that still reproduces is For the person with its id, not new, and the run ends', run.res.status === 'done' && run.res.rounds.length === 1 && run.res.rounds[0].findings.length === 0 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 1 && comment(run.calls, 'handoff comment').includes('- `app/x.php:3` · R1-1 was decided, and this still reproduces it') && decidedR2.includes('A decided finding stays settled whatever its commits') && decidedR2.includes('a decided one stays settled whatever its commits'), [run.res.status, run.res.rounds.length, run.res.rounds[0].coverage, decidedR2.slice(0, 2500)])
+  const fixedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { comment_id: 11 })] }
+  run = await go('coverage: a fixed finding that still reproduces', { ...covArgs, ...fixedPrior }, { reviews: [[f('R2-1', 'correctness', { description: 'R1-1 was fixed, but still reproduces here' })], []], commitIds: [['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] })
+  const fixedR2 = pick(run.calls, 'review r2').prompt
+  check('coverage: a fixed finding that still reproduces is new and runs another round; the header says so only with the pass', run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].findings[0].knownAs === '' && run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r3') && fixedR2.includes('never re-raise one, except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs') && handledOffR2.includes('"<id>: <disposition>"; never re-raise one):'), [run.res.status, run.res.rounds.map((r) => r.coverage && r.coverage.counts), labels(run.calls), fixedR2.slice(0, 2500)])
+
+  // Defaults: models.coverage absent means on, at reviewerFirstRound's model and effort; with no
+  // effort anywhere the pass is told high.
+  run = await go('coverage: defaults from reviewerFirstRound', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, reviewerFirstRound: { model: 'm-first', effort: 'xhigh' } } }, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })
+  check('coverage: absent means on at the first-round reviewer\'s model and effort', pick(run.calls, 'coverage r1').opts.model === 'm-first' && pick(run.calls, 'coverage r1').opts.effort === 'xhigh' && pick(run.calls, 'coverage r1').prompt.includes('"xhigh redline-seed-3 --max-findings all"'), pick(run.calls, 'coverage r1').opts)
+  run = await go('coverage: no effort anywhere', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' } } }, { reviews: [[]] })
+  check('coverage: with no effort configured the pass is told high', pick(run.calls, 'coverage r1').opts.effort === 'high' && pick(run.calls, 'coverage r1').prompt.includes('"high redline-seed-3 --max-findings all"'), pick(run.calls, 'coverage r1').opts)
+  run = await go('coverage: a bad effort word', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, coverage: { model: 'm', effort: 'ultra' } } }, { reviews: [[]] })
+  check('coverage: an effort word the skill would run elsewhere fails at launch', run.thrown && run.thrown.message.includes('must be one of low | medium | high | xhigh | max'), run.thrown && run.thrown.message)
+
+  // Accounting: an index the verifier left out, or gave an unknown outcome, is For the person as
+  // reported, with a warning; a finding ref that names no finding is For the person as reported
+  // too, with a warning, and never counted confirmed (#80, R1-4); a disproportionate candidate is
+  // in no list.
+  const three = fenced([cand('app/x.php', 3, 'one'), cand('app/y.php', 4, 'two'), cand('app/z.php', 5, 'three')])
+  run = await go('coverage: accounting', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R9-9' }, { index: 3, outcome: 'maybe', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'disproportionate', ref: 'needs the clock to run backwards' }, { index: 3, outcome: 'settled', ref: 'R1-1' }]] })
+  check('coverage: unaccounted, unknown-outcome and no-finding-ref candidates are For the person as reported', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/x.php', line: 3, text: 'one' }, { file: 'app/y.php', line: 4, text: 'two' }, { file: 'app/z.php', line: 5, text: 'three' }]) && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:forThePerson:finding ref R9-9 names no finding,2:forThePerson:unaccounted,3:forThePerson:unaccounted', run.res.rounds[0])
+  check('coverage: a finding ref that names no finding is not counted confirmed', run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 3, run.res.rounds[0].coverage.counts)
+  check('coverage: the warnings name the index and the bad ref', run.res.warnings.some((w) => w === 'round 1: the reviewer did not account for coverage candidate 2 (app/y.php:4); listed under For the person as reported') && run.res.warnings.some((w) => w.includes('coverage candidate 3 the outcome "maybe"')) && run.res.warnings.some((w) => w.includes('as a finding with ref "R9-9", which is not a finding of this round')), run.res.warnings)
+  check('coverage: a disproportionate candidate is dropped with its sentence and is in no list', run.res.rounds[1].coverage.accounting[1].outcome === 'disproportionate' && run.res.rounds[1].coverage.accounting[1].ref === 'needs the clock to run backwards' && run.res.rounds[1].forThePerson.length === 0 && run.res.rounds[1].findings.length === 0 && run.res.status === 'done', run.res.rounds[1])
+  // A finding the workflow renames keeps its accounting entry: the ref is renamed with it, so the
+  // candidate is counted confirmed and is not listed under For the person (#80, R2-3).
+  run = await go('coverage: a renamed finding keeps its accounting', covArgs, { reviews: [[f('X-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'X-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], settledAll] })
+  const renamedRound = run.res.rounds[0]
+  check('coverage: a renamed finding keeps its accounting', renamedRound.findings[0].id === 'R1-1' && renamedRound.coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`)[0] === '1:finding:R1-1' && renamedRound.coverage.counts.finding === 1 && renamedRound.coverage.counts.forThePerson === 0 && JSON.stringify(renamedRound.forThePerson) === '[]' && body(run.calls, 'post r1').includes('1 confirmed') && run.res.warnings.includes('round 1: reviewer returned id "X-1"; renamed R1-1') && !run.res.warnings.some((w) => w.includes('which is not a finding of this round')), [renamedRound.coverage, renamedRound.forThePerson, run.res.warnings])
+
+  // A candidate is counted where the round puts it (#80, R1-4): under correctness only a nit the
+  // verifier reported from a candidate goes under For the person, knownAs or not (the nit rule runs
+  // first); otherwise a finding listed under Already tracked counts as already tracked.
+  const nitCorrectness = (nit) => ({ reviews: [[f('R1-1', 'correctness'), nit], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R1-2' }], settledAll] })
+  run = await go('coverage: a nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9 })))
+  let nb = body(run.calls, 'post r1')
+  check('coverage: under correctness only a nit from a candidate is For the person, listed and counted there', nb.includes('returned 2 candidates: 1 confirmed, 1 for the person,') && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2') && JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'title R1-2' }]) && run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson', [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a known nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9, knownAs: '#7' })))
+  nb = body(run.calls, 'post r1')
+  check('coverage: under correctness only a known nit is still For the person, not already tracked', run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson' && run.res.rounds[0].coverage.counts.known === 0 && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2'), [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a known finding from a candidate', covArgs, { reviews: [[f('R1-1', 'correctness', { knownAs: '#7' })]], coverage: [two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }]] })
+  nb = body(run.calls, 'post r1')
+  check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 confirmed') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
+  check('coverage: under scope all a nit from a candidate is still confirmed', run.res.rounds[1].coverage.counts.finding === 1 && run.res.rounds[1].coverage.counts.forThePerson === 0, run.res.rounds[1].coverage)
+  check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
+
+  // The three causes stop the round at review, resumable at the coverage label; an empty array is
+  // zero candidates, not an error.
+  for (const [name, text, words] of [['denied', 'coverage: skill denied\nSkill tool is not allowed in this session', 'the Skill tool was denied'], ['absent', 'coverage: skill absent\nNo such skill: code-review', 'no skill named code-review'], ['no array', 'Skill execution completed', 'holds no fenced json array']]) {
+    run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
+    check(`coverage: ${name} stops the round at review, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off') && run.res.rounds.length === 0, [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
+  }
+  // A marker is read on any line, after optional backticks or quotes, since the agent may copy the
+  // prompt's formatting or lead with a sentence; it is read only when no list was found, so a skill
+  // result that quotes a marker is still the list (#80, R2-2).
+  for (const [name, text, words] of [['a backticked denied marker stops with the denied cause', '`coverage: skill denied`\nSkill tool is not allowed in this session', 'the Skill tool was denied'], ['an absent marker after a leading line stops with the absent cause', 'The Skill tool reported no such skill.\ncoverage: skill absent\nNo such skill: code-review', 'no skill named code-review']]) {
+    run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
+    check(`coverage: ${name}`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
+  }
+  run = await go('coverage: a skill result that quotes a marker', covArgs, { reviews: [[]], coverage: ['`coverage: skill denied` is one of the markers the prompt names.\n' + two], coverageOut: [settledAll] })
+  check('coverage: a skill result that quotes a marker is still the list', run.res.status === 'done' && labels(run.calls).includes('review r1') && pick(run.calls, 'review r1').prompt.includes('"summary": "the real one"'), [run.res.status, run.res.error, labels(run.calls)])
+  // An array with none of the skill's fields is not the skill's list (#80, R1-3): renamed keys or
+  // bare strings are the recipe-drift stop, never blank candidates.
+  for (const [name, list] of [['renamed keys', [{ path: 'app/x.php', start_line: 3, description: 'real bug' }]], ['strings', ['real bug']]]) {
+    run = await go(`coverage: an array of ${name}`, covArgs, { reviews: [[]], coverage: [fenced(list)] })
+    check(`coverage: an array of ${name} stops the round as recipe drift, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes('holds no fenced json array') && run.res.error.includes('launch again with coverage off') && !labels(run.calls).includes('review r1'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
+  }
+  run = await go('coverage: denied on round 2', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, 'coverage: skill denied\nno'], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }]] })
+  check('coverage: a cause on round 2 resumes at coverage r2 with round 1 intact', run.res.status === 'error' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r2', attempt: 2 }) && run.res.rounds.length === 1, [run.res.status, run.res.resumeFrom, run.res.rounds.length])
+  run = await go('coverage: empty array', covArgs, { reviews: [[]], coverage: ['```json\n[]\n```'] })
+  check('coverage: an empty array is zero candidates, not an error', run.res.status === 'done' && pick(run.calls, 'review r1').prompt.includes('returned no candidates. Run no discovery pass of your own') && run.res.rounds[0].coverage.candidates === 0 && body(run.calls, 'post r1').includes('returned no candidates.'), [run.res.status, run.res.error])
+
+  // Resume at the coverage label appends the resume line to that prompt only.
+  const plain = await go('coverage: before a resume', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
+  const resumed = await go('coverage: resume at coverage r2', { ...covArgs, resume: { 'coverage r2': { attempt: 2, error: 'the Skill tool was denied', hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
+  const at = labels(plain.calls).indexOf('coverage r2')
+  samePrefix('coverage resume', plain.calls, resumed.calls, at)
+  check('coverage: the resumed coverage prompt carries the resume line, round 1\'s does not', pick(resumed.calls, 'coverage r2').prompt.includes('Resume attempt 2 of this step') && !pick(resumed.calls, 'coverage r1').prompt.includes('Resume attempt'), pick(resumed.calls, 'coverage r2').prompt.slice(-300))
+
+  // Replay across the round boundary: a hand-off in round 2 and its relaunch replay every prompt
+  // before the stop, the coverage prompts included.
+  const askLater = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'settled', ref: 'R1-1' }], settledAll] }
+  const stop = await go('coverage: hand-off in round 2', covArgs, askLater)
+  check('coverage: the hand-off stops after round 2\'s shaper', stop.res.status === 'handoff' && labels(stop.calls).slice(-2).join('|') === 'shape r2|spec status r2' && labels(stop.calls).includes('coverage r2'), labels(stop.calls))
+  const again = await go('coverage: relaunch after the hand-off', { ...covArgs, decisions: { 'R2-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-05' } } }, askLater)
+  samePrefix('coverage replay', stop.calls, again.calls, stop.calls.length)
+  check('coverage: the relaunch finishes after round 3', again.res.status === 'done' && again.res.rounds.length === 3, [again.res.status, again.res.rounds.length])
+
+  // coverage off: no pass on any round, no candidates block, today's handoff sentence, and For the
+  // person from a reviewer-only round still renders.
+  run = await go('coverage: off', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
+  check('coverage: off runs no pass on any round and adds no block', !labels(run.calls).some((l) => l.startsWith('coverage')) && !pick(run.calls, 'review r1').prompt.includes('Candidates from the coverage pass') && !pick(run.calls, 'final nit pass r2').prompt.includes('Candidates from the coverage pass') && run.res.rounds[0].coverage === null, labels(run.calls))
+  check('coverage: off carries no fixed-reopens sentence', !pick(run.calls, 'review r1').prompt.includes('whose outcome is fixed') && !pick(run.calls, 'final nit pass r2').prompt.includes('whose outcome is fixed'), labels(run.calls))
+  check('coverage: off keeps today\'s whole-PR sentence in the handoff', comment(run.calls, 'handoff comment').includes('Only round 1 reviewed the whole PR; see [Known limits]'), comment(run.calls, 'handoff comment').split('\n')[2])
+  check('coverage: off still renders For the person from the reviewer alone', body(run.calls, 'post r1').includes('### For the person\n\n- `app/q.php:2` · seen by the reviewer alone') && comment(run.calls, 'handoff comment').includes('### For the person\n\n- `app/q.php:2` · seen by the reviewer alone'), body(run.calls, 'post r1'))
+  const mixed = await go('coverage: a bad config value', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, coverage: 'off' } }, { reviews: [[]] })
+  check('coverage: a config value that is neither an object nor null fails at launch', mixed.thrown && mixed.thrown.message.includes('args.models.coverage must be an object'), mixed.thrown && mixed.thrown.message)
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

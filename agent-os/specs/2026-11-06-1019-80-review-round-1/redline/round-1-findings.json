@@ -1,0 +1,287 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "48c971b6e48284111913fa2b5bb9eb6bcb279a0b",
+    "to": "48c971b6e48284111913fa2b5bb9eb6bcb279a0b"
+  },
+  "summary": "This round reviewed the working tree at 474593f, not the 48c971b its prompt names, because the relaunch reran round 1's reviewer on the cached round 1 coverage candidates. At that head every one of the 21 candidates collapses into something already on the PR. Seven match R1-1 to R1-6, whose fixes are in the tree and no longer reproduce. Ten match the round 1 review's For the person list and still read as described there. Two collapse into those ten, and two remain disproportionate. Nothing new is confirmed. The Docs, Version and scheduled-work checks raise nothing: the plan names a docs section for every change, the version goes from main's 0.1.1 to 0.2.0, and this repository has no routes/console.php. The person should read the For the person entry first: this relaunch is not a replay of round 1, and a round 1 that confirms nothing new hands the PR off while R3-3 and R3-4 are still open.",
+  "findings": [],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 1165,
+      "text": "This relaunch is not a replay of round 1. The plugin loads in place, and the round 1 reviewer prompt now carries the R2-1 reopen sentence, which was absent at 48c971b. So the reviewer reran at 474593f on the cached coverage r1 candidates, while the prompt still names 48c971b. The agents after it rerun as well. post r1 rewrites the untracked round-1-findings.json and round-1-review.json in the round 1 folder before has-review skips the post. A round 1 with no new finding then hands the PR off (line 3339) while R3-3 and R3-4 are still open. Neither the README's in-place Known limit nor agent-os/standards/workflow/replay.md says that a self-hosted relaunch stops replaying once a round changes prompt text."
+    }
+  ],
+  "coverage": {
+    "head": "48c971b6e48284111913fa2b5bb9eb6bcb279a0b",
+    "candidates": 21,
+    "counts": {
+      "finding": 0,
+      "forThePerson": 0,
+      "duplicate": 2,
+      "settled": 7,
+      "known": 10,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 2
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "known",
+        "ref": "Redline round 1 review body (review 5802825992), For the person at workflows/redline-loop.js:1171: the skill gets no base, and a round-1 pass that returns [] ends the run (Decision 3); unchanged at 474593f (line 1180)"
+      },
+      {
+        "index": 2,
+        "outcome": "settled",
+        "ref": "R1-2 (review comment 4494430102, fixed in 4e67915): handledBlock (line 1121) now shows the handled list on every round that ran a coverage pass"
+      },
+      {
+        "index": 3,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:2749: history() carries only findings; unchanged at line 1883"
+      },
+      {
+        "index": 4,
+        "outcome": "settled",
+        "ref": "R1-4 (review comment 4494430125, fixed in 96da90b): a finding entry whose ref names no finding is now listed under For the person with a warning (lines 1276-1281)"
+      },
+      {
+        "index": 5,
+        "outcome": "settled",
+        "ref": "R1-3 (review comment 4494430114, fixed in aacc55f): an array with no non-empty summary or failure_scenario is skipped (line 1210), so the renamed-key example stops as recipe drift"
+      },
+      {
+        "index": 6,
+        "outcome": "settled",
+        "ref": "R1-5 (review comment 4494430133, fixed in e1cc411): the findings file now writes coverage.list next to the accounting"
+      },
+      {
+        "index": 7,
+        "outcome": "duplicate",
+        "ref": "3"
+      },
+      {
+        "index": 8,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:1171: the per-machine /code-review choice"
+      },
+      {
+        "index": 9,
+        "outcome": "duplicate",
+        "ref": "1"
+      },
+      {
+        "index": 10,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:1934: the committed round spec folders"
+      },
+      {
+        "index": 11,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:1937: no model fallback for models.coverage; modelOpts unchanged (line 385)"
+      },
+      {
+        "index": 12,
+        "outcome": "settled",
+        "ref": "R1-4 (fixed in 96da90b): a nit under correctness only and a finding with knownAs are now counted where the round puts them; two entries naming one finding is in the round 2 review's For the person"
+      },
+      {
+        "index": 13,
+        "outcome": "settled",
+        "ref": "R1-6 (review comment 4494430144, fixed in 7ed770a): the handoff now says every round but the final nit pass"
+      },
+      {
+        "index": 14,
+        "outcome": "disproportionate",
+        "ref": "Needs a head branch named as a bare number or exactly a top-level path such as docs, while Redline's branches carry a slash and an issue slug."
+      },
+      {
+        "index": 15,
+        "outcome": "disproportionate",
+        "ref": "Needs the reviewer to write a newline followed by an exact `- **R<n>-<k>** · ...` or `Redline round N` line inside a one-line entry; the summary and finding titles enter the body the same way."
+      },
+      {
+        "index": 16,
+        "outcome": "settled",
+        "ref": "R1-1 (review comment 4494430089, fixed in 129ae48): skills/redline/SKILL.md lines 3-4 and templates/command-redline.md line 3 now carry [coverage off]"
+      },
+      {
+        "index": 17,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/shape.md:42: the internal figures against the no-figure sentence; still there and at redline-loop.js:868"
+      },
+      {
+        "index": 18,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at tests/loop-test.mjs:1308 (the check is now at line 1315)"
+      },
+      {
+        "index": 19,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:3215: coverageNote repeats coverageSentence's sums"
+      },
+      {
+        "index": 20,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:1146: coverageEffort and the head recomputed"
+      },
+      {
+        "index": 21,
+        "outcome": "known",
+        "ref": "Redline round 1 review body, For the person at workflows/redline-loop.js:1978: out.coverage's two shapes"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 1171,
+        "summary": "The coverage pass gives the skill only `<effort> <headRef> --max-findings all` and never the PR's base, so the skill compares the branch against its own default (local `main`) instead of `origin/<baseRef>`, which the precheck uses everywhere else.",
+        "failure_scenario": "A PR based on `develop` or on a stacked branch, or a branch that merged a newer origin/main while local main is stale, gets a wrong range: commits outside the PR become candidates and the PR's real base is never used. Worse, when local main already contains the head (a merged PR re-run on a throwaway draft, the recipe agent-os/standards/process/internal-notes.md now prescribes and Task 10.6 plans), `main...<head>` is empty. The skill returns `[]`, candidatesBlock tells the reviewer 'Run no discovery pass of your own', and round 1 posts 'No findings' and the run ends done with the PR never reviewed."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 1116,
+        "summary": "Findings from earlier runs that are already handled (trackedList: dropped, decided, deferred, left) are given to the reviewer only when `reviewed === 'pr'`. The coverage pass now samples the whole PR on every fix-diff round, so from round 2 on the verifier has no list to collapse those candidates into.",
+        "failure_scenario": "Reproduced: a fresh launch with firstRound 2 and priorFindings [R1-1 dropped by the person]. The round-2 review prompt lists R1-1; the round-3 re-review prompt does not. When the round-3 coverage pass finds that same bug again, the agent file says to match only the prompt's lists and not those rounds' comments. So the verifier reports it as a new correctness finding, overrides the person's earlier drop, and costs an extra revise round or a capped run."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1838,
+        "summary": "history() passes later rounds only this run's findings. It carries nothing about earlier rounds' coverage accounting (refuted, outside, disproportionate, forThePerson candidates), so the 'never re-raise a settled finding' stop rule has nothing to match against for those candidates.",
+        "failure_scenario": "Round 1's verifier accounts candidate 'race on pick close' as disproportionate. Round 2's coverage pass samples it again, and the round-2 verifier (a different model and effort, reviewerLaterRounds) sees no trace of that ruling. It re-verifies from scratch and may report it as a new correctness finding, so the done rule never fires and the run hits the cap. Altitude: the convergence the done rule depends on lives only in prompt text. The fix is to carry each round's accounting, with candidate summaries, into history()."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 1248,
+        "summary": "A `finding` entry whose ref names no finding of the round only adds a warning. It is still recorded and counted as 'confirmed', so the candidate ends up in no list at all, a silent drop the design says never happens.",
+        "failure_scenario": "Reproduced: the reviewer returns findings [R1-1] and coverage [{1, finding, R1-1}, {2, finding, R1-7}]. counts.finding is 2, forThePerson is [], and the posted body says 'returned 2 candidates: 2 confirmed'. Candidate 2 appears nowhere on the PR; only a run warning mentions it."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 1199,
+        "summary": "coverageCandidates keeps only the keys file, line, summary and failure_scenario, filling '' or 0 for anything missing. A recipe drift that renames keys therefore produces blank candidates instead of the 'recipe drifted' stage error Decision 3 promises.",
+        "failure_scenario": "Reproduced: the skill returns ```json [{\"path\":\"app/x.php\",\"start_line\":3,\"description\":\"real bug\"}] ```. The reviewer receives [{index:1,file:'',line:0,summary:'',failure_scenario:''}], accounts for it as refuted, and the run ends status done. The real bug is thrown away and nothing tells the person the recipe changed."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 2068,
+        "summary": "The findings file writes `candidates: reviewOut.candidates || reviewOut.coverage.candidates`, but nothing ever sets reviewOut.candidates. The fallback (a count) always wins and the coverage pass's candidate list is never saved.",
+        "failure_scenario": "Reproduced: round-1-findings.json holds \"candidates\": 2 and no candidate summary. Its accounting entries (index 3 'duplicate' of index 1, index 5 'refuted') point at indexes of a list that exists only in the reviewer's prompt, so nobody can audit why nineteen candidates became four findings, and a later round cannot be given the list."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 2749,
+        "summary": "The handoff's For the person section joins every round's entries with no de-duplication. The coverage pass samples the same observations again at every head, so the same line is repeated once per round.",
+        "failure_scenario": "Reproduced: a two-round run where both verifiers put 'a nit for the person' under For the person. The handoff comment lists `app/y.php:9` · a nit for the person twice. On a three-round PR with a dozen entries the teammate reads each one up to three times."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 1171,
+        "summary": "Passing `--max-findings all` and an explicit effort word to the skill changes the person's saved per-machine code-review settings. The skill's own description says 'The choice stays until you pass --max-findings default', and a bare level 'reuses the level you typed last'. This contradicts the prompt's 'do not write ... any file'.",
+        "failure_scenario": "A teammate who uses the default finding cap runs Redline once. Every later hand-typed `/code-review` on that machine reports all findings, and a bare `/code-review` may now run at xhigh, until they notice and reset it."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 1149,
+        "summary": "When the coverage pass returns zero candidates on a whole-PR round, the reviewer is still told 'Run no discovery pass of your own'. An empty result from a wrong range or a silently failed skill is treated as final, and the PR goes unreviewed. Decision 3 accepts this, but it is the path the two findings above (wrong base, key drift) fall into.",
+        "failure_scenario": "Round 1: the skill returns ```json [] ```, for example because the diff it built was empty. The reviewer runs only the Docs, Version and scheduled-work checks and returns no findings. The body reads 'returned no candidates', the run is done after one round, and the old reviewer-only whole-diff read never happens."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 1936,
+        "summary": "From round 2 on, the coverage pass reviews the whole head branch, which by then includes Redline's own committed round spec folders. The fix-diff review explicitly leaves those out (`':(top,exclude)agent-os/specs'`).",
+        "failure_scenario": "Round 1's plan.md, shape.md and references.md are committed in the round's first commit. The round-2 skill pass reads them as part of the PR: it raises candidates on Redline's own records (for example 'plan.md says X but the code does Y') and sees round 1's finding text, which biases the next sample. The verifier spends its time accounting for them as outside."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 1937,
+        "summary": "A `models.coverage` object with an effort but no model calls modelOpts('coverage') and gets no model, so the pass runs on the session default model. It does not fall back to reviewerFirstRound's model the way the effort falls back.",
+        "failure_scenario": "Reproduced: models {reviewerFirstRound:{model:'m-first',effort:'xhigh'}, coverage:{effort:'high'}} makes the coverage r1 call with {effort:'high'} and no model. A repository that only lowers the pass's effort silently runs it on whatever model the session uses, possibly not the opus-5 family the xhigh recipe was validated on."
+      },
+      {
+        "index": 12,
+        "file": "workflows/redline-loop.js",
+        "line": 1263,
+        "summary": "The candidate counts treat every `finding` entry as 'confirmed', including findings the main loop later drops (a nit under correctness-only scope), findings listed under Already tracked (knownAs), and two candidates pointing at the same finding id.",
+        "failure_scenario": "Under `correctness only`, the verifier reports a nit candidate as finding R1-2. Line 3206 drops it as a nit, yet the body and log say '1 confirmed'. The PR shows no such finding, and the candidate never reaches For the person."
+      },
+      {
+        "index": 13,
+        "file": "workflows/redline-loop.js",
+        "line": 2704,
+        "summary": "With coverage on, the handoff says 'The coverage pass reviewed the whole PR at every round's head'. That is false for a final nit pass round and for the extra fix in the lastFixUnreviewed path, which no coverage pass ever saw.",
+        "failure_scenario": "Example: a run ending lastFixUnreviewed. The handoff says the extra fix 'was not re-reviewed', then in the same paragraph that the coverage pass reviewed the whole PR at every round's head. The teammate may skip that commit."
+      },
+      {
+        "index": 14,
+        "file": "workflows/redline-loop.js",
+        "line": 1171,
+        "summary": "The skill's target argument is the bare head branch name, and the skill reads a target as 'a PR number, branch name, or file path'. A numeric branch name, or one that matches a directory, is read as something else.",
+        "failure_scenario": "Example: a head branch named `1234` is taken as PR #1234 (another PR entirely), and a branch named `docs` in a repository with a `docs/` directory makes the skill review that path. The candidates are then unrelated to the PR."
+      },
+      {
+        "index": 15,
+        "file": "workflows/redline-loop.js",
+        "line": 865,
+        "summary": "personLine puts the reviewer's file and text straight into the markdown. review() trims the text but keeps inner newlines and keeps empty entries. A multi-line entry breaks the review body and the handoff, and its later lines are read by the line-based parsers in redline-gh.sh.",
+        "failure_scenario": "Example: text 'see below\\n- **R1-3** · correctness · high · confirmed · `a.php:1` · x' is read back by `prior-findings` in a later run as finding R1-3. A line starting 'Redline round 9' moves `last-round`. An entry {file:'',line:0,text:''} renders as '- `:0` · '."
+      },
+      {
+        "index": 16,
+        "file": "skills/redline/SKILL.md",
+        "line": 4,
+        "summary": "The skill's `description` and `argument-hint` (and the alias template templates/command-redline.md) still list the grammar without `coverage off`, so the slash-command hint never shows the new word.",
+        "failure_scenario": "A person typing `/redline 80 ` sees a hint that omits `coverage off`. This is the documented fallback when the skill is absent or has drifted, and the three stop messages tell them to use it."
+      },
+      {
+        "index": 17,
+        "file": "agent-os/specs/2026-11-05-1443-79-two-reviewer-whole-pr-round/shape.md",
+        "line": 42,
+        "summary": "The Decision section copies the internal spike note's figures into the public spec ('five of seven primary items on #817 and two of seven on #778', 'seventeen of seventeen and nineteen of nineteen'). The workflow comment at redline-loop.js:868 does the same ('nineteen candidates became four findings').",
+        "failure_scenario": "This breaks /Users/michaelwitwicki/Code/Claude/redline/CLAUDE.md: 'The public repo carries no internal design record ... A spec here may cite one by file name; it never copies the text in'. It also breaks the spec's own header line in shape.md, 'no figure from it enters this folder'."
+      },
+      {
+        "index": 18,
+        "file": "tests/loop-test.mjs",
+        "line": 1308,
+        "summary": "The check named 'coverage: the log line names the accounting' only asserts rounds[1].coverage.candidates === 2. go() passes a no-op log, so the log line it names is never checked.",
+        "failure_scenario": "A regression in coverageNote, such as wrong sums or a TypeError when counts is missing, stays green. The check's name claims coverage it doesn't provide."
+      },
+      {
+        "index": 19,
+        "file": "workflows/redline-loop.js",
+        "line": 3214,
+        "summary": "coverageNote in the main loop repeats coverageSentence's arithmetic (duplicate+settled, refuted+outside+disproportionate) with slightly different wording, instead of sharing one helper that returns the totals.",
+        "failure_scenario": "Cleanup. Adding a ninth outcome means updating two copies, and the log and the posted body can disagree when only one is updated."
+      },
+      {
+        "index": 20,
+        "file": "workflows/redline-loop.js",
+        "line": 249,
+        "summary": "coverageEffort() is called at startup only for its validation side effect, then recomputed and re-validated in every prompt and agent call. candidatesBlock (line 1146) also re-derives the head review() already computed as coverageHead.",
+        "failure_scenario": "Cleanup. A const `coverageLevel` set once at launch, and passing coverageHead into reviewPrompt/candidatesBlock, removes the repeated work and the risk of the two head calculations drifting apart."
+      },
+      {
+        "index": 21,
+        "file": "workflows/redline-loop.js",
+        "line": 1978,
+        "summary": "out.coverage changes type within review(): it is the reviewer's array, then the workflow's record object, or null. reviewBody needs an `!Array.isArray(review.coverage)` guard (line 818) to tell the two apart.",
+        "failure_scenario": "Cleanup. Any new reader of reviewOut.coverage has to know about the two shapes. A separate field (for example `coverageRecord`) removes the guard and the chance of rendering the raw array as a record."
+      }
+    ]
+  }
+}
