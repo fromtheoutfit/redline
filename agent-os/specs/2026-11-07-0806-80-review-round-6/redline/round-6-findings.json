@@ -1,0 +1,11 @@
+{
+  "round": 6,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "61068fc708c914e170a532d675a7ce5697b4a03e",
+    "to": "1f97b620756b6970d23ba76d4da7c47411fac34e"
+  },
+  "summary": "The round 5 fixes reword the done rule wherever a reader meets it: the README's opening line and its Known limits entry \"What a clean run means\", both `.claude-plugin/` descriptions, and the product mission. They also add a docs-gate standard so a later change to the done rule rewords every statement of it. The new wording matches what docs/running.md (Rounds, step 7; The handoff comment) and the workflow's handoff sections (Deferred, For the person) actually do, and both manifests change only a string value. This diff introduces no correctness bug.",
+  "findings": [],
+  "forThePerson": []
+}
