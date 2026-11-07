@@ -32,7 +32,7 @@
       "login": "author"
     },
     "state": "COMMENTED",
-    "body": "Redline round 2\n\nReviewed the whole pull request. Round 1 is already on this PR; this run starts at round 2.\n\nOne fresh finding, one carried.\n\n### Findings (1 correctness, 0 nit)\n\n- **R2-1** · correctness · low · likely · `app/f.php:1` · Fresh one\n- **R2-3** · correctness · medium · likely · `config/project/project.yaml:3` · Field handle renamed in project config · yours under rule craft-config\n\n### Carried forward from earlier rounds (1 correctness, 0 nit)\n\n- **R2-2** · correctness · low · confirmed · `app/d.php:4` · Streak one short · needs a decision · first reported as R1-5\n\nEach finding has an inline comment with the detail.",
+    "body": "Redline round 2\n\nReviewed the whole pull request. Round 1 is already on this PR; this run starts at round 2.\n\nOne fresh finding, one carried.\n\n### Findings (1 correctness, 0 nit)\n\n- **R2-1** · correctness · low · likely · `app/f.php:1` · Fresh one\n- **R2-3** · correctness · medium · likely · `config/project/project.yaml:3` · Field handle renamed in project config · yours under rule craft-config\n- **R2-4** · correctness · low · likely · `app/g.php:6` · Cache key ignores locale\n\n### Carried forward from earlier rounds (1 correctness, 0 nit)\n\n- **R2-2** · correctness · low · confirmed · `app/d.php:4` · Streak one short · needs a decision · first reported as R1-5\n\nEach finding has an inline comment with the detail.",
     "submitted_at": "2026-10-22T10:00:00Z"
   },
   {

@@ -24,7 +24,7 @@
 # teammate commented between Redline's comment and its reply (#45, R1-2). PR 14 is the
 # prior-findings fixture (#35): two Redline rounds, one finding per disposition (a fixed reply, no
 # reply beside a teammate's, a dropped one, a body finding answered by an issue comment, a not
-# changed one that round 2 carried as R2-2, a decided one), an Already tracked line that is not a
+# changed one that round 2 carried as R2-2, a decided one, a round-2 finding a later run's reply resolved), an Already tracked line that is not a
 # finding, and round 2's fresh finding with no reply. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
@@ -207,7 +207,7 @@ gh has-review 8 1 >/dev/null; is "has-review: no Redline review at all (exit 1)"
 echo "# prior-findings"
 pf="$(gh prior-findings 14)"; code=$?
 is "prior-findings: exits 0" "$code" "0"
-is "prior-findings: every posted finding, by round then number; an Already tracked line is not a finding" "$(jq -c '[.[].id]' <<<"$pf")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R1-6","R2-1","R2-2","R2-3"]'
+is "prior-findings: every posted finding, by round then number; an Already tracked line is not a finding" "$(jq -c '[.[].id]' <<<"$pf")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R1-6","R2-1","R2-2","R2-3","R2-4"]'
 is "prior-findings: a fixed reply is fixed, with the thread's comment and reply ids" "$(jq -c '.[0] | [.disposition, .comment_id, .reply.id, .round, .review_id]' <<<"$pf")" '["fixed",1401,1411,1,20]'
 is "prior-findings: the finding line's fields" "$(jq -c '.[0] | [.category, .severity, .confidence, .file, .line, .title]' <<<"$pf")" '["correctness","high","confirmed","app/a.php",5,"Missing status filter"]'
 is "prior-findings: the inline body is the root comment's" "$(jq -r '.[0].body' <<<"$pf" | head -1)" "**R1-1** · correctness · high · confirmed"
@@ -223,6 +223,8 @@ is "prior-findings: the carried finding names its origin, its title carries neit
 # A finding a repository ask rule left to the person (#49): the rule tail is stripped from the title
 # and its "left to the author" reply reads left, a disposition, so a later run never re-raises it.
 is "prior-findings: the ask-rule tail is stripped from the title and a left reply is left" "$(jq -c '.[8] | [.title, .disposition, .comment_id, .reply.id, .file]' <<<"$pf")" '["Field handle renamed in project config","left",1423,1433,"config/project/project.yaml"]'
+# A later run's resolved reply is Redline's own claim that the code no longer has the finding, so it reads fixed, never decided (#80, R4-3).
+is "prior-findings: a later run's resolved reply is fixed, not decided" "$(jq -c '.[9] | [.id, .disposition, .comment_id, .reply.id, .round]' <<<"$pf")" '["R2-4","fixed",1424,1434,2]'
 is "prior-findings: a PR with no Redline review prints an empty list" "$(gh prior-findings 8)" "[]"
 gh prior-findings 99 >/dev/null 2>&1; is "prior-findings: a gh error exits 2" "$?" "2"
 
