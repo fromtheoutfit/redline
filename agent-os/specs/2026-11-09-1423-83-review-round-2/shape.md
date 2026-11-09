@@ -19,7 +19,7 @@ Line numbers below are at `37c22f9`, the PR head this round reviewed. The `redli
    The author bumps the patch version because an install moves on the manifest's version and installs already on 0.2.0 from the #80 merge would otherwise be stranded until a hand reinstall, which the per-PR patch bump exists to prevent, so 0.2.0 is never tagged, both manifests go to 0.2.1, the CHANGELOG's heading becomes 0.2.1 holding #80 and #83, the #76 spec's "0.2.0 tag" lines say 0.2.1, and the author redrafts the PR description's version sentence by hand after the run.
    Date: 2026-11-09
    Decided by: @michaelfromtheoutfit
-3. **R2-2 moves no version.** It is one sentence in a standard and changes nothing a setup rerun writes. The PR keeps `0.2.0` on purpose (`agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md:16`), the exception `agent-os/standards/process/release.md:5` names. Whether `0.2.0` stays is one of the options under R2-1, so this entry covers R2-2 only.
+3. **R2-2 moves no version.** It is one sentence in a standard and changes nothing a setup rerun writes. The PR keeps `0.2.0` on purpose (`agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md:16`), the exception `agent-os/standards/process/release.md:5` names. Whether `0.2.0` stays is one of the options under R2-1, so this entry covers R2-2 only. That sentence on the PR keeping `0.2.0` was true at shaping and is stale after Decision 2: the PR moved both manifests to `0.2.1` in `e14ebe4` under R2-1, and R2-2 still moves no version of its own.
    Decided by: redline
 
 ### R2-1, how the walk that closes #76 is made real

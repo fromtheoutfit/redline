@@ -116,3 +116,13 @@ Files: `agent-os/standards/process/release.md` (step 4's standards commit; Task 
 3. Step 11, Version: `0.2.1` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, moved by Task 3 (`shape.md`, Decision 2), and the two agree. R2-2 moves no version of its own (`shape.md`, Decision 3).
 4. Step 12, Standards retrospective: apply the list under `## Standards retrospective (proposed)` in `shape.md`, as the standards approver approves it, in its own commit. Item 1 is Task 2's change. Item 2 is the sentence drafted for R2-1, on line 9 of `agent-os/standards/process/release.md`, and adds no bullet, so Task 2's count stays `8`; if the approver rejects it, Task 2's change still lands. Item 3 changes nothing.
 5. Step 13, Spec folder: `plan.md` reflects what was built; any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Built as planned, with no deviation.
+
+- Task 1: the four spec files, `0e177a6`. The `redline/` subfolder is not in it.
+- Task 3 (R2-1): `e14ebe4`. Both manifests and the CHANGELOG heading read 0.2.1, and the #76 spec's lines are corrected. Every count under the task printed as shown. No `pr-body.md` is in this folder; the author redrafts the PR description's version sentence by hand after the run.
+- Task 2 (R2-2): `c90356f`, the round's one standards commit, which also carries retrospective item 2 (line 9, the lesson from R2-1). Every count under the task printed as shown, including the eight bullets. Item 3 changed nothing.
+- Task 4: `checks.sh` passed all nine checks with no unexpected or uncommitted file. Docs (step 10): each task's Docs entry stands as written. Version (step 11): 0.2.1 in both manifests, and they agree.
+- Step 13: at the plan approver's note, Decision 3 in `shape.md` now says its sentence on the PR keeping `0.2.0` is stale after Decision 2.
