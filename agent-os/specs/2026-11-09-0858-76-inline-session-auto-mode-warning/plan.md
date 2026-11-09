@@ -84,8 +84,8 @@ The PR does not exist during the build. After you open it, add a new `### Fixes`
 Built as shaped, with no deviation.
 
 - Tasks 1 and 2 are done, and the standards bullet is applied as drafted.
-- Task 3 waits for the PR number.
+- Task 3 landed in `00b04f3`, the `#83` line under `### Fixes` in `CHANGELOG.md`.
 - Gate steps 1 to 9 passed, the unchanged-files check printed nothing, and the path check read the checkout and a path under `/plugins/cache/`.
 - Docs (gate step 10): `skills/redline/SKILL.md` is described in `docs/running.md`, "Precheck", updated in the skill's commit.
 - Version (gate step 11): kept at 0.2.0 on purpose; both manifests agree.
-- Not walked yet: the inline session (the person's step) and the resume path (needs a stopped run's marker; confirmed by reading the bullet). The installed-release session waits for the 0.2.0 tag.
+- Walked: the inline session, `/redline:redline 80 dry run review only` from this checkout, which showed the warning at precheck step 1 and stopped at the branch check (PR #83's description). Not walked: the resume path (needs a stopped run's marker; confirmed by reading the bullet). The installed-release session waits for the 0.2.0 tag.
