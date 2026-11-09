@@ -170,3 +170,13 @@ Files: `agent-os/standards/process/release.md` and `agent-os/standards/scripts/g
 3. Step 11, Version: `0.2.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged. This round keeps the version on purpose (`shape.md`, Decision 5).
 4. Step 12, Standards retrospective: apply the list under `## Standards retrospective (proposed)` in `shape.md`, as the standards approver approves it, in its own commit. Items 1 and 5 edit `agent-os/standards/process/release.md`, and item 2 edits `agent-os/standards/scripts/guard.md`.
 5. Step 13, Spec folder: `plan.md` reflects what was built; any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Built as planned, with no deviation.
+
+- Task 1: `5fafa57`. Task 2 (R1-1): `40eab5b`. Task 3 (R1-2): `5f904f3`. Task 4 (R1-5): `109e1bc`. Task 5 (R1-4): `f75e4c0`. Task 6 (R1-6): `bf63a87`. Task 7 (R1-3): `c440071`. Each task's `grep` proof printed the counts its task names.
+- Standards retrospective (gate step 12): items 1, 2 and 5 as approved, in `9dfa88b`, whose message names R1-6 since items 2 and 5 are that finding's standards half. Items 3 and 4 change nothing.
+- Gate steps 1 to 9: `.claude/redline/checks.sh` passes against the round's snapshot, every check at exit 0, with no unexpected and no uncommitted file.
+- Docs (gate step 10): each task's Docs entry stands; `docs/running.md`, "Precheck", and the README's Known limits were updated in `bf63a87`.
+- Version (gate step 11): kept at `0.2.0` on purpose (`shape.md`, Decision 5); neither manifest changed.
