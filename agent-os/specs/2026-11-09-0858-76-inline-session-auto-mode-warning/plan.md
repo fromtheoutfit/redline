@@ -11,13 +11,13 @@ From the invocation:
 1. Scope is `skills/redline/SKILL.md`, docs and standards. No change to `templates/settings.allow.json`, `redline-setup.sh`, `--remove-stale`, the guard, `hooks.json` or `tests/guard-cases.tsv`.
 2. The warning lives in the precheck, beside the #16 warning. It is one paragraph, a warning and never a stop, because the skill cannot read the permission mode.
 3. `docs/running.md` and `CONTRIBUTING.md` carry the same sentence. The standards record the harness fact and the probe.
-4. No version bump: 0.2.0 is undated and untagged (`git tag` lists only `redline--v0.1.0`), so this rides in it. `shape.md` says the spec keeps the version on purpose, which is the exception the reviewer's Version bullet and `process/release.md` name. CHANGELOG gets a Fixes line under 0.2.0 once the PR number exists.
+4. No version bump: 0.2.0 is undated and untagged (`git tag` lists only `redline--v0.1.0`), so this rides in it. `shape.md` says the spec keeps the version on purpose, which is the exception the reviewer's Version bullet and `process/release.md` name. CHANGELOG gets a Fixes line under 0.2.0 once the PR number exists. Reversed by #83 round 2, R2-1: both manifests are 0.2.1 and the CHANGELOG heading is 0.2.1.
 
 From the questions:
 
 5. **A resume warns too.** Section 2's resume skips the precheck, and the failure ends as a resumable error at `post r<n>`. A hand-off relaunch stays silent: same session, already said.
 6. **The wording is widened.** The run "fails at its first file write, normally its first post". Project memory records a launcher Write of `snapshot-start.json` refused twice on Nov 6 in an inline session, which the Nov 9 probe's "main session passes" does not explain. The standard carries the same clause.
-7. **Done rule, negative half.** Before the merge: the inline walk plus the path check. After the 0.2.0 tag: one real installed-release session, the last item before #76 closes, because 0.1.0 has no warning code and would pass vacuously.
+7. **Done rule, negative half.** Before the merge: the inline walk plus the path check. After the 0.2.1 tag: one real installed-release session, the last item before #76 closes, because an install still on 0.2.0 from the #80 merge has no warning code and would pass vacuously (#83, R2-1).
 
 Settled from the code:
 
@@ -51,7 +51,7 @@ No script header moves, so `docs/scripts.md` is untouched. The README's Known li
 
 ## Task 3: CHANGELOG line, once the PR number exists
 
-The PR does not exist during the build. After you open it, add a new `### Fixes` group between Features and Setup and templates under `## 0.2.0`:
+The PR does not exist during the build. After you open it, add a new `### Fixes` group between Features and Setup and templates under `## 0.2.1`:
 
 `- #<PR> A session that loads the plugin with --plugin-dir warns at launch that auto mode refuses the roles' file writes (#76)`
 
@@ -70,7 +70,7 @@ The PR does not exist during the build. After you open it, add a new `### Fixes`
 
 9. **Step 13, Spec folder:** `plan.md` as built; deviations under Decisions in `shape.md`.
 
-**Open after the gate:** one installed-release session after the 0.2.0 tag shows no warning, then #76 closes. The upstream report stays tracked in the issue.
+**Open after the gate:** one installed-release session after the 0.2.1 tag shows no warning, then #76 closes. The upstream report stays tracked in the issue.
 
 ## Commits (yours; nothing is staged)
 
@@ -87,5 +87,5 @@ Built as shaped, with one deviation from "Commits": the standards bullet in `age
 - Task 3 landed in `00b04f3`, the `#83` line under `### Fixes` in `CHANGELOG.md`.
 - Gate steps 1 to 9 passed, the unchanged-files check printed nothing, and the path check read the checkout and a path under `/plugins/cache/`.
 - Docs (gate step 10): `skills/redline/SKILL.md` is described in `docs/running.md`, "Precheck", updated in the skill's commit.
-- Version (gate step 11): kept at 0.2.0 on purpose; both manifests agree.
-- Walked: the inline session, `/redline:redline 80 dry run review only` from this checkout, which showed the warning at precheck step 1 and stopped at the branch check (PR #83's description). Not walked: the resume path (needs a stopped run's marker; confirmed by reading the bullet). The installed-release session waits for the 0.2.0 tag.
+- Version (gate step 11): kept at 0.2.0 on purpose when built, moved to 0.2.1 by #83 round 2, R2-1; both manifests agree.
+- Walked: the inline session, `/redline:redline 80 dry run review only` from this checkout, which showed the warning at precheck step 1 and stopped at the branch check (PR #83's description). Not walked: the resume path (needs a stopped run's marker; confirmed by reading the bullet). The installed-release session waits for the 0.2.1 tag.

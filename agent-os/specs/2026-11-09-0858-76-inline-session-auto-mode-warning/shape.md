@@ -13,14 +13,14 @@ Given at the start of shaping:
 1. No change to `templates/settings.allow.json`, `redline-setup.sh`, `--remove-stale`, the guard, `hooks.json` or `tests/guard-cases.tsv`.
 2. The warning lives in the precheck, beside the #16 warning for the inverse case. It is one paragraph, a warning and never a stop, because the skill cannot read the permission mode.
 3. `docs/running.md` and `CONTRIBUTING.md` carry the same sentence. The standards record the harness fact and the probe that proved it.
-4. **This spec keeps the version on purpose.** 0.2.0 is undated and untagged (`git tag` lists only `redline--v0.1.0`), so this change rides in it. The CHANGELOG gets a Fixes line under 0.2.0 once the PR number exists.
+4. **This spec keeps the version on purpose.** 0.2.0 is undated and untagged (`git tag` lists only `redline--v0.1.0`), so this change rides in it. The CHANGELOG gets a Fixes line under 0.2.0 once the PR number exists. Reversed by #83 round 2, R2-1: an install already on 0.2.0 from the #80 merge would not move, so both manifests went to 0.2.1, 0.2.0 is never tagged, and the CHANGELOG heading is 0.2.1.
 5. Done when an inline session shows the warning at launch and an installed-release session does not, `tests/prefs-test.sh` passes and the guard cases are unchanged.
 
 Asked during shaping:
 
 6. **A resume warns too.** Section 2's resume skips the precheck, and the failure this warns about ends as a resumable error at `post r<n>`, so someone resuming in auto mode would hit the same refusal unwarned. A hand-off relaunch stays silent: same session, already said.
 7. **The wording is widened to "fails at its first file write, normally its first post".** On Nov 6, in an inline session, the launcher's own Write of `snapshot-start.json` was refused twice and no run started. The Nov 9 probe's result for the main session does not explain that. The standard carries the same clause.
-8. **The negative half of the done rule is split.** Before the merge: the inline walk and the path check. After the 0.2.0 tag: one real installed-release session, the last item before #76 closes. The only installed release today is 0.1.0, which has no warning code and would pass vacuously.
+8. **The negative half of the done rule is split.** Before the merge: the inline walk and the path check. After the 0.2.1 tag: one real installed-release session, the last item before #76 closes. An install still on 0.2.0 from the #80 merge has no warning code and would pass vacuously, so the session counts only on an install moved to 0.2.1 by `claude plugin update` (#83, R2-1).
 
 Settled from the code:
 
@@ -39,7 +39,7 @@ Every decision above was classified. The version exception and `--plugin-dir` lo
 
 ## Open after the gate
 
-- One installed-release session after the 0.2.0 tag shows no warning; then #76 closes.
+- One installed-release session after the 0.2.1 tag shows no warning; then #76 closes.
 - The upstream report, tracked in the issue.
 
 ## Context
