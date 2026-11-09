@@ -2,7 +2,7 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
-## 0.2.1
+## 0.2.1 (2026-11-09)
 
 ### Features
 
