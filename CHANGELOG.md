@@ -8,6 +8,10 @@ One heading per tagged version, newest first, and one line per merged pull reque
 
 - #80 Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
 
+### Fixes
+
+- #83 A session that loads the plugin with `--plugin-dir` warns at launch that auto mode refuses the roles' file writes (#76)
+
 ### Setup and templates
 
 - `redline.json.example` gains `models.coverage`, the coverage pass's model and effort. A rerun of `/redline:setup` keeps an existing `redline.json` as it is and lists the template's `models` under differs without writing them; the key absent means the pass is on at the first-round reviewer's model and effort, so add it by hand only to pick another
