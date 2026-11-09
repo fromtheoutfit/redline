@@ -1,0 +1,1 @@
+Redline round 1: fixed in 109e1bc (redline: R1-5 take the hand-off exemption out of the Resume bullet (#76)). · decided by: redline

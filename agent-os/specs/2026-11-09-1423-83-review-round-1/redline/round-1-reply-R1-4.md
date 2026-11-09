@@ -1,0 +1,1 @@
+Redline round 1: fixed in f75e4c0 (redline: R1-4 say the inline-session warning before the Resume or Start fresh question (#76)). · decided by: redline

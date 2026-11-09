@@ -1,0 +1,1 @@
+Redline round 2: fixed in c90356f (redline: record the round 2 review lessons in the standards, finishing R2-2 (#76)). · decided by: redline

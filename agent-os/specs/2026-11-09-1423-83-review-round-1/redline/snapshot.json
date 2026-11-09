@@ -1,0 +1,27 @@
+{
+  "pr": 83,
+  "start_sha": "00b04f37199d948d96e78dc28c0a6268b8bf1167",
+  "base_ref": "main",
+  "files": [
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/plan.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/references.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/standards.md",
+    "agent-os/standards/process/release.md",
+    "docs/running.md",
+    "skills/redline/SKILL.md"
+  ],
+  "plan_paths": [
+    "CONTRIBUTING.md",
+    "README.md",
+    "docs/running.md",
+    "skills/redline/SKILL.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/plan.md",
+    "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+    "agent-os/standards/process/release.md",
+    "agent-os/standards/scripts/guard.md",
+    "agent-os/specs/2026-11-09-1423-83-review-round-1/"
+  ]
+}

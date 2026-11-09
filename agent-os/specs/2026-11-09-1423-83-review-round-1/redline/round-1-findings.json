@@ -1,0 +1,175 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "00b04f37199d948d96e78dc28c0a6268b8bf1167",
+    "to": "00b04f37199d948d96e78dc28c0a6268b8bf1167"
+  },
+  "summary": "The change is well contained: one warning that never stops a launch, placed beside the #16 warning, with a spec that says plainly what was and was not probed. The two correctness findings are about the warning's advice and timing: on a resume it arrives too late to act on, and it offers bypass-permissions without saying that this removes the coverage pass's stated safety. The rest are wording and record-keeping that drifted from the branch. The Docs and Version checks pass (`docs/running.md` is named in the plan; `shape.md` keeps 0.2.0 on purpose), and no scheduled or queued work touches these prompt and doc files.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "CONTRIBUTING.md",
+      "line": 7,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The inserted sentences change what \"reviewed without it\" refers to",
+      "description": "The two sentences added before \"The launch precheck warns when this repository is reviewed without it\" separate \"it\" from `--plugin-dir`. The nearest candidates are now \"An installed release\" and \"bypass-permissions\". Read that way, the precheck warns when this repository is reviewed without an installed release, which is the opposite of the #16 warning: that one fires when the session is not on `--plugin-dir`.",
+      "proposedFix": "Say \"reviewed without `--plugin-dir`\" in that sentence, or move the new sentences after it.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/plan.md",
+      "line": 87,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "plan.md's As built is stale against the branch and the PR body",
+      "description": "Gate step 13 requires `plan.md` to reflect what was built. As built still says \"Task 3 waits for the PR number\" (line 87), but commit 00b04f3 added the `#83` CHANGELOG line. It also says \"Not walked yet: the inline session\" (line 91), while the PR body says the inline walk was done. Shape decision 8 makes that walk a condition of the merge, so the spec's record cannot show it was met.",
+      "proposedFix": "Update As built: Task 3 landed in 00b04f3, and the inline walk was done with `/redline:redline 80 dry run review only`, showing the warning at precheck step 1 and stopping at the branch check. Keep the resume path and the installed-release session as not walked.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "agent-os/standards/process/release.md",
+      "line": 12,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The approved standards edit did not land in its own commit",
+      "description": "CLAUDE.md and gate step 12.4 require approved standards edits in their own commit, separate from the spec's code. `git show --stat 4edbbb7` lists `release.md` together with `skills/redline/SKILL.md`, `docs/running.md`, `CONTRIBUTING.md` and the spec folder, and the PR has only that commit and the CHANGELOG one. `plan.md` (\"on its own\", and As built \"Built as shaped, with no deviation\") and `shape.md` line 33 (\"in its own commit\") state something the history does not show. Merges here keep their commits (#80 is a merge commit), so the lump stays on `main`.",
+      "proposedFix": "Question for the person: split 4edbbb7 by hand before the merge so the standards bullet stands alone (a Redline run cannot rewrite history), or keep the history and record the deviation under Decisions in `shape.md` and in As built, correcting the \"in its own commit\" line.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "skills/redline/SKILL.md",
+      "line": 49,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The resume warning comes after the person's last chance to act on it",
+      "description": "On a resume the paragraph is said after the Resume/Start fresh `AskUserQuestion` (line 47) and after `run check` exits 0. For an `error` or `stopped` marker the relaunch follows in the same turn (lines 50, 52, 53: nothing else is typed first). Earlier agents replay from cache in seconds, so for the case shape decision 6 names, an error at `post r<n>` in auto mode, the post reruns at once and is refused again. The person sees the warning but has no pause in which to change the mode, and has to resume a second time. Decision 6 justifies the resume warning by exactly this person (\"would hit the same refusal unwarned\").",
+      "proposedFix": "Say the Inline session paragraph, under its condition, before the Resume/Start fresh question on line 47 (or inside the question), so the answer can follow a change of mode. Remove it from the exit-0 sequence.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "skills/redline/SKILL.md",
+      "line": 49,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The hand-off exemption inside the Resume bullet contradicts it for `handoff` and `reviewed` markers",
+      "description": "The bullet says to say the paragraph on a resume, then adds \"a relaunch after a hand-off does not repeat it\". A section 7 relaunch never comes through this bullet, and section 4 already opens \"Precheck (fresh launches only)\" and skips it on a relaunch after a hand-off. Inside the bullet, then, the clause can only read as an exception for this bullet's own `handoff` marker, whose sub-bullet says \"relaunch\". A person who reopens the session with `claude --resume <id>` and resumes such a marker gets no warning, while `docs/running.md` promises one \"on a resume\", and shape decision 6's reason for silence (\"same session, already said\") is about the in-session relaunch.",
+      "proposedFix": "Delete the clause; section 4's heading already keeps a section 7 relaunch silent. If it stays, say \"a section 7 relaunch in the same session does not repeat it\".",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-6",
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "The warning recommends bypass-permissions without saying it removes the coverage pass's stated safety",
+      "description": "README Known limits (line 101) and `agent-os/standards/scripts/guard.md` line 23 say the code-review fork carries no Redline `agent_type`, that its safety is the skill's read-only recipe and the session's permission mode, and that a `redline-gh.sh` write from the fork is inert to the guard so the session's permission prompt decides (#80, R2-5). The new warning, and the matching sentences in `docs/running.md` and `CONTRIBUTING.md`, offer bypass-permissions as an equal remedy with no caveat. In bypass-permissions that prompt does not exist, so a fork that posts, replies or resolves threads, for example steered by text in the PR under review, goes through unasked. This PR is the first place Redline tells a person to use that mode, and it does so on the self-review path.",
+      "proposedFix": "Question for the person: keep bypass-permissions in the warning with one clause stating the cost (the coverage pass then runs with no permission prompt; `coverage off` avoids that), or drop it and name only accept-edits, accepting that a headless inline session then has no stated remedy. Whichever is chosen, the same wording goes in `docs/running.md`, `CONTRIBUTING.md`, and the README's Known limits bullet.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "The bypass-permissions remedy is not part of the recorded probe, which covered auto and accept-edits; nothing on file shows a subagent Write passing under `--plugin-dir` in bypass, so one real session would confirm it."
+    },
+    {
+      "file": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+      "line": 27,
+      "text": "The condition also fires for the local-directory marketplace, which the probe did not cover; there the warning's flat claim about auto mode is untested, and it asks the person to give up auto mode, so \"costs a line\" may understate it."
+    },
+    {
+      "file": "agent-os/standards/process/release.md",
+      "line": 12,
+      "text": "The bullet says one launcher Write was refused where `shape.md` says refused twice, and \"in either mode\", following a both-launches comparison, can read as covering plain `claude`."
+    },
+    {
+      "file": "CHANGELOG.md",
+      "line": 13,
+      "text": "The header and gate step 11 say the entry is written by the person at tag time from merged PR titles; #80 set the same early-entry precedent and this line differs from the PR title, so either the rule or the practice could change."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "A one-line subagent Write probe at launch could detect the refusal directly, avoiding the false alarm in accept-edits and bypass and the roughly 23-minute loss before `post r<n>` in auto mode; a larger design than this PR chose."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "The inline test and its verbatim paragraph live only in prompt prose that no test reads; an `inline` field from `redline-setup.sh version` and `redline-prefs.sh run check` would put them under the script tests, which decision 1 excluded for this PR."
+    },
+    {
+      "file": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+      "line": 37,
+      "text": "Already tracked in #76, which lacks this: once #76 closes after the installed-release walk, the unfiled upstream report has no open home, and nothing says when to remove the warning after Claude Code fixes the refusal."
+    }
+  ],
+  "coverage": {
+    "head": "00b04f37199d948d96e78dc28c0a6268b8bf1167",
+    "candidates": 15,
+    "counts": {
+      "finding": 6,
+      "forThePerson": 7,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 1,
+      "outside": 0,
+      "disproportionate": 1
+    },
+    "accounting": [
+      {"index": 1, "outcome": "finding", "ref": "R1-4"},
+      {"index": 2, "outcome": "finding", "ref": "R1-6"},
+      {"index": 3, "outcome": "finding", "ref": "R1-5"},
+      {"index": 4, "outcome": "refuted", "ref": "The warning already names bypass-permissions, the option that applies in a headless session, so the remedy can be followed there."},
+      {"index": 5, "outcome": "finding", "ref": "R1-3"},
+      {"index": 6, "outcome": "forThePerson", "ref": "skills/redline/SKILL.md:87"},
+      {"index": 7, "outcome": "disproportionate", "ref": "Needs a Windows path, a relocated seed cache with no plugins parent, or a --plugin-dir checkout under a /plugins/cache/ path; the outcome is one warning line more or fewer, and the launch never stops on it."},
+      {"index": 8, "outcome": "forThePerson", "ref": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md:27"},
+      {"index": 9, "outcome": "finding", "ref": "R1-1"},
+      {"index": 10, "outcome": "forThePerson", "ref": "agent-os/standards/process/release.md:12"},
+      {"index": 11, "outcome": "finding", "ref": "R1-2"},
+      {"index": 12, "outcome": "forThePerson", "ref": "CHANGELOG.md:13"},
+      {"index": 13, "outcome": "forThePerson", "ref": "skills/redline/SKILL.md:87"},
+      {"index": 14, "outcome": "forThePerson", "ref": "skills/redline/SKILL.md:87"},
+      {"index": 15, "outcome": "forThePerson", "ref": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md:37"}
+    ]
+  }
+}

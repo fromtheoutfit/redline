@@ -1,0 +1,1 @@
+Redline round 1: fixed in 40eab5b (redline: R1-1 name --plugin-dir in the sentence the new text separated from it (#76)). · decided by: redline
