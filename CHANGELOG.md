@@ -2,11 +2,15 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
-## 0.2.0
+## 0.2.1
 
 ### Features
 
 - #80 Two-reviewer rounds: the code-review skill as the finder on every round, Redline's reviewer as the verifier; done when a round confirms nothing new (#79)
+
+### Fixes
+
+- #83 A session that loads the plugin with `--plugin-dir` warns at launch that auto mode refuses the roles' file writes (#76)
 
 ### Setup and templates
 

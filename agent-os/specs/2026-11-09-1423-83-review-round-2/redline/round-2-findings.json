@@ -1,0 +1,206 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "00b04f37199d948d96e78dc28c0a6268b8bf1167",
+    "to": "37c22f9f24a84a421911a676e3bcaa8cf412be37"
+  },
+  "summary": "The round 1 fixes land as intended: the resume warning now comes before the Resume or Start fresh question, the hand-off exemption is gone, and the bypass-permissions cost is stated in all four places the decision named. The two findings are both about records rather than behaviour: a post-tag walk whose premise went stale, and a clause that disturbed a reference in the release standard. No new correctness finding; these changes touch only prompt and doc files, so no scheduled command or queued job overlaps them.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+      "line": 23,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The post-tag walk that closes #76 would pass vacuously, which Decision 8 says it must not",
+      "description": "Decision 8 moves the installed-release walk to after the 0.2.0 tag because \"the only installed release today is 0.1.0\", which has no warning code and \"would pass vacuously\". That premise no longer holds. The machine's `installed_plugins.json` lists `redline@redline` at 0.2.0 from `94f4616`, and that cached `skills/redline/SKILL.md` has 0 matches for \"Inline session\". Decision 4 keeps the version at 0.2.0, and `agent-os/standards/process/release.md` says an install moves on the manifest's `version`, not on the tag, so `claude plugin update` has no new version to move to after the merge. The 'one installed-release session shows no warning' walk, the last item before #76 closes (`shape.md:42`, `plan.md:20` and `plan.md:73`), would then run against a copy with no warning code in it.",
+      "proposedFix": "Question for the person: keep 0.2.0 and have the walk force a reinstall from the tagged commit, with the check that the cached SKILL.md holds \"Inline session\" before the session counts; or bump the patch version so an update moves the install; or accept that the path check before the merge is the real test and drop the post-tag walk. Whichever is chosen, correct Decision 8's premise and the open item in `shape.md` and `plan.md`.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "agent-os/standards/process/release.md",
+      "line": 12,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The inserted bypass clause leaves \"in both\" pointing at the wrong pair",
+      "description": "The bypass-permissions clause added for R1-6 sits between the probe's two launches and the sentence \"The main session's own Writes passed in both\". \"Both\" meant `--plugin-dir` and plain `claude`, but the nearest pair is now bypass-permissions and plain `claude`, so it can read as a claim about main-session Writes in bypass that nobody probed. The clause also falls under \"The probe, on Claude Code 2.1.319:\", although the bypass session was separate and its version is not recorded. This is the same kind of drift R1-1 fixed in `CONTRIBUTING.md`. What the clause records stays as decided under R1-6; only its place in the bullet is at issue.",
+      "proposedFix": "Move the clause, unchanged, after \"allow rules are not consulted for a subagent's write in either mode.\", as its own sentence that does not depend on \"The probe, on Claude Code 2.1.319\"; or say \"passed under both launches\".",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "On a fresh launch the warning comes after the settings question and is followed by \"go on\", so nothing waits. The minutes before the first post leave time to stop the run, and the failure resumes with a warning first (R1-4 covered only the resume); saying it before section 3 would give a pause without making it a stop, against Decision 2's placement."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "The test reads only Redline's own root, so an installed Redline in a session that loads some other plugin with `--plugin-dir` gets no warning, if the refusal follows any inline plugin as #76's Nov 9 comments suggest; not reproduced. Already tracked in #76, which lacks this consequence for `CONTRIBUTING.md:7` and `release.md:12` (\"an installed release is clean\")."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 47,
+      "text": "Changing mode to bypass may need a restart with a flag, and the `claude --resume <id>` line (`scripts/redline-prefs.sh:187`) omits `--plugin-dir`; a session reopened that way loads the cached copy, the warning goes silent, and the `plugin` check (line 217) runs only when HEAD moved. Harness behaviour not reproduced."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "The warning offers \"accept-edits and approve each prompt\" with no qualifier, though line 47 also has a headless resume say it, where nobody can approve; bypass is the only remedy there and only the round 1 spec says so. Headless behaviour not run."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 107,
+      "text": "The warning says the launcher's first file write can be refused (Nov 6), but section 5 step 4 names no failure path for the `snapshot-start.json` Write, so the launcher would improvise; code this PR did not change."
+    },
+    {
+      "file": "docs/running.md",
+      "line": 56,
+      "text": "R1-6 was decided, and this still reproduces it: \"What the guard does not vet\" says a fork's write is left to the session's permission prompt with no bypass caveat, and the caveat sits only in Precheck (line 30)."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 87,
+      "text": "The warning is said from two sites and reconciled by a \"not said twice\" sentence; one site after the PR number is parsed would cover every path and would also give a fresh launch the pause noted above."
+    }
+  ],
+  "coverage": {
+    "head": "37c22f9f24a84a421911a676e3bcaa8cf412be37",
+    "candidates": 9,
+    "counts": {
+      "finding": 2,
+      "forThePerson": 7,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "forThePerson",
+        "ref": "True as traced, but a fresh launch has minutes before its first post and a warned resume after it, unlike the resume R1-4 fixed; placement is Decision 2's."
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "Plausible, not reproduced with an installed Redline; related to #76."
+      },
+      {
+        "index": 3,
+        "outcome": "forThePerson",
+        "ref": "The run check line and the plugin condition were read; the harness behaviour was not reproduced, and the cause is mostly code this PR did not change."
+      },
+      {
+        "index": 4,
+        "outcome": "finding",
+        "ref": "R2-1"
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "Plausible, headless behaviour not run; bypass is offered in the same sentence."
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "Cause is in section 5, which this PR did not change."
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": "R1-6 was decided, and this still reproduces it."
+      },
+      {
+        "index": 8,
+        "outcome": "finding",
+        "ref": "R2-2"
+      },
+      {
+        "index": 9,
+        "outcome": "forThePerson",
+        "ref": "A simplification, no wrong behaviour."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "skills/redline/SKILL.md",
+        "line": 87,
+        "summary": "On a fresh launch the Inline session warning comes after the last question and is followed by 'go on', so the person gets no pause to act on it. R1-4 fixed this same defect only for a resume.",
+        "failure_scenario": "A `claude --plugin-dir` session in auto mode runs `/redline:redline 83` with no marker. Section 3's settings AskUserQuestion is answered first, then section 4 step 1 says the warning and goes on through the precheck, the snapshot and `Workflow(...)` in the same turn. Nothing waits, so the run starts in auto mode and is refused at its first post, the failure the warning exists to prevent. Line 47 calls the point before a question 'the last point at which the person can leave ... change the session's permission mode'; the normal launch path has no such point. Saying it before section 3 would make the settings question the pause."
+      },
+      {
+        "index": 2,
+        "file": "skills/redline/SKILL.md",
+        "line": 87,
+        "summary": "The condition tests only Redline's own root, but #76's root cause is any plugin loaded with `--plugin-dir`, so an installed Redline in such a session gets no warning.",
+        "failure_scenario": "The Nov 9 comments on #76 reproduce the refusal with a project subagent and state 'With any plugin loaded through `--plugin-dir`'. Someone runs `claude --plugin-dir ../other-plugin` in auto mode with Redline installed. `${CLAUDE_PLUGIN_ROOT}` is under `/plugins/cache/`, so nothing is said, and the roles' Writes should be refused the same way at the first post (inferred from that repro, not run with an installed Redline). `CONTRIBUTING.md:7` ('An installed release runs clean') and `agent-os/standards/process/release.md:12` ('an installed release is clean') are wrong for that session, and the warning's stated cause is the wrong one."
+      },
+      {
+        "index": 3,
+        "file": "skills/redline/SKILL.md",
+        "line": 47,
+        "summary": "The resume warning says to change the session's mode, but bypass-permissions needs a CLI flag at start, and the printed `claude --resume <id>` route drops `--plugin-dir`, after which the warning goes silent and the released code runs.",
+        "failure_scenario": "A self-hosted run errors at `post r1` in auto mode, and the person picks the bypass remedy. `claude --help` lists bypass only through `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions` or `--permission-mode bypassPermissions`, so a session started without one must be reopened (assuming the mode cycle offers bypass only when one was set). `run check` requires the same session and prints only `claude --resume <id>` (`scripts/redline-prefs.sh:187`), and `--plugin-dir` is 'for this session only'. In the reopened session `${CLAUDE_PLUGIN_ROOT}` is the cached copy, so the Inline paragraph is silent, a resume skips the precheck and with it the #16 warning, and the `plugin` check is skipped because the root is not the repository. The relaunch then runs the released skill and workflow against marker args whose `pluginRoot` is the checkout. Neither the warning nor the `run check` line says to pass `--plugin-dir` and the mode flag again."
+      },
+      {
+        "index": 4,
+        "file": "agent-os/specs/2026-11-09-0858-76-inline-session-auto-mode-warning/shape.md",
+        "line": 23,
+        "summary": "Decision 8's post-tag walk is meant to avoid a vacuous pass, but keeping the version at 0.2.0 makes it vacuous, and its premise that 0.1.0 is the only installed release no longer holds.",
+        "failure_scenario": "This machine's `installed_plugins.json` has `redline@redline` at 0.2.0 from `94f4616`, with `~/.claude/plugins/cache/redline/redline/0.2.0`, and that copy's `skills/redline/SKILL.md` has 0 matches for 'Inline session'. `agent-os/standards/process/release.md` says an install moves on the manifest's `version`, not the tag. Decision 4 keeps 0.2.0, so after the merge and tag `claude plugin update` should see no change and the cached copy stays pre-#83. The 'one installed-release session shows no warning' walk that closes #76 then passes against code with no warning in it, which is what Decision 8 says it must not do. A patch bump, or a forced reinstall in the walk, would make the check real."
+      },
+      {
+        "index": 5,
+        "file": "skills/redline/SKILL.md",
+        "line": 87,
+        "summary": "The warning offers accept-edits as a remedy without saying it cannot work where nobody can answer a prompt, though line 47 has a headless session say this paragraph too.",
+        "failure_scenario": "`claude -p --plugin-dir <root> --permission-mode acceptEdits` runs `/redline:redline 83`. `claude --help` says that with `--permission-prompts none` anything that would prompt is denied automatically, and in print mode with no prompt host there is nobody to approve either, so each role Write fails as it does in auto (`dontAsk` should end the same way). The text says 'run this session in accept-edits and approve each prompt' with no qualifier. Round 1's Decision 7 records bypass as 'the only remedy for an unattended inline session', but no reader-facing text says so, and the sentence added for R1-6 now argues against the one remedy that works there."
+      },
+      {
+        "index": 6,
+        "file": "skills/redline/SKILL.md",
+        "line": 107,
+        "summary": "The spec widened the warning to cover the Nov 6 refusal of the launcher's own snapshot Write, but section 5 still has no instruction for when that Write is refused.",
+        "failure_scenario": "In an inline auto-mode session the Write of `snapshot-start.json` is refused, as `release.md:12` records for Nov 6, right after the warning said 'go on'. Section 4's 'Any failure stops the launch with one line' covers only the precheck, and section 5 step 4 names no failure path. The launcher has to improvise: retry, write through Bash into `agent-os/specs/` (a route the guard leaves to the session's permission mode for the main session), or launch with a `snapshotPath` that does not exist. The warning says this failure can happen, and the skill does not say what to do when it does."
+      },
+      {
+        "index": 7,
+        "file": "docs/running.md",
+        "line": 56,
+        "summary": "The paragraph that actually states the coverage pass's safety still says a fork's write is 'left to the session's permission prompt', with no bypass caveat; R1-6 put the caveat only in Precheck.",
+        "failure_scenario": "A reader checking the fork's exposure goes to 'What the guard does not vet' and reads that a subcommand which posts or resolves threads 'is left to the session's permission prompt, never refused', and that 'the rest meets the session's allow list or permission prompt'. Under bypass-permissions, the mode this PR now offers, neither holds. The caveat sits 26 lines earlier in an unrelated section, and `agent-os/standards/scripts/guard.md:23` counts `docs/running.md` as saying it."
+      },
+      {
+        "index": 8,
+        "file": "agent-os/standards/process/release.md",
+        "line": 12,
+        "summary": "The bypass clause R1-6 inserted leaves 'in both' with no clear referent and sits inside the sentence that dates the probe to Claude Code 2.1.319, the same kind of drift R1-1 fixed.",
+        "failure_scenario": "The bullet now reads '... written under plain `claude`; bypass-permissions is confirmed as a remedy by PR #83 round 1 ... The main session's own Writes passed in both'. 'Both' meant the two launches, but the nearest pair is now bypass and plain `claude`, so it reads as a claim about main-session Writes in bypass that nobody probed. The clause also falls under 'The probe, on Claude Code 2.1.319:', although the bypass confirmation was a separate session whose version is not recorded."
+      },
+      {
+        "index": 9,
+        "file": "skills/redline/SKILL.md",
+        "line": 87,
+        "summary": "The warning is said from two sites and reconciled by a 'not said twice' sentence, when one site after the PR number is parsed would cover every path.",
+        "failure_scenario": "Line 47 says the paragraph when a marker exists, line 87 says it on a fresh launch, and a third sentence has the model remember across sections whether a Start fresh already said it. The cost is a condition restated in two places and a dedupe rule that no test reads. Saying it once before `run read` covers no-marker launches, Resume, Start fresh and headless, removes the dedupe sentence, and also fixes the fresh-launch timing finding above."
+      }
+    ]
+  }
+}
