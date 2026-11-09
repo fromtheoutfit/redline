@@ -28,9 +28,14 @@ Settled from the code:
 10. **The skill reads the variable, not `plugin.pluginRoot`.** A resume never calls `redline-setup.sh version`, so one test serves both places with no extra call. `/redline:redline-review` and `/redline:redline-revise` read this file and state that the variable is their root, and their precheck is this one, so they get the warning unchanged.
 11. **The harness fact goes in `process/release.md`,** after the bullets on loading the checkout with `--plugin-dir` and on the precheck's warning.
 
+Recorded at review (PR #83, round 1):
+
+12. **The standards bullet landed with the code.** `4edbbb7` holds `agent-os/standards/process/release.md` beside `skills/redline/SKILL.md`, `docs/running.md`, `CONTRIBUTING.md` and this spec folder, against the rule that a standards edit goes on its own. The history is kept: two lines of accurate record cost far less than a force-push that would change every later commit id on the branch for the sake of one bullet's separation (#83, R1-3).
+   Decided by: @michaelfromtheoutfit
+
 ## Standards retrospective
 
-Every decision above was classified. The version exception and `--plugin-dir` loading are already in `process/release.md`, and the Docs entry follows `process/docs-gate.md`. No check went red during the build, and no pattern was invented. Missing: the harness fact and its probe, added as one bullet at the end of `process/release.md`, approved at the gate, in its own commit. No heading changed.
+Every decision above was classified. The version exception and `--plugin-dir` loading are already in `process/release.md`, and the Docs entry follows `process/docs-gate.md`. No check went red during the build, and no pattern was invented. Missing: the harness fact and its probe, added as one bullet at the end of `process/release.md`, approved at the gate, and committed in `4edbbb7` with the skill and the docs rather than on its own (Decision 12). No heading changed.
 
 ## Open after the gate
 
@@ -47,5 +52,5 @@ Every decision above was classified. The version exception and `--plugin-dir` lo
 
 - process/release: the version rule and its "keeps the version on purpose" exception, and where the `--plugin-dir` fact belongs.
 - process/docs-gate: the skill change names `docs/running.md`, "Precheck".
-- process/standards-retrospective: the harness fact lands in its own commit.
+- process/standards-retrospective: the harness fact was meant to land on its own and landed in `4edbbb7` (Decision 12).
 - prompts/attribution: nothing this change adds carries an attribution marker.

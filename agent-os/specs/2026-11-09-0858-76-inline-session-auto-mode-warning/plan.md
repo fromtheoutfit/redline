@@ -81,7 +81,7 @@ The PR does not exist during the build. After you open it, add a new `### Fixes`
 
 ## As built
 
-Built as shaped, with no deviation.
+Built as shaped, with one deviation from "Commits": the standards bullet in `agent-os/standards/process/release.md` landed in `4edbbb7` beside the skill, the docs and the spec folder, not on its own (`shape.md`, Decision 12).
 
 - Tasks 1 and 2 are done, and the standards bullet is applied as drafted.
 - Task 3 landed in `00b04f3`, the `#83` line under `### Fixes` in `CHANGELOG.md`.
