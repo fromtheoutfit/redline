@@ -1530,6 +1530,10 @@ function samePrefix(name, first, second, n) {
   // naming the index, so the slip is visible and the candidate never leaves silently.
   run = await go('coverage: a dropped candidate with no reason', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: '  ' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'settled', ref: 'R1-1' }]] })
   check('coverage: a dropped candidate with no reason reads "no reason given", with a warning naming its index', body(run.calls, 'post r1').includes('- `app/y.php:9` · a nit for the person · refuted: no reason given\n') && run.res.warnings.includes('round 1: the reviewer dropped coverage candidate 2 as refuted with no reason; listed as "no reason given"'), [body(run.calls, 'post r1'), run.res.warnings])
+  // The handoff carries the last covered round's block, not the last round with drops (#85,
+  // decision 14; #86, R1-2): round 1 dropped candidate 2, round 2 ran the pass and dropped nothing,
+  // so the handoff has no block.
+  check('coverage: the handoff carries the last covered round\'s block, not the last round with drops, so a last covered round that dropped nothing leaves no block though an earlier round dropped one', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
 
   // coverage off: no candidates, so no dropped block anywhere.
   check('coverage: off has no dropped block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
