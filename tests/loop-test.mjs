@@ -1403,6 +1403,9 @@ function samePrefix(name, first, second, n) {
   run = await go('coverage: a known finding from a candidate', covArgs, { reviews: [[f('R1-1', 'correctness', { knownAs: '#7' })]], coverage: [two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }]] })
   nb = body(run.calls, 'post r1')
   check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 confirmed') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
+  // Its accounting entry is known, so the set-aside block lists the candidate's own summary beside
+  // the finding and the issue it is tracked in (the #85 follow-up spec, decision 1).
+  check('coverage: a known finding from a candidate is listed in the set-aside block with the finding and the issue', nb.includes('<summary>Candidates set aside (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · known: R1-1: #7\n- `app/y.php:9` · a nit for the person · refuted: not reachable\n'), nb)
   run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
   check('coverage: under scope all a nit from a candidate is still confirmed', run.res.rounds[1].coverage.counts.finding === 1 && run.res.rounds[1].coverage.counts.forThePerson === 0, run.res.rounds[1].coverage)
   check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
@@ -1464,11 +1467,13 @@ function samePrefix(name, first, second, n) {
   // absent from a coverage-off prompt, so a rule restated in one place and not the other is red
   // (#80, R3-3) and coverage off stays as before. #85 named a structural test of the agent file
   // that did not exist; these checks are what was built in its place.
-  // The fifth entry pins that a partly tracked remainder meets every other rule (#86, R2-1).
-  const offRules = await go('coverage: off, the verifier rules and the dropped block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
+  // The fifth entry pins that a partly tracked remainder meets every other rule (#86, R2-1). The
+  // sixth pins the accounting sentence that says what the set-aside block lists, widened with the
+  // block (the #85 follow-up spec, answer 11).
+  const offRules = await go('coverage: off, the verifier rules and the set-aside block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
   const uncovered = pick(offRules.calls, 'review r1').prompt
   const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })).calls, 'review r1').prompt
-  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere']]) {
+  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is neither a finding nor a For the person entry', 'every candidate that is neither a finding nor']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
   // The known-finding section opens on what is tracked in full (#86, R1-1). The review prompt's own
@@ -1478,8 +1483,9 @@ function samePrefix(name, first, second, n) {
 
   // A candidate an issue tracks only in part (#85): the remainder caused in this pull request's
   // diff is a finding that names the issue, knownAs empty, so it is confirmed, listed under
-  // Findings, shaped, and keeps the run going. Neither round drops a candidate, so neither the
-  // review body nor the handoff has a dropped block.
+  // Findings, shaped, and keeps the run going. The tracked part is known, so each round's set-aside
+  // block lists it with the issue (the #85 follow-up spec, decision 2), and the handoff carries
+  // round 2's.
   const partlyCandidates = fenced([cand('app/x.php', 3, 'the save no longer checks the owner, and the lookup ignores case'), cand('app/x.php', 8, 'the lookup ignores case')])
   run = await go('coverage: a partly tracked candidate', covArgs, {
     reviews: [[f('R1-1', 'correctness', { file: 'app/x.php', line: 3, description: 'Issue #7 tracks the case-insensitive lookup; the owner check this pull request removed from the save is not in it.' })], []],
@@ -1489,61 +1495,113 @@ function samePrefix(name, first, second, n) {
   })
   const pb = body(run.calls, 'post r1')
   check('coverage: a partly tracked candidate is a finding naming the issue, confirmed, shaped, and the run goes on', pick(run.calls, 'review r1').prompt.includes('the remainder is judged as its own candidate') && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].findings[0].knownAs === '' && pb.includes('1 confirmed') && pb.includes('1 already tracked') && pb.includes('### Findings (1 correctness, 0 nit)\n\n- **R1-1**') && !pb.includes('### Already tracked') && pick(run.calls, 'post r1').prompt.includes('Issue #7 tracks the case-insensitive lookup') && pick(run.calls, 'shape r1').prompt.includes('"id": "R1-1"') && labels(run.calls).includes('re-review r2') && run.res.status === 'done', [pb, run.res.rounds[0].coverage, labels(run.calls)])
-  check('coverage: a round that drops no candidate has no dropped block, in the review body or the handoff', !pb.includes('<details>') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('<details>') && !b1.includes('<details>'), [pb, comment(run.calls, 'handoff comment')])
+  const knownLine = '- `app/x.php:8` · the lookup ignores case · known: #7'
+  check('coverage: the set-aside block lists a partly tracked candidate\'s tracked part as known, naming the issue, in the review body and the handoff', pb.includes('<details>\n<summary>Candidates set aside (1): collapsed, already tracked or dropped</summary>\n\n' + knownLine + '\n\n</details>') && comment(run.calls, 'handoff comment').includes('<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the save no longer checks the owner, and the lookup ignores case · settled: R1-1\n' + knownLine + '\n\n</details>'), [pb, comment(run.calls, 'handoff comment')])
+  check('coverage: a round whose candidates are all findings or For the person has no set-aside block', b1.includes('1 confirmed, 1 for the person,') && !b1.includes('<details>'), b1)
 
-  // The dropped block (#85): every refuted, outside and disproportionate candidate, one line each
-  // after For the person, in index order, with the candidate's own file, line and summary, unedited,
-  // and the verifier's reason. The handoff carries the block of the last round that ran the pass,
-  // naming that round; an earlier round's drops stay in its own review body.
-  const five = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit for the person'), cand('app/z.php', 5, 'Saving clears the `note` field when the form *omits* it'), cand('lib/w.php', 12, 'an old helper rounds down'), cand('app/v.php', 7, 'two saves in the same millisecond lose one')])
-  const dropOut = [
+  // The set-aside block (#85; the #85 follow-up spec): every candidate that is neither a finding
+  // nor a For the person entry, by one rule, one line each after For the person, in index order,
+  // with the candidate's own file, line and summary, as written, then the outcome and the
+  // verifier's ref. A known line names the issue; a duplicate of another candidate's index also
+  // gives that candidate's place and outcome, so a duplicate of a dropped or For the person
+  // candidate cannot hide; a duplicate of a finding id is as written. The label's count is the
+  // count sentence's collapsed, already tracked and dropped added up. The handoff carries the block
+  // of the last round that ran the pass, naming that round; an earlier round's block stays in its
+  // own review body.
+  const nine = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit for the person'), cand('app/z.php', 5, 'Saving clears the `note` field when the form *omits* it'), cand('lib/w.php', 12, 'an old helper rounds down'), cand('app/v.php', 7, 'two saves in the same millisecond lose one'), cand('app/u.php', 4, 'the export skips archived rows'), cand('app/x.php', 4, 'the save skips the owner check'), cand('app/z.php', 6, 'saving drops the note'), cand('app/y.php', 10, 'the person should see the nit')])
+  const setAsideOut = [
     { index: 5, outcome: 'disproportionate', ref: 'needs two saves in the same millisecond' },
     { index: 1, outcome: 'finding', ref: 'R1-1' },
     { index: 2, outcome: 'forThePerson', ref: '' },
     { index: 3, outcome: 'refuted', ref: 'The claim is that saving clears the note when the form omits it; the form always sends the field, and the save test posts without it and keeps the note.' },
     { index: 4, outcome: 'outside', ref: 'lib/w.php is not changed by this pull request' },
+    { index: 6, outcome: 'known', ref: '#7' },
+    { index: 7, outcome: 'duplicate', ref: 'R1-1' },
+    { index: 8, outcome: 'duplicate', ref: '3' },
+    { index: 9, outcome: 'duplicate', ref: 'candidate 2' },
   ]
-  run = await go('coverage: the dropped block', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [five, two], coverageOut: [dropOut, settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []] })
-  const dropped1 = [
+  run = await go('coverage: the set-aside block', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [nine, two], coverageOut: [setAsideOut, settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []] })
+  const setAside1 = [
     '<details>',
-    '<summary>Dropped candidates (3): refuted, outside the diff or disproportionate</summary>',
+    '<summary>Candidates set aside (7): collapsed, already tracked or dropped</summary>',
     '',
     '- `app/z.php:5` · Saving clears the `note` field when the form *omits* it · refuted: The claim is that saving clears the note when the form omits it; the form always sends the field, and the save test posts without it and keeps the note.',
     '- `lib/w.php:12` · an old helper rounds down · outside: lib/w.php is not changed by this pull request',
     '- `app/v.php:7` · two saves in the same millisecond lose one · disproportionate: needs two saves in the same millisecond',
+    '- `app/u.php:4` · the export skips archived rows · known: #7',
+    '- `app/x.php:4` · the save skips the owner check · duplicate: R1-1',
+    '- `app/z.php:6` · saving drops the note · duplicate: 3 (candidate 3, `app/z.php:5`: refuted)',
+    '- `app/y.php:10` · the person should see the nit · duplicate: candidate 2 (candidate 2, `app/y.php:9`: forThePerson)',
     '',
     '</details>',
   ].join('\n')
   const db = body(run.calls, 'post r1')
-  check('coverage: the review body lists every dropped candidate after For the person, in index order, with its own summary unedited and the reason', db.includes('### For the person\n\n- `app/y.php:9` · a nit for the person\n\n' + dropped1 + '\n\nEach finding has an inline comment'), db)
-  check('coverage: no dropped line opens with a finding id, so prior-findings never reads one back', db.includes('<details>') && !db.slice(db.indexOf('<details>'), db.indexOf('</details>')).split('\n').some((l) => l.startsWith('- **R')), db)
-  const lastBlock = '<details>\n<summary>Dropped candidates in round 2 (1): refuted, outside the diff or disproportionate</summary>\n\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
+  check('coverage: the review body lists every candidate that is neither a finding nor For the person after For the person, in index order, with its own summary, the outcome and the ref', db.includes('### For the person\n\n- `app/y.php:9` · a nit for the person\n\n' + setAside1 + '\n\nEach finding has an inline comment'), db)
+  check('coverage: the set-aside block\'s count is the count sentence\'s collapsed, already tracked and dropped added up', db.includes('returned 9 candidates: 1 confirmed, 1 for the person, 3 collapsed into findings already reported or settled, 1 already tracked, 3 dropped (refuted, outside the diff or disproportionate).') && db.includes('Candidates set aside (7)'), db)
+  check('coverage: no set-aside line opens with a finding id, so prior-findings never reads one back', db.includes('<details>') && !db.slice(db.indexOf('<details>'), db.indexOf('</details>')).split('\n').some((l) => l.startsWith('- **R')), db)
+  const lastBlock = '<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: the handoff carries the last covered round\'s dropped block, naming the round, after For the person and before Commits; round 1\'s drops are not repeated', handoff.includes(lastBlock) && handoff.indexOf('### For the person') < handoff.indexOf('<details>') && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5'), handoff)
+  check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, after For the person and before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('### For the person') < handoff.indexOf('<details>') && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
   // What the result keeps of a covered round (#80, R1-5; #86, R2-2): the candidate count, the
-  // counts by outcome and the accounting, each dropped candidate's index, outcome and ref among
-  // it, and no droppedCandidates field and no candidate list. The dropped entries, with their
+  // counts by outcome and the accounting, each set-aside candidate's index, outcome and ref among
+  // it, and no setAsideCandidates field and no candidate list. The set-aside entries, with their
   // file, line and summary, ride on the round record, which only the handoff reads (the handoff
   // check above).
-  check('coverage: the result keeps the candidate count, the dropped counts and each dropped candidate\'s index, outcome and ref in the accounting, and no droppedCandidates field or candidate list', !('droppedCandidates' in run.res.rounds[0]) && Object.keys(run.res.rounds[0].coverage).join(',') === 'head,candidates,counts,accounting' && run.res.rounds[0].coverage.candidates === 5 && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.outside === 1 && run.res.rounds[0].coverage.counts.disproportionate === 1 && run.res.rounds[0].coverage.accounting.every((e) => Object.keys(e).join(',') === 'index,outcome,ref') && dropOut.filter((d) => ['refuted', 'outside', 'disproportionate'].includes(d.outcome)).every((d) => run.res.rounds[0].coverage.accounting.some((e) => e.index === d.index && e.outcome === d.outcome && e.ref === d.ref)), [Object.keys(run.res.rounds[0]), run.res.rounds[0].coverage])
+  check('coverage: the result keeps the candidate count, the dropped counts and each set-aside candidate\'s index, outcome and ref in the accounting, and no setAsideCandidates field or candidate list', !('setAsideCandidates' in run.res.rounds[0]) && Object.keys(run.res.rounds[0].coverage).join(',') === 'head,candidates,counts,accounting' && run.res.rounds[0].coverage.candidates === 9 && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.outside === 1 && run.res.rounds[0].coverage.counts.disproportionate === 1 && run.res.rounds[0].coverage.accounting.every((e) => Object.keys(e).join(',') === 'index,outcome,ref') && setAsideOut.filter((d) => !['finding', 'forThePerson'].includes(d.outcome)).every((d) => run.res.rounds[0].coverage.accounting.some((e) => e.index === d.index && e.outcome === d.outcome && e.ref === d.ref)), [Object.keys(run.res.rounds[0]), run.res.rounds[0].coverage])
 
   // A run that ends in a final nit pass, which runs no coverage pass, carries the block of the
   // round before it, and names that round.
-  run = await go('coverage: the dropped block before a final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [three, three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }, { index: 3, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }, { index: 3, outcome: 'refuted', ref: 'The claim is three; the code does two.' }]] })
+  run = await go('coverage: the set-aside block before a final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [three, three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }, { index: 3, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }, { index: 3, outcome: 'refuted', ref: 'The claim is three; the code does two.' }]] })
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('<details>\n<summary>Dropped candidates in round 2 (1): refuted, outside the diff or disproportionate</summary>\n\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('outside: untouched code'), handoff)
+  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('outside: untouched code'), handoff)
 
-  // A dropped entry with no reason still gets its line, reading "no reason given", and a warning
+  // A set-aside entry with no ref still gets its line, reading "no reason given", and a warning
   // naming the index, so the slip is visible and the candidate never leaves silently.
-  run = await go('coverage: a dropped candidate with no reason', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: '  ' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'settled', ref: 'R1-1' }]] })
-  check('coverage: a dropped candidate with no reason reads "no reason given", with a warning naming its index', body(run.calls, 'post r1').includes('- `app/y.php:9` · a nit for the person · refuted: no reason given\n') && run.res.warnings.includes('round 1: the reviewer dropped coverage candidate 2 as refuted with no reason; listed as "no reason given"'), [body(run.calls, 'post r1'), run.res.warnings])
-  // The handoff carries the last covered round's block, not the last round with drops (#85,
-  // decision 14; #86, R1-2): round 1 dropped candidate 2, round 2 ran the pass and dropped nothing,
-  // so the handoff has no block.
-  check('coverage: the handoff carries the last covered round\'s block, not the last round with drops, so a last covered round that dropped nothing leaves no block though an earlier round dropped one', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
+  run = await go('coverage: a set-aside candidate with no reason', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: '  ' }], [{ index: 1, outcome: 'forThePerson', ref: '' }, { index: 2, outcome: 'forThePerson', ref: '' }]], forThePerson: [[], [{ file: 'app/x.php', line: 3, text: 'the real one, plausible' }, { file: 'app/y.php', line: 9, text: 'a nit for the person' }]] })
+  check('coverage: a set-aside candidate with no reason reads "no reason given", with a warning naming its index', body(run.calls, 'post r1').includes('- `app/y.php:9` · a nit for the person · refuted: no reason given\n') && run.res.warnings.includes('round 1: the reviewer set aside coverage candidate 2 as refuted with no reason; listed as "no reason given"'), [body(run.calls, 'post r1'), run.res.warnings])
+  // The handoff carries the last covered round's block, not the last round with one (#85,
+  // decision 14; #86, R1-2): round 1 set candidate 2 aside, round 2 ran the pass and put both
+  // candidates under For the person, so the handoff has no block.
+  check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
 
-  // coverage off: no candidates, so no dropped block anywhere.
-  check('coverage: off has no dropped block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
+  // The escaping inside the set-aside block (the #85 follow-up spec, decisions 4, 5 and 10): `&`
+  // then `<` are escaped outside code spans, read over the line's whole text as GitHub pairs
+  // backtick runs (equal lengths; an unclosed run is plain text), so no tag in a summary or a ref
+  // ends the block or opens another, while a code span reads as written. A text with a newline, or
+  // a backslash before a backtick, is escaped whole. For the person lines are not escaped.
+  const tags = fenced([
+    cand('app/a.vue', 1, 'a bare </details> ends the block, a bare <details> opens one, and `<Head title="x" />` in a span is text'),
+    cand('app/b.vue', 2, 'a double-backtick span ``a ` b <c>`` keeps its single backtick'),
+    cand('app/c.vue', 3, 'an unclosed ` before <i> is plain text'),
+    cand('app/d.vue', 4, 'one ` left open in the summary'),
+    cand('app/e.vue', 5, 'two\nlines with `<b>`'),
+    cand('app/f.vue', 6, 'an escaped \\` then <i>`'),
+  ])
+  const tagsOut = [
+    { index: 1, outcome: 'refuted', ref: 'Tom & Jerry wrote &lt; by hand' },
+    { index: 2, outcome: 'outside', ref: 'untouched code' },
+    { index: 3, outcome: 'disproportionate', ref: 'needs a lone backtick' },
+    { index: 4, outcome: 'refuted', ref: '`<c>` pairs it across the ref' },
+    { index: 5, outcome: 'outside', ref: 'untouched code' },
+    { index: 6, outcome: 'outside', ref: 'untouched code' },
+  ]
+  run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[]], coverage: [tags], coverageOut: [tagsOut], forThePerson: [[{ file: 'app/q.vue', line: 1, text: 'a <b> & c note' }]] })
+  const escapedLines = [
+    '- `app/a.vue:1` · a bare &lt;/details> ends the block, a bare &lt;details> opens one, and `<Head title="x" />` in a span is text · refuted: Tom &amp; Jerry wrote &amp;lt; by hand',
+    '- `app/b.vue:2` · a double-backtick span ``a ` b <c>`` keeps its single backtick · outside: untouched code',
+    '- `app/c.vue:3` · an unclosed ` before &lt;i> is plain text · disproportionate: needs a lone backtick',
+    '- `app/d.vue:4` · one ` left open in the summary · refuted: `&lt;c>` pairs it across the ref',
+    '- `app/e.vue:5` · two\nlines with `&lt;b>` · outside: untouched code',
+    '- `app/f.vue:6` · an escaped \\` then &lt;i>` · outside: untouched code',
+  ].join('\n')
+  const eb = body(run.calls, 'post r1')
+  handoff = comment(run.calls, 'handoff comment')
+  const oneBlock = (text) => text.split('<details>').length === 2 && text.split('</details>').length === 2 && text.split('<summary>').length === 2
+  check('coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('<summary>Candidates set aside (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && handoff.includes('<summary>Candidates set aside in round 1 (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
+  check('coverage: a For the person line is not escaped, so the escaping is the set-aside block\'s alone', eb.includes('### For the person\n\n- `app/q.vue:1` · a <b> & c note\n') && handoff.includes('- `app/q.vue:1` · a <b> & c note'), eb)
+
+  // coverage off: no candidates, so no set-aside block anywhere.
+  check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)
