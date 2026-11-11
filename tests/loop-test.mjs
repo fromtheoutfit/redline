@@ -1459,14 +1459,15 @@ function samePrefix(name, first, second, n) {
   const mixed = await go('coverage: a bad config value', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, coverage: 'off' } }, { reviews: [[]] })
   check('coverage: a config value that is neither an object nor null fails at launch', mixed.thrown && mixed.thrown.message.includes('args.models.coverage must be an object'), mixed.thrown && mixed.thrown.message)
 
-  // The verifier's three rules (#85), each pinned by a short key phrase in the agent file and in a
-  // covered verify prompt, and absent from a coverage-off prompt, so a rule restated in one place
-  // and not the other is red (#80, R3-3) and coverage off stays as before. #85 named a structural
-  // test of the agent file that did not exist; these checks are what was built in its place.
+  // The verifier's three rules (#85), and where a partly tracked candidate's issue is named (#86,
+  // R1-4), each pinned by a short key phrase in the agent file and in a covered verify prompt, and
+  // absent from a coverage-off prompt, so a rule restated in one place and not the other is red
+  // (#80, R3-3) and coverage off stays as before. #85 named a structural test of the agent file
+  // that did not exist; these checks are what was built in its place.
   const offRules = await go('coverage: off, the verifier rules and the dropped block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
   const uncovered = pick(offRules.calls, 'review r1').prompt
   const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })).calls, 'review r1').prompt
-  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling']]) {
+  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
   // The known-finding section opens on what is tracked in full (#86, R1-1). The review prompt's own
