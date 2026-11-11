@@ -876,8 +876,9 @@ function personLine(entry) {
 // The dropped block (#85): the candidates the verifier set aside as refuted, outside or
 // disproportionate, collapsed, one line each with the candidate's own file, line and summary,
 // unedited and whole, then the outcome and the verifier's reason, so a refutation that answers a
-// different claim shows as a mismatch on the line. Like a For the person line it opens with the
-// backticked place, never a finding id, so redline-gh.sh prior-findings never reads it back.
+// different claim shows as a mismatch on the line. Each line is built by personLine, so it opens
+// with the backticked place as a For the person line does, never a finding id, and
+// redline-gh.sh prior-findings never reads it back (#86, R1-3).
 // `round` names the round in the handoff, which carries only the last covered round's block.
 function droppedBlock(entries, round) {
   const where = round ? ` in round ${round}` : ''
@@ -885,7 +886,7 @@ function droppedBlock(entries, round) {
     '<details>',
     `<summary>Dropped candidates${where} (${entries.length}): refuted, outside the diff or disproportionate</summary>`,
     '',
-    ...entries.map((e) => `- \`${e.file}:${e.line}\` · ${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}`),
+    ...entries.map((e) => personLine({ file: e.file, line: e.line, text: `${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}` })),
     '',
     '</details>',
   ]
