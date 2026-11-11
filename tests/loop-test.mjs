@@ -1469,6 +1469,10 @@ function samePrefix(name, first, second, n) {
   for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
+  // The known-finding section opens on what is tracked in full (#86, R1-1). The review prompt's own
+  // known-finding sentence stays as it was, so a coverage-off prompt is unchanged, and this sentence
+  // is pinned in the agent file alone.
+  check('coverage: the agent file opens its known-finding check on what is already tracked in full', reviewerAgent.includes('look for what is already tracked in full'), 'agents/redline-reviewer.md, "Check for known findings first"')
 
   // A candidate an issue tracks only in part (#85): the remainder caused in this pull request's
   // diff is a finding that names the issue, knownAs empty, so it is confirmed, listed under

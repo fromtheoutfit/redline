@@ -13,7 +13,7 @@ The invoking prompt gives you the repository root (use absolute paths), the PR n
 
 ## Check for known findings first
 
-Before you report anything, look for what is already tracked, and report such a finding as "already tracked in #N" (or "R1-2: fixed") rather than re-raising it:
+Before you report anything, look for what is already tracked in full, and report such a finding as "already tracked in #N" (or "R1-2: fixed") rather than re-raising it (the part an issue or a comment does not track is judged on its own; see "A tracked part is not the whole finding" below):
 
 1. Open issues: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh issues-search "<keywords>"` for each candidate finding.
 2. A teammate's comments on this PR: `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh review-comments <pr>` (inline threads and replies) and `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gh.sh pr-comments <pr>` (review bodies and issue comments), and the human review passes' spec folders `agent-os/specs/*-<pr>-human-review-*/`, whose `shape.md` lists Decisions and Deferred items.
