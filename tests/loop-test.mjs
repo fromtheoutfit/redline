@@ -1520,7 +1520,12 @@ function samePrefix(name, first, second, n) {
   const lastBlock = '<details>\n<summary>Dropped candidates in round 2 (1): refuted, outside the diff or disproportionate</summary>\n\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
   handoff = comment(run.calls, 'handoff comment')
   check('coverage: the handoff carries the last covered round\'s dropped block, naming the round, after For the person and before Commits; round 1\'s drops are not repeated', handoff.includes(lastBlock) && handoff.indexOf('### For the person') < handoff.indexOf('<details>') && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5'), handoff)
-  check('coverage: the round record keeps the dropped entries for the handoff, and the result keeps counts only', !('droppedCandidates' in run.res.rounds[0]) && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.outside === 1 && run.res.rounds[0].coverage.counts.disproportionate === 1, Object.keys(run.res.rounds[0]))
+  // What the result keeps of a covered round (#80, R1-5; #86, R2-2): the candidate count, the
+  // counts by outcome and the accounting, each dropped candidate's index, outcome and ref among
+  // it, and no droppedCandidates field and no candidate list. The dropped entries, with their
+  // file, line and summary, ride on the round record, which only the handoff reads (the handoff
+  // check above).
+  check('coverage: the result keeps the candidate count, the dropped counts and each dropped candidate\'s index, outcome and ref in the accounting, and no droppedCandidates field or candidate list', !('droppedCandidates' in run.res.rounds[0]) && Object.keys(run.res.rounds[0].coverage).join(',') === 'head,candidates,counts,accounting' && run.res.rounds[0].coverage.candidates === 5 && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.outside === 1 && run.res.rounds[0].coverage.counts.disproportionate === 1 && run.res.rounds[0].coverage.accounting.every((e) => Object.keys(e).join(',') === 'index,outcome,ref') && dropOut.filter((d) => ['refuted', 'outside', 'disproportionate'].includes(d.outcome)).every((d) => run.res.rounds[0].coverage.accounting.some((e) => e.index === d.index && e.outcome === d.outcome && e.ref === d.ref)), [Object.keys(run.res.rounds[0]), run.res.rounds[0].coverage])
 
   // A run that ends in a final nit pass, which runs no coverage pass, carries the block of the
   // round before it, and names that round.
