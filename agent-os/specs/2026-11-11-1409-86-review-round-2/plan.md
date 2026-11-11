@@ -257,3 +257,51 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #86 round 2 as built (#85)`
+
+## As built
+
+Built in order, one commit per task. Every gate run below is `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-11-1409-86-review-round-2/redline/snapshot.json`; the runs before a task's commit list that task's edits under `uncommitted`, and only their harness output is the evidence.
+
+### Commits
+
+- Task 1: `46c5dce` `redline: save review round 2 spec for PR #86 (#85)` (`plan.md`, `shape.md`, `standards.md`, `references.md`; nothing under `redline/`).
+- Task 2, R2-1: `890ac40` `redline: R2-1 say a partly tracked remainder meets every other rule, so one caused in the diff is a finding unless another rule puts it elsewhere (#85)`. `git diff --name-only HEAD~1 HEAD`: `agents/redline-reviewer.md`, `docs/running.md`, `tests/loop-test.mjs`, `workflows/redline-loop.js`.
+- Task 3, R2-2: `2e8d556` `redline: R2-2 name the result check for what it asserts and pin the accounting the result keeps (#85)`. `git diff --name-only HEAD~1 HEAD`: `tests/loop-test.mjs`.
+- Task 4, step 12: `8807864` `redline: record the round 2 review lessons in the standards, finishing R2-1 (#85)`. `git diff --name-only HEAD~1 HEAD`: `agent-os/standards/testing/tests.md`, `agent-os/standards/workflow/agents.md`.
+- Task 4, step 13: this section, in `redline: record PR #86 round 2 as built (#85)`.
+
+### Proof outputs
+
+- Task 2, red. With the fifth key-phrase entry and its comment line added and the wording not yet changed, the gate's `loop` exited 1 with `602 checks passed, 1 failed` and the line `FAIL coverage: the agent file and the verify prompt state the rule "a partly tracked remainder meets every other rule", and a coverage-off prompt does not: ["unless another rule here puts it elsewhere",false,false,false]`, as planned.
+- Task 2, green after Changes 1 to 7: `loop` at `603 checks passed, 0 failed`. `grep -c "unless another rule here puts it elsewhere"`: agent file `3`, workflow `1`, loop test `1`. `grep -c "unless another of" docs/running.md` `2`. `grep -c "by every rule here"`: workflow `1`, agent file `1`. Each of the six "gone" greps printed `0`. Neighbours: `the remainder is judged as its own candidate` agent file `2`, workflow `1`; `this pull request stopped handling` agent file `1`, workflow `1`; `saying what the issue lacks` workflow `1`; `saying what #N lacks` agent file `2`.
+- Task 3, red. With the check replaced and `result()`'s line mutated to `coverage: record.coverage ? { ...record.coverage, list: record.droppedCandidates } : null,` (line 1963), the gate's `loop` exited 1 with `601 checks passed, 2 failed`. The lines:
+  - `FAIL coverage: the result keeps the candidate count, the dropped counts and each dropped candidate's index, outcome and ref in the accounting, and no droppedCandidates field or candidate list`, its detail showing the result's `coverage` with a fifth key, `list`, holding the three dropped entries.
+  - `FAIL coverage: the result's coverage record has no candidate list`, an existing check (`tests/loop-test.mjs:1315`) that reads `'list' in run.res.rounds[0].coverage` and so also caught this mutation, which names its key `list`. The plan expected `602 checks passed, 1 failed` (see Deviations).
+
+  The old check would have stayed green under this mutation: the failing detail shows `droppedCandidates` absent from the result's round and `refuted`, `outside` and `disproportionate` each `1`. The line was restored with Edit; `git diff --stat -- workflows/redline-loop.js` then printed nothing. Green: `loop` at `603 checks passed, 0 failed`.
+- Task 3 greps: `and the result keeps counts only` `0`, `and no droppedCandidates field or candidate list` `1`, `list: record.droppedCandidates` in the workflow `0`. The neighbours `coverage: the result carries each round's For the person and accounting` and the handoff check before the replaced line stayed green.
+- Step 12. `git diff -- agent-os/standards/ | grep -c "^[-+]#"` printed `0` before the commit.
+
+### Gate counts
+
+Every run of the round: `syntax` 0, `validate` passed with warnings (as before), `guard` `592 passed, 0 mismatched`, `prefs` `101 passed, 0 failed`, `gate` `117 passed, 0 failed`, `setup` `468 passed, 0 failed`, `gh` `114 passed, 0 failed`, `background` `39 passed, 0 failed`. Only `loop` moved: 603 after Task 2, and 603 after Task 3, which replaces one check, as planned.
+
+### Docs and Version
+
+- Step 10: each task's Docs entry was confirmed against its commit. `docs/running.md` "Rounds" step 1 (line 36) and "The coverage pass" (line 48) carry the clause in `890ac40`. The README's "What a clean run means" is unchanged, as planned. Task 3 ends with `workflows/redline-loop.js` unchanged. No new config key, subcommand, allow rule or exit code.
+- Step 11: `0.2.2` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged.
+
+### Standards retrospective
+
+The standards approver approved items 1 and 2 of `shape.md`'s proposed list, applied as worded in `8807864`: the replacement in `workflow/agents.md` line 37 (R2-1) and the sentence appended to `testing/tests.md` line 23 (R2-2). Items 3 to 7 were already covered or not a standard, with no change. Item 1 carries the last statement of R2-1's rule (`shape.md`, Unattended answer 5, sends it to the retrospective), so the commit names R2-1. Item 2 is a lesson only and names no finding.
+
+### Deviations
+
+- Task 3's red run: `601 checks passed, 2 failed`, not the planned `602 checks passed, 1 failed`. The existing check `coverage: the result's coverage record has no candidate list` (line 1315) also reads the result's `coverage` and caught the mutation's `list` key. The new check is red as planned, the old one it replaces would have stayed green, and the green count is as planned. Recorded in `shape.md`, Decision 5.
+- Step 12's commit message is `redline: record the round 2 review lessons in the standards, finishing R2-1 (#85)`, not the plan's text without `finishing R2-1`, since item 1 carries the part of R2-1's fix the plan sends through the retrospective, so R2-1's reply names both commits. Recorded in `shape.md`, Decision 6.
+
+### Notes
+
+- Line numbers moved as the plan foresaw: after Task 2, the replaced check was at `tests/loop-test.mjs:1523` and `result()`'s coverage line at `workflows/redline-loop.js:1963`. Each edit was placed by its text.
+- Run caution (#81), for the person: `git diff --stat beb1913..HEAD -- workflows agents` lists `agents/redline-reviewer.md` and `workflows/redline-loop.js`, so a relaunch of this run after these commits meets #81 (`shape.md`, Context).
+- The PR description's sentence under "For the reviewer", "Prompts:" is still the author's to correct by hand (For the person, above).

@@ -34,6 +34,10 @@ The round reviewed the fix diff `beb1913..fd65cb4` and the coverage pass's candi
    Decided by: redline
 4. **Docs.** Task 2 changes `agents/redline-reviewer.md` and `workflows/redline-loop.js`. It updates `docs/running.md` "Rounds" step 1 and "The coverage pass" in its own commit, since both state the rule without the condition. The README's "What a clean run means" (line 100) needs no change: it says "the part an issue does not track is judged on its own", which the clause keeps. Task 3 changes `tests/loop-test.mjs` only, which is not in a Docs-step directory, and ends with `workflows/redline-loop.js` unchanged. Each task's entry in `plan.md` names its section or its reason (`process/docs-gate`).
    Decided by: redline
+5. **As built, Task 3: the red run had two failures, not one.** Under the mutation, the existing check `coverage: the result's coverage record has no candidate list` (`tests/loop-test.mjs:1315`) went red beside the new check, since it reads `'list' in run.res.rounds[0].coverage` and the mutation names its key `list`. Unattended answer 8's search looked for `Object.keys(` and `JSON.stringify(` and missed an `in` test. The evidence holds: the new check is red, the old check it replaces would have stayed green (its three counts are each 1 and `droppedCandidates` is not on the result's round), and the green count is the planned 603. No change to the plan's code (`plan.md`, As built, Deviations).
+   Decided by: redline
+6. **As built, step 12: the standards commit names R2-1.** Item 1 of the proposed retrospective is the last statement of R2-1's rule (Unattended answer 5 sends it there), so the commit is `redline: record the round 2 review lessons in the standards, finishing R2-1 (#85)` and R2-1's reply names both its commits. Item 2 is a lesson only (`plan.md`, As built, Deviations).
+   Decided by: redline
 
 ### Proportionality
 
