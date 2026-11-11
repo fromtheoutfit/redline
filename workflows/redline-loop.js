@@ -505,6 +505,10 @@ const PERSON_SCHEMA = {
 
 // The verifier's accounting for the coverage pass's candidates (#79): one entry per candidate index.
 const COVERAGE_OUTCOMES = ['finding', 'forThePerson', 'duplicate', 'settled', 'known', 'refuted', 'outside', 'disproportionate']
+// The outcomes that set a candidate aside with only a reason (#85). The review body lists each in
+// its dropped block, and the handoff the last covered round's, so the person can overrule a drop
+// without opening the round folder.
+const DROPPED_OUTCOMES = ['refuted', 'outside', 'disproportionate']
 const COVERAGE_SCHEMA = {
   type: 'object',
   required: ['index', 'outcome', 'ref'],
@@ -852,6 +856,10 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (forThePerson.length) {
     lines.push('', '### For the person', '', ...forThePerson.map(personLine))
   }
+  const dropped = review.droppedCandidates || []
+  if (dropped.length) {
+    lines.push('', ...droppedBlock(dropped))
+  }
   if (active.length) {
     lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
   }
@@ -863,6 +871,24 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
 // for a finding.
 function personLine(entry) {
   return `- \`${entry.file}:${entry.line}\` · ${entry.text}`
+}
+
+// The dropped block (#85): the candidates the verifier set aside as refuted, outside or
+// disproportionate, collapsed, one line each with the candidate's own file, line and summary,
+// unedited and whole, then the outcome and the verifier's reason, so a refutation that answers a
+// different claim shows as a mismatch on the line. Like a For the person line it opens with the
+// backticked place, never a finding id, so redline-gh.sh prior-findings never reads it back.
+// `round` names the round in the handoff, which carries only the last covered round's block.
+function droppedBlock(entries, round) {
+  const where = round ? ` in round ${round}` : ''
+  return [
+    '<details>',
+    `<summary>Dropped candidates${where} (${entries.length}): refuted, outside the diff or disproportionate</summary>`,
+    '',
+    ...entries.map((e) => `- \`${e.file}:${e.line}\` · ${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}`),
+    '',
+    '</details>',
+  ]
 }
 
 // Why nineteen candidates became four findings: the coverage record's counts, by outcome.
@@ -1154,6 +1180,12 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
 // finding is the one outcome a candidate may reopen, when it still reproduces at this head, so a
 // fix that did not fully land runs another round (#80, R2-1); a decided finding stays settled
 // whatever its commits, and a candidate that reproduces one goes under For the person (#80, R3-4).
+// Three rules from the #817 rerun (#85): an issue that tracks only part of a candidate leaves the
+// remainder to be judged on its own, and a remainder caused in the diff is a finding naming the
+// issue; a refutation answers the candidate's claim, never a neighbouring one or a comment stating
+// intent; a guard this pull request removed is never disproportionate. The refs of the dropped
+// outcomes are posted in the review body's dropped block. The agent file states the same rules,
+// and the loop test pins a key phrase of each in both.
 // Only the branch with candidates says so, so a coverage-off prompt is unchanged.
 function candidatesBlock(reviewed, range, candidates) {
   const head = reviewed === 'pr' ? startSha : range.to
@@ -1166,9 +1198,9 @@ function candidatesBlock(reviewed, range, candidates) {
     `Candidates from the coverage pass. The pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all, and returned these ${candidates.length} candidates, as JSON with an index each:`,
     json(candidates.map((c, i) => ({ index: i + 1, ...c }))),
     `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.' : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
-    'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, decided, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks. One outcome reopens: a candidate that matches an earlier finding whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new, since the fix did not fully land; report it as a finding of this round with the earlier id named in its description only (for example `R1-3 was fixed, but still reproduces here`), leave its knownAs empty, and account for it as finding. A candidate the fix did close no longer reproduces and is settled; a deferred, accepted, dropped, left-to-the-person or still-open finding stays settled. A decided finding stays settled whatever its commits, since an applied decision is often a deliberate keep or mitigation: a candidate that still reproduces one goes under forThePerson, naming the earlier id (for example `R2-5 was decided, and this still reproduces it`), and is accounted for as forThePerson, never as finding. The run ends when a round confirms no new correctness finding, so this collapse is the stop rule: never re-raise a settled finding as new, and never drop a candidate silently.',
-    'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file); run the known-finding check; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline); and give it category, severity, confidence, side, needsDecision and askRule as for any finding. Two guards. A candidate anchored outside the diff is never a finding: when its cause is in the diff, re-anchor it on a line inside the diff; when its cause is in code this pull request did not change, put it under forThePerson if a person should see it, else account for it as outside with the reason. A candidate that is technically true but needs implausible conditions to bite is disproportionate: account for it with that word and one sentence naming the conditions, never a finding, never shaped. A candidate that is plausible but not reproduced, or not worth a plan task, goes under forThePerson, one line each (file, line, text); under a correctness-only scope a nit candidate goes there too.',
-    'Account for every index in coverage, one entry each, with outcome and ref: finding (ref the finding\'s id), forThePerson, duplicate (ref the index or the id it collapses into), settled (ref the earlier finding\'s id), known (ref the issue number or the comment), refuted (ref one sentence why), outside (ref the reason), disproportionate (ref the conditions). An index you leave out is listed under For the person as reported, with a warning.',
+    'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, decided, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks in full (the part it does not track is judged on its own, below). One outcome reopens: a candidate that matches an earlier finding whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new, since the fix did not fully land; report it as a finding of this round with the earlier id named in its description only (for example `R1-3 was fixed, but still reproduces here`), leave its knownAs empty, and account for it as finding. A candidate the fix did close no longer reproduces and is settled; a deferred, accepted, dropped, left-to-the-person or still-open finding stays settled. A decided finding stays settled whatever its commits, since an applied decision is often a deliberate keep or mitigation: a candidate that still reproduces one goes under forThePerson, naming the earlier id (for example `R2-5 was decided, and this still reproduces it`), and is accounted for as forThePerson, never as finding. The run ends when a round confirms no new correctness finding, so this collapse is the stop rule: never re-raise a settled finding as new, and never drop a candidate silently.',
+    'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file), and two candidates are not one because one issue\'s title fits both; run the known-finding check, and when an open issue or a teammate\'s comment covers only part of a candidate, the tracked part is known and the remainder is judged as its own candidate: a remainder whose cause is in this pull request\'s diff is a finding, with the issue named in its description and knownAs empty, accounted for as finding, never a forThePerson line saying what the issue lacks; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline); and give it category, severity, confidence, side, needsDecision and askRule as for any finding. Two guards. A candidate anchored outside the diff is never a finding: when its cause is in the diff, re-anchor it on a line inside the diff; when its cause is in code this pull request did not change, put it under forThePerson if a person should see it, else account for it as outside with the reason. A candidate that is technically true but needs implausible conditions to bite is disproportionate: account for it with that word and one sentence naming the conditions, never a finding, never shaped; but one the base branch handled and this pull request stopped handling (the diff\'s removed lines show the guard) is not disproportionate, and goes under forThePerson naming the removed line. A refutation answers the candidate\'s claim: refuted means evidence against the claim the candidate makes. Evidence for a neighbouring claim does not refute it (a test that pins another behaviour of the same code), and neither does a comment or docblock that states intent; such a candidate goes under forThePerson. A candidate that is plausible but not reproduced, or not worth a plan task, goes under forThePerson, one line each (file, line, text); under a correctness-only scope a nit candidate goes there too.',
+    'Account for every index in coverage, one entry each, with outcome and ref: finding (ref the finding\'s id), forThePerson, duplicate (ref the index or the id it collapses into), settled (ref the earlier finding\'s id), known (ref the issue number or the comment), refuted (ref the claim it disproves and the evidence against that claim), outside (ref the reason), disproportionate (ref the conditions). A candidate an issue or a comment tracks only in part is accounted for by what its remainder became, with the issue named; known is for one tracked whole. The review body lists every refuted, outside and disproportionate candidate after For the person, one line each beside the candidate\'s own summary, so write each of those refs for the teammate who may overrule the drop. An index you leave out is listed under For the person as reported, with a warning.',
   )
   return lines
 }
@@ -2063,11 +2095,24 @@ async function review(round, reviewed, range, facts, source) {
     // The list the accounting's indexes point into, as the verifier saw it, for the findings file
     // only; the round record and the result keep the count (#80, R1-5).
     out.coverageList = candidates.map((c, i) => ({ index: i + 1, ...c }))
+    // The candidates the verifier dropped, for the review body's dropped block and the round record
+    // (#85): each with its own file, line and summary, unedited, beside the verifier's reason. A
+    // drop with no reason keeps its line, read as "no reason given", with a warning.
+    out.droppedCandidates = out.coverage.accounting
+      .filter((e) => DROPPED_OUTCOMES.includes(e.outcome))
+      .map((e) => {
+        const c = candidates[e.index - 1]
+        if (!e.ref) {
+          warnings.push(`round ${round}: the reviewer dropped coverage candidate ${e.index} as ${e.outcome} with no reason; listed as "no reason given"`)
+        }
+        return { index: e.index, file: c.file, line: c.line, summary: c.summary, outcome: e.outcome, ref: e.ref }
+      })
   } else {
     if (out.coverage.length) {
       warnings.push(`round ${round}: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared`)
     }
     out.coverage = null
+    out.droppedCandidates = []
   }
   return out
 }
@@ -2824,6 +2869,13 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   if (forThePerson.length) {
     lines.push('', '### For the person', '', ...forThePerson.map(personLine))
   }
+  // The dropped block of the last round that ran the coverage pass, named (#85): the round whose
+  // verifier ended the run, the one before a final nit pass. Earlier rounds' drops stay in their
+  // own review bodies; under coverage off no round has candidates, so there is none.
+  const lastCovered = rounds.slice().reverse().find((record) => record.coverage)
+  if (lastCovered && (lastCovered.droppedCandidates || []).length) {
+    lines.push('', ...droppedBlock(lastCovered.droppedCandidates, lastCovered.round))
+  }
   if (commitsAll.length) {
     lines.push('', '### Commits', '', ...commitsAll.map((c) => `- ${short(c.sha)} ${c.message}`))
   }
@@ -3292,7 +3344,7 @@ try {
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], forThePerson: reviewOut.forThePerson || [], coverage: reviewOut.coverage || null, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], forThePerson: reviewOut.forThePerson || [], coverage: reviewOut.coverage || null, droppedCandidates: reviewOut.droppedCandidates || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
