@@ -27,6 +27,8 @@ Line numbers are at `beb1913`, the PR head this round reviewed (`redline/snapsho
    Decided by: redline
 6. **Docs: no reader-facing change in any task.** `docs/running.md` "Rounds" step 1 already says a finding an issue or a comment "already tracks in full is reported as `already tracked`" (R1-1). "The coverage pass" and "The handoff comment" describe the dropped line, which is byte-identical after R1-3. "The coverage pass" already says a remainder caused in the diff "is a finding that names the issue in its description", and that a candidate accounted for as a finding the round does not have is listed under For the person with a warning (R1-4). Each task's entry in `plan.md` names its section and this reason (`process/docs-gate`).
    Decided by: redline
+7. **As built, Task 5: the key-phrase comment is rewrapped.** The replacement in the comment above the key-phrase list in `tests/loop-test.mjs` made its first line run past the file's width, so the comment's four lines were rewrapped into five. The words are the plan's; only the line breaks moved. No check reads the comment (`plan.md`, As built, Deviations).
+   Decided by: redline
 
 ### Proportionality
 

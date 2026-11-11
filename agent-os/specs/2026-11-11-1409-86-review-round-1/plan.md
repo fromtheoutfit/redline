@@ -255,3 +255,47 @@ The sentence stays in `candidatesBlock`'s branch with candidates, so every `cove
 5. Step 13, Spec folder: add an "As built" section to this file. It records each task's commit, the red lines of Tasks 3 and 5, the proof outputs, the gate's counts, and which retrospective items the approver approved, declined or deferred. A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #86 round 1 as built (#85)`
+
+## As built
+
+Built in order, one commit per task. Every gate run below is `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-11-1409-86-review-round-1/redline/snapshot.json`; the runs before a task's commit list that task's edits under `uncommitted`, as Task 3 expects, and only their harness output is the evidence.
+
+### Commits
+
+- Task 1: `aa067ba` `redline: save review round 1 spec for PR #86 (#85)` (`plan.md`, `shape.md`, `standards.md`, `references.md`; nothing under `redline/`).
+- Task 2, R1-1: `e815af8` `redline: R1-1 open the reviewer's known-finding check on what is already tracked in full (#85)`. `git diff --name-only HEAD~1 HEAD`: `agents/redline-reviewer.md`, `tests/loop-test.mjs`.
+- Task 3, R1-2: `049ec27` `redline: R1-2 pin that the handoff carries the last covered round's dropped block, not the last round with drops (#85)`. `git diff --name-only HEAD~1 HEAD`: `tests/loop-test.mjs`.
+- Task 4, R1-3: `564d349` `redline: R1-3 build the dropped-candidate line with personLine (#85)`. `git diff --name-only HEAD~1 HEAD`: `workflows/redline-loop.js`.
+- Task 5, R1-4: `174000d` `redline: R1-4 say where a partly tracked candidate's issue is named, since a finding ref is the finding's id alone (#85)`. `git diff --name-only HEAD~1 HEAD`: `agents/redline-reviewer.md`, `tests/loop-test.mjs`, `workflows/redline-loop.js`.
+- Task 6, step 12: `7a16400` `redline: record the round 1 review lessons in the standards (#85)`. `git diff --name-only HEAD~1 HEAD`: `agent-os/standards/testing/tests.md`, `agent-os/standards/workflow/agents.md`.
+- Task 6, step 13: this section, in `redline: record PR #86 round 1 as built (#85)`.
+
+### Proof outputs
+
+- Task 2. Before Change 1, `grep -c "look for what is already tracked in full" agents/redline-reviewer.md` printed `0`; after, `1`. Neighbours: `^1. Open issues` `1`, `A known finding goes in knownAs.` in the workflow `1`, `the remainder is judged as its own candidate` in the agent file `2` before and after. Gate: `loop` at `600 checks passed, 0 failed`.
+- Task 3, red. With line 2875 mutated to `find((record) => (record.droppedCandidates || []).length)`, the gate's `loop` exited 1 with `600 checks passed, 1 failed` and the line `FAIL coverage: the handoff carries the last covered round's block, not the last round with drops, so a last covered round that dropped nothing leaves no block though an earlier round dropped one: Redline handoff`. Line 2875 was restored with Edit; `git diff --stat -- workflows/redline-loop.js` then printed nothing. Green: `loop` at `601 checks passed, 0 failed`.
+- Task 4. `grep -c "personLine({ file: e.file, line: e.line" workflows/redline-loop.js` `1` (was `0`), `grep -c "e.line}.. · .{e.summary}" workflows/redline-loop.js` `0` (was `1`), `grep -c "function personLine(entry)" workflows/redline-loop.js` `1`. Gate: `loop` at `601 checks passed, 0 failed`, the dropped-block checks unchanged and green.
+- Task 5, red. With the fourth key-phrase entry added and the wording not yet changed, the gate's `loop` exited 1 with `601 checks passed, 1 failed` and the line `FAIL coverage: the agent file and the verify prompt state the rule "a finding entry's ref is the finding's id alone", and a coverage-off prompt does not: ["ref is the finding's id alone",false,false,false]`. Green after Changes 1 to 3: `602 checks passed, 0 failed`. `grep -c "ref is the finding's id alone" agents/redline-reviewer.md` `1`, `grep -c "ref is the finding..s id alone" workflows/redline-loop.js` `1`, `grep -c "with the issue named; "` `0` in both files, the exact-match warning `which is not a finding of this round; listed under For the person as reported` `1`.
+- Step 12. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
+
+### Gate counts
+
+Every run of the round: `syntax` 0, `validate` passed with warnings (as before), `guard` `592 passed, 0 mismatched`, `prefs` `101 passed, 0 failed`, `gate` `117 passed, 0 failed`, `setup` `468 passed, 0 failed`, `gh` `114 passed, 0 failed`, `background` `39 passed, 0 failed`. Only `loop` moved: 600 after Task 2, 601 after Tasks 3 and 4, 602 after Task 5, as planned.
+
+### Docs and Version
+
+- Step 10: each task's Docs entry was confirmed against its commit. `docs/running.md` "Rounds" (line 32) holds "already tracks in full is reported as"; "The coverage pass" (line 46) holds "is a finding that names the issue in its description" and the For the person listing "as reported, with a warning"; "The handoff comment" (line 81) describes the dropped line, which Task 4 leaves byte-identical. No new config key, subcommand, allow rule or exit code.
+- Step 11: `0.2.2` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged.
+
+### Standards retrospective
+
+The standards approver approved items 1 to 4 of `shape.md`'s proposed list, applied as worded in `7a16400`: the new `testing/tests.md` bullet after line 23 (R1-2), the sentence appended to `testing/tests.md` line 9 (R1-1), and the two replacements in `workflow/agents.md` line 37 (R1-4, R1-3). Items 5 to 8 were already covered, with no change. Each edit is a lesson only; every finding's fix is in its own task commit, so the commit names no finding.
+
+### Deviations
+
+- Task 5, the comment above the key-phrase list in `tests/loop-test.mjs`: the replacement text is as planned, and the comment's four lines were rewrapped into five so no line runs past the file's width. The words after the replacement are unchanged. Recorded in `shape.md`, Decision 7.
+
+### Notes
+
+- Line numbers moved as the plan foresaw: after Task 4's comment edit (one line longer), the accounting sentence Task 5 changed was at `workflows/redline-loop.js:1204`, not 1203. Each edit was placed by its text.
+- Run caution (#81), for the person: `git diff --stat beb1913..HEAD -- workflows agents` now lists `agents/redline-reviewer.md` and `workflows/redline-loop.js`, so a relaunch of this run after these commits meets #81 (`shape.md`, Context).
