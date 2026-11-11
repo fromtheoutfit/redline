@@ -1,0 +1,1 @@
+Redline round 1: fixed in 049ec27 (redline: R1-2 pin that the handoff carries the last covered round's dropped block, not the last round with drops (#85)). · decided by: redline

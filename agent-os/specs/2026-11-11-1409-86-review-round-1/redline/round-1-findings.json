@@ -1,0 +1,247 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "beb19131fa0e8c7f83225ec06d977076a14cc11b",
+    "to": "beb19131fa0e8c7f83225ec06d977076a14cc11b"
+  },
+  "summary": "The three verifier rules are stated in step in the agent file and the verify prompt, coverage-off prompts stay byte-identical, and the dropped block renders as decided: index order, the summary byte for byte, and no block without drops. The loop test pins all of it. All four findings sit where the new rules meet the rest of the system: one prompt sentence invites a finding ref that the exact-id match rejects, one statement of the known-finding rule was not narrowed, one handoff rule is only half pinned, and the dropped line repeats personLine's template. No scheduled command or queued job touches these files (the repository has no routes/console.php), and node is refused to the reviewer, so every reproduction here is a trace.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agents/redline-reviewer.md",
+      "line": 24,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The known-finding section's opening sentence was not narrowed to 'in full'",
+      "description": "Line 16 is the first sentence of 'Check for known findings first' and sits outside the diff. It still tells the verifier to look for what is already tracked and report such a finding as \"already tracked in #N\", with no \"in full\". Plan Task 3 lists `already tracked in #N` among the words to search for and narrow in every place (workflow/agents.md, #80 R3-3). The As built search used `#N lacks`, `one sentence why` and `already tracks`, so this sentence was missed. The paragraph this PR adds at line 24 qualifies it eight lines later, so the verifier does get the rule, but the section opens on the old reading. The reviewPrompt sentence `A known finding goes in knownAs.` (workflows/redline-loop.js:1166) is left unchanged on purpose, per Task 3, so that coverage-off prompts stay byte-identical.",
+      "proposedFix": "Narrow line 16 to: 'look for what is already tracked in full, and report such a finding as \"already tracked in #N\" (or \"R1-2: fixed\") rather than re-raising it; a part an issue or a comment does not track is judged as \"A tracked part is not the whole finding\" says'. The agent file is not a prompt, so coverage-off prompts are not affected.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "tests/loop-test.mjs",
+      "line": 1528,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The handoff's 'last covered round, not the last round with drops' rule is only half pinned",
+      "description": "Decision 14: the handoff carries the block of the last round that ran the coverage pass, and earlier rounds' drops are not repeated. Every scenario whose handoff is checked either has drops in its last covered round ('dropped block', 'before a final nit pass') or has none in any round ('partly tracked', coverage off). I traced every coverage scenario in section 15 with workflows/redline-loop.js:2875's `find((record) => record.coverage)` replaced by `find((record) => (record.droppedCandidates || []).length)`. The handoff changes in only one scenario, 'a dropped candidate with no reason' (line 1527): its round 1 drops one candidate and its round 2 drops none. That scenario's check at line 1528 reads only the round 1 body and the warning. So the mutation stays green even though the handoff would now repeat round 1's drop. This is traced, not run, because node is refused to the reviewer.",
+      "proposedFix": "Extend the check at line 1528, or add one beside it named for the rule: `!comment(run.calls, 'handoff comment').includes('<details>')`. The last covered round dropped nothing, so the handoff has no block even though round 1 dropped one. Confirm the check goes red under the mutation above, then restore the line.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "workflows/redline-loop.js",
+      "line": 888,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "droppedBlock repeats personLine's line template by hand",
+      "description": "The dropped line is built by hand as ``- `${e.file}:${e.line}` · ...``, the same template personLine (line 872) builds. Both depend on the property the comments above them name: the line opens with the backticked place, so redline-gh.sh prior-findings never reads it back. With two templates, a later change to one (collapsing newlines, a fallback for an empty file) has to be made in both, or the two kinds of line drift apart.",
+      "proposedFix": "Use ``...entries.map((e) => personLine({ file: e.file, line: e.line, text: `${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}` }))``. The output is byte-identical, so the existing dropped-block checks (tests/loop-test.mjs lines 1512 and 1513) stay green and pin it.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "workflows/redline-loop.js",
+      "line": 1203,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The accounting sentence invites a finding ref that names the issue, and the exact-id match rejects it",
+      "description": "This PR adds a sentence to the accounting paragraph here and in agents/redline-reviewer.md:50: a partly tracked candidate 'is accounted for by what its remainder became, with the issue named'. It sits in the paragraph that defines each ref and does not say where the issue goes; the shaping default puts it in the finding's description. Suppose the verifier writes it into the ref, for example `{index: 1, outcome: 'finding', ref: 'R1-1 (#7 tracks the case-folding)'}`. accountCoverage matches the ref exactly (`byId.get(ref)`, line 1311), so the entry becomes forThePerson with a 'not a finding of this round' warning. The candidate's raw summary is pushed under For the person (line 1315), beside R1-1 under Findings, and the handoff carries it as an item the run did not act on. The count sentence reads 0 confirmed. The finding is still shaped, because the done rule reads findings, so the harm is a misleading review and handoff, not a lost fix. Traced, not run.",
+      "proposedFix": "In both statements, say where the name goes: 'with the issue named in the finding's description, the For the person line, or the ref of a dropped outcome; a finding entry's ref is the finding's id alone'. Optionally, also make accountCoverage match a leading `R<n>-<k>` token of a finding ref. Pin the wording with a key-phrase check (present in the agent file and a covered prompt, absent under coverage off). For the hardening, add a partly tracked variant whose ref is `R1-1 (#7 ...)` and assert counts.finding === 1 with no warning.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2102,
+      "text": "A candidate accounted for as `duplicate` of a dropped index (the schema allows the ref to be an index) is in effect dropped, but the block filters on each entry's own outcome, so it is not listed, and the count sentence calls it 'collapsed into findings already reported or settled'. A wrong collapse into a dropped candidate would hide its own claim. Decision 5 names three outcomes, so whether the block follows a duplicate to its root's outcome is yours to decide (coverage candidate 2, traced)."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 511,
+      "text": "A candidate the verifier accounts for directly as `known` (no finding carrying a knownAs) reaches the person only as 'N already tracked'. `### Already tracked` lists findings only, so the issue it was matched to appears nowhere in the review or the handoff. That is fault 1's path if a verifier still matches a partly tracked candidate as tracked whole. Decision 5 keeps `known` out of the block, so listing those entries with their ref is yours to decide (coverage candidate 3)."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 512,
+      "text": "Altitude (coverage candidate 9): the partly tracked outcome exists only in prose. COVERAGE_SCHEMA has no field for the tracking issue, so its name rides in a description or a ref, where the workflow cannot check or render it (R1-4 is one symptom). Decision 11 chose no schema change; an optional `tracks` field is the alternative if that is revisited."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 3347,
+      "text": "Simplification (coverage candidate 11): the round record's droppedCandidates could be derived from the accounting plus the candidate list. But #80 R1-5 keeps that list off the record, and nothing writes the accounting after line 2101 derives the subset, so the two copies cannot disagree today."
+    }
+  ],
+  "coverage": {
+    "head": "beb19131fa0e8c7f83225ec06d977076a14cc11b",
+    "candidates": 11,
+    "counts": {
+      "finding": 4,
+      "forThePerson": 4,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 3
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "finding",
+        "ref": "R1-4"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "A duplicate of a dropped index escapes the block; extending the block past decision 5's three outcomes is the person's call."
+      },
+      {
+        "index": 3,
+        "outcome": "forThePerson",
+        "ref": "A directly known candidate shows only as a count; decision 5 keeps known out of the block, so this is the person's call."
+      },
+      {
+        "index": 4,
+        "outcome": "disproportionate",
+        "ref": "Conditions: a verifier ref or a skill summary has to hold a newline followed by a line that opens 'Redline round N' (read by last-round) or matches the exact finding-line shape (read by prior-findings). A plain newline only breaks one list item inside the collapsed block. The same unescaped text path already existed for For the person entries and for an unaccounted candidate's summary (accountCoverage, line 1340), so no guard was removed."
+      },
+      {
+        "index": 5,
+        "outcome": "disproportionate",
+        "ref": "Conditions: the skill has to return an entry with an empty summary but a failure_scenario, which its documented contract does not do and no recorded pass has done. The unaccounted-candidate path (line 1340) has rendered c.summary alone since #79."
+      },
+      {
+        "index": 6,
+        "outcome": "disproportionate",
+        "ref": "Conditions: one round has to drop on the order of 80 candidates of roughly 800 characters each to reach GitHub's 65,536-character body limit. The #817 rerun returned 25 candidates in all, and the handoff's For the person list was already unbounded before this PR, so no limit was removed."
+      },
+      {
+        "index": 7,
+        "outcome": "finding",
+        "ref": "R1-2"
+      },
+      {
+        "index": 8,
+        "outcome": "finding",
+        "ref": "R1-1"
+      },
+      {
+        "index": 9,
+        "outcome": "forThePerson",
+        "ref": "Design alternative to decision 11 (no schema change); R1-4 covers the concrete symptom."
+      },
+      {
+        "index": 10,
+        "outcome": "finding",
+        "ref": "R1-3"
+      },
+      {
+        "index": 11,
+        "outcome": "forThePerson",
+        "ref": "True but not worth a plan task: #80 R1-5 keeps the candidate list off the record, and no write to the accounting follows the derivation."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 1203,
+        "summary": "The prompt says a partly tracked candidate is accounted for 'by what its remainder became, with the issue named', in the paragraph that defines each coverage entry's ref. But accountCoverage matches a `finding` ref against the finding ids exactly, so a ref that also names the issue matches no finding.",
+        "failure_scenario": "The verifier follows the sentence and writes {index: 1, outcome: 'finding', ref: 'R1-1 (#7 tracks the case-folding)'}. byId.get(ref) at line 1311 returns undefined, so the candidate is added under For the person 'as reported' (repeating R1-1), the round counts 0 confirmed instead of 1, and the run logs a 'not a finding of this round' warning. The same wording is in agents/redline-reviewer.md:50."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 2102,
+        "summary": "The dropped block lists only entries whose own outcome is refuted, outside or disproportionate. A candidate accounted for as `duplicate` of a dropped index is effectively dropped too, but it is never listed, and the count sentence calls it 'collapsed into findings already reported or settled'.",
+        "failure_scenario": "Candidate 3 is refuted and candidate 4 is {outcome: 'duplicate', ref: '3'}, which the schema allows ('the index or the id it collapses into'). Only candidate 3 appears in the block. Candidate 4's own claim, which may differ (this is fault 1 of #85: a collapse by issue, not by cause), reaches the person only as a count. docs/running.md promises 'every candidate the verifier dropped'."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 511,
+        "summary": "A candidate the verifier accounts for directly as `known` (no matching finding) still reaches the person only as a count. That is the failure mode #85 fixes for the other outcomes, and it is exactly where fault 1 went wrong.",
+        "failure_scenario": "The verifier still wrongly marks a partly tracked regression {outcome: 'known', ref: '#7'}. The body says '1 already tracked', but '### Already tracked' lists only findings that carry a knownAs, and DROPPED_OUTCOMES leaves `known` out. The candidate's summary and the issue it was matched to appear nowhere in the review or the handoff, so the person cannot overrule the match. Decision 5 limited the block to the three outcomes, so this is a scope gap, not a contradiction of it."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 888,
+        "summary": "The dropped line puts the skill's summary and the verifier's ref into the Markdown body without collapsing newlines, so one entry can break out of its list line.",
+        "failure_scenario": "A ref like 'The claim is X.\\n\\nRedline round 9 covered ...' or a summary with an embedded newline turns into separate lines in the review body. The list item breaks, and any later line is free text. A line that opens 'Redline round 9' is read by `last-round` (grep '^Redline round [0-9]+' over every body line), which numbers the next run's rounds wrong. A line in the finding shape would be read back by prior-findings. The safety rule that 'the line opens with the backticked place' holds only for the first line."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2108,
+        "summary": "The dropped entry always takes the candidate's `summary` as its claim, but coverageCandidates accepts candidates whose summary is empty and whose claim is only in failure_scenario.",
+        "failure_scenario": "The skill returns {file: 'app/a.php', line: 4, summary: '', failure_scenario: 'saving twice loses the note'}, and the verifier refutes it. The block line reads '- `app/a.php:4` ·  · refuted: ...' with no claim at all, so the person cannot check the refutation against the claim, which is what the block is for."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 861,
+        "summary": "Each dropped line holds the full candidate summary plus the verifier's two-part ref, untruncated (decision 11), and the handoff adds the block again. Nothing caps or measures the body against GitHub's 65,536-character limit.",
+        "failure_scenario": "On a large PR (Losers League #778 has 336 files), a pass at --max-findings all can return dozens of outside or refuted candidates, each now with a long ref. The body passes the limit, post-review's POST fails ('body is too long'), and the round stops at stage post. The handoff comment can fail the same way at finish."
+      },
+      {
+        "index": 7,
+        "file": "tests/loop-test.mjs",
+        "line": 1516,
+        "summary": "No scenario has an earlier round with drops and a last covered round with none, so the rule 'the handoff carries the last covered round's block, not earlier ones' is only half pinned.",
+        "failure_scenario": "Change handoffComment to `rounds.slice().reverse().find((r) => (r.droppedCandidates || []).length)`, so it finds the last round with drops. Every check stays green: 'dropped block' and 'before a final nit pass' have drops in both covered rounds, and 'partly tracked' has none in either. The handoff would then repeat an earlier round's drops, which decision 14 rules out."
+      },
+      {
+        "index": 8,
+        "file": "agents/redline-reviewer.md",
+        "line": 16,
+        "summary": "The opening of 'Check for known findings first' still says, without qualification, to report what is tracked as 'already tracked in #N'. The plan's Task 3 said to search for that wording and narrow every place it appears, and this sentence was left as it was.",
+        "failure_scenario": "The verifier reads 'look for what is already tracked, and report such a finding as \"already tracked in #N\"' before it reaches the new partly tracked paragraph at line 24. Under the #80 R3-3 rule that every place a rule is stated must say it, this is one more place that states the old rule. The reviewPrompt sentence 'A known finding goes in knownAs.' (line 1166) is left unqualified too, though that one was kept deliberately so coverage-off prompts stay byte-identical."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 515,
+        "summary": "Altitude: the partly tracked outcome exists only in prompt prose. COVERAGE_SCHEMA has nowhere to name the tracking issue, so the verifier has to put it in free text (the description or the ref), where the workflow cannot check it.",
+        "failure_scenario": "Because there is no structured field such as `tracks: '#7'` on a coverage entry or a finding, the issue name competes with the exact-match finding ref (finding 1), cannot be shown in the review body or the dropped block, and cannot be tested beyond a key phrase. An optional schema field would keep `ref` an id and make the partial match visible and testable."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 888,
+        "summary": "Reuse: droppedBlock repeats personLine's line format by hand, along with the safety rule that goes with it (opens with a backticked place, never '- **R').",
+        "failure_scenario": "The format and the rule that protects prior-findings now live in two templates. A change to one (escaping, collapsing newlines, a fallback for an empty file) has to be made in both, or the two kinds of line drift apart. `personLine({ file: e.file, line: e.line, text: `${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}` })` gives the same output from one template."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 3347,
+        "summary": "Simplification: the round record now stores droppedCandidates beside `coverage.accounting`, though it can be derived from the accounting plus the candidate list (out.coverageList) the review already builds.",
+        "failure_scenario": "The same drop is recorded twice (accounting entry and droppedCandidates entry) on the review output and the round record. Any later rewrite of an accounting entry (as accountCoverage does for finding refs) has to update both copies or the block disagrees with the count. Keeping coverageList on the record and deriving the block in reviewBody and handoffComment removes the second copy."
+      }
+    ]
+  }
+}

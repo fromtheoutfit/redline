@@ -1,0 +1,1 @@
+Redline round 1: fixed in 564d349 (redline: R1-3 build the dropped-candidate line with personLine (#85)). · decided by: redline

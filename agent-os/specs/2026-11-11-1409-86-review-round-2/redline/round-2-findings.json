@@ -1,0 +1,213 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "beb19131fa0e8c7f83225ec06d977076a14cc11b",
+    "to": "fd65cb42496dd44b272b3b3c0d577bb6176e660d"
+  },
+  "summary": "I found no correctness bug in the round 1 fixes. droppedBlock now builds each line through personLine with the same output as before. The known-finding opening and the finding-ref sentence are narrowed in both places, and their key phrases are in the agent file, the covered prompt and nowhere in the coverage-off prompt. The new handoff check reads a scenario where the wrong pick, the last round with drops, gives a different answer. The two findings are both wording: one rule that is silent about which rule wins when two disagree, and one check whose name claims more than it asserts. No scheduled command or queued job touches these files (the repository has no routes/console.php). Node is refused to the reviewer, so every reproduction here is a trace.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "agents/redline-reviewer.md",
+      "line": 24,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "likely",
+      "title": "The partly tracked rule says a diff-caused remainder is a finding without saying the other rules still apply, which contradicts the removed-guard rule",
+      "description": "Line 24 says the remainder is judged as its own candidate 'by every rule here', then says outright 'A remainder whose cause is in this pull request's diff is a finding'. Line 65 repeats it with no condition ('A part #N does not track whose cause is in the diff is a finding, not an entry here'). The verify prompt's sentence in candidatesBlock (workflows/redline-loop.js:1205) drops 'by every rule here' and adds 'never a forThePerson line saying what the issue lacks'. Line 46, and the prompt, send a removed guard whose conditions are implausible today to For the person. They send a technically true remainder that needs implausible conditions to `disproportionate`, and line 48 sends a remainder that is plausible but not reproduced to For the person. A remainder that is also one of these meets two rules that disagree, and the text does not say which one wins. Read literally, the same candidate becomes a finding when a neighbouring issue happens to exist and a For the person line or a drop when none does, so a neighbouring issue can decide whether the run's done rule fires. Coverage candidate 1, traced from the text; not reproduced, since node is refused to the reviewer.",
+      "proposedFix": "State in all three places that the remainder goes through the other rules as any candidate does, and that a diff-caused remainder is a finding unless one of them puts it elsewhere. In candidatesBlock, write for example 'the remainder is judged as its own candidate, by every rule here: a remainder whose cause is in this pull request's diff is a finding unless the removed-guard, disproportionate or not-reproduced rule below puts it elsewhere, with the issue named ...'. Make the same change to line 65 of the agent file. The key phrase 'the remainder is judged as its own candidate' stays, so the loop test's rule check stays green.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "tests/loop-test.mjs",
+      "line": 1522,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The round-record check's name claims two things the check does not assert",
+      "description": "The check is named 'the round record keeps the dropped entries for the handoff, and the result keeps counts only'. It asserts only that `droppedCandidates` is not a key of `run.res.rounds[0]`, plus the three counts. Neither half of the name holds. Nothing here reads the round record's `droppedCandidates`; only the separate handoff checks prove it indirectly. The result does not keep counts only either: `run.res.rounds[n].coverage` is the record's coverage object `{ head, candidates, counts, accounting }` (workflows/redline-loop.js:2097 and :1961), and its accounting carries every dropped ref. A change that put the dropped refs into the result some other way, or dropped the accounting from it, would keep this check green under a name that says otherwise. The PR body's 'The run's result still carries the coverage counts only' has the same inaccuracy. Coverage candidate 9, traced.",
+      "proposedFix": "Rename the check to what it asserts, for example 'the result's rounds carry no droppedCandidates field; the counts are in coverage.counts', or tighten it to match the name. For the result half, assert that `run.res.rounds[0].coverage.accounting` keeps each dropped entry's ref and that no other field holds the entries. For the record half, assert the entries the handoff reads by checking the handoff's dropped lines against `run.res.rounds[0].coverage.accounting` refs. Correct the PR body's sentence to 'the result carries the counts and the accounting; the dropped entries with their summaries ride on the round record'.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 861,
+      "text": "Coverage candidate 2, plausible but not reproduced: the dropped block puts each drop and its reason into the review body. A later coverage pass that follows this repository's CLAUDE.md check-before-reporting rule ('gh pr view <n> --comments') may read a wrongly dropped candidate there as already raised and leave it out. Its line then lives only in that round's body, since the handoff carries only the last covered round's block (decision 14). Findings and For the person lines were already readable there before #85."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 889,
+      "text": "Coverage candidate 5, plausible but not checked on GitHub: the dropped line puts the skill's summary and the verifier's ref inside the <details> block unescaped. A bare closing details tag in either text would end the collapse early. A bare opening one would fold everything after it, including the 'Not placed inline' section the post script appends, into a collapsed block. An HTML comment would vanish from the rendered page. Escaping '<' would break the 'summary byte for byte' rule the loop test pins, so the fix is a choice. This is a different cause from round 1's newline drop."
+    },
+    {
+      "file": "README.md",
+      "line": 100,
+      "text": "Coverage candidate 6: 'What a clean run means' names the deferred findings, a decided finding still reproduced, and the dropped block. It does not name a guard this PR removed whose conditions are implausible today, which the verifier lists under For the person instead of reporting as a finding. So a run can end clean with that regression still in place, and the paragraph could say so beside the decided-finding sentence."
+    },
+    {
+      "file": "docs/running.md",
+      "line": 48,
+      "text": "Coverage candidate 7: the README and docs/running.md say the dropped block lets you 'overrule a drop', but the run has no action for that. The review dial offers only findings to pick from, so an overruled drop is fixed by hand or opened as an issue outside the run. The sentence could say how."
+    },
+    {
+      "file": "tests/loop-test.mjs",
+      "line": 1465,
+      "text": "Coverage candidate 8: the agent file's partly tracked paragraph also governs coverage-off and final-nit-pass rounds, so a coverage-off reviewer's behaviour changed even though its prompt is byte-identical. The spec intends this (shape.md, 'the agent file states them for both modes'), but the comment's 'coverage off stays as before' refers only to the prompt, and no check pins the coverage-off behaviour."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2878,
+      "text": "Coverage candidate 10, cleanup: review() sets droppedCandidates on both branches, and lastCovered only picks records that have coverage. So the `|| []` fallbacks at 859, 2879 and the round record are never used on a covered round, and `rounds.slice().reverse().find(...)` could be `findLast`. Defensive, harmless, and not worth a plan task."
+    }
+  ],
+  "coverage": {
+    "head": "fd65cb42496dd44b272b3b3c0d577bb6176e660d",
+    "candidates": 10,
+    "counts": {
+      "finding": 2,
+      "forThePerson": 6,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 1,
+      "outside": 0,
+      "disproportionate": 1
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "finding",
+        "ref": "R2-1"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "plausible, not reproduced: depends on how a stochastic finder treats a prior round's body"
+      },
+      {
+        "index": 3,
+        "outcome": "refuted",
+        "ref": "Claim: neither the agent file nor the prompt says to try reproducing such a candidate before sending it to For the person. Evidence against: the agent file's 'For each candidate' list has 'Reproduce a correctness candidate where it is cheap' (line 38) as a step for every candidate, and line 48 sends to For the person only 'what is left, plausible but not reproduced'. The verify prompt's 'For each candidate' sentence (workflows/redline-loop.js:1205) says 'reproduce a correctness candidate where it is cheap' before the refutation rule. A candidate the verifier reproduces has evidence for its claim, so it is a finding, not a refutation case."
+      },
+      {
+        "index": 4,
+        "outcome": "disproportionate",
+        "ref": "Conditions: two things must coincide. The reviewer must return a finding id that is not R<n>-<k> (the rename path), and the same round must account for a partly tracked candidate as a duplicate whose ref adds the issue's name after that malformed id. Even then the only effect is a stale id in the findings file's accounting text: duplicate refs are never validated or counted by id, so no count, list or disposition changes."
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "plausible rendering defect, not checked on GitHub; escaping conflicts with the byte-for-byte summary rule"
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "docs gap in 'What a clean run means'; a one-line addition, not a plan task"
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": "wording: the person overrules a drop by hand; the run offers no action for it"
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "true, but the spec intends it (shape.md 'the agent file states them for both modes'); a statement of intent does not refute it"
+      },
+      {
+        "index": 9,
+        "outcome": "finding",
+        "ref": "R2-2"
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "cleanup, harmless defensive fallbacks"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "agents/redline-reviewer.md",
+        "line": 24,
+        "summary": "The partly-tracked rule says 'a remainder whose cause is in this pull request's diff is a finding' with no conditions (the prompt in workflows/redline-loop.js:1205 adds 'never a forThePerson line'), so it overrides the disproportionate guard and the 'plausible but not reproduced goes under For the person' path. It also contradicts the removed-guard exception (line 46), and line 65 restates it ('A part #N does not track whose cause is in the diff is a finding, not an entry here').",
+        "failure_scenario": "Candidate: 'the save drops the owner check, and the lookup ignores case'. Issue #7 tracks the case-folding. The remainder caused in the diff is technically true but needs two saves in the same millisecond, or the verifier cannot reproduce it. The prompt says it is a finding: it is shaped, fixed and keeps the run going for another round under maxRounds. The same candidate with no neighbouring issue would be accounted `disproportionate` (or listed For the person) and the run would end. So whether a neighbouring issue exists decides whether the done rule fires. If the remainder is also a removed guard with implausible conditions, line 46 says For the person and line 24/65 say finding, and the verifier has no rule for which one wins."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 861,
+        "summary": "The dropped block posts each dropped candidate with the verifier's reason into the PR's review body. The next round's coverage pass reads that body when it follows a check-before-reporting rule, so a wrong drop now biases the next sample against raising it again.",
+        "failure_scenario": "Round 1 refutes a real bug with neighbouring evidence; the block shows it as `refuted: <reason>`. In round 2 the code-review skill, following this repository's CLAUDE.md ('gh pr view <n> --comments — a prior round may have already raised it'), sees the candidate as already raised and treats it as known or leaves it out. Round 2 drops nothing, so the handoff, which carries only the last covered round's block, has no line for the bug. It survives only in round 1's review body. This PR's own internal-notes.md edit describes the same exposure for merged round folders. Before #85 the drops were only a count in the body, so the next pass could not read them."
+      },
+      {
+        "index": 3,
+        "file": "agents/redline-reviewer.md",
+        "line": 39,
+        "summary": "The refutation rule sends 'such a candidate' (one whose only counter-evidence is a neighbouring claim or an intent comment) straight to For the person, and neither the agent file nor the prompt (workflows/redline-loop.js:1205) says to try reproducing it first. A reproducible regression is never shaped.",
+        "failure_scenario": "A candidate claims the save clears a field. The only counter-evidence is a docblock saying why the code is there. The verifier follows the rule literally and lists it For the person without running the cheap scratch test that would have confirmed it. The bug is never planned and the run can end. #85 decision 3 names For the person as the destination; what it does not cover is a candidate that is still reproducible."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 1206,
+        "summary": "The R1-4 wording tells the verifier to name the issue in 'the ref of any other outcome', and that includes `duplicate`. But review() rewrites a duplicate ref after a renumber only when the whole ref equals an old id (lines 2087-2095), so a ref that also names the issue is not updated. This is R1-4's problem again, on another outcome.",
+        "failure_scenario": "The reviewer returns finding id X-1, which the workflow renames to R1-1. A partly tracked candidate is accounted `duplicate` with ref 'X-1; #7 tracks the case-folding'. renamed.has(ref) is false, so the ref keeps the stale X-1, and the findings file's accounting points at an id the round does not have."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 889,
+        "summary": "The dropped line puts the skill's summary and the verifier's ref unescaped inside a `<details>` HTML block. A literal `</details>` or `<summary>` in either one closes the collapsed block early, and an HTML comment such as a `<!-- redline:R1-2 -->` marker disappears from the rendered page.",
+        "failure_scenario": "Reviewing this repository, a candidate summary such as 'droppedBlock emits </details> before the trailing sentence' (no backticks) ends the block on GitHub. The remaining dropped lines show expanded outside the collapse, and the real `</details>` is left stray. A summary quoting a marker comment shows as empty text. This is the same unescaped path as round 1's dropped candidate 4, but a different cause (HTML, not newlines)."
+      },
+      {
+        "index": 6,
+        "file": "README.md",
+        "line": 100,
+        "summary": "'What a clean run means' now mentions the dropped block. It does not say that a removed guard, a regression this PR introduced whose conditions are implausible today, is listed under For the person instead of becoming a finding, so the run can end clean with it still in place.",
+        "failure_scenario": "A PR removes an ownership guard, and today only an unlikely caller reaches the code. Under #85 the verifier lists it For the person, nothing keeps the run going, and the handoff reports a clean run. A teammate relying on the Known limits text does not learn that a regression from this PR can sit under For the person."
+      },
+      {
+        "index": 7,
+        "file": "docs/running.md",
+        "line": 48,
+        "summary": "The docs and the README say the dropped block lets the person 'overrule a drop', but the run has no way to do that. The review dial (skills/redline/SKILL.md, `reviewed`) offers only findings to pick from, and the review-only and reviewed summaries never mention dropped candidates.",
+        "failure_scenario": "On the `review` dial, the person reads the block, decides candidate 3 was wrongly refuted, and has no option to act on it in this run. They have to fix it by hand or open an issue, and the run's done rule never sees it."
+      },
+      {
+        "index": 8,
+        "file": "tests/loop-test.mjs",
+        "line": 1465,
+        "summary": "The key-phrase checks pin that each rule is absent from a `coverage off` prompt and call that 'coverage off stays as before'. But the agent file is the reviewer's instructions in coverage-off and final-nit-pass rounds too, and its partly-tracked paragraph (line 24) is not limited to rounds with candidates. So coverage-off reviewer behaviour did change, and no check notices.",
+        "failure_scenario": "In a `coverage off` run, the reviewer now reports a partly tracked remainder as a finding with knownAs empty where it used to report it already tracked. The run does another round, and every check still passes because only the prompt text is compared."
+      },
+      {
+        "index": 9,
+        "file": "tests/loop-test.mjs",
+        "line": 1522,
+        "summary": "The check named 'the round record keeps the dropped entries for the handoff, and the result keeps counts only' asserts neither part. It checks that droppedCandidates is absent from the result plus three counts, while the result's coverage.accounting still carries every dropped ref.",
+        "failure_scenario": "A change that stops storing droppedCandidates on the round record, or adds the dropped refs to the result some other way, keeps this check green. Only the separate handoff checks would catch the first case."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 2878,
+        "summary": "Cleanup: review() always sets out.droppedCandidates, so the `|| []` fallbacks in reviewBody (859), the round record (3350) and handoffComment (2879) never apply. `rounds.slice().reverse().find(...)` copies the array where `rounds.findLast(...)` would do.",
+        "failure_scenario": "Three unused fallbacks and an array copy hide which field is guaranteed to be there. A later reader may assume droppedCandidates can be missing on a covered round and add another guard."
+      }
+    ]
+  }
+}
