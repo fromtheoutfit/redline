@@ -239,3 +239,65 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #86 round 4 as built (#85)`
+
+---
+
+## As built
+
+Built by the Redline implementer on 2026-11-11, on top of `dbfcd69`. No deviation from the plan.
+
+### Commits
+
+- Task 1: `49434ca` `redline: save review round 4 spec for PR #86 (#85)`: `plan.md`, `shape.md`, `standards.md` and `references.md`, nothing under `redline/`.
+- Task 2 (R4-2): `82bdccb` `redline: R4-2 pin each form of a duplicate's ref that the target parse reads or shows as written (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `tests/loop-test.mjs`.
+- Task 3 (R4-1): `ee7fbbe` `redline: R4-1 have a duplicate's ref open with the index or the id, and read a leading index as its target (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `agents/redline-reviewer.md`, `docs/running.md`, `tests/loop-test.mjs` and `workflows/redline-loop.js`.
+- Task 4, step 12: `81ac40e` `redline: record the round 4 review lessons in the standards (#85)`: `agent-os/standards/testing/tests.md` and `agent-os/standards/workflow/agents.md`.
+- Task 4, step 13: this section, in the round's last commit, `redline: record PR #86 round 4 as built (#85)`.
+
+### Task 2's red run
+
+Both mutations applied with Edit (line 2153 without `index` and without `i`; line 2155 without `to !== e.index &&`), then the gate. Its `loop` check exited 1 with `612 checks passed, 3 failed`:
+
+- `FAIL coverage: a lower-case `index N` duplicate ref reads as another candidate's index and gives its place and outcome`
+- `FAIL coverage: an upper-case `CANDIDATE N` duplicate ref reads as another candidate's index, since the parse ignores case`
+- `FAIL coverage: a duplicate ref naming the candidate itself is shown as written, with no addition`, its detail holding the line `- `app/z.php:8` · a ref naming itself · duplicate: 4 (candidate 4, `app/z.php:8`: duplicate)`
+
+The out-of-range check (`99`) and the nine-candidate scenario stayed green, and there was no other `FAIL` line. Both lines were restored with Edit; `git diff --stat -- workflows/redline-loop.js` then printed nothing.
+
+Green: `615 checks passed, 0 failed`. `grep -c "outcome: 'duplicate'" tests/loop-test.mjs` printed `7`, `grep -c "ref: 'CANDIDATE 1'" tests/loop-test.mjs` printed `1`, and `grep -c "const into = to .== e.index" workflows/redline-loop.js` printed `1`.
+
+### Task 3's red runs
+
+R4-1 was decided as option B, "widen the parse and tell the verifier", by @michaelfromtheoutfit on 2026-11-11 (`shape.md`, Decision 2).
+
+1. Steps 1 and 2 only (the note candidate and check, the seventh key phrase): `615 checks passed, 2 failed`.
+   - `FAIL coverage: the agent file and the verify prompt state the rule "a duplicate's ref opens with the index or the id", and a coverage-off prompt does not`, detail `["opening with the index of the candidate or the id of the finding",false,false,false]`.
+   - `FAIL coverage: a duplicate ref that opens with another candidate's index keeps its place and outcome with a note after the index`, the block's line reading `- `app/z.php:10` · a ref with a note after the index · duplicate: 1; #7 tracks the case-folding` with no addition.
+2. Step 3 added (the parse ends in `\b`, and its comment): `616 checks passed, 1 failed`, the one `FAIL` line the key-phrase check above.
+3. Steps 4 to 6 added: `617 checks passed, 0 failed`.
+
+No other `FAIL` line in any run.
+
+Proof outputs after Task 3:
+
+- `grep -cF '(\d+)\b/i.exec(e.ref)' workflows/redline-loop.js`: `1`; `grep -c 'i.exec(e.ref)' workflows/redline-loop.js`: `1`.
+- `grep -c "opening with the index of the candidate or the id of the finding"`: `1` in `workflows/redline-loop.js`, `1` in `agents/redline-reviewer.md`.
+- `grep -c "the index or the id it collapses into"`: `0` in both files.
+- `grep -c "outcome: 'duplicate'" tests/loop-test.mjs`: `8`.
+- `grep -c "opening with the candidate's index or the finding's id" docs/running.md`: `1`.
+
+### Gate
+
+The last run of `.claude/redline/checks.sh` with this round's snapshot, after Task 3: syntax, validate, guard `592 passed, 0 mismatched`, loop `617 checks passed, 0 failed`, prefs `101 passed, 0 failed`, gate `117 passed, 0 failed`, setup `468 passed, 0 failed`, gh `114 passed, 0 failed` and background `39 passed, 0 failed`, each as the plan expected. `git.unexpected_files` was empty throughout.
+
+- **Docs (step 10).** Task 2 has no entry: its commit is a test file only. Task 3's entry, `docs/running.md`, "The coverage pass", landed in `ee7fbbe`.
+- **Version (step 11).** `0.2.2`, unchanged.
+
+### Standards retrospective
+
+The standards approver approved items 1 and 2 of `shape.md`'s "Standards retrospective (proposed)", applied as worded in `81ac40e`:
+
+- Item 1: `testing/tests.md` line 22, a case per accepted and refused form (R4-2).
+- Item 2: `workflow/agents.md` line 37, the #85 bullet (R4-1), and line 16, a prompt sentence that invites text into a parsed field (R1-4, R4-1).
+
+Items 3 to 6 were proposed as already covered, with no change. None was declined or deferred. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
