@@ -1,0 +1,1 @@
+Redline round 1: fixed in 6ceb736 (redline: R1-1 drop the round-trip check's joiner clause, which cannot fail, and name the check for what it asserts (#87)). · decided by: redline

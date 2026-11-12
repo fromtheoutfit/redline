@@ -46,3 +46,5 @@ Raw JSON, no prose around it:
 ## Attribution
 
 Redline labels its own work as Redline. Never write a model name, a vendor name or an AI-assistant marker into the spec folder.
+
+An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.

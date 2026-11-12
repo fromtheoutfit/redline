@@ -32,6 +32,15 @@ function check(name, condition, detail) {
 }
 
 const SHA = (n) => String(n).padEnd(40, 'b')
+// The review body's closing sentence, written when the round has findings, after the last finding
+// list and before For the person (the #87 follow-up spec, answer 9).
+const CLOSING = 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.'
+// The word joiner's numeric character reference the workflow puts after a neutralised `@`: plain
+// ASCII, so the GitHub agent's byte-for-byte copy keeps it, and GitHub shows it as U+2060 (#87;
+// the #87 follow-up spec, answer 8). RAW_WJ is the raw character, written as its escape, for the
+// checks that no prompt the GitHub agent copies holds one.
+const WJ = '&#8288;'
+const RAW_WJ = '\u2060'
 
 function mock(scenario) {
   const calls = []
@@ -128,9 +137,10 @@ function mock(scenario) {
       // scenario.resolved[n] is the nth review's resolved list (#35): earlier findings the reviewer found gone.
       // scenario.coverageOut[n] is the nth review's accounting of the coverage candidates and
       // scenario.forThePerson[n] its For the person entries (#79); absent, the keys are left out,
-      // as a reviewer before the pass existed would.
+      // as a reviewer before the pass existed would. scenario.summary[n] is the nth review's summary
+      // (#87), 'S' when absent.
       return {
-        round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: 'S',
+        round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: scenario.summary ? scenario.summary[reviewN - 1] || 'S' : 'S',
         ...(scenario.coverageOut ? { coverage: scenario.coverageOut[reviewN - 1] || [] } : {}),
         ...(scenario.forThePerson ? { forThePerson: scenario.forThePerson[reviewN - 1] || [] } : {}),
       }
@@ -160,7 +170,8 @@ function mock(scenario) {
           ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
         })),
-        deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: 'a guard clause', fullFix: 'a lock' })),
+        // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding.
+        deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: scenario.mitigation || 'a guard clause', fullFix: 'a lock' })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
         judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
@@ -1020,6 +1031,10 @@ function samePrefix(name, first, second, n) {
   check('rules: their threads stay open, named with the rule; the fixed one is swept', pick(second.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && handoff.includes('\n\nResolved 1 thread; 2 left open: R1-2 (repository rule craft-config), R1-3 (repository rule billing).\n'), handoff)
   check('rules: the result names them', JSON.stringify(second.res.forced.map((x) => [x.id, x.rule, x.round])) === '[["R1-2","craft-config",1],["R1-3","billing",1]]' && second.res.rounds[0].forced['R1-2'].rule === 'craft-config' && second.res.deferred.length === 0, [second.res.forced, second.res.deferred])
   check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
+  // Posted text (#87): a Left to you line holds the finding's title and its owner; the title is
+  // escaped and neutralised, the rule, the restatement and `decided by: @author` are as written.
+  const titled = await go('rules: a title with a tag and an @', decided, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
+  check('posted text: a Left to you line escapes the title and posts the rule, the outcome and its owner as written', comment(titled.calls, 'handoff comment').includes(`- **R1-2** Field &lt;b> renamed @${WJ}config: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author`), comment(titled.calls, 'handoff comment'))
 
   const auto = await go('rules: autopilot', { ...ruleArgs, interrupt: 'autopilot' }, scenario)
   check('rules: autopilot never applies a forced finding and demands no commit', auto.res.status === 'done', [auto.res.status, auto.res.error])
@@ -1029,6 +1044,11 @@ function samePrefix(name, first, second, n) {
   const autoHandoff = comment(auto.calls, 'handoff comment')
   check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to you under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
   check('rules: the deferred list carries the rule and no mitigation', JSON.stringify(auto.res.deferred.map((d) => [d.id, d.rule, d.mitigation, d.fullFix])) === '[["R1-2","craft-config","none (repository rule craft-config)","By hand: fix R1-2 this way."],["R1-3","billing","none (repository rule billing)","By hand: fix R1-3 this way."]]', auto.res.deferred)
+  // Posted text (#87): the Deferred line of a finding autopilot leaves under a rule makes its own
+  // postedText call, beside the shipped branch section 16 pins, so it is pinned with a title the
+  // function changes: a plain title reads the same with or without the call (#89, R3-2).
+  const autoTitled = await go('rules: autopilot, a title with a tag and an @', { ...ruleArgs, interrupt: 'autopilot' }, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
+  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
 
   // The paths rule also catches a finding elsewhere whose task would write under it.
   const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
@@ -1305,7 +1325,7 @@ function samePrefix(name, first, second, n) {
   check('coverage: the result carries each round\'s For the person and accounting', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'a nit for the person' }]) && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.forThePerson === 1 && run.res.rounds[1].coverage.counts.settled === 1 && run.res.rounds[1].coverage.counts.disproportionate === 1 && run.res.rounds[1].coverage.accounting[1].ref === 'needs every player to send in the same microsecond', [run.res.rounds[0].coverage, run.res.rounds[1].coverage])
   const b1 = body(run.calls, 'post r1')
   const b2 = body(run.calls, 'post r2')
-  check('coverage: the round 1 body counts the candidates and lists For the person after Already tracked', b1.includes('Reviewed the whole pull request.\n\nThe coverage pass over the whole pull request at aaaaaaa returned 2 candidates: 1 confirmed, 1 for the person, 0 collapsed into findings already reported or settled, 0 already tracked, 0 dropped (refuted, outside the diff or disproportionate).') && b1.includes('### For the person\n\n- `app/y.php:9` · a nit for the person\n\nEach finding has an inline comment'), b1)
+  check('coverage: the round 1 body counts the candidates, closes its finding list with the closing sentence, and lists For the person after it, last', b1.includes('Reviewed the whole pull request.\n\nThe coverage pass over the whole pull request at aaaaaaa returned 2 candidates: 1 confirmed, 1 for the person, 0 collapsed into findings already reported or settled, 0 already tracked, 0 dropped (refuted, outside the diff or disproportionate).') && /\n- \*\*R1-\d+\*\* · [^\n]*\n\nEach finding has an inline comment/.test(b1) && b1.endsWith('\n\n' + CLOSING + '\n\n### For the person\n\n- `app/y.php:9` · a nit for the person'), b1)
   check('coverage: the round 2 body names both the fix diff and the whole PR', b2.startsWith(`Redline round 2\n\nReviewed the fix diff from round 1 (aaaaaaa..${run.res.rounds[1].range.to.slice(0, 7)}), and the coverage pass's candidates over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)}.\n\nThe coverage pass over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)} returned 2 candidates: 0 confirmed, 0 for the person, 1 collapsed into findings already reported or settled, 0 already tracked, 1 dropped`), b2)
   const findingsFile = pick(run.calls, 'post r1').prompt
   check('coverage: the findings file carries forThePerson and the coverage record', findingsFile.includes('"forThePerson": [\n    {\n      "file": "app/y.php"') && findingsFile.includes('"coverage": {\n    "head": "aaaaaaaaaa') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-900))
@@ -1405,7 +1425,7 @@ function samePrefix(name, first, second, n) {
   check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 confirmed') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
   // Its accounting entry is known, so the set-aside block lists the candidate's own summary beside
   // the finding and the issue it is tracked in (the #85 follow-up spec, decision 1).
-  check('coverage: a known finding from a candidate is listed in the set-aside block with the finding and the issue', nb.includes('<summary>Candidates set aside (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · known: R1-1: #7\n- `app/y.php:9` · a nit for the person · refuted: not reachable\n'), nb)
+  check('coverage: a known finding from a candidate is listed in the set-aside block with the finding and the issue', nb.includes('### Candidates set aside (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · known: R1-1: #7\n- `app/y.php:9` · a nit for the person · refuted: not reachable\n'), nb)
   run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
   check('coverage: under scope all a nit from a candidate is still confirmed', run.res.rounds[1].coverage.counts.finding === 1 && run.res.rounds[1].coverage.counts.forThePerson === 0, run.res.rounds[1].coverage)
   check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
@@ -1497,7 +1517,7 @@ function samePrefix(name, first, second, n) {
   const pb = body(run.calls, 'post r1')
   check('coverage: a partly tracked candidate is a finding naming the issue, confirmed, shaped, and the run goes on', pick(run.calls, 'review r1').prompt.includes('the remainder is judged as its own candidate') && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].findings[0].knownAs === '' && pb.includes('1 confirmed') && pb.includes('1 already tracked') && pb.includes('### Findings (1 correctness, 0 nit)\n\n- **R1-1**') && !pb.includes('### Already tracked') && pick(run.calls, 'post r1').prompt.includes('Issue #7 tracks the case-insensitive lookup') && pick(run.calls, 'shape r1').prompt.includes('"id": "R1-1"') && labels(run.calls).includes('re-review r2') && run.res.status === 'done', [pb, run.res.rounds[0].coverage, labels(run.calls)])
   const knownLine = '- `app/x.php:8` · the lookup ignores case · known: #7'
-  check('coverage: the set-aside block lists a partly tracked candidate\'s tracked part as known, naming the issue, in the review body and the handoff', pb.includes('<details>\n<summary>Candidates set aside (1): collapsed, already tracked or dropped</summary>\n\n' + knownLine + '\n\n</details>') && comment(run.calls, 'handoff comment').includes('<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the save no longer checks the owner, and the lookup ignores case · settled: R1-1\n' + knownLine + '\n\n</details>'), [pb, comment(run.calls, 'handoff comment')])
+  check('coverage: the set-aside block lists a partly tracked candidate\'s tracked part as known, naming the issue, in the review body and the handoff', pb.includes('### Candidates set aside (1)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + knownLine + '\n\n</details>') && comment(run.calls, 'handoff comment').includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the save no longer checks the owner, and the lookup ignores case · settled: R1-1\n' + knownLine + '\n\n</details>'), [pb, comment(run.calls, 'handoff comment')])
   check('coverage: a round whose candidates are all findings or For the person has no set-aside block', b1.includes('1 confirmed, 1 for the person,') && !b1.includes('<details>'), b1)
 
   // The set-aside block (#85; the #85 follow-up spec): every candidate that is neither a finding
@@ -1523,8 +1543,10 @@ function samePrefix(name, first, second, n) {
   ]
   run = await go('coverage: the set-aside block', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [nine, two], coverageOut: [setAsideOut, settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []] })
   const setAside1 = [
+    '### Candidates set aside (7)',
+    '',
     '<details>',
-    '<summary>Candidates set aside (7): collapsed, already tracked or dropped</summary>',
+    '<summary>Collapsed, already tracked or dropped</summary>',
     '',
     '- `app/z.php:5` · Saving clears the `note` field when the form *omits* it · refuted: The claim is that saving clears the note when the form omits it; the form always sends the field, and the save test posts without it and keeps the note.',
     '- `lib/w.php:12` · an old helper rounds down · outside: lib/w.php is not changed by this pull request',
@@ -1537,10 +1559,10 @@ function samePrefix(name, first, second, n) {
     '</details>',
   ].join('\n')
   const db = body(run.calls, 'post r1')
-  check('coverage: the review body lists every candidate that is neither a finding nor For the person after For the person, in index order, with its own summary, the outcome and the ref', db.includes('### For the person\n\n- `app/y.php:9` · a nit for the person\n\n' + setAside1 + '\n\nEach finding has an inline comment'), db)
+  check('coverage: the review body lists every candidate that is neither a finding nor For the person after For the person, in index order, with its own summary, the outcome and the ref, and ends with the block, the closing sentence above For the person', db.endsWith('\n\n' + CLOSING + '\n\n### For the person\n\n- `app/y.php:9` · a nit for the person\n\n' + setAside1), db)
   check('coverage: the set-aside block\'s count is the count sentence\'s collapsed, already tracked and dropped added up', db.includes('returned 9 candidates: 1 confirmed, 1 for the person, 3 collapsed into findings already reported or settled, 1 already tracked, 3 dropped (refuted, outside the diff or disproportionate).') && db.includes('Candidates set aside (7)'), db)
   check('coverage: no set-aside line opens with a finding id, so prior-findings never reads one back', db.includes('<details>') && !db.slice(db.indexOf('<details>'), db.indexOf('</details>')).split('\n').some((l) => l.startsWith('- **R')), db)
-  const lastBlock = '<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
+  const lastBlock = '### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
   handoff = comment(run.calls, 'handoff comment')
   check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, after For the person and before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('### For the person') < handoff.indexOf('<details>') && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
   // What the result keeps of a covered round (#80, R1-5; #86, R2-2): the candidate count, the
@@ -1554,7 +1576,12 @@ function samePrefix(name, first, second, n) {
   // round before it, and names that round.
   run = await go('coverage: the set-aside block before a final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [three, three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }, { index: 3, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }, { index: 3, outcome: 'refuted', ref: 'The claim is three; the code does two.' }]] })
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('<details>\n<summary>Candidates set aside in round 2 (2): collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('outside: untouched code'), handoff)
+  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('outside: untouched code'), handoff)
+  // The block's own heading (#87): round 2 has no For the person entries, so before #87 the block
+  // read as part of its Findings; now its heading sits directly above it, after the closing
+  // sentence, which follows the findings (the #87 follow-up spec, answer 9).
+  const noPerson = body(run.calls, 'post r2')
+  check('coverage: with no For the person entries the set-aside block still opens under its own heading, after the findings and the closing sentence', !noPerson.includes('### For the person') && noPerson.includes('- **R2-1** · nit · low · likely · `app/x.php:1` · title R2-1\n\n' + CLOSING + '\n\n### Candidates set aside (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n'), noPerson)
 
   // A set-aside entry with no ref still gets its line, reading "no reason given", and a warning
   // naming the index, so the slip is visible and the candidate never leaves silently.
@@ -1565,12 +1592,19 @@ function samePrefix(name, first, second, n) {
   // candidates under For the person, so the handoff has no block.
   check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
 
-  // The escaping inside the set-aside block (the #85 follow-up spec, decisions 4, 5 and 10): `&`
-  // then `<` are escaped outside code spans, read over the line's whole text as GitHub pairs
-  // backtick runs (equal lengths; an unclosed run is plain text), so no tag in a summary or a ref
-  // ends the block or opens another, while a code span reads as written. A text with a newline, or
-  // a backslash before a backtick, is escaped whole. For the person lines are not escaped. An `&`
-  // inside a span is left as written, beside one outside it that is escaped (#86, R5-1).
+  // The escaping of posted text (#87; the #85 follow-up spec): `&` then `<` are escaped and the word
+  // joiner's reference `&#8288;` follows each `@` before an ASCII letter or digit (the #87 follow-up
+  // spec, answer 8), outside code spans, read over the line's whole text as GitHub pairs backtick
+  // runs (equal lengths; an unclosed run is plain text),
+  // so no tag in a summary or a ref ends the block or opens another, no `@` mentions anyone, and a
+  // code span reads as written. A text holding `](`, `][`, `://`, `www.` (any case), a backslash
+  // before a backtick, a carriage return or a newline is escaped whole, spans included: there GitHub
+  // reads a backtick as part of a link or an autolink, or as escaped, before it pairs spans (the #87
+  // spec's Evidence). `[` alone is no trigger, nor is a backslash elsewhere, so code talk with
+  // brackets or a namespace keeps its spans (#89, R3-3). An `&` inside a span is left as written,
+  // beside one outside it that is escaped (#86, R5-1). A `@&#8288;` the finder typed has its `&`
+  // escaped, so it reads back as typed. A For the person line goes through the same function. Each
+  // line is pinned as the string the workflow writes, one case per way the reading can go wrong.
   const tags = fenced([
     cand('app/a.vue', 1, 'a bare </details> ends the block, a bare <details> opens one, and `<Head title="x" />` in a span is text'),
     cand('app/b.vue', 2, 'a double-backtick span ``a ` b <c>`` keeps its single backtick'),
@@ -1579,17 +1613,27 @@ function samePrefix(name, first, second, n) {
     cand('app/e.vue', 5, 'two\nlines with `<b>`'),
     cand('app/f.vue', 6, 'an escaped \\` then <i>`'),
     cand('app/g.vue', 7, 'a span `a && b <c>` keeps its ampersands & this one does not'),
+    cand('app/h.vue', 8, 'binds @click, `@click` in a span, @123, @-x and a@b.co'),
+    cand('app/i.vue', 9, 'see [a](/u "`") </details> ` end'),
+    cand('app/j.vue', 10, 'see [a][q`] <i>x</i> `c`'),
+    cand('app/k.vue', 11, 'see http://x.com/a`b <i>x</i> `c`'),
+    cand('app/l.vue', 12, 'see WWW.x.com/`a <i>x</i> `b`'),
+    cand('app/m.vue', 13, 'first\r</details> and @param'),
+    cand('app/n.vue', 14, 'App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\<b> and \\& c'),
+    cand('app/o.vue', 15, 'see [a](/u) and `@param`'),
+    cand('app/p.vue', 16, '`$a[0] < $b` and `[data-x] <i>` & more'),
+    cand('app/r.vue', 17, 'a typed @&#8288;x stays as typed'),
   ])
   const tagsOut = [
     { index: 1, outcome: 'refuted', ref: 'Tom & Jerry wrote &lt; by hand' },
     { index: 2, outcome: 'outside', ref: 'untouched code' },
     { index: 3, outcome: 'disproportionate', ref: 'needs a lone backtick' },
     { index: 4, outcome: 'refuted', ref: '`<c>` pairs it across the ref' },
-    { index: 5, outcome: 'outside', ref: 'untouched code' },
-    { index: 6, outcome: 'outside', ref: 'untouched code' },
-    { index: 7, outcome: 'outside', ref: 'untouched code' },
+    ...[5, 6, 7].map((index) => ({ index, outcome: 'outside', ref: 'untouched code' })),
+    { index: 8, outcome: 'refuted', ref: 'not a mention of @param' },
+    ...[9, 10, 11, 12, 13, 14, 15, 16, 17].map((index) => ({ index, outcome: 'outside', ref: 'untouched code' })),
   ]
-  run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[]], coverage: [tags], coverageOut: [tagsOut], forThePerson: [[{ file: 'app/q.vue', line: 1, text: 'a <b> & c note' }]] })
+  run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[]], coverage: [tags], coverageOut: [tagsOut], forThePerson: [[{ file: 'app/q.vue', line: 1, text: 'a <b> & c note from @param' }]] })
   const escapedLines = [
     '- `app/a.vue:1` · a bare &lt;/details> ends the block, a bare &lt;details> opens one, and `<Head title="x" />` in a span is text · refuted: Tom &amp; Jerry wrote &amp;lt; by hand',
     '- `app/b.vue:2` · a double-backtick span ``a ` b <c>`` keeps its single backtick · outside: untouched code',
@@ -1598,12 +1642,38 @@ function samePrefix(name, first, second, n) {
     '- `app/e.vue:5` · two\nlines with `&lt;b>` · outside: untouched code',
     '- `app/f.vue:6` · an escaped \\` then &lt;i>` · outside: untouched code',
     '- `app/g.vue:7` · a span `a && b <c>` keeps its ampersands &amp; this one does not · outside: untouched code',
-  ].join('\n')
+    '- `app/h.vue:8` · binds @' + WJ + 'click, `@click` in a span, @' + WJ + '123, @-x and a@' + WJ + 'b.co · refuted: not a mention of @' + WJ + 'param',
+    '- `app/i.vue:9` · see [a](/u "`") &lt;/details> ` end · outside: untouched code',
+    '- `app/j.vue:10` · see [a][q`] &lt;i>x&lt;/i> `c` · outside: untouched code',
+    '- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · outside: untouched code',
+    '- `app/l.vue:12` · see WWW.x.com/`a &lt;i>x&lt;/i> `b` · outside: untouched code',
+    '- `app/m.vue:13` · first\r&lt;/details> and @' + WJ + 'param · outside: untouched code',
+    '- `app/n.vue:14` · App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c · outside: untouched code',
+    '- `app/o.vue:15` · see [a](/u) and `@' + WJ + 'param` · outside: untouched code',
+    '- `app/p.vue:16` · `$a[0] < $b` and `[data-x] <i>` &amp; more · outside: untouched code',
+    '- `app/r.vue:17` · a typed @&amp;#8288;x stays as typed · outside: untouched code',
+  ]
   const eb = body(run.calls, 'post r1')
   handoff = comment(run.calls, 'handoff comment')
   const oneBlock = (text) => text.split('<details>').length === 2 && text.split('</details>').length === 2 && text.split('<summary>').length === 2
-  check('coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('<summary>Candidates set aside (7): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && handoff.includes('<summary>Candidates set aside in round 1 (7): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
-  check('coverage: a For the person line is not escaped, so the escaping is the set-aside block\'s alone', eb.includes('### For the person\n\n- `app/q.vue:1` · a <b> & c note\n') && handoff.includes('- `app/q.vue:1` · a <b> & c note'), eb)
+  check('coverage: the set-aside block escapes & and < and neutralises @ outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('### Candidates set aside (17)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && handoff.includes('### Candidates set aside in round 1 (17)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
+  // One check per way the reading can go wrong, so a failure names the rule that broke.
+  const blockLine = (n) => eb.includes(escapedLines[n - 1] + '\n')
+  check('posted text: an @ before a letter or a digit gets the joiner\'s reference &#8288;, outside a span and in the ref, while @ in a span and @-x stay as written', blockLine(8), eb)
+  check('posted text: `](` escapes the whole text, so a backtick in a link title cannot leave a tag raw', blockLine(9), eb)
+  check('posted text: `][` escapes the whole text, so a full reference link cannot take a label\'s backtick', blockLine(10), eb)
+  check('posted text: `://` escapes the whole text, so a bare autolink cannot take a backtick', blockLine(11), eb)
+  check('posted text: `www.` escapes the whole text in any case', blockLine(12), eb)
+  check('posted text: a carriage return escapes the whole text and neutralises its @', blockLine(13), eb)
+  check('posted text: a backslash before a backtick escapes the whole text', blockLine(6), eb)
+  check('posted text: a backslash not before a backtick is no trigger, so a namespaced text keeps its spans as written', blockLine(14), eb)
+  check('posted text: in a text escaped whole, an @ inside a span gets the joiner\'s reference too', blockLine(15), eb)
+  check('posted text: `[` alone is no trigger, so brackets in code talk keep their spans as written', blockLine(16), eb)
+  check('posted text: a @&#8288; the finder typed has its & escaped, so it is not taken for the workflow\'s', blockLine(17), eb)
+  // What the GitHub agent copies with the Write tool holds the neutraliser as plain ASCII, so a copy
+  // that dropped it would show, and holds no raw joiner (the #87 follow-up spec, decision 2).
+  check('posted text: the post prompt and the handoff prompt carry @&#8288; and no raw U+2060', ['post r1', 'handoff comment'].every((label) => pick(run.calls, label).prompt.includes('@' + WJ + 'param') && !pick(run.calls, label).prompt.includes(RAW_WJ)), ['post r1', 'handoff comment'].map((label) => pick(run.calls, label).prompt.includes(RAW_WJ)))
+  check('posted text: a For the person line goes through the same function, in the review body and the handoff', eb.includes('### For the person\n\n- `app/q.vue:1` · a &lt;b> &amp; c note from @' + WJ + 'param\n') && handoff.includes('- `app/q.vue:1` · a &lt;b> &amp; c note from @' + WJ + 'param\n'), eb)
 
   // A duplicate's target, by the form of its ref (the #85 follow-up spec's shaping default "A
   // duplicate's target"; #86, R4-2): `index N` in lower case and `candidate N` in upper case each
@@ -1649,6 +1719,113 @@ function samePrefix(name, first, second, n) {
 
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
+}
+
+// ---------------------------------------------------------------------------
+// 16. Posted text (#87): every finder and verifier field the review body and the handoff post,
+//     and an inline comment's title, go through the block's function, with fields that share a
+//     line read as one text; shaper, person and implementer text, and the workflow's own mentions,
+//     are posted as written; a title read back from GitHub is decoded once at intake, so posting
+//     it again escapes it once; the agent files whose text is posted ask for `@` identifiers in
+//     backticks.
+// ---------------------------------------------------------------------------
+{
+  const review = (calls, label) => {
+    const p = pick(calls, label).prompt
+    return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2))
+  }
+  const posted = 'Binds @' + WJ + 'click to &lt;b> &amp; more'
+
+  // The lines outside the block, with a defer: the finding line and its inline comment's title, an
+  // Already tracked line whose title leaves a backtick open that pairs with one in its knownAs (read
+  // apart, `<c>` would sit outside GitHub's span), the summary (one with a newline is escaped
+  // whole), For the person, and the handoff's Deferred line, whose shaper mitigation stays raw.
+  const outside = [
+    f('R1-1', 'correctness', { title: 'Binds @click to <b> & more', needsDecision: true }),
+    f('R1-2', 'nit', { title: 'one ` open', knownAs: '#41 `<c>`' }),
+    f('R1-3', 'correctness', { title: 'Deferred @csrf <i> check' }),
+  ]
+  let run = await go('posted text: the lines outside the block', baseArgs, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], mitigation: 'a <b> guard', commitIds: [['R1-1', 'R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'], forThePerson: [[{ file: 'app/q.vue', line: 2, text: 'see @param <b> & c' }], []] })
+  const r1 = review(run.calls, 'post r1')
+  check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · likely · `app/x.php:1` · ' + posted + ' · needs a decision\n'), r1.body)
+  check('posted text: the inline comment\'s title line is escaped the same way', r1.comments.some((c) => c.body.includes('\n\n**' + posted + '**\n\n')), r1.comments.map((c) => c.body))
+  check('posted text: an Already tracked line reads its title and knownAs as one text', r1.body.includes('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`'), r1.body)
+  check('posted text: the summary is escaped and neutralised', r1.body.includes('\n\nUses @' + WJ + 'param and &lt;b>.\n\n'), r1.body)
+  check('posted text: a summary with a newline is escaped whole, its span included', review(run.calls, 'post r2').body.includes('\n\nLine one with `&lt;b>`\nline two\n\n'), review(run.calls, 'post r2').body)
+  check('posted text: a For the person line is escaped and neutralised', r1.body.includes('### For the person\n\n- `app/q.vue:2` · see @' + WJ + 'param &lt;b> &amp; c'), r1.body)
+  check('posted text: the closing sentence follows the last finding list, Already tracked, and comes before For the person', r1.body.includes('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`\n\n' + CLOSING + '\n\n### For the person\n\n'), r1.body)
+  let handoff = comment(run.calls, 'handoff comment')
+  check('posted text: the handoff\'s Deferred line escapes the title and posts the shaper\'s mitigation as written', handoff.includes('- **R1-3** Deferred @' + WJ + 'csrf &lt;i> check: shipped a <b> guard; open: a lock'), handoff)
+  check('posted text: the handoff\'s For the person line is escaped too', handoff.includes('- `app/q.vue:2` · see @' + WJ + 'param &lt;b> &amp; c'), handoff)
+  check('posted text: the hand-off line to the reviewer is written as before, a live mention', handoff.includes('\n\n@sam, over to you for the human review.\n\n'), handoff)
+
+  // A decision line holds a finding's title and its owner: the title is neutralised, the person's
+  // restatement and `decided by: @author` are posted as written.
+  const asked = { reviews: [[f('R1-1', 'correctness', { title: 'Asked <s> & @param', needsDecision: true })], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  run = await go('posted text: a decision line', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'The author keeps <s> as it is.', date: '2026-11-12' } } }, asked)
+  handoff = comment(run.calls, 'handoff comment')
+  check('posted text: a Decisions line escapes the title and keeps the restatement and the owner as written', handoff.includes('### Decisions\n\n- **R1-1** Asked &lt;s> &amp; @' + WJ + 'param: The author keeps <s> as it is. · decided by: @author'), handoff)
+
+  // The round trip (#87, decision 7): a title prior-findings read back escaped is decoded at intake,
+  // so the reviewer reads it as written and every line that posts it again escapes it once. R1-1
+  // comes back as #87 posts it and the reviewer leaves it out, so the fallback carry copies it;
+  // R1-2 is a title posted before #87, raw, which the reviewer carries and an issue tracks; R1-3 is
+  // resolved; R1-4's old title holds a literal `&lt;`, which decodes to `<` (rider (a)) and posts
+  // as the same bytes, beside its earlier reply, posted as written with its owner.
+  const priors = [
+    prior('R1-1', 'none', { comment_id: 11, title: posted, body: '**R1-1** · correctness · low · likely\n\n**' + posted + '**\n\nOld description.' }),
+    prior('R1-2', 'none', { comment_id: 12, title: 'Old <b> & title' }),
+    prior('R1-3', 'none', { comment_id: 13, title: 'Gone <i> @csrf' }),
+    prior('R1-4', 'dropped', { comment_id: 14, title: 'Escape &lt; by hand', reply: { id: 254, body: 'not acted on in this run. Keep <b>. · decided by: @author' } }),
+  ]
+  run = await go('posted text: the round trip', { ...baseArgs, firstRound: 2, priorFindings: priors }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', title: 'Old <b> & title', knownAs: '#41 @param' })], []], resolved: [[{ id: 'R1-3', why: 'The <i> line @went away.' }]], postDrop: ['R2-1'], commitIds: [['R2-2']] })
+  const rp = pick(run.calls, 'review r2').prompt
+  check('posted text: the reviewer\'s carry list shows a read-back title decoded, the joiner\'s reference stripped', rp.includes('"title": "Binds @click to <b> & more"'), rp.slice(rp.indexOf('with no disposition')))
+  check('posted text: a read-back literal &lt; reaches the reviewer as <', rp.includes('"title": "Escape < by hand"'), rp.slice(rp.indexOf('already handled')))
+  const r2 = review(run.calls, 'post r2')
+  check('posted text: the fallback carry posts the read-back title escaped once', r2.body.includes('\n- **R2-2** · correctness · low · likely · `app/x.php:1` · ' + posted + ' · first reported as R1-1\n'), r2.body)
+  check('posted text: the fallback carry\'s inline comment title is escaped once', r2.comments.some((c) => c.body.startsWith('**R2-2** · ') && c.body.includes('\n\n**' + posted + '**\n\nFirst reported as R1-1')), r2.comments.map((c) => c.body))
+  check('posted text: a carried title posted before #87 is escaped, beside its knownAs, read as one text', r2.body.includes('\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2'), r2.body)
+  check('posted text: a Resolved line escapes the read-back title and the verifier\'s why as one text', r2.body.includes('### Resolved from earlier rounds\n\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: The &lt;i> line @' + WJ + 'went away.'), r2.body)
+  check('posted text: with Carried forward, Resolved and Already tracked and no For the person, the closing sentence ends the body, after Already tracked', r2.body.endsWith('### Already tracked\n\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2\n\n' + CLOSING), r2.body)
+  handoff = comment(run.calls, 'handoff comment')
+  check('posted text: Earlier rounds escapes each read-back title once, with the knownAs and the why, and posts an earlier reply as written', handoff.includes('### Earlier rounds\n\n- **R1-1** ' + posted + ': carried forward as R2-2: fixed in ') && handoff.includes('\n- **R1-2** Old &lt;b> &amp; title: carried forward as R2-1: already tracked in #41 @' + WJ + 'param\n') && handoff.includes('\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: resolved: The &lt;i> line @' + WJ + 'went away. · decided by: redline\n') && handoff.includes('\n- **R1-4** Escape &lt; by hand: already handled in round 1: not acted on in this run. Keep <b>. · decided by: @author'), handoff)
+  check('posted text: a carried finding\'s Decisions line escapes its read-back title once', handoff.includes('### Decisions\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
+  // A `@&#8288;` readBack left in place has its `&` escaped when the title is posted again, so a
+  // missing strip shows as `&amp;#8288;` beside the other double escapes. The raw joiner's clause,
+  // dropped in #89, R1-1, could not fail; this one can (the #87 follow-up spec).
+  check('posted text: nothing read back is escaped twice', ![r2.body, ...r2.comments.map((c) => c.body), handoff].some((t) => t.includes('&amp;lt;') || t.includes('&amp;amp;') || t.includes('&amp;#8288;')), [r2.body, handoff])
+
+  // The round trip once per way the reading can go wrong: each title as the workflow posts it, read
+  // back, decoded and posted again on a Resolved line, comes out byte for byte the same.
+  const modes = [
+    'a bare &lt;/details> ends the block and `<Head title="x" />` in a span is text',
+    'one ` left open &lt;c>',
+    'a span `a && b <c>` keeps its ampersands &amp; this one does not',
+    'binds @' + WJ + 'click, `@click` in a span, @' + WJ + '123 and a@' + WJ + 'b.co',
+    'two\nlines with `&lt;b>`',
+    'an escaped \\` then &lt;i>`',
+    'see [a](/u "`") &lt;/details> ` end',
+    'see [a][q`] &lt;i>x&lt;/i> `c`',
+    'see http://x.com/a`b &lt;i>x&lt;/i> `c`',
+    'first\r&lt;/details> and @' + WJ + 'param',
+    'a typed @&amp;#8288;x stays as typed',
+    'App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c',
+  ]
+  run = await go('posted text: the round trip per mode', { ...baseArgs, firstRound: 2, priorFindings: modes.map((title, i) => prior(`R1-${i + 1}`, 'none', { title })) }, { reviews: [[]], resolved: [modes.map((_, i) => ({ id: `R1-${i + 1}`, why: 'because' }))] })
+  const back = review(run.calls, 'post r2').body
+  modes.forEach((title, i) => check(`posted text: round trip ${i + 1}, a posted title read back and posted again is unchanged`, back.includes(`- **R1-${i + 1}** ${title}: because`), [title, back]))
+  // readBack strips the workflow's reference before it decodes `&amp;`, so a `@&#8288;` the finder
+  // typed reaches the reviewer as typed, never as a bare `@` (the #87 follow-up spec, Evidence).
+  const modesPrompt = pick(run.calls, 'review r2').prompt
+  check('posted text: a typed @&#8288; reads back as typed, so the decode order is the inverse of the escape order', modesPrompt.includes('"title": "a typed @&#8288;x stays as typed"'), modesPrompt.slice(modesPrompt.indexOf('with no disposition')))
+
+  // The agent files whose text is posted in a comment or a reply carry the backtick sentence,
+  // word for word (#87, answer 13); the round prompts do not change.
+  for (const name of ['redline-reviewer', 'redline-shaper', 'redline-resolve', 'redline-implementer']) {
+    const text = fs.readFileSync(path.join(here, '..', 'agents', `${name}.md`), 'utf8')
+    check(`posted text: agents/${name}.md asks for an @ identifier in backticks`, text.includes('An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.'), `agents/${name}.md`)
+  }
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

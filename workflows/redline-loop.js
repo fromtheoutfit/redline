@@ -85,11 +85,11 @@ if (!Number.isInteger(firstRound) || firstRound < 1) {
 // run's first round; the rest are tracked and never re-raised.
 const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
 const CARRY = ['none', 'not-changed']
-const priorFindings = A.priorFindings === undefined ? [] : A.priorFindings
-if (!Array.isArray(priorFindings)) {
+const priorPosted = A.priorFindings === undefined ? [] : A.priorFindings
+if (!Array.isArray(priorPosted)) {
   fail('args.priorFindings must be the list redline-gh.sh prior-findings prints, or []; got ' + JSON.stringify(A.priorFindings))
 }
-for (const p of priorFindings) {
+for (const p of priorPosted) {
   const m = p && typeof p === 'object' && typeof p.id === 'string' ? /^R(\d+)-\d+$/.exec(p.id) : null
   if (!m || Number(m[1]) >= firstRound) {
     fail(`args.priorFindings must list findings of the rounds before ${firstRound}, each with an id R<round>-<n>; got ${JSON.stringify(p && p.id)}`)
@@ -98,6 +98,13 @@ for (const p of priorFindings) {
     fail(`args.priorFindings: ${p.id} needs a disposition in ${PRIOR_DISPOSITIONS.join(' | ')} and an integer comment_id; got ${JSON.stringify(p.disposition)}, ${JSON.stringify(p.comment_id)}`)
   }
 }
+// The round trip (#87): prior-findings prints a title as the review body posted it, escaped and
+// neutralised by postedText since #87 and raw before, so it is decoded here, once, before anything
+// reads it. The reviewer's prompt lists then show the title as the verifier wrote it, and every
+// line that posts it again (a carried finding, Resolved, Earlier rounds, the handoff's decisions)
+// escapes it once, never twice. The comment body and the reply text are posted raw and reposted
+// raw, so they are not decoded.
+const priorFindings = priorPosted.map((p) => (typeof p.title === 'string' ? { ...p, title: readBack(p.title) } : p))
 const carryList = priorFindings.filter((p) => CARRY.includes(p.disposition))
 const trackedList = priorFindings.filter((p) => !CARRY.includes(p.disposition))
 const priorById = Object.fromEntries(priorFindings.map((p) => [p.id, p]))
@@ -817,7 +824,7 @@ function findingLine(f) {
   const carried = f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''
   const rule = ruleOf(f)
   const yours = rule ? ` · yours under rule ${rule.id}` : ''
-  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${f.title}${decision}${carried}${yours}`
+  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${postedText(f.title)}${decision}${carried}${yours}`
 }
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
@@ -839,7 +846,7 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (coverage) {
     lines.push('', coverageSentence(coverage))
   }
-  lines.push('', review.summary.trim(), '')
+  lines.push('', postedText(review.summary.trim()), '')
   if (active.length === 0) {
     lines.push('No findings.')
   }
@@ -852,10 +859,16 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   }
   const resolved = review.resolved || []
   if (resolved.length) {
-    lines.push('', '### Resolved from earlier rounds', '', ...resolved.map((r) => `- **${r.id}** ${priorById[r.id] ? priorById[r.id].title : ''}: ${r.why}`))
+    lines.push('', '### Resolved from earlier rounds', '', ...resolved.map((r) => `- **${r.id}** ${postedText(`${priorById[r.id] ? priorById[r.id].title : ''}: ${r.why}`)}`))
   }
   if (known.length) {
-    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${f.title}: ${f.knownAs}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
+    lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${postedText(`${f.title}: ${f.knownAs}`)}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
+  }
+  // The closing sentence speaks of the findings, so it follows the last finding list the round has
+  // and comes before For the person and the set-aside block, never under the block's heading (the
+  // #87 follow-up spec, answer 9). No reader in redline-gh.sh depends on where it sits.
+  if (active.length) {
+    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
   }
   const forThePerson = review.forThePerson || []
   if (forThePerson.length) {
@@ -865,17 +878,15 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (setAside.length) {
     lines.push('', ...setAsideBlock(setAside))
   }
-  if (active.length) {
-    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
-  }
   return lines.join('\n')
 }
 
 // A For the person entry as it reads in the review body and the handoff: no id, so
 // redline-gh.sh prior-findings (which reads "- **R<n>-<k>** · ..." lines only) never takes it
-// for a finding.
+// for a finding. The place is the workflow's and is left as written; the text is the finder's or
+// the verifier's and goes through postedText (#87).
 function personLine(entry) {
-  return `- \`${entry.file}:${entry.line}\` · ${entry.text}`
+  return `- \`${entry.file}:${entry.line}\` · ${postedText(entry.text)}`
 }
 
 // The set-aside block (#85; the #85 follow-up spec): every candidate that is neither a finding
@@ -884,52 +895,93 @@ function personLine(entry) {
 // different claim shows as a mismatch on the line. A duplicate of another candidate's index also
 // gives that candidate's place and outcome, so a duplicate of a dropped or tracked candidate
 // cannot hide, and, when that candidate became a finding, which the block does not list, the
-// finding's id after the outcome (#86, R5-4). The label's three groups are the count sentence's,
-// so its count is theirs added up.
+// finding's id after the outcome (#86, R5-4). The block sits under its own heading, which carries
+// the count, so it never reads as part of the section before it when a round has no For the person
+// entries (#87); the summary names the count sentence's three groups, which add up to it.
 // Each line is built by personLine, so it opens with the backticked place as a For the person line
 // does, never a finding id, and redline-gh.sh prior-findings never reads it back (#86, R1-3); its
-// text goes through blockText, so a tag in a summary or a ref cannot end the block or open
-// another. `round` names the round in the handoff, which carries only the last covered round's
-// block.
+// text, summary, outcome, ref and the duplicate's addition read as one, goes through postedText
+// there, so a tag in a summary or a ref cannot end the block or open another, and no `@` in it
+// mentions anyone. `round` names the round in the handoff, which carries only the last covered
+// round's block.
 function setAsideBlock(entries, round) {
   const where = round ? ` in round ${round}` : ''
   const into = (e) => (e.into ? ` (candidate ${e.into.index}, \`${e.into.file}:${e.into.line}\`: ${e.into.outcome}${e.into.id ? ` ${e.into.id}` : ''})` : '')
   return [
-    '<details>',
-    `<summary>Candidates set aside${where} (${entries.length}): collapsed, already tracked or dropped</summary>`,
+    `### Candidates set aside${where} (${entries.length})`,
     '',
-    ...entries.map((e) => personLine({ file: e.file, line: e.line, text: blockText(`${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}${into(e)}`) })),
+    '<details>',
+    '<summary>Collapsed, already tracked or dropped</summary>',
+    '',
+    ...entries.map((e) => personLine({ file: e.file, line: e.line, text: `${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}${into(e)}` })),
     '',
     '</details>',
   ]
 }
 
-// A set-aside line's text as GitHub should show it (the #85 follow-up spec, decisions 4 and 10):
-// `&` then `<` are escaped outside code spans, so a bare tag reads as text and cannot end the
-// block or open another, while a code span is left as the finder wrote it, since GitHub shows a
-// span's text literally and an entity there would show as `&lt;`. Spans are read as GitHub pairs
-// them, over the line's whole text (a backtick left open in the summary pairs with one in the
-// ref): a run of n backticks opens a span that the next run of exactly n closes, and a run with no
-// closer is plain text. A text holding a newline, or a backslash before a backtick, is escaped
-// whole, since there the pairing turns on more than run lengths.
-function blockText(text) {
-  const escape = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-  if (/\n|\\`/.test(text)) {
-    return escape(text)
+// Free text the finder or the verifier wrote, as GitHub should show it (#87; the #85 follow-up
+// spec): the one function every such field goes through where the review body, the handoff or an
+// inline comment's title posts it. Outside code spans, `&` becomes `&amp;` and then `<` becomes
+// `&lt;`, so a bare tag reads as text and cannot end the set-aside block, open another or bold the
+// rest of the body, and `&#8288;` follows every `@` before an ASCII letter or digit, so a `@click`
+// or a `@param` notifies nobody. That is the word joiner (U+2060) as a numeric character reference:
+// GitHub decodes it before it looks for mentions, and outside a code span shows the invisible
+// joiner, so the text reads as written. It is written as ASCII because the GitHub agent copies the
+// body into a file with the Write tool and nothing compares that file with this text, so a raw
+// joiner it dropped would make the mention live again unseen (the #87 follow-up spec). GitHub links
+// `\@x`, `&#64;x`, `/@x` and `(@x)` as mentions, so the reference goes after the `@` whatever
+// precedes it. Two places show it, since GitHub does not decode it there: a code span in a text
+// escaped whole (`@&#8288;x`, beside the `&amp;` and `&lt;` that mode already shows) and a bare
+// URL, whose link it breaks. The mentions the workflow writes itself (`@<reviewer>, over to you`, `decided by: @<login>`)
+// never pass through here, so they stay live. Fields that share a line are passed as one text,
+// since a backtick left open in one pairs with one in the next.
+function postedText(text) {
+  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/@(?=[A-Za-z0-9])/g, '@&#8288;'))).join('')
+}
+
+// A title read back from GitHub (redline-gh.sh prior-findings) as the finder or the verifier
+// wrote it: the exact inverse of postedText, over the same parts. Escaping moves no backtick and
+// adds no trigger, so the posted text splits as the raw one did. Outside spans the `&#8288;` after
+// an `@` goes, then `&lt;` and then `&amp;` are decoded. postedText escapes a typed `&` before it
+// adds the reference, so every `@&#8288;` in a posted text is the workflow's, and a `@&#8288;` the
+// finder typed (posted `@&amp;#8288;`) reads back as typed: the inverse is exact for every text. A
+// title posted before #87 comes back raw and is decoded all the same; one holding a literal `&lt;`
+// then reads `<`, which GitHub already showed.
+function readBack(text) {
+  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/@&#8288;/g, '@').replace(/&lt;/g, '<').replace(/&amp;/g, '&'))).join('')
+}
+
+// A text cut into its code spans, left as written since GitHub shows a span literally, and the
+// rest. Spans are read as GitHub pairs them: a run of n backticks opens a span that the next run of
+// exactly n closes, and a run with no closer is plain text. A text that holds a trigger is one part,
+// escaped whole, spans included (#87, decision 5 and answer 15 of its spec), because there GitHub
+// reads a backtick as part of something else before it pairs code spans, or the pairing turns on
+// more than run lengths: an inline link or image (`](`, a backtick in its destination or title), a
+// full reference link (`][`, a backtick in a label a definition elsewhere in the body matches), a
+// bare autolink (`://` or `www.`, any case: the link takes the backtick), a backslash before a
+// backtick (it can escape the backtick, so the pairing turns on more than run lengths), a carriage
+// return or a newline. A span in such a text then shows `&lt;` for a `<`. A backslash anywhere
+// else changes no pairing, so a namespaced text (`App\Models\User`) keeps its spans (#89, R3-3).
+// Each trigger, and each construct that needs none, was checked against GitHub's renderer (the
+// spec's Evidence; for the narrowed backslash, the #89 round 3 spec's Decision 3).
+function textParts(text) {
+  if (/\]\(|\]\[|:\/\/|www\.|[\r\n]|\\`/i.test(text)) {
+    return [{ span: false, text }]
   }
   const runs = [...text.matchAll(/`+/g)].map((m) => ({ at: m.index, end: m.index + m[0].length, n: m[0].length }))
-  let out = ''
+  const parts = []
   let from = 0
   for (let i = 0; i < runs.length; i++) {
     const close = runs.findIndex((r, j) => j > i && r.n === runs[i].n)
     if (close === -1) {
       continue
     }
-    out += escape(text.slice(from, runs[i].at)) + text.slice(runs[i].at, runs[close].end)
+    parts.push({ span: false, text: text.slice(from, runs[i].at) }, { span: true, text: text.slice(runs[i].at, runs[close].end) })
     from = runs[close].end
     i = close
   }
-  return out + escape(text.slice(from))
+  parts.push({ span: false, text: text.slice(from) })
+  return parts
 }
 
 // Why nineteen candidates became four findings: the coverage record's counts, by outcome.
@@ -943,7 +995,7 @@ function coverageSentence(coverage) {
 }
 
 function commentBody(f) {
-  const lines = [`**${f.id}** · ${f.category} · ${f.severity} · ${f.confidence}`, '', `**${f.title}**`]
+  const lines = [`**${f.id}** · ${f.category} · ${f.severity} · ${f.confidence}`, '', `**${postedText(f.title)}**`]
   if (f.carriedFrom) {
     lines.push('', `First reported as ${f.carriedFrom} in Redline round ${priorById[f.carriedFrom] ? priorById[f.carriedFrom].round : f.carriedFrom.slice(1).split('-')[0]}.`)
   }
@@ -2907,13 +2959,16 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   if (earlier.length) {
     lines.push('', '### Earlier rounds', '', ...earlier)
   }
+  // A finding's title is the verifier's and goes through postedText; the outcome after it is the
+  // workflow's, the shaper's or the person's, and is posted as written, so its `decided by: @login`
+  // still names the owner (#87, decision 2). Left to you does the same below.
   if (decidedAll.length) {
-    lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${d.title}: ${d.outcome}`))
+    lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`))
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${d.title}: left to you under repository rule ${d.rule}; open: ${d.fullFix}`
-      : `- **${d.id}** ${d.title}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
+      ? `- **${d.id}** ${postedText(d.title)}: left to you under repository rule ${d.rule}; open: ${d.fullFix}`
+      : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
   }
   const left = leftToYou()
   if (left.length) {
@@ -2949,7 +3004,7 @@ function leftToYou() {
     for (const [id, forced] of Object.entries(record.forced || {})) {
       const f = record.findings.find((x) => x.id === id)
       const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to the author under repository rule ${forced.rule}`
-      lines.push(`- **${id}** ${f ? f.title : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
+      lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
     }
   }
   return lines
@@ -3104,7 +3159,10 @@ function threadCandidates() {
 }
 
 // The handoff's Earlier rounds section (#35): what became of every finding the PR's earlier
-// Redline rounds posted, as this run read them at launch.
+// Redline rounds posted, as this run read them at launch. Each line is a part postedText renders,
+// the earlier title (read back at intake), the workflow's words and the verifier's knownAs or why,
+// as one text, then a part posted as written: an outcome, an earlier reply read back verbatim (its
+// owner included) or the redline owner (#87).
 function earlierRoundsLines() {
   const record = rounds.find((r) => !r.human && r.round === firstRound)
   if (!priorFindings.length || !record) {
@@ -3115,20 +3173,20 @@ function earlierRoundsLines() {
     const newId = (record.carried || {})[p.id]
     const resolved = (record.resolvedPrior || []).find((r) => r.id === p.id)
     const carrier = newId ? record.findings.find((f) => f.id === newId) : null
-    const what = newId
+    const [said, asWritten] = newId
       ? !ids.has(newId)
-        ? `carried forward as ${newId}, out of scope (correctness only)`
+        ? [`carried forward as ${newId}, out of scope (correctness only)`, '']
         : carrier.knownAs
-          ? `carried forward as ${newId}: already tracked in ${carrier.knownAs}`
-          : record.outcomes && record.outcomes[newId] ? `carried forward as ${newId}: ${record.outcomes[newId]}` : `carried forward as ${newId}`
+          ? [`carried forward as ${newId}: already tracked in ${carrier.knownAs}`, '']
+          : record.outcomes && record.outcomes[newId] ? [`carried forward as ${newId}`, `: ${record.outcomes[newId]}`] : [`carried forward as ${newId}`, '']
       : resolved
-        ? `resolved: ${resolved.why}${decidedBy(REDLINE)}`
+        ? [`resolved: ${resolved.why}`, decidedBy(REDLINE)]
         // The disposition before the reply text: one a later round's line carried is named by its
         // new id, whatever its own thread's last reply says (#46, R1-5).
         : p.disposition === 'carried' && p.carried_to
-          ? `carried forward as ${p.carried_to} in round ${p.carried_to.slice(1).split('-')[0]}`
-          : `already handled in round ${p.round}: ${p.reply ? p.reply.body : p.disposition}`
-    return `- **${p.id}** ${p.title}: ${what}`
+          ? [`carried forward as ${p.carried_to} in round ${p.carried_to.slice(1).split('-')[0]}`, '']
+          : [`already handled in round ${p.round}`, `: ${p.reply ? p.reply.body : p.disposition}`]
+    return `- **${p.id}** ${postedText(`${p.title}: ${said}`)}${asWritten}`
   })
 }
 

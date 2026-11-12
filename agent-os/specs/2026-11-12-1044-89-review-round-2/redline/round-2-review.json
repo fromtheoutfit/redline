@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 2\n\nFinal nit pass: reviewed only the nit fixes (1a7bf67..515f7a7) for correctness bugs they introduced.\n\nThe round 1 fix changes one check in tests/loop-test.mjs. It drops the clause that looked for a doubled word joiner, which could never fail: postedText adds a joiner only before an ASCII letter or digit, so a joiner left behind would never sit next to a new one. It also renames the check to say what it now asserts. The new comment's claim holds, because the carry-list check at line 1760 still pins the joiner strip, and the fix introduces no correctness bug.\n\nNo findings.",
+  "comments": []
+}

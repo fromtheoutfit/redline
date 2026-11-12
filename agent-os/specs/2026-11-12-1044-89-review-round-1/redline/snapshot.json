@@ -1,0 +1,29 @@
+{
+  "pr": 89,
+  "start_sha": "1a7bf673701ce7852439b65504d8db6b4fc0e100",
+  "base_ref": "main",
+  "files": [
+    "README.md",
+    "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/plan.md",
+    "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/references.md",
+    "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/shape.md",
+    "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/standards.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agents/redline-implementer.md",
+    "agents/redline-resolve.md",
+    "agents/redline-reviewer.md",
+    "agents/redline-shaper.md",
+    "docs/running.md",
+    "tests/gh-fixtures/comments-15.json",
+    "tests/gh-fixtures/issue-comments-15.json",
+    "tests/gh-fixtures/reviews-15.json",
+    "tests/gh-test.sh",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "tests/loop-test.mjs",
+    "agent-os/specs/2026-11-12-1044-89-review-round-1/"
+  ]
+}

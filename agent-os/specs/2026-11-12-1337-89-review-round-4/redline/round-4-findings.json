@@ -1,0 +1,11 @@
+{
+  "round": 4,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "0e4a537ec61adb912ebb9238232995de0b5eaa13",
+    "to": "370d5d84c55be27c98f171a1800b2492e352335b"
+  },
+  "summary": "The round 3 fixes do what was decided. `textParts` now escapes a text whole only for a backslash directly before a backtick (`/\\]\\(|\\]\\[|:\\/\\/|www\\.|[\\r\\n]|\\\\`/i`). Traced by hand, since the reviewer cannot run node: the namespaced case gives exactly the line pinned for app/n.vue:14. Its spans `<x-slot>`, `@csrf` and `$a && $b` are left as written, while `\\&lt;b>` and `\\&amp;` are escaped outside them. Case 6 (`\\`` before `<i>`) is still escaped whole. Escaping adds no backslash, backtick or trigger, so `readBack` still cuts the posted text into the same parts and the new round-trip mode holds. The README and `docs/running.md` costs, the R3-1 inline-link line and the R3-2 Deferred-line pin introduce no correctness bug. The earlier round titles posted on this PR hold no backslash, so changing the trigger cannot change how one of them reads back.",
+  "findings": [],
+  "forThePerson": []
+}

@@ -52,3 +52,5 @@ You produce one spec folder under `agent-os/specs/` with `plan.md`, `shape.md`, 
 ## Attribution
 
 Redline labels its own work as Redline. Never write a model name, a vendor name or an AI-assistant marker into the spec folder or anywhere else. The folder says "Shaped by Redline in unattended mode".
+
+An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.

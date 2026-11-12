@@ -1,0 +1,4 @@
+[
+  {"id": 1501, "pull_request_review_id": 30, "user": {"login": "author"}, "path": "app/a.vue", "line": 3, "side": "RIGHT", "body": "**R1-1** · correctness · high · confirmed\n\n**Binds @&#8288;click to &lt;b> &amp; more**\n\nThe handler binds before the element exists.", "in_reply_to_id": null, "created_at": "2026-11-12T10:00:00Z"},
+  {"id": 1502, "pull_request_review_id": 31, "user": {"login": "author"}, "path": "app/a.vue", "line": 3, "side": "RIGHT", "body": "**R2-1** · correctness · high · confirmed\n\n**Binds @&#8288;click to &lt;b> &amp; more**\n\nFirst reported as R1-1 in Redline round 1.\n\nThe handler still binds before the element exists.", "in_reply_to_id": null, "created_at": "2026-11-12T11:00:00Z"}
+]

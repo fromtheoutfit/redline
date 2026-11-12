@@ -25,7 +25,10 @@
 # prior-findings fixture (#35): two Redline rounds, one finding per disposition (a fixed reply, no
 # reply beside a teammate's, a dropped one, a body finding answered by an issue comment, a not
 # changed one that round 2 carried as R2-2, a decided one, a round-2 finding a later run's reply resolved), an Already tracked line that is not a
-# finding, and round 2's fresh finding with no reply. The shim is the
+# finding, and round 2's fresh finding with no reply. PR 15 is the posted-text fixture (#87): a
+# finding line whose title is escaped and neutralised as the workflow writes it (`&lt;`, `&amp;`, the
+# word joiner's reference `&#8288;` after `@`), carried by round 2, beside a For the person line and the set-aside block
+# under its own `### Candidates set aside (N)` heading. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
 # which threads were resolved and that the mutation is the script's fixed string.
@@ -52,7 +55,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -131,6 +134,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/14/reviews") pages=("$PAGES/reviews-14.json") ;;
     "repos/{owner}/{repo}/pulls/14/comments") pages=("$PAGES/comments-14.json") ;;
     "repos/{owner}/{repo}/issues/14/comments") pages=("$PAGES/issue-comments-14.json") ;;
+    "repos/{owner}/{repo}/pulls/15/reviews") pages=("$PAGES/reviews-15.json") ;;
+    "repos/{owner}/{repo}/pulls/15/comments") pages=("$PAGES/comments-15.json") ;;
+    "repos/{owner}/{repo}/issues/15/comments") pages=("$PAGES/issue-comments-15.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -227,6 +233,20 @@ is "prior-findings: the ask-rule tail is stripped from the title and a left repl
 is "prior-findings: a later run's resolved reply is fixed, not decided" "$(jq -c '.[9] | [.id, .disposition, .comment_id, .reply.id, .round]' <<<"$pf")" '["R2-4","fixed",1424,1434,2]'
 is "prior-findings: a PR with no Redline review prints an empty list" "$(gh prior-findings 8)" "[]"
 gh prior-findings 99 >/dev/null 2>&1; is "prior-findings: a gh error exits 2" "$?" "2"
+# Posted text (#87): a title the workflow escaped and neutralised comes back byte for byte (the
+# workflow decodes it once at intake, never this script), still matches its id and its root comment,
+# and still loses its suffixes; the For the person line, the set-aside block and its new heading are
+# not findings, and the readers that count rounds see the heading as any other line. The
+# fixture holds the joiner as its reference `&#8288;`, plain ASCII, as the workflow writes it (the #87
+# follow-up spec); jq -a prints a raw joiner as its escape, so a stray one fails the match.
+pf15="$(gh prior-findings 15)"; code=$?
+is "posted text: prior-findings exits 0 with the set-aside heading in both bodies" "$code" "0"
+is "posted text: only the two finding lines are findings; no For the person, heading or set-aside line is one" "$(jq -c '[.[].id]' <<<"$pf15")" '["R1-1","R2-1"]'
+is "posted text: the escaped title comes back byte for byte, its needs-a-decision suffix stripped" "$(jq -a -c '.[0].title' <<<"$pf15")" '"Binds @&#8288;click to &lt;b> &amp; more"'
+is "posted text: the escaped title still matches its root comment by id" "$(jq -c '.[0] | [.comment_id, .file, .line]' <<<"$pf15")" '[1501,"app/a.vue",3]'
+is "posted text: the carried line keeps the same bytes, names its origin and carries the earlier finding" "$(jq -a -c '[.[1].title, .[1].carried_from, .[0].disposition, .[0].carried_to]' <<<"$pf15")" '["Binds @&#8288;click to &lt;b> &amp; more","R1-1","carried","R2-1"]'
+is "posted text: last-round reads past the set-aside heading" "$(gh last-round 15)" "2"
+gh has-review 15 2 >/dev/null; is "posted text: has-review finds round 2 with the heading present" "$?" "0"
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?

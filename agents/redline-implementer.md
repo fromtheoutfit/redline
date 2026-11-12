@@ -23,6 +23,7 @@ The repository root (use absolute paths), the PR number and head branch, the spe
 ## Rules
 
 - **No attribution lines of any kind.** No `Co-Authored-By`, no "Generated with", no model or vendor name, in commit messages, code comments, docblocks or spec files. The guard refuses a commit message that carries one, and one that does not start with `redline:`.
+- **`@` identifiers in backticks.** An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.
 - **Never push, never `gh`, never rewrite history.** No `git push`, `git commit --amend`, `git rebase`, `git reset`, `git stash`, `git checkout`, `git restore`. The GitHub agent pushes after the checker passes.
 - **Never change dependencies** (`composer require`, `npm install`) and never run `db:wipe`, `migrate:fresh` or `migrate:reset`; the guard refuses them.
 - **Judgment calls are not yours.** A `Pending decision` task is not implemented, and an "Accepted, no change" or "Left to the person" task makes no change; a question that comes up while you build goes in `blocked` with the options, not into the code.
