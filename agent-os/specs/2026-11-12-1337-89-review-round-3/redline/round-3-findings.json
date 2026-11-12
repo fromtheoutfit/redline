@@ -1,0 +1,200 @@
+{
+  "round": 3,
+  "reviewed": "pr",
+  "range": {
+    "from": "0e4a537ec61adb912ebb9238232995de0b5eaa13",
+    "to": "0e4a537ec61adb912ebb9238232995de0b5eaa13"
+  },
+  "summary": "The PR sends every finder and verifier field that the review body, the handoff and an inline comment's title post through postedText, and readBack undoes it exactly at intake. Tracing the escapes, the joiner reference and the decode order found no correctness defect. There are three nits: README Known limits leaves out a link cost that the follow-up spec's Evidence recorded, no check pins an escaped title on one Deferred branch, and the backslash trigger, which this PR widened from the base's backslash-before-backtick rule, is a question for you. On the rule checks: the version moves to 0.2.3 as a patch with no template change, both plans name their Docs sections, and no scheduled or queued work applies to this repository.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "README.md",
+      "line": 106,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Known limits leaves out the broken link of an inline link whose destination holds `@x`",
+      "description": "README Known limits (line 106) lists a bare URL's broken link as a cost of neutralised text, but leaves out the inline link. Any text holding `](` is escaped whole (textParts, workflows/redline-loop.js:965). So an `@` before a letter or digit in a link destination gets `&#8288;`, and GitHub decodes the reference there too. The follow-up spec's Evidence table records it: `[a](https://x.com/@&#8288;click)` renders with the href `https://x.com/@%E2%81%A0click`. The bare URL visibly shows `&#8288;`, but here the link text reads as written, so the link looks right and leads somewhere else. Examples are a scoped npm package page, a `pkg@version` CDN URL or a profile URL. An `@` in a link destination was never a mention, so the reference protects nothing there. The 'What is escaped and neutralised' bullet in docs/running.md (line 137) also names only the bare URL.",
+      "proposedFix": "Add a clause to the costs list in README.md, Known limits (line 106): an inline link whose destination holds `@x` keeps its text, but its href gets the joiner (`%E2%81%A0`) and leads to another page. Add the same clause next to the bare-URL sentence in docs/running.md, 'How the review is posted', the 'What is escaped and neutralised' bullet (line 137).",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "tests/loop-test.mjs",
+      "line": 1751,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "No check pins the escaped title on the Deferred line's repository-rule branch",
+      "description": "The handoff's Deferred line has two branches, and each makes its own postedText call: workflows/redline-loop.js:2967 for a finding autopilot left under a repository rule, and 2968 for a mitigation. Section 16 pins only the mitigation branch (this line). The rule branch has one check, the section 12 autopilot case at line 1045. That case scripts the plain titles 'title R1-2' and 'title R1-3', which postedText returns unchanged. So if line 2967 went back to `${d.title}`, every check would stay green, while an autopilot run under an ask rule would post a raw tag or a live mention on its Deferred line. docs/running.md:127 lists the Deferred line as escaped. The tests standard asks for escaped text to be pinned for each way it is written, and for a rule to be pinned at a second call site (agent-os/standards/testing/tests.md:10 and 13). I traced this by reading both checks and grepping for every pin of the line. The reviewer role cannot run node, so the mutation was not run. The cap comment's Still open line uses findingLine, so it shares the escaping pinned at line 1743, but no capped scenario pins the cap comment's body at all.",
+      "proposedFix": "Copy the `titled` run at tests/loop-test.mjs:1036 with `interrupt: 'autopilot'`, or extend the autopilot scenario at line 1039. Give R1-2 the title 'Field <b> renamed @config' and pin this exact line under `### Deferred (mitigated now, full fix left open)`: `- **R1-2** Field &lt;b> renamed @&#8288;config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.` Run it red with postedText removed from line 2967, then green. Optionally, also pin the cap comment's Still open line with a tagged title in the capped scenario (line 410).",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "workflows/redline-loop.js",
+      "line": 965,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Any backslash escapes the whole text, so a namespaced line shows entities in its code spans",
+      "description": "textParts escapes a text that holds any backslash as a whole, code spans included (line 965). So when a line names a PHP namespace and also has a span holding `<`, `&` or an `@` identifier, the entities show inside that span. For example, the title: `App\\Models\\User::save` drops `<x-slot>` when `$a && $b`. It posts `&lt;x-slot>` and `$a &amp;&amp; $b` inside its spans, and a span holding `@csrf` shows `@&#8288;csrf`. The base's blockText escaped a text whole only on a newline or on a backslash directly before a backtick (the removed `` /\\n|\\\\`/ ``). That is the only backslash that changes how GitHub pairs backtick runs: a backslash escape applies only to the next ASCII punctuation character, a backslash inside a span is literal, and a backslash before `<`, `&` or `@` costs the same in both modes. The #87 spec's brief decision 5 chose any backslash, and README Known limits (line 107) names the cost, so this is a question, not a defect. Nothing leaks either way. The #87 spec's answer 15 dropped `[` as a trigger because it is common in code talk and would escape most lines whole. A namespace is just as common in Laravel text, and that answer did not weigh it. A fix edits `workflows/`, and a relaunch of this run would then hit the problem #81 describes. Question: keep any backslash as a trigger, or narrow it back to a backslash directly before a backtick, so namespaced text keeps its spans as written?",
+      "proposedFix": "If narrowed:\n- In textParts' trigger at line 965, replace the bare backslash in the character class with a backslash directly before a backtick. Keep `](`, `][`, `://`, `www.`, the carriage return and the newline.\n- Add section 16 cases for a namespaced title next to a span holding `<b>`, pinned as the exact posted string with its span kept, and for a backslash before a backtick, which is still escaped whole. Add a round-trip mode for each.\n- Reword docs/running.md, 'How the review is posted' (line 137), and README Known limits (line 107).\n\nIf kept: no change.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 939,
+      "text": "Already tracked in #88. A newline or a lone carriage return in a summary, ref, title or For the person text, followed by a code fence at the start of the next line, ends the list and opens a code block at the top level, since CommonMark lets a fence interrupt a paragraph. With no closing fence, the block runs to the end of the body and swallows the set-aside block's `</details>`, Not placed inline and, in the handoff, `### Commits`. I traced this from the CommonMark spec but did not render it. #88's Change asks for a newline rule for posted free text, but its Done when names only the readers (`prior-findings`, `has-review`, `last-round`), so the fence case is worth adding there. The base's blockText kept newlines the same way and For the person lines were posted raw, so this PR removed no guard. The comment above setAsideBlock and docs/running.md:48 claim only that no tag can end the block."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 951,
+      "text": "readBack decodes only the workflow's `@&#8288;`, `&lt;` and `&amp;`. A title posted raw by 0.2.2 or earlier that holds another entity outside a span (`&gt;`, `&quot;`, `&nbsp;`) is reposted on a fresh 0.2.3 launch as `&amp;gt;`, so the page shows the entity where GitHub used to show the character. Rider (a) and the PR body only talk about `&lt;`, so nothing they claim is false. This needs an old title with a literal entity in it, so it is rare and cosmetic. postedText never writes a bare `&gt;` outside a span, so readBack could decode named entities before `&amp;` and stay an exact inverse for new text."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2963,
+      "text": "On the Decisions, Deferred, Left to you and Earlier rounds lines, the title goes through postedText alone and the outcome, mitigation or reply after it stays raw. So if a title leaves a backtick open, GitHub pairs it with the first backtick in that raw text. The title's `&lt;`, `&amp;` and `@&#8288;` then show as entities inside the span, and the raw text's own span breaks. It never leaks: what the title's reading left raw stays inside GitHub's span, and the owner's `decided by: @login` closes the line, so no span can hold it. The #87 spec chose this ('A field before raw text is rendered alone'). The sentence 'Fields that share a line are read as one text' at docs/running.md:137 reads wider than that, and could say it applies to the finder's and the verifier's fields."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 939,
+      "text": "postedText neutralises only account mentions. A cross-repository reference such as `laravel/framework#51234` in a finder's summary or a verifier's ref still adds a backlink to that issue's timeline from every round's body and from the handoff. That happened before this PR too (the base posted the same text), and same-repository issue numbers are links Redline relies on. New with this PR: a commit reference such as `owner/repo@1a2b3c4` gets the joiner after its `@` and probably loses its link. README Known limits does not list that cost next to the email and bare URL. I did not render it."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 107,
+      "text": "readBack exists because a fresh launch takes earlier titles from the posted review body. The raw titles, keyed by id, are also in each round's committed record (`<specFolder>/redline/round-<n>-findings.json`). Reading them from there would make the round trip a plain copy, with no inverse to keep in step with postedText. The #87 spec's answer 16 chose the decode at intake and kept `prior-findings` a byte-for-byte reader, and a record is on the branch only after a run pushed it. So this is a design option, not a defect."
+    }
+  ],
+  "coverage": {
+    "head": "0e4a537ec61adb912ebb9238232995de0b5eaa13",
+    "candidates": 8,
+    "counts": {
+      "finding": 3,
+      "forThePerson": 5,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "forThePerson",
+        "ref": "Tracked in part by #88 (a newline rule for posted free text). The base's blockText kept newlines the same way, so this PR did not introduce it and removed no guard."
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "True by trace but rare and cosmetic: it needs a title posted by 0.2.2 or earlier that holds a literal entity other than &lt; or &amp;."
+      },
+      {
+        "index": 3,
+        "outcome": "forThePerson",
+        "ref": "Never a leak, and the #87 spec's shaping default chose it ('A field before raw text is rendered alone'). Only the docs sentence reads wider."
+      },
+      {
+        "index": 4,
+        "outcome": "finding",
+        "ref": "R3-3"
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "Cross-references were posted the same way before this PR and fall outside #87's account mentions. Only the lost commit-reference link is new, and I did not render it."
+      },
+      {
+        "index": 6,
+        "outcome": "finding",
+        "ref": "R3-1"
+      },
+      {
+        "index": 7,
+        "outcome": "finding",
+        "ref": "R3-2"
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "A design option, not a defect: answer 16 of the #87 spec chose the decode at intake."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 938,
+        "summary": "postedText's whole-text mode escapes &, < and @ but keeps line structure. A newline or a lone CR followed by a code fence (or a heading or `---`) in free text ends the list and opens a block at top level. An unclosed fence swallows the rest of the review body, the set-aside block's own `</details>` included. Partly tracked in #88, which names the newline hazard only for the readers that parse lines (prior-findings, has-review, last-round).",
+        "failure_scenario": "A set-aside ref or summary such as \"first line\\n```\\nstill code\" is posted as written apart from &/</@. GitHub renders `</details>`, the following lines, `### Not placed inline` and, in the handoff, `### Commits` all inside one <pre><code> block (checked with gh api markdown, for both \\n and \\r). A refutation ref holding a balanced fence of evidence renders as a code block showing &lt; literally. docs/running.md:48 and the comment at redline-loop.js:903-905 still say nothing in a summary or ref can end the block or open another."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 950,
+        "summary": "For titles posted raw before #87, readBack decodes only &lt; and &amp;, while postedText escapes every &. Any other entity (&gt;, &quot;, &#39;, &nbsp;, &rarr;) in such a title is re-posted with its & escaped, so the page shows the entity text where GitHub showed the character. That contradicts rider (a) and the PR's \"Its posted bytes do not change\".",
+        "failure_scenario": "A PR reviewed with 0.2.2 has R1-2 titled \"Escape &gt; here\", which GitHub showed as \"Escape > here\". A fresh 0.2.3 launch reads it back unchanged and posts \"Escape &amp;gt; here\" on the Carried forward, Resolved, Earlier rounds and Decisions lines. GitHub renders that as the literal \"&gt;\" (checked). The reviewer's carry list also shows \"&gt;\"."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 2968,
+        "summary": "The Decisions, Deferred, Left to you and Earlier rounds lines put the title through postedText alone, then raw shaper or person text after it. If the title leaves a backtick open, GitHub pairs it with a backtick in the raw text, and the title's escaped &lt;, &amp; and @&#8288; show as literal entities inside that span. It is safe but not 'read as written', and docs/running.md:137 says without qualification that 'Fields that share a line are read as one text'.",
+        "failure_scenario": "Title \"one ` open <b> & c\" with mitigation \"a `guard` clause\" posts \"- **R1-3** one ` open &lt;b> &amp; c: shipped a `guard` clause\". GitHub renders <code>open &amp;lt;b&gt; &amp;amp; c: shipped a</code>guard` clause (checked): entities show on the page and the mitigation's own span breaks."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 965,
+        "summary": "Any backslash triggers the whole-text escape. Only a backslash outside a span, before a backtick, <, & or @, changes how GitHub reads the line, and doubling `\\` outside spans (undone in readBack) would make GitHub pair spans as textParts does without the fallback. As it stands, every title or ref naming a PHP namespace shows entities inside its code spans. Decision 5 / answer 15 accepted the cost as 'reads slightly worse'; how often Laravel text hits it (#3's primary stack) is not recorded.",
+        "failure_scenario": "Title \"`App\\Models\\User::save` drops `<x-slot>` when `$a && $b`\" is escaped whole. GitHub then shows `&lt;x-slot>` and `$a &amp;&amp; $b` inside the spans, and `@&#8288;csrf` in any span holding `@csrf`, on most Laravel findings."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 939,
+        "summary": "postedText neutralises @-mentions but not GitHub cross-references. An `owner/repo#123` (or a same-repo `#N`) in finder or verifier free text still creates a 'mentioned this' timeline backlink on that issue from every round's body and the handoff. Meanwhile `owner/repo@sha` commit references lose their link to the inserted &#8288;.",
+        "failure_scenario": "A candidate summary citing an upstream issue, \"matches laravel/framework#51234\", sits in a public repository's set-aside block. Each posted review and the handoff reference the upstream issue, so its timeline gains backlinks from this PR, which is the kind of outside effect #87 set out to stop. A summary citing \"laravel/framework@1a2b3c4\" renders as plain text with &#8288; in it, no commit link."
+      },
+      {
+        "index": 6,
+        "file": "README.md",
+        "line": 106,
+        "summary": "The Known limits costs name a bare URL's broken link, but not an inline link's destination or a mailto link. Once a text holds `](` it is escaped whole, so an @ inside a link destination gets &#8288; and the href breaks while the link text looks fine. The #87 follow-up's Evidence table recorded this, but the README does not say it.",
+        "failure_scenario": "A verifier ref \"see [profile](https://medium.com/@user)\" posts with href https://medium.com/@%E2%81%A0user (per the follow-up spec's Evidence). The link looks right and leads to the wrong page, and README Known limits does not say so."
+      },
+      {
+        "index": 7,
+        "file": "tests/loop-test.mjs",
+        "line": 1741,
+        "summary": "docs/running.md lists the cap comment's Still open line and the Deferred line's repository-rule branch (`left to you under repository rule ...`, redline-loop.js:2967) as escaped, but no check pins either. Section 16 covers only the mitigation branch of Deferred and never runs a capped scenario with a tagged title. That goes against the tests standard's rule to pin a value at a second call site.",
+        "failure_scenario": "If capComment stops using findingLine (e.g. a custom Still open line using f.title), or the d.rule branch drops postedText, the cap-hit comment or the autopilot Deferred line posts a live @mention or a raw <b>, and all 676 checks stay green."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 107,
+        "summary": "Altitude: readBack exists only because the run takes prior titles from the posted review body, so every escape ever added to postedText has to be mirrored in readBack, and titles posted by earlier versions decode lossily. The raw titles, keyed by id, are already in the committed and pushed run record (<specFolder>/redline/round-<n>-findings.json). Reading titles from there (and keeping GitHub as the source of ids and dispositions) would make the round trip an identity instead of an inverse. The #87 spec does not weigh this option.",
+        "failure_scenario": "A later change makes postedText also escape `*` or `_`, or neutralise `#`, without updating readBack. A fresh launch then decodes prior titles wrongly and reposts them escaped twice, and only the per-mode round-trip test, if extended, would catch it. Every pre-#87 title that holds an entity already decodes differently from what was written (see the readBack finding above)."
+      }
+    ]
+  }
+}

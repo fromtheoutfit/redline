@@ -1,0 +1,1 @@
+Redline round 3: fixed in 6a4e327 (redline: R3-2 pin an escaped title on the Deferred line a repository rule leaves to the person (#87)). · decided by: redline
