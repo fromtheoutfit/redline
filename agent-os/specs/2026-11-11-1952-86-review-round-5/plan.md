@@ -403,3 +403,70 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #86 round 5 as built (#85)`
+
+## As built
+
+Built by the Redline implementer on 2026-11-11, on top of `dd42671`. No deviation from the plan.
+
+### Commits
+
+- Task 1: `96953bc` `redline: save review round 5 spec for PR #86 (#85)`: `plan.md`, `shape.md`, `standards.md` and `references.md`, nothing under `redline/`.
+- Task 2 (R5-1): `c6a5b0e` `redline: R5-1 pin an ampersand inside a code span of the set-aside block as written (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `tests/loop-test.mjs`.
+- Task 3 (R5-2): `021e3c1` `redline: R5-2 pin the duplicate-target parse's word boundary and its space after candidate (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `tests/loop-test.mjs`.
+- Task 4 (R5-3): `f9fd6b4` `redline: R5-3 say that a candidate behind an Already tracked finding is set aside as known (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `workflows/redline-loop.js`, and the count of changed lines that are not comment lines printed `0`.
+- Task 5 (R5-4): `22944c6` `redline: R5-4 name the finding's id on a duplicate of a candidate that became a finding (#85)`. `git diff --name-only HEAD~1 HEAD` listed exactly `docs/running.md`, `tests/loop-test.mjs` and `workflows/redline-loop.js`.
+- Task 6, step 12: `6ecc028` `redline: record the round 5 review lessons in the standards (#85)`: `agent-os/standards/testing/tests.md` and `agent-os/standards/workflow/agents.md`.
+- Task 6, step 13: this section, in the round's last commit, `redline: record PR #86 round 5 as built (#85)`.
+
+### Task 2's red run
+
+Line 911 mutated with Edit into the two lines of step 1 (`&` escaped across the whole text before the span pairing), then the gate. Its `loop` check exited 1 with `616 checks passed, 1 failed`, the one `FAIL` line:
+
+- `FAIL coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff`, its detail holding ``a span `a &amp;&amp; b <c>` keeps its ampersands``.
+
+No other `FAIL` line. Line 911 was restored with Edit; `git diff --stat -- workflows/redline-loop.js` then printed nothing.
+
+Green: `617 checks passed, 0 failed`. `grep -c "cand('app/g.vue', 7" tests/loop-test.mjs` printed `1`; `grep -c 'Candidates set aside (6)' tests/loop-test.mjs` printed `0` and `grep -c 'Candidates set aside in round 1 (7)' tests/loop-test.mjs` printed `1`; the `grep -cF` of the restored `escape` line printed `1`, and `grep -c 'text = text.replace' workflows/redline-loop.js` printed `0`.
+
+### Task 3's red run
+
+Line 2154 mutated with Edit (`\s+` to `\s*`, the `\b` dropped), then the gate. Its `loop` check exited 1 with `617 checks passed, 2 failed`:
+
+- ``FAIL coverage: a duplicate ref whose leading number runs into a word is shown as written, with no addition``, its detail holding ``duplicate: 1st pass missed it (candidate 1, `app/z.php:5`: refuted)``.
+- ``FAIL coverage: a duplicate ref with no space between `candidate` and the number is shown as written, with no addition``, its detail holding ``duplicate: candidate1 (candidate 1, `app/z.php:5`: refuted)``.
+
+No other `FAIL` line: round 4's five checks in the scenario and the nine-candidate block stayed green under the mutation. Line 2154 was restored with Edit; `git diff --stat -- workflows/redline-loop.js` then printed nothing.
+
+Green: `619 checks passed, 0 failed`. `grep -c "ref: '1st pass missed it'" tests/loop-test.mjs` and `grep -c "ref: 'candidate1'" tests/loop-test.mjs` each printed `1`, `grep -c "outcome: 'duplicate'" tests/loop-test.mjs` printed `10`, and `grep -cF '(\d+)\b/i.exec(e.ref)' workflows/redline-loop.js` printed `1`.
+
+### Task 4
+
+The gate after the comment change: `619 checks passed, 0 failed`. `grep -c 'a finding under Findings or Already tracked' workflows/redline-loop.js` printed `0`, `grep -c 'A candidate behind a finding under Already tracked' workflows/redline-loop.js` printed `1`, and the `grep -cF` of `const LISTED_ELSEWHERE = ['finding', 'forThePerson']` printed `1`.
+
+### Task 5's red run
+
+The loop-test scenario alone, then the gate. Its `loop` check exited 1 with `620 checks passed, 1 failed`, the one `FAIL` line:
+
+- `FAIL coverage: a duplicate of a candidate that became a finding names the finding's id after the target's place and outcome`, its detail showing the line ending ``duplicate: 1 (candidate 1, `app/x.php:3`: finding)``.
+
+The scenario's run-record check passed. No other `FAIL` line.
+
+Green, with steps 1 to 5 made: `621 checks passed, 0 failed`. `grep -c "outcome === 'finding' ? byIndex.get(to).ref : ''" workflows/redline-loop.js`, `grep -c 'e.into.id ?' workflows/redline-loop.js`, `grep -c 'finding R1-1)' tests/loop-test.mjs` and `grep -c "and the finding's id when that candidate became a finding" docs/running.md` each printed `1`.
+
+### Gate
+
+The last run of `.claude/redline/checks.sh` with this round's snapshot, after the standards commit: syntax, validate, guard `592 passed, 0 mismatched`, loop `621 checks passed, 0 failed`, prefs `101 passed, 0 failed`, gate `117 passed, 0 failed`, setup `468 passed, 0 failed`, gh `114 passed, 0 failed` and background `39 passed, 0 failed`, each as the plan expected. `git.unexpected_files` was empty throughout. The runs made before each task's commit listed that task's own edits under `git.uncommitted`, as the plan says; the run after the standards commit listed none.
+
+- **Docs (step 10).** Tasks 2 and 3 have no entry: each commit is a test file only, and `workflows/redline-loop.js` was restored before it. Task 4's entry is `docs/running.md`, "The coverage pass", with no reader-facing change (a comment only, `f9fd6b4`). Task 5's entry, `docs/running.md`, "The coverage pass", landed in `22944c6`.
+- **Version (step 11).** `0.2.2`, unchanged.
+
+### Standards retrospective
+
+The standards approver approved items 1 to 4 of `shape.md`'s "Standards retrospective (proposed)", applied as worded in `6ecc028`:
+
+- Item 1: `testing/tests.md` line 10, an `&` inside a span beside one outside it (R5-1).
+- Item 2: `testing/tests.md` line 22, a widened parse pins the form it still refuses (R5-2).
+- Item 3: `workflow/agents.md` line 37, the finding's id on a duplicate of a candidate that became a finding (R5-4).
+- Item 4: `workflow/agents.md` line 37, the rule reads the accounting after `accountCoverage` (R5-3).
+
+Items 5 to 7 were proposed as already covered, with no change. None was declined or deferred. Each item is a lesson; no finding's fix went through the retrospective, so the commit names no finding. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
