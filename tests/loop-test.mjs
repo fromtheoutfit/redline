@@ -1614,7 +1614,10 @@ function samePrefix(name, first, second, n) {
   // A ref that opens with the index and carries a note after it keeps its target, since the
   // parse reads a leading index token and the accounting sentence asks for the index first (#86,
   // R4-1).
-  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate'), cand('app/z.php', 10, 'a ref with a note after the index')])
+  // A leading number that runs into a word (`1st`) is not an index token, since the index ends at
+  // a word boundary, and `candidate` with no space before the number is not the `candidate N`
+  // form, so both are shown as written: one check each for the `\b` and the `\s+` (#86, R5-2).
+  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate'), cand('app/z.php', 10, 'a ref with a note after the index'), cand('app/z.php', 11, 'a ref whose number runs into a word'), cand('app/z.php', 12, 'a ref with no space after candidate')])
   const formsOut = [
     { index: 1, outcome: 'refuted', ref: 'The claim is one thing; the code does another.' },
     { index: 2, outcome: 'duplicate', ref: 'index 1' },
@@ -1622,6 +1625,8 @@ function samePrefix(name, first, second, n) {
     { index: 4, outcome: 'duplicate', ref: '4' },
     { index: 5, outcome: 'duplicate', ref: '99' },
     { index: 6, outcome: 'duplicate', ref: '1; #7 tracks the case-folding' },
+    { index: 7, outcome: 'duplicate', ref: '1st pass missed it' },
+    { index: 8, outcome: 'duplicate', ref: 'candidate1' },
   ]
   run = await go('coverage: a duplicate\'s target by the form of its ref', covArgs, { reviews: [[]], coverage: [forms], coverageOut: [formsOut] })
   const fb = body(run.calls, 'post r1')
@@ -1630,6 +1635,8 @@ function samePrefix(name, first, second, n) {
   check('coverage: a duplicate ref naming the candidate itself is shown as written, with no addition', fb.includes('\n- `app/z.php:8` · a ref naming itself · duplicate: 4\n'), fb)
   check('coverage: a duplicate ref past the round\'s last candidate is shown as written, with no addition', fb.includes('\n- `app/z.php:9` · a ref past the last candidate · duplicate: 99\n'), fb)
   check('coverage: a duplicate ref that opens with another candidate\'s index keeps its place and outcome with a note after the index', fb.includes('\n- `app/z.php:10` · a ref with a note after the index · duplicate: 1; #7 tracks the case-folding (candidate 1, `app/z.php:5`: refuted)\n'), fb)
+  check('coverage: a duplicate ref whose leading number runs into a word is shown as written, with no addition', fb.includes('\n- `app/z.php:11` · a ref whose number runs into a word · duplicate: 1st pass missed it\n'), fb)
+  check('coverage: a duplicate ref with no space between `candidate` and the number is shown as written, with no addition', fb.includes('\n- `app/z.php:12` · a ref with no space after candidate · duplicate: candidate1\n'), fb)
 
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
