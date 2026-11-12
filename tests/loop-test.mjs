@@ -1469,11 +1469,12 @@ function samePrefix(name, first, second, n) {
   // that did not exist; these checks are what was built in its place.
   // The fifth entry pins that a partly tracked remainder meets every other rule (#86, R2-1). The
   // sixth pins the accounting sentence that says what the set-aside block lists, widened with the
-  // block (the #85 follow-up spec, answer 11).
+  // block (the #85 follow-up spec, answer 11). The seventh pins that a duplicate's ref opens with
+  // the index or the id, so the target parse reads it (#86, R4-1).
   const offRules = await go('coverage: off, the verifier rules and the set-aside block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
   const uncovered = pick(offRules.calls, 'review r1').prompt
   const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })).calls, 'review r1').prompt
-  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is neither a finding nor a For the person entry', 'every candidate that is neither a finding nor']]) {
+  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is neither a finding nor a For the person entry', 'every candidate that is neither a finding nor'], ['a duplicate\'s ref opens with the index or the id', 'opening with the index of the candidate or the id of the finding']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
   // The known-finding section opens on what is tracked in full (#86, R1-1). The review prompt's own
@@ -1606,13 +1607,17 @@ function samePrefix(name, first, second, n) {
   // candidate itself, or an index past the round's candidates, is shown as written with no
   // addition. Each check turns on one clause of the parse: the `index` alternative, the case flag,
   // the self guard and the lookup of the index among the round's candidates.
-  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate')])
+  // A ref that opens with the index and carries a note after it keeps its target, since the
+  // parse reads a leading index token and the accounting sentence asks for the index first (#86,
+  // R4-1).
+  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate'), cand('app/z.php', 10, 'a ref with a note after the index')])
   const formsOut = [
     { index: 1, outcome: 'refuted', ref: 'The claim is one thing; the code does another.' },
     { index: 2, outcome: 'duplicate', ref: 'index 1' },
     { index: 3, outcome: 'duplicate', ref: 'CANDIDATE 1' },
     { index: 4, outcome: 'duplicate', ref: '4' },
     { index: 5, outcome: 'duplicate', ref: '99' },
+    { index: 6, outcome: 'duplicate', ref: '1; #7 tracks the case-folding' },
   ]
   run = await go('coverage: a duplicate\'s target by the form of its ref', covArgs, { reviews: [[]], coverage: [forms], coverageOut: [formsOut] })
   const fb = body(run.calls, 'post r1')
@@ -1620,6 +1625,7 @@ function samePrefix(name, first, second, n) {
   check('coverage: an upper-case `CANDIDATE N` duplicate ref reads as another candidate\'s index, since the parse ignores case', fb.includes('\n- `app/z.php:7` · an upper-case candidate ref · duplicate: CANDIDATE 1 (candidate 1, `app/z.php:5`: refuted)\n'), fb)
   check('coverage: a duplicate ref naming the candidate itself is shown as written, with no addition', fb.includes('\n- `app/z.php:8` · a ref naming itself · duplicate: 4\n'), fb)
   check('coverage: a duplicate ref past the round\'s last candidate is shown as written, with no addition', fb.includes('\n- `app/z.php:9` · a ref past the last candidate · duplicate: 99\n'), fb)
+  check('coverage: a duplicate ref that opens with another candidate\'s index keeps its place and outcome with a note after the index', fb.includes('\n- `app/z.php:10` · a ref with a note after the index · duplicate: 1; #7 tracks the case-folding (candidate 1, `app/z.php:5`: refuted)\n'), fb)
 
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
