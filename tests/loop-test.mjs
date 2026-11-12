@@ -1597,10 +1597,11 @@ function samePrefix(name, first, second, n) {
   // spec, answer 8), outside code spans, read over the line's whole text as GitHub pairs backtick
   // runs (equal lengths; an unclosed run is plain text),
   // so no tag in a summary or a ref ends the block or opens another, no `@` mentions anyone, and a
-  // code span reads as written. A text holding `](`, `][`, `://`, `www.` (any case), a backslash, a
-  // carriage return or a newline is escaped whole, spans included: there GitHub reads a backtick as
-  // part of a link or an autolink before it pairs spans (the #87 spec's Evidence). `[` alone is no
-  // trigger, so code talk with brackets keeps its spans. An `&` inside a span is left as written,
+  // code span reads as written. A text holding `](`, `][`, `://`, `www.` (any case), a backslash
+  // before a backtick, a carriage return or a newline is escaped whole, spans included: there GitHub
+  // reads a backtick as part of a link or an autolink, or as escaped, before it pairs spans (the #87
+  // spec's Evidence). `[` alone is no trigger, nor is a backslash elsewhere, so code talk with
+  // brackets or a namespace keeps its spans (#89, R3-3). An `&` inside a span is left as written,
   // beside one outside it that is escaped (#86, R5-1). A `@&#8288;` the finder typed has its `&`
   // escaped, so it reads back as typed. A For the person line goes through the same function. Each
   // line is pinned as the string the workflow writes, one case per way the reading can go wrong.
@@ -1618,7 +1619,7 @@ function samePrefix(name, first, second, n) {
     cand('app/k.vue', 11, 'see http://x.com/a`b <i>x</i> `c`'),
     cand('app/l.vue', 12, 'see WWW.x.com/`a <i>x</i> `b`'),
     cand('app/m.vue', 13, 'first\r</details> and @param'),
-    cand('app/n.vue', 14, 'a \\<b> and \\& c'),
+    cand('app/n.vue', 14, 'App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\<b> and \\& c'),
     cand('app/o.vue', 15, 'see [a](/u) and `@param`'),
     cand('app/p.vue', 16, '`$a[0] < $b` and `[data-x] <i>` & more'),
     cand('app/r.vue', 17, 'a typed @&#8288;x stays as typed'),
@@ -1647,7 +1648,7 @@ function samePrefix(name, first, second, n) {
     '- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · outside: untouched code',
     '- `app/l.vue:12` · see WWW.x.com/`a &lt;i>x&lt;/i> `b` · outside: untouched code',
     '- `app/m.vue:13` · first\r&lt;/details> and @' + WJ + 'param · outside: untouched code',
-    '- `app/n.vue:14` · a \\&lt;b> and \\&amp; c · outside: untouched code',
+    '- `app/n.vue:14` · App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c · outside: untouched code',
     '- `app/o.vue:15` · see [a](/u) and `@' + WJ + 'param` · outside: untouched code',
     '- `app/p.vue:16` · `$a[0] < $b` and `[data-x] <i>` &amp; more · outside: untouched code',
     '- `app/r.vue:17` · a typed @&amp;#8288;x stays as typed · outside: untouched code',
@@ -1664,7 +1665,8 @@ function samePrefix(name, first, second, n) {
   check('posted text: `://` escapes the whole text, so a bare autolink cannot take a backtick', blockLine(11), eb)
   check('posted text: `www.` escapes the whole text in any case', blockLine(12), eb)
   check('posted text: a carriage return escapes the whole text and neutralises its @', blockLine(13), eb)
-  check('posted text: a backslash escapes the whole text, so a backslash before < shows the entity', blockLine(14), eb)
+  check('posted text: a backslash before a backtick escapes the whole text', blockLine(6), eb)
+  check('posted text: a backslash not before a backtick is no trigger, so a namespaced text keeps its spans as written', blockLine(14), eb)
   check('posted text: in a text escaped whole, an @ inside a span gets the joiner\'s reference too', blockLine(15), eb)
   check('posted text: `[` alone is no trigger, so brackets in code talk keep their spans as written', blockLine(16), eb)
   check('posted text: a @&#8288; the finder typed has its & escaped, so it is not taken for the workflow\'s', blockLine(17), eb)
@@ -1808,6 +1810,7 @@ function samePrefix(name, first, second, n) {
     'see http://x.com/a`b &lt;i>x&lt;/i> `c`',
     'first\r&lt;/details> and @' + WJ + 'param',
     'a typed @&amp;#8288;x stays as typed',
+    'App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c',
   ]
   run = await go('posted text: the round trip per mode', { ...baseArgs, firstRound: 2, priorFindings: modes.map((title, i) => prior(`R1-${i + 1}`, 'none', { title })) }, { reviews: [[]], resolved: [modes.map((_, i) => ({ id: `R1-${i + 1}`, why: 'because' }))] })
   const back = review(run.calls, 'post r2').body

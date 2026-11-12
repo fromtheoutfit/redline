@@ -958,11 +958,14 @@ function readBack(text) {
 // reads a backtick as part of something else before it pairs code spans, or the pairing turns on
 // more than run lengths: an inline link or image (`](`, a backtick in its destination or title), a
 // full reference link (`][`, a backtick in a label a definition elsewhere in the body matches), a
-// bare autolink (`://` or `www.`, any case: the link takes the backtick), a backslash, a carriage
-// return or a newline. A span in such a text then shows `&lt;` for a `<`. Each trigger, and each
-// construct that needs none, was checked against GitHub's renderer (the spec's Evidence).
+// bare autolink (`://` or `www.`, any case: the link takes the backtick), a backslash before a
+// backtick (it can escape the backtick, so the pairing turns on more than run lengths), a carriage
+// return or a newline. A span in such a text then shows `&lt;` for a `<`. A backslash anywhere
+// else changes no pairing, so a namespaced text (`App\Models\User`) keeps its spans (#89, R3-3).
+// Each trigger, and each construct that needs none, was checked against GitHub's renderer (the
+// spec's Evidence; for the narrowed backslash, the #89 round 3 spec's Decision 3).
 function textParts(text) {
-  if (/\]\(|\]\[|:\/\/|www\.|[\r\n\\]/i.test(text)) {
+  if (/\]\(|\]\[|:\/\/|www\.|[\r\n]|\\`/i.test(text)) {
     return [{ span: false, text }]
   }
   const runs = [...text.matchAll(/`+/g)].map((m) => ({ at: m.index, end: m.index + m[0].length, n: m[0].length }))
