@@ -36,6 +36,8 @@ The round's For the person lines (a fence after a newline, old titles holding ot
    Decided by: redline
 5. **Docs.** Task 2 is itself a README and `docs/` edit, which needs no Docs entry of its own (`process/docs-gate`, the `docs/` bullet). Task 3 commits `tests/loop-test.mjs` only, which is in no directory gate step 10 lists. `workflows/redline-loop.js` changes only for the red run and ends the task unchanged, so it needs no entry. No config key, subcommand, allow rule or exit code is added.
    Decided by: redline
+6. **As built: the standards commit names R3-3.** Its message is `redline: record the round 3 review lessons in the standards, finishing R3-3 (#87)`, where `plan.md` Task 5, step 12, gave it without the finding. Retrospective item 3's two edits are part of R3-3's fix (Decision 3's option counts "two standards lines" in its cost, and Proportionality counts them in R3-3's change), so R3-3's reply names both of its commits. Items 1 and 2 are lessons only and name no finding. Recorded in `plan.md`, As built.
+   Decided by: redline
 
 ### Proportionality
 

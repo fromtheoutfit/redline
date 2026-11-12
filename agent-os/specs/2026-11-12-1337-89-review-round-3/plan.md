@@ -386,3 +386,80 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #89 round 3 as built (#87)`
+
+## As built
+
+Built by the Redline implementer on 2026-11-12, on `0e4a537`.
+
+### Commits
+
+| Task | Finding | Commit | Message |
+|------|---------|--------|---------|
+| 1 | spec | `953fa44` | `redline: save review round 3 spec for PR #89 (#87)` |
+| 2 | R3-1 | `90a1214` | `redline: R3-1 name the inline link's broken href among the costs of neutralised text (#87)` |
+| 3 | R3-2 | `6a4e327` | `redline: R3-2 pin an escaped title on the Deferred line a repository rule leaves to the person (#87)` |
+| 4 | R3-3 | `6c4a804` | `redline: R3-3 narrow the whole-text trigger to a backslash before a backtick (#87)` |
+| 5, step 12 | R3-3 (standards) | `13979c7` | `redline: record the round 3 review lessons in the standards, finishing R3-3 (#87)` |
+| 5, step 13 | spec | this commit | `redline: record PR #89 round 3 as built (#87)` |
+
+### Task 2 (R3-1)
+
+- `grep -c 'an inline link whose destination holds' README.md` printed `1`; `grep -c 'An inline link whose destination holds' docs/running.md` printed `1`.
+- `grep -c 'E2%81%A0'` printed `1` for `README.md` and `1` for `docs/running.md`.
+- `grep -c 'bare URL holding' README.md docs/running.md` printed `README.md:1` and `docs/running.md:1`.
+- `git diff --stat HEAD~1 HEAD`: `2 files changed, 2 insertions(+), 1 deletion(-)`; the files were exactly `README.md` and `docs/running.md`.
+
+### Task 3 (R3-2)
+
+- **Red** (line 2967 without `postedText`): the gate's `loop` check exited 1 with `677 checks passed, 1 failed`. The one `FAIL` line was `posted text: a Deferred line a rule left to the person escapes and neutralises its title`, and its detail held `- **R1-2** Field <b> renamed @config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.` No other check moved. The gate's git block listed the uncommitted `tests/loop-test.mjs` and `workflows/redline-loop.js`, as the plan expected.
+- **Restore:** line 2967 restored with Edit; `git diff --stat -- workflows/redline-loop.js` printed nothing.
+- **Green:** `678 checks passed, 0 failed`.
+- `grep -c 'autoTitled' tests/loop-test.mjs` printed `2`; `grep -c 'Field <b> renamed @config'` printed `2`; `grep -c 'Field &lt;b> renamed'` printed `2`; the new check's name `1`.
+- `grep -c 'postedText(d.title)}: left to you under repository rule' workflows/redline-loop.js` printed `1`, and the mutated text `0`.
+- `git diff --stat HEAD~1 HEAD`: `tests/loop-test.mjs | 5 +++++`, the only file.
+
+### Task 4 (R3-3)
+
+- **Red** (the five test changes, the trigger as at `0e4a537`): `677 checks passed, 3 failed`. The three `FAIL` lines:
+  - `coverage: the set-aside block escapes & and < and neutralises @ outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff`;
+  - `posted text: a backslash not before a backtick is no trigger, so a namespaced text keeps its spans as written`, whose review body held ``- `app/n.vue:14` · App\Models\User::save drops `&lt;x-slot>` and `@&#8288;csrf` when `$a &amp;&amp; $b`, beside a \&lt;b> and \&amp; c · outside: untouched code``;
+  - `posted text: round trip 12, a posted title read back and posted again is unchanged`.
+
+  The new case 6 check passed, as planned.
+- **Green** (trigger and docblock changed): `680 checks passed, 0 failed`.
+- **Red for case 6** (the trigger's last alternative removed for one run): `678 checks passed, 2 failed`. The two `FAIL` lines were the set-aside block check above and `posted text: a backslash before a backtick escapes the whole text`. Round trip 6 stayed green.
+- **Restore:** line 965 restored to the narrowed trigger with Edit; the next gate run read `680 checks passed, 0 failed`.
+- `grep -c -F '[\r\n\\]' workflows/redline-loop.js` printed `0`, and `grep -c -F '[\r\n]|'` printed `1`.
+- `grep -c -F 'App\Models\User'` printed `1` for each of `workflows/redline-loop.js`, `README.md` and `docs/running.md`; `grep -c -F 'App\\Models\\User' tests/loop-test.mjs` printed `3`.
+- `grep -c -F 'blockLine(6)' tests/loop-test.mjs` printed `1`, and `grep -c -F 'a backslash escapes the whole text'` printed `0`.
+- `grep -c 'a backslash before a backtick' README.md docs/running.md` and `grep -c -F 'shows the entity text' README.md docs/running.md` each printed `README.md:1` and `docs/running.md:1`.
+- `grep -c -F 'or a backslash before' README.md` printed `0`, and `grep -c -F '(any case), a backslash, a carriage' docs/running.md` printed `0`.
+- `git diff --stat HEAD~1 HEAD`: `4 files changed, 20 insertions(+), 13 deletions(-)`; the files were exactly `README.md`, `docs/running.md`, `tests/loop-test.mjs` and `workflows/redline-loop.js`.
+
+### Gate
+
+`.claude/redline/checks.sh` with this round's snapshot, after the standards commit: exit 0, `done: PASS`, with no unexpected and no uncommitted file.
+
+| Check | Result |
+|-------|--------|
+| syntax | exit 0 |
+| validate | exit 0 (passed with its two standing warnings: the root `CLAUDE.md` and the missing icon) |
+| guard | 592 passed, 0 mismatched |
+| loop | 680 checks passed, 0 failed |
+| prefs | 101 passed, 0 failed |
+| gate | 117 passed, 0 failed |
+| setup | 468 passed, 0 failed |
+| gh | 121 passed, 0 failed |
+| background | 39 passed, 0 failed |
+
+Every count matches the plan's expected counts.
+
+### Docs, version and standards
+
+- **Docs (step 10):** as planned. Task 2 is itself the README and `docs/` change; Task 3 commits `tests/loop-test.mjs` only; Task 4's `workflows/redline-loop.js` entry is `docs/running.md`, "How the review is posted", and README Known limits, both in `6c4a804`.
+- **Version (step 11):** `0.2.3`, unchanged.
+- **Standards retrospective (step 12):** the standards approver approved items 1, 2 and both edits of item 3, applied in `13979c7`: `testing/tests.md` lines 10 and 13, `process/docs-gate.md` (one bullet at its end) and `workflow/agents.md` line 39. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
+
+### Deviation
+
+- The standards commit's message names R3-3 (`..., finishing R3-3 (#87)`), where step 12 gave `redline: record the round 3 review lessons in the standards (#87)`. Item 3's two edits carry part of R3-3's fix: Decision 3's option costs them, and Proportionality counts them in R3-3's change, so R3-3's reply names both of its commits. Items 1 and 2 are lessons only. Recorded in `shape.md`, Decision 6.
