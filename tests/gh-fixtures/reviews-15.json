@@ -1,0 +1,16 @@
+[
+  {
+    "id": 30,
+    "user": {"login": "author"},
+    "state": "COMMENTED",
+    "submitted_at": "2026-11-12T10:00:00Z",
+    "body": "Redline round 1\n\nReviewed the whole pull request.\n\nUses @\u2060param and &lt;b>.\n\n### Findings (1 correctness, 0 nit)\n\n- **R1-1** · correctness · high · confirmed · `app/a.vue:3` · Binds @\u2060click to &lt;b> &amp; more · needs a decision\n\n### For the person\n\n- `app/q.vue:2` · see @\u2060param &lt;b> &amp; c\n\n### Candidates set aside (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · outside: untouched code\n- `app/h.vue:8` · binds @\u2060click · refuted: not reachable\n\n</details>\n\nEach finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding's thread, or in a PR comment that opens with its marker, once the round's fixes are committed."
+  },
+  {
+    "id": 31,
+    "user": {"login": "author"},
+    "state": "COMMENTED",
+    "submitted_at": "2026-11-12T11:00:00Z",
+    "body": "Redline round 2\n\nReviewed the whole pull request. Round 1 is already on this PR; this run starts at round 2.\n\nS\n\n### Carried forward from earlier rounds (1 correctness, 0 nit)\n\n- **R2-1** · correctness · high · confirmed · `app/a.vue:3` · Binds @\u2060click to &lt;b> &amp; more · first reported as R1-1\n\n### Candidates set aside (1)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · outside: untouched code\n\n</details>\n\nEach finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding's thread, or in a PR comment that opens with its marker, once the round's fixes are committed."
+  }
+]

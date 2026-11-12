@@ -103,3 +103,5 @@ IDs are `R<round>-<n>`, numbered in file order. A finding already tracked in ful
 ## Attribution
 
 Redline labels its own work as Redline. Never write a model name, a vendor name or an AI-assistant marker into a finding, a summary or anything else.
+
+An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.
