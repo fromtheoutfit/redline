@@ -2,6 +2,16 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.2.3 (2026-11-12)
+
+### Features
+
+- #86 The verifier judges the part of a candidate that an open issue does not cover as its own candidate, a refutation answers the candidate's own claim, and a guard the pull request removed is never disproportionate; every review and the handoff list the candidates set aside, each with the finder's summary and the verifier's reason (#85)
+
+### Fixes
+
+- #89 Text from the finder and the verifier is posted so that it cannot mention an account or break the review body: `&` and `<` are escaped and `&#8288;` follows each `@` outside code spans, and the set-aside block gains its own heading (#87)
+
 ## 0.2.1 (2026-11-09)
 
 ### Features
