@@ -505,11 +505,14 @@ const PERSON_SCHEMA = {
 
 // The verifier's accounting for the coverage pass's candidates (#79): one entry per candidate index.
 const COVERAGE_OUTCOMES = ['finding', 'forThePerson', 'duplicate', 'settled', 'known', 'refuted', 'outside', 'disproportionate']
-// The outcomes the round lists elsewhere: a finding under Findings or Already tracked, an entry
-// under For the person. Every other candidate is set aside, by this one rule and not by a list of
-// outcomes, so an outcome the schema adds later is listed too (#85; the #85 follow-up spec): the
-// review body lists each in its set-aside block, and the handoff the last covered round's, so the
-// person can overrule a drop, a collapse or a match to an issue without opening the round folder.
+// The outcomes the round lists elsewhere: a finding under Findings (or Carried forward, when it
+// carries an earlier round's), an entry under For the person. Every other candidate is set aside,
+// by this one rule and not by a list of outcomes, so an outcome the schema adds later is listed too
+// (#85; the #85 follow-up spec): the review body lists each in its set-aside block, and the handoff
+// the last covered round's, so the person can overrule a drop, a collapse or a match to an issue
+// without opening the round folder. A candidate behind a finding under Already tracked is among
+// them: accountCoverage accounts for it as `known`, its ref the finding's id and the issue, so the
+// finding is listed under Already tracked and its candidate in the block (#86, R5-3).
 const LISTED_ELSEWHERE = ['finding', 'forThePerson']
 const COVERAGE_SCHEMA = {
   type: 'object',
