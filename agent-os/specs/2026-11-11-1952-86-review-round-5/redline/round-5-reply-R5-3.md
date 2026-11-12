@@ -1,0 +1,1 @@
+Redline round 5: fixed in f9fd6b4 (redline: R5-3 say that a candidate behind an Already tracked finding is set aside as known (#85)). · decided by: redline

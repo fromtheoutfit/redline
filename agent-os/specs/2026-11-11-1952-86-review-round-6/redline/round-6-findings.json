@@ -1,0 +1,11 @@
+{
+  "round": 6,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "dd42671379b76df9a7b70dba64f104822d990102",
+    "to": "1a715c1ec1d60e16dc6703dd6cc500e5c83a88dd"
+  },
+  "summary": "The round 5 fixes are small and land where the findings pointed. The only behaviour change is R5-4's: `into` now carries the target's finding id. It reads that id after `accountCoverage`, so a `finding` entry's ref is always an id this round has, already renamed and trimmed. An older round record without the field still renders, since an empty id adds nothing. The id passes through `blockText` like the rest of the line. The other changes add test cases (R5-1's span `&`, R5-2's `1st` and `candidate1` refs, R5-4's duplicate of a finding) and comment and doc text (R5-3, R5-4). This pass found no correctness bug in this diff.",
+  "findings": [],
+  "forThePerson": []
+}
