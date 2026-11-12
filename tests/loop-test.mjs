@@ -1569,7 +1569,8 @@ function samePrefix(name, first, second, n) {
   // then `<` are escaped outside code spans, read over the line's whole text as GitHub pairs
   // backtick runs (equal lengths; an unclosed run is plain text), so no tag in a summary or a ref
   // ends the block or opens another, while a code span reads as written. A text with a newline, or
-  // a backslash before a backtick, is escaped whole. For the person lines are not escaped.
+  // a backslash before a backtick, is escaped whole. For the person lines are not escaped. An `&`
+  // inside a span is left as written, beside one outside it that is escaped (#86, R5-1).
   const tags = fenced([
     cand('app/a.vue', 1, 'a bare </details> ends the block, a bare <details> opens one, and `<Head title="x" />` in a span is text'),
     cand('app/b.vue', 2, 'a double-backtick span ``a ` b <c>`` keeps its single backtick'),
@@ -1577,6 +1578,7 @@ function samePrefix(name, first, second, n) {
     cand('app/d.vue', 4, 'one ` left open in the summary'),
     cand('app/e.vue', 5, 'two\nlines with `<b>`'),
     cand('app/f.vue', 6, 'an escaped \\` then <i>`'),
+    cand('app/g.vue', 7, 'a span `a && b <c>` keeps its ampersands & this one does not'),
   ])
   const tagsOut = [
     { index: 1, outcome: 'refuted', ref: 'Tom & Jerry wrote &lt; by hand' },
@@ -1585,6 +1587,7 @@ function samePrefix(name, first, second, n) {
     { index: 4, outcome: 'refuted', ref: '`<c>` pairs it across the ref' },
     { index: 5, outcome: 'outside', ref: 'untouched code' },
     { index: 6, outcome: 'outside', ref: 'untouched code' },
+    { index: 7, outcome: 'outside', ref: 'untouched code' },
   ]
   run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[]], coverage: [tags], coverageOut: [tagsOut], forThePerson: [[{ file: 'app/q.vue', line: 1, text: 'a <b> & c note' }]] })
   const escapedLines = [
@@ -1594,11 +1597,12 @@ function samePrefix(name, first, second, n) {
     '- `app/d.vue:4` · one ` left open in the summary · refuted: `&lt;c>` pairs it across the ref',
     '- `app/e.vue:5` · two\nlines with `&lt;b>` · outside: untouched code',
     '- `app/f.vue:6` · an escaped \\` then &lt;i>` · outside: untouched code',
+    '- `app/g.vue:7` · a span `a && b <c>` keeps its ampersands &amp; this one does not · outside: untouched code',
   ].join('\n')
   const eb = body(run.calls, 'post r1')
   handoff = comment(run.calls, 'handoff comment')
   const oneBlock = (text) => text.split('<details>').length === 2 && text.split('</details>').length === 2 && text.split('<summary>').length === 2
-  check('coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('<summary>Candidates set aside (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && handoff.includes('<summary>Candidates set aside in round 1 (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
+  check('coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('<summary>Candidates set aside (7): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && handoff.includes('<summary>Candidates set aside in round 1 (7): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
   check('coverage: a For the person line is not escaped, so the escaping is the set-aside block\'s alone', eb.includes('### For the person\n\n- `app/q.vue:1` · a <b> & c note\n') && handoff.includes('- `app/q.vue:1` · a <b> & c note'), eb)
 
   // A duplicate's target, by the form of its ref (the #85 follow-up spec's shaping default "A
