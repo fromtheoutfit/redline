@@ -106,3 +106,17 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #89 round 1 as built (#87)`
+
+---
+
+## As built
+
+Built as planned, with no deviation.
+
+- **Task 1:** `8d1adb0`, `redline: save review round 1 spec for PR #89 (#87)`.
+- **Task 2:** `6ceb736`, `redline: R1-1 drop the round-trip check's joiner clause, which cannot fail, and name the check for what it asserts (#87)`. Proof outputs: `grep -c 'WJ + WJ'` printed `0`; `grep -c 'neutralised twice'` printed `0`; the renamed check's grep printed `1`; the comment's grep printed `1`; the carry-list check's grep printed `1`. `git diff --stat HEAD~1 HEAD` showed `tests/loop-test.mjs | 4 +++-`, 3 insertions and 1 deletion, and `git diff --name-only HEAD~1 HEAD` listed exactly `tests/loop-test.mjs`.
+- **Gate (steps 1 to 9):** `checks.sh` with this folder's snapshot passed on its first run: syntax, validate, guard `592 passed, 0 mismatched`, loop `670 checks passed, 0 failed`, prefs `101 passed`, gate `117 passed`, setup `468 passed`, gh `121 passed`, background `39 passed`, every one with 0 failed; `unexpected_files` and `uncommitted` empty. Every count matches the plan's expected counts.
+- **Step 10, Docs:** none needed, as Task 2 states.
+- **Step 11, Version:** `0.2.2`, unchanged.
+- **Step 12, Standards retrospective:** no edit approved; "Standards retrospective: no changes" is recorded under Decisions in `shape.md` (Decision 4), and there is no standards commit.
+- **Step 13:** this section and Decision 4 land in `redline: record PR #89 round 1 as built (#87)`.

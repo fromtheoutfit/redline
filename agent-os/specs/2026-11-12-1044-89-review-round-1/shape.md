@@ -18,6 +18,8 @@ The round's For the person lines (the joiner surviving the GitHub agent's Write,
    Decided by: redline
 3. **Docs.** Task 2 commits `tests/loop-test.mjs` only, which is not in a directory gate step 10 lists, and adds no config key, subcommand, allow rule or exit code, so it needs no Docs entry (`process/docs-gate`, first bullet). Neither `README.md` nor `docs/` names the check.
    Decided by: redline
+4. **Standards retrospective: no changes.** The standards approver approved no edit, as proposed below.
+   Decided by: redline
 
 ### Proportionality
 
