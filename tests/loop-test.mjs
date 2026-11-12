@@ -1600,6 +1600,27 @@ function samePrefix(name, first, second, n) {
   check('coverage: the set-aside block escapes & and < outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('<summary>Candidates set aside (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && handoff.includes('<summary>Candidates set aside in round 1 (6): collapsed, already tracked or dropped</summary>\n\n' + escapedLines + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
   check('coverage: a For the person line is not escaped, so the escaping is the set-aside block\'s alone', eb.includes('### For the person\n\n- `app/q.vue:1` · a <b> & c note\n') && handoff.includes('- `app/q.vue:1` · a <b> & c note'), eb)
 
+  // A duplicate's target, by the form of its ref (the #85 follow-up spec's shaping default "A
+  // duplicate's target"; #86, R4-2): `index N` in lower case and `candidate N` in upper case each
+  // read as another candidate's index and give its place and outcome, while a ref naming the
+  // candidate itself, or an index past the round's candidates, is shown as written with no
+  // addition. Each check turns on one clause of the parse: the `index` alternative, the case flag,
+  // the self guard and the lookup of the index among the round's candidates.
+  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate')])
+  const formsOut = [
+    { index: 1, outcome: 'refuted', ref: 'The claim is one thing; the code does another.' },
+    { index: 2, outcome: 'duplicate', ref: 'index 1' },
+    { index: 3, outcome: 'duplicate', ref: 'CANDIDATE 1' },
+    { index: 4, outcome: 'duplicate', ref: '4' },
+    { index: 5, outcome: 'duplicate', ref: '99' },
+  ]
+  run = await go('coverage: a duplicate\'s target by the form of its ref', covArgs, { reviews: [[]], coverage: [forms], coverageOut: [formsOut] })
+  const fb = body(run.calls, 'post r1')
+  check('coverage: a lower-case `index N` duplicate ref reads as another candidate\'s index and gives its place and outcome', fb.includes('\n- `app/z.php:6` · a lower-case index ref · duplicate: index 1 (candidate 1, `app/z.php:5`: refuted)\n'), fb)
+  check('coverage: an upper-case `CANDIDATE N` duplicate ref reads as another candidate\'s index, since the parse ignores case', fb.includes('\n- `app/z.php:7` · an upper-case candidate ref · duplicate: CANDIDATE 1 (candidate 1, `app/z.php:5`: refuted)\n'), fb)
+  check('coverage: a duplicate ref naming the candidate itself is shown as written, with no addition', fb.includes('\n- `app/z.php:8` · a ref naming itself · duplicate: 4\n'), fb)
+  check('coverage: a duplicate ref past the round\'s last candidate is shown as written, with no addition', fb.includes('\n- `app/z.php:9` · a ref past the last candidate · duplicate: 99\n'), fb)
+
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
 }
