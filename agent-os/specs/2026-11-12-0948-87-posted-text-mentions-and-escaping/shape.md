@@ -27,7 +27,7 @@ Out of scope:
 - inline comment descriptions, proposed fixes and thread replies (decision 13);
 - the forged-line hazard (decision 16).
 
-A follow-up issue body is drafted for both in `plan.md`, Task 8.
+A follow-up issue body was drafted for both in `plan.md`, Task 8, and opened as #88.
 
 ## Decisions
 
@@ -54,7 +54,7 @@ Asked at shaping (2026-11-12, one at a time), answered by @michaelfromtheoutfit:
 13. **Inline comments and replies join only through the comment's title.**
     - Both carry verifier text. `place` (`scripts/redline-gh.sh:220`) moves a comment GitHub cannot anchor into the review body word for word, under "Not placed inline".
     - The comment's `**title**` line goes through the same function as the finding line. The title is the same text in both places, so neutralising one alone would still let the comment notify.
-    - Description, proposed fix and replies stay out. They are multi-line markdown with fences, so the line rule would escape them whole. README Known limits names them, and the follow-up issue body is drafted (plan Task 8).
+    - Description, proposed fix and replies stay out. They are multi-line markdown with fences, so the line rule would escape them whole. README Known limits names them, and the follow-up issue body is drafted (plan Task 8), opened as #88.
     - Plus one sentence, word for word, in every agent file whose text is posted in a comment or a reply, pinned by a key-phrase check: "An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account."
     - This is a standing instruction in the agent files, not a change to a round's prompt, so `coverage off` prompts stay byte-identical.
 14. **The form is a word joiner (U+2060) right after the `@`.** It goes after every `@` directly before an ASCII letter or digit, outside a code span; in a text escaped whole, that is everywhere in the text.
@@ -68,7 +68,7 @@ Asked at shaping (2026-11-12, one at a time), answered by @michaelfromtheoutfit:
     - `readBack` is the exact inverse of the render and shares its span reader. It decodes each prior title once, where `args.priorFindings` enters the workflow.
     - `redline-gh.sh prior-findings` stays a byte-for-byte reader.
     - Rider (a): a title posted before #87 comes back raw and is decoded all the same, so an old title holding a literal `&lt;` then reads `<`. This is accepted. Its posted bytes do not change, since `<` posts as `&lt;`, and GitHub already showed it as `<`.
-    - Rider (b): the forged-line hazard stays out of this spec. That is a newline in free text producing a `- **R1-9** · …` or `Redline round N` line that the readers take as real. It goes into the follow-up issue body.
+    - Rider (b): the forged-line hazard stays out of this spec. That is a newline in free text producing a `- **R1-9** · …` or `Redline round N` line that the readers take as real. It goes into the follow-up issue body, #88.
 17. **More of the verifier's fields join.** These are the review's summary paragraph, the `why` on each Resolved from earlier rounds line, and, on handoff Earlier rounds lines, the `knownAs` (`already tracked in …`) and the `why` (`resolved: …`).
     - A summary that holds a newline is escaped whole like any other text. Its code spans then show entities; this is accepted and said in `docs/running.md`.
     - Shaper, person and implementer text on the same lines stays raw: mitigation, full fix, decision sentence, commit subject. The agent-file sentence (answer 13) covers it.
@@ -226,8 +226,8 @@ Traced before planning, every reader of what Redline posts:
 - `process/docs-gate`: a Docs entry per touched plugin file.
 - `process/release`: the version is kept on purpose (decision 9).
 - `process/standards-retrospective`: gate step 12.
-- `process/internal-notes`: no design record copied in. The follow-up issue body is a draft for a public issue.
-- `prompts/attribution`: no model or vendor name anywhere, the follow-up issue body included.
+- `process/internal-notes`: no design record copied in. The follow-up issue body is a draft for a public issue, opened as #88.
+- `prompts/attribution`: no model or vendor name anywhere, the follow-up issue body (#88) included.
 
 ## Deviations from the #85 follow-up spec
 

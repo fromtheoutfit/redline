@@ -22,7 +22,7 @@ Asked at shaping (one at a time), answered by the user:
 
 13. **Inline comments and replies (decision 8).** Both carry verifier text, and `place` (`redline-gh.sh:220`) moves an unanchorable comment into the review body word for word.
     - **Joins:** the comment's `**title**` line only, through the same function.
-    - **Stays out:** description, proposed fix and replies. README Known limits names them, and a follow-up issue body is drafted (Task 8).
+    - **Stays out:** description, proposed fix and replies. README Known limits names them, and a follow-up issue body is drafted (Task 8), opened as #88.
     - **Plus:** one sentence in each agent file whose text is posted, pinned by a key-phrase check. It is a standing instruction, not a round prompt change: *"An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account."*
 14. **Form: a word joiner (U+2060) right after the `@`.** It is inserted after every `@` directly before an ASCII letter or digit, outside a code span, or everywhere in a line escaped whole.
     - **Rider (a):** every reader that carries text forward strips U+2060 first, with a test.
@@ -31,7 +31,7 @@ Asked at shaping (one at a time), answered by the user:
     - So is the list of constructs that needed no trigger, so nobody re-tests them.
 16. **Round trip: decode at intake.** `readBack`, the exact inverse of the render, decodes each prior title once where `args.priorFindings` enters the workflow. `prior-findings` stays a byte-for-byte reader.
     - **Rider (a):** a title posted before #87 comes back raw and is decoded all the same. An old title that holds a literal `&lt;` then reads `<` internally, and this is accepted. Its posted bytes are unchanged, and GitHub already showed it as `<`.
-    - **Rider (b):** the forged-line hazard stays out of this spec. That is a newline in free text producing a `- **R1-9** · …` or `Redline round N` line that the readers take as real. It goes into the follow-up issue body.
+    - **Rider (b):** the forged-line hazard stays out of this spec. That is a newline in free text producing a `- **R1-9** · …` or `Redline round N` line that the readers take as real. It goes into the follow-up issue body, #88.
 17. **More fields: all three join.** The review summary paragraph, the verifier's `why` on Resolved lines, and on Earlier rounds lines the `knownAs` and the `why`.
     - A summary holding a newline is escaped whole; that its spans then show entities is accepted and said in `docs/running.md`.
     - Shaper, person and implementer text stays raw, covered by the agent-file sentence.
@@ -268,7 +268,7 @@ Loop-test reads the four files and checks the key phrase `because a bare \`@word
 
 - a bare `@word` there notifies;
 - the four agent files ask for backticks;
-- the follow-up issue, numbered once the user opens it;
+- the follow-up issue, #88;
 - the costs: copied text carries U+2060, an email or bare URL holding `@x` loses its link, a backslash before `<` or `&` shows the entity.
 
 No more than the code does.
@@ -283,7 +283,7 @@ No more than the code does.
 
 No config key, subcommand, allow rule or exit code changes.
 
-## Task 8: Draft the follow-up issue (no code)
+## Task 8: Draft the follow-up issue (no code; opened as #88)
 
 The body goes into `plan.md` for the user to open, with no attribution.
 
@@ -320,7 +320,7 @@ Report the files grouped per intended commit:
 
 Never stage or commit.
 
-## Follow-up issue (Task 8: a draft for the user to open)
+## Follow-up issue (Task 8: the draft, opened as #88)
 
 **Title:** Inline comment descriptions, proposed fixes and replies can mention accounts, and a newline in posted text can forge a line the readers take as real
 
