@@ -864,6 +864,12 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (known.length) {
     lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${postedText(`${f.title}: ${f.knownAs}`)}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
   }
+  // The closing sentence speaks of the findings, so it follows the last finding list the round has
+  // and comes before For the person and the set-aside block, never under the block's heading (the
+  // #87 follow-up spec, answer 9). No reader in redline-gh.sh depends on where it sits.
+  if (active.length) {
+    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
+  }
   const forThePerson = review.forThePerson || []
   if (forThePerson.length) {
     lines.push('', '### For the person', '', ...forThePerson.map(personLine))
@@ -871,9 +877,6 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   const setAside = review.setAsideCandidates || []
   if (setAside.length) {
     lines.push('', ...setAsideBlock(setAside))
-  }
-  if (active.length) {
-    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
   }
   return lines.join('\n')
 }
@@ -920,23 +923,32 @@ function setAsideBlock(entries, round) {
 // spec): the one function every such field goes through where the review body, the handoff or an
 // inline comment's title posts it. Outside code spans, `&` becomes `&amp;` and then `<` becomes
 // `&lt;`, so a bare tag reads as text and cannot end the set-aside block, open another or bold the
-// rest of the body, and a word joiner (U+2060) follows every `@` before an ASCII letter or digit,
-// so a `@click` or a `@param` notifies nobody. GitHub links `\@x`, `&#64;x`, `/@x` and `(@x)` as
-// mentions, so the joiner goes after the `@` whatever precedes it. The visible text is unchanged.
-// The mentions the workflow writes itself (`@<reviewer>, over to you`, `decided by: @<login>`)
+// rest of the body, and `&#8288;` follows every `@` before an ASCII letter or digit, so a `@click`
+// or a `@param` notifies nobody. That is the word joiner (U+2060) as a numeric character reference:
+// GitHub decodes it before it looks for mentions, and outside a code span shows the invisible
+// joiner, so the text reads as written. It is written as ASCII because the GitHub agent copies the
+// body into a file with the Write tool and nothing compares that file with this text, so a raw
+// joiner it dropped would make the mention live again unseen (the #87 follow-up spec). GitHub links
+// `\@x`, `&#64;x`, `/@x` and `(@x)` as mentions, so the reference goes after the `@` whatever
+// precedes it. Two places show it, since GitHub does not decode it there: a code span in a text
+// escaped whole (`@&#8288;x`, beside the `&amp;` and `&lt;` that mode already shows) and a bare
+// URL, whose link it breaks. The mentions the workflow writes itself (`@<reviewer>, over to you`, `decided by: @<login>`)
 // never pass through here, so they stay live. Fields that share a line are passed as one text,
 // since a backtick left open in one pairs with one in the next.
 function postedText(text) {
-  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/@(?=[A-Za-z0-9])/g, '@\u2060'))).join('')
+  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/@(?=[A-Za-z0-9])/g, '@&#8288;'))).join('')
 }
 
 // A title read back from GitHub (redline-gh.sh prior-findings) as the finder or the verifier
 // wrote it: the exact inverse of postedText, over the same parts. Escaping moves no backtick and
-// adds no trigger, so the posted text splits as the raw one did. Outside spans the joiner after an
-// `@` goes, then `&lt;` and then `&amp;` are decoded. A title posted before #87 comes back raw and
-// is decoded all the same; one holding a literal `&lt;` then reads `<`, which GitHub already showed.
+// adds no trigger, so the posted text splits as the raw one did. Outside spans the `&#8288;` after
+// an `@` goes, then `&lt;` and then `&amp;` are decoded. postedText escapes a typed `&` before it
+// adds the reference, so every `@&#8288;` in a posted text is the workflow's, and a `@&#8288;` the
+// finder typed (posted `@&amp;#8288;`) reads back as typed: the inverse is exact for every text. A
+// title posted before #87 comes back raw and is decoded all the same; one holding a literal `&lt;`
+// then reads `<`, which GitHub already showed.
 function readBack(text) {
-  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/@\u2060/g, '@').replace(/&lt;/g, '<').replace(/&amp;/g, '&'))).join('')
+  return textParts(text).map((p) => (p.span ? p.text : p.text.replace(/@&#8288;/g, '@').replace(/&lt;/g, '<').replace(/&amp;/g, '&'))).join('')
 }
 
 // A text cut into its code spans, left as written since GitHub shows a span literally, and the
