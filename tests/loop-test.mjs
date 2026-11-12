@@ -1638,6 +1638,15 @@ function samePrefix(name, first, second, n) {
   check('coverage: a duplicate ref whose leading number runs into a word is shown as written, with no addition', fb.includes('\n- `app/z.php:11` · a ref whose number runs into a word · duplicate: 1st pass missed it\n'), fb)
   check('coverage: a duplicate ref with no space between `candidate` and the number is shown as written, with no addition', fb.includes('\n- `app/z.php:12` · a ref with no space after candidate · duplicate: candidate1\n'), fb)
 
+  // A duplicate of a candidate that became a finding (#86, R5-4): the block does not list the
+  // finding, which sits under Findings and may be anchored on another line than the candidate, so
+  // the duplicate's line names the finding's id after the target's place and outcome. A target of
+  // any other outcome gets no id: the refuted and For the person targets above end at the outcome.
+  const intoFinding = fenced([cand('app/x.php', 3, 'the real one'), cand('app/x.php', 8, 'the same cause, seen from the save')])
+  run = await go('coverage: a duplicate of a candidate that became a finding', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [intoFinding, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'duplicate', ref: '1' }], settledAll] })
+  const ib = body(run.calls, 'post r1')
+  check('coverage: a duplicate of a candidate that became a finding names the finding\'s id after the target\'s place and outcome', ib.includes('\n- `app/x.php:8` · the same cause, seen from the save · duplicate: 1 (candidate 1, `app/x.php:3`: finding R1-1)\n'), ib)
+
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
 }

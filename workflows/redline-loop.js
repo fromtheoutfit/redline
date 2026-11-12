@@ -883,7 +883,9 @@ function personLine(entry) {
 // summary, whole, then the outcome and the verifier's ref, so a refutation that answers a
 // different claim shows as a mismatch on the line. A duplicate of another candidate's index also
 // gives that candidate's place and outcome, so a duplicate of a dropped or tracked candidate
-// cannot hide. The label's three groups are the count sentence's, so its count is theirs added up.
+// cannot hide, and, when that candidate became a finding, which the block does not list, the
+// finding's id after the outcome (#86, R5-4). The label's three groups are the count sentence's,
+// so its count is theirs added up.
 // Each line is built by personLine, so it opens with the backticked place as a For the person line
 // does, never a finding id, and redline-gh.sh prior-findings never reads it back (#86, R1-3); its
 // text goes through blockText, so a tag in a summary or a ref cannot end the block or open
@@ -891,7 +893,7 @@ function personLine(entry) {
 // block.
 function setAsideBlock(entries, round) {
   const where = round ? ` in round ${round}` : ''
-  const into = (e) => (e.into ? ` (candidate ${e.into.index}, \`${e.into.file}:${e.into.line}\`: ${e.into.outcome})` : '')
+  const into = (e) => (e.into ? ` (candidate ${e.into.index}, \`${e.into.file}:${e.into.line}\`: ${e.into.outcome}${e.into.id ? ` ${e.into.id}` : ''})` : '')
   return [
     '<details>',
     `<summary>Candidates set aside${where} (${entries.length}): collapsed, already tracked or dropped</summary>`,
@@ -2145,7 +2147,9 @@ async function review(round, reviewed, range, facts, source) {
     // keeps its line, read as "no reason given", with a warning. A duplicate whose ref opens with
     // another candidate's index (`3`, `candidate 3` or `index 3`, any case), with any note after it
     // as the accounting sentence asks, carries that candidate's place and outcome in `into`, one
-    // hop, so its line shows where it went; any other ref is shown as written (#86, R4-1).
+    // hop, so its line shows where it went; any other ref is shown as written (#86, R4-1). When
+    // that candidate is accounted for as a finding, `into` also carries its ref, the finding's id,
+    // since the block does not list the finding (#86, R5-4).
     const byIndex = new Map(out.coverage.accounting.map((e) => [e.index, e]))
     out.setAsideCandidates = out.coverage.accounting
       .filter((e) => !LISTED_ELSEWHERE.includes(e.outcome))
@@ -2156,7 +2160,7 @@ async function review(round, reviewed, range, facts, source) {
         }
         const target = e.outcome === 'duplicate' ? /^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(e.ref) : null
         const to = target ? Number(target[1]) : 0
-        const into = to !== e.index && byIndex.has(to) ? { index: to, file: candidates[to - 1].file, line: candidates[to - 1].line, outcome: byIndex.get(to).outcome } : null
+        const into = to !== e.index && byIndex.has(to) ? { index: to, file: candidates[to - 1].file, line: candidates[to - 1].line, outcome: byIndex.get(to).outcome, id: byIndex.get(to).outcome === 'finding' ? byIndex.get(to).ref : '' } : null
         return { index: e.index, file: c.file, line: c.line, summary: c.summary, outcome: e.outcome, ref: e.ref, into }
       })
   } else {
