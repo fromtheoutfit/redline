@@ -1,0 +1,202 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "1a7bf673701ce7852439b65504d8db6b4fc0e100",
+    "to": "1a7bf673701ce7852439b65504d8db6b4fc0e100"
+  },
+  "summary": "This PR sends every finder and verifier field that the review body, the handoff and an inline comment's title post through one function, postedText. readBack is its exact inverse, applied at intake, and the tests pin each mode as the exact string the workflow writes. Tracing the three functions and the decode order found no escaping or round-trip defect. The one finding is a test-tightness nit: half of the round-trip check cannot fail. The other candidates are for the person (the joiner relies on the GitHub agent copying it, the kept 0.2.2, the posted #88 body, a layout question, two placement questions) or disproportionate. On the rule checks: plan Task 7 names the Docs sections, decision 9 keeps the version on purpose, and no scheduled or queued work applies to this repository.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "tests/loop-test.mjs",
+      "line": 1770,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The 'neutralised twice' half of the round-trip check cannot fail",
+      "description": "The check 'nothing read back is escaped twice or neutralised twice' fails if any posted text holds `WJ + WJ`. That can never happen. postedText adds a joiner only after an `@` that comes directly before an ASCII letter or digit (`/@(?=[A-Za-z0-9])/g`, workflows/redline-loop.js:930), so an `@` already followed by U+2060 never gets a second one. Remove the joiner strip from readBack (line 939) and every posted body, comment and handoff line in this scenario stays byte-identical: readBack would return `Binds @` + WJ + `click to <b> & more`, and postedText turns that back into the same `posted` string. So this check stays green, and only its `&amp;lt;` and `&amp;amp;` parts can go red. The strip is pinned only by the reviewer-prompt check at line 1760, so the check's name claims more than it tests. Traced by reading the three functions; node is not available to the reviewer role, so it was not run.",
+      "proposedFix": "Drop `|| t.includes(WJ + WJ)` from the check at tests/loop-test.mjs:1770 and rename it 'posted text: nothing read back is escaped twice'. Optionally add a comment pointing to the reviewer-prompt check at line 1760 as the one that pins the joiner strip, since postedText never adds a second joiner and no posted output can show a missing strip.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 930,
+      "text": "The joiner reaches GitHub only if the GitHub agent copies an invisible U+2060 byte for byte into its Write call (postPrompt and finishPrompt give it the review JSON and the handoff as fenced text), and nothing compares the written file with that content. A dropped joiner posts a live mention again, as before #87, with no sign. It cannot be reproduced without running the agent; a grep of a run's `round-<n>-review.json` for the bytes E2 81 A0, or a workflow check of the written file, would show it."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 107,
+      "text": "Only `title` is decoded at intake. The reviewer's carry list shows it next to `body` (the root comment), whose bold title line is still the escaped form. A reviewer that takes a carried title from `body` gets it escaped twice, and the page shows the entity `&lt;` where the verifier wrote a tag. This is cosmetic and never a leak, the same kind of problem as shape.md's known item about copying from pr-comments (line 108), but it comes through the run's own prompt."
+    },
+    {
+      "file": "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/shape.md",
+      "line": 47,
+      "text": "Decision 9 keeps 0.2.2, which main has carried since #86's merge (b351bd1; the only tags are v0.1.0 and v0.2.1). Its reason is the one agent-os/standards/process/release.md rejects: 'being untagged is no reason for a PR to keep a merged version (#83, R2-1)'. Under the Version rule a spec that keeps the version on purpose is not a finding, so it is yours to confirm, or to bump to 0.2.3 together with the marketplace entry."
+    },
+    {
+      "file": "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/shape.md",
+      "line": 230,
+      "text": "This line says the follow-up issue body (#88) carries no attribution, and the plan.md Task 8 draft carries none. But a GitHub `in:body` phrase search for the generated-by trailer the coverage pass quotes returns #88 (and #77, #81, #82, #87), while two control phrases do not match #88. If the posted body carries that trailer, CLAUDE.md's No AI attribution rule says to edit it out. Not confirmed: the reviewer's tools cannot read an issue body."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 908,
+      "text": "In a round with findings and a set-aside block, the new heading puts the closing note ('Each finding has an inline comment … sits under Not placed inline below …', line 876) under `### Candidates set aside (N)`, so a note about the findings reads as part of that section. Before this PR the note sat under For the person or whatever section came before, so it never had a place of its own. This is a layout question."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 929,
+      "text": "postedText is applied at each call site (about eleven of them) rather than where the finder's and the verifier's fields enter the workflow. A new line that posts a title or a ref has to remember to wrap it, and no test goes red if it does not. The design works today but may not survive the next posted field."
+    },
+    {
+      "file": "agents/redline-reviewer.md",
+      "line": 107,
+      "text": "The sentence about writing `@` identifiers in backticks sits under the `## Attribution` heading, which is about model and vendor names, in the reviewer, shaper and resolve files (plan Task 6 put it there), and in the Rules list in the implementer file. So the four files disagree on where it lives. The loop test pins only the sentence, so moving it costs nothing."
+    }
+  ],
+  "coverage": {
+    "head": "1a7bf673701ce7852439b65504d8db6b4fc0e100",
+    "candidates": 10,
+    "counts": {
+      "finding": 1,
+      "forThePerson": 7,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 2
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "forThePerson",
+        "ref": "Plausible but not reproduced: running the GitHub agent is the only way to see whether it drops the invisible joiner."
+      },
+      {
+        "index": 2,
+        "outcome": "disproportionate",
+        "ref": "This needs a For the person or candidate file path that holds a backtick. The finder and the verifier name repository paths, and no real path holds one. The base's personLine posted the file in the same hand-built span, so no guard was removed. The comment's 'the place is the workflow's' is loose wording: the backticks are the workflow's, the path is the reviewer's or the finder's."
+      },
+      {
+        "index": 3,
+        "outcome": "disproportionate",
+        "ref": "This needs an args.priorFindings entry with no string title. prior-findings builds `title` with a jq capture, which always yields a string (scripts/redline-gh.sh:349, 357), and the skill passes that array exactly as printed (skills/redline/SKILL.md step 9). The base's template literal printed 'undefined' without any check, so no guard was removed."
+      },
+      {
+        "index": 4,
+        "outcome": "forThePerson",
+        "ref": "Cosmetic double escape when a reviewer copies from the carry list's body field; not worth a plan task."
+      },
+      {
+        "index": 5,
+        "outcome": "finding",
+        "ref": "R1-1"
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "The spec keeps the version on purpose (decision 9), which the Version rule exempts, but its reason is the one release.md rejects."
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": "The cause is the posted issue body on GitHub, outside the diff; a phrase search suggests the trailer is there, but the body was not read."
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "A layout question about where the closing note sits."
+      },
+      {
+        "index": 9,
+        "outcome": "forThePerson",
+        "ref": "A design question; the one missed field it cites (the personLine path) is candidate 2."
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "A placement question about the agent-file sentence."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 930,
+        "summary": "The fix depends on the GitHub agent (Haiku) copying an invisible U+2060 character exactly when it writes the review JSON and the handoff with the Write tool, and nothing checks the file it writes, so a dropped joiner turns the mention back on without any sign.",
+        "failure_scenario": "postedText turns `@click` into `@\\u2060click`. json() (JSON.stringify) leaves U+2060 as the raw character, and postPrompt (line 1439, 'Write these two files with the Write tool, byte for byte') and finishPrompt (line 1774) put it inside fenced blocks for the GitHub agent to copy. If the model leaves out the invisible character, `post-review` / `comment` posts a bare `@click` and the @click account is notified, which is the bug #87 fixes. The loop test's mock never copies anything, and the spec's renderer check used the strings directly, so no test or check covers this path. A cheaper fix for the JSON file: write the joiner as the ASCII escape `\\u2060` (for example `json(...).replace(/\\u2060/g, '\\\\u2060')`), or have the workflow or a script compare the written file with the content."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 886,
+        "summary": "personLine posts entry.file raw inside a hand-built code span, and the comment calls it 'the workflow's', but for a For the person entry the reviewer supplies the file (and for a set-aside line the finder supplies it); a backtick in it ends the span early and the rest of the line is matched up differently than postedText expected.",
+        "failure_scenario": "The verifier returns a For the person entry with file 'app/x.vue` <details> @bob ' (or a file path holding a backtick). The line becomes ``- `app/x.vue` <details> @bob :9` · …``. The bare `<details>` opens a block that hides the rest of the body, and `@bob` is live, because only entry.text goes through postedText (out.forThePerson keeps e.file as any string, line 2145)."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 107,
+        "summary": "Intake does not check that a prior finding's title is a string, and readBack skips non-strings. postedText(undefined) then throws in textParts (`text.matchAll`), so the post stage crashes where the old template literal printed 'undefined'.",
+        "failure_scenario": "args.priorFindings holds an undispositioned entry with no `title`. The validation loop (lines 92-100) checks only id, disposition and comment_id. reconcilePrior's fallback carries it with `title: p.title`, and findingLine / commentBody call postedText(undefined): `/…/i.test(undefined)` is false, then `undefined.matchAll` throws a TypeError inside post(). Before #87 the same input posted '… · undefined' and the run went on."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 107,
+        "summary": "Only `title` is decoded at intake. The undispositioned prior list in the reviewer prompt still shows `body` (the root comment), whose bold title line is the escaped form, next to the decoded `title`, so a reviewer that copies the title from `body` gets it escaped twice.",
+        "failure_scenario": "The carry list at line 1234 shows the reviewer `\"title\": \"Binds @click to <b> & more\"` and `\"body\": \"**R1-1** …\\n\\n**Binds @\\u2060click to &lt;b> &amp; more**\\n\\n…\"`. If the reviewer reuses the bold line as its carried finding's title, postedText posts `&amp;lt;b> &amp;amp; more`, which GitHub shows as the literal `&lt;b> &amp; more`. The plan's known item names only copying from pr-comments; this path is the run's own prompt."
+      },
+      {
+        "index": 5,
+        "file": "tests/loop-test.mjs",
+        "line": 1770,
+        "summary": "The 'neutralised twice' half of the check can never fail: postedText only adds a joiner after an `@` followed by a letter or digit, so an `@` already followed by U+2060 never gets a second one and the text never contains two joiners in a row.",
+        "failure_scenario": "Remove the joiner strip from readBack. postedText(`@\\u2060click`) still gives `@\\u2060click`, `WJ + WJ` never appears, and this assertion stays green. Only its `&amp;lt;` / `&amp;amp;` parts can go red. The strip is pinned only by the reviewer-prompt check ('the joiner stripped'), so this check's name claims more than it tests."
+      },
+      {
+        "index": 6,
+        "file": "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/shape.md",
+        "line": 47,
+        "summary": "The PR keeps version 0.2.2, which main already carries since PR #86's merge (commit 15a11fd). That breaks agent-os/standards/process/release.md: 'Every PR bumps `version` in `.claude-plugin/plugin.json`' and 'being untagged is no reason for a PR to keep a merged version (#83, R2-1)'.",
+        "failure_scenario": "Decision 9 decides this ('0.2.2 is not tagged and no install has it'), but its reason is the one the standard rejects. An install that updated from #86's merge stays on 0.2.2 without #87's changes, and `claude plugin update` finds nothing to move to, because the manifest version did not change."
+      },
+      {
+        "index": 7,
+        "file": "agent-os/specs/2026-11-12-0948-87-posted-text-mentions-and-escaping/shape.md",
+        "line": 230,
+        "summary": "The spec says the #88 issue body has no attribution, but the opened issue #88 ends with '_Generated by [Claude Code](https://claude.ai/code)_'. That breaks CLAUDE.md's rule: 'Never add Claude Code, Anthropic, or any AI-assistant attribution to anything that lands in this repo or on GitHub', which names issue bodies.",
+        "failure_scenario": "Repo-root CLAUDE.md, 'No AI attribution — anywhere', prohibits '🤖 Generated with [Claude Code](...) — or any variant — in PR bodies, PR titles, issue bodies'. `gh issue view 88` shows the trailer, while shape.md:230 says '`prompts/attribution`: no model or vendor name anywhere, the follow-up issue body (#88) included.' The issue body needs editing, and the spec's claim is false as it stands."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 876,
+        "summary": "The closing note 'Each finding has an inline comment … sits under Not placed inline below …' now sits under the new `### Candidates set aside (N)` heading, so a note about findings reads as part of the set-aside section.",
+        "failure_scenario": "A round with findings and a set-aside block posts `### Candidates set aside (3)`, the `<details>` block, then the findings note under that heading. #87 added the heading so the block would not read as part of the section before it; the note after it now does the same thing in reverse. Pushing the note before the block, or giving it its own place, avoids this."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 929,
+        "summary": "The escaping is applied by hand at about eleven call sites (findingLine, the summary, Resolved, Already tracked, personLine, commentBody, Decisions, both Deferred forms, Left to you, Earlier rounds) rather than where the finder's and verifier's fields enter the workflow, so every new line that posts one of those fields has to remember to wrap it.",
+        "failure_scenario": "The For the person `file` is already one field this approach missed (see the personLine finding), and the next section added to reviewBody or handoffComment that interpolates `f.title` or `e.ref` will post it raw with no test going red. A single builder for posted lines, which takes free-text parts and workflow parts as separate arguments, would put the rule in one place instead of every caller."
+      },
+      {
+        "index": 10,
+        "file": "agents/redline-reviewer.md",
+        "line": 107,
+        "summary": "The new sentence asking for `@` identifiers in backticks is placed under the `## Attribution` heading in the reviewer, shaper (line 56) and resolve (line 50) agent files, a section about model and vendor names, which it has nothing to do with.",
+        "failure_scenario": "Someone reading or editing the attribution rule finds an unrelated instruction about posted text there, and anyone looking for the posting rules will not look under Attribution. The implementer file puts it in its Rules list instead, so the four files disagree on where it lives. The loop test checks only that the sentence is present, so moving it to Rules (or a posting section) costs nothing."
+      }
+    ]
+  }
+}

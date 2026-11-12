@@ -1,0 +1,11 @@
+{
+  "round": 2,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "1a7bf673701ce7852439b65504d8db6b4fc0e100",
+    "to": "515f7a7103b58e5b23db2e971ad5fb9208a1cdc5"
+  },
+  "summary": "The round 1 fix changes one check in tests/loop-test.mjs. It drops the clause that looked for a doubled word joiner, which could never fail: postedText adds a joiner only before an ASCII letter or digit, so a joiner left behind would never sit next to a new one. It also renames the check to say what it now asserts. The new comment's claim holds, because the carry-list check at line 1760 still pins the joiner strip, and the fix introduces no correctness bug.",
+  "findings": [],
+  "forThePerson": []
+}
