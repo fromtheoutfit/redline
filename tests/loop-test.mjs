@@ -1044,6 +1044,11 @@ function samePrefix(name, first, second, n) {
   const autoHandoff = comment(auto.calls, 'handoff comment')
   check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to you under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
   check('rules: the deferred list carries the rule and no mitigation', JSON.stringify(auto.res.deferred.map((d) => [d.id, d.rule, d.mitigation, d.fullFix])) === '[["R1-2","craft-config","none (repository rule craft-config)","By hand: fix R1-2 this way."],["R1-3","billing","none (repository rule billing)","By hand: fix R1-3 this way."]]', auto.res.deferred)
+  // Posted text (#87): the Deferred line of a finding autopilot leaves under a rule makes its own
+  // postedText call, beside the shipped branch section 16 pins, so it is pinned with a title the
+  // function changes: a plain title reads the same with or without the call (#89, R3-2).
+  const autoTitled = await go('rules: autopilot, a title with a tag and an @', { ...ruleArgs, interrupt: 'autopilot' }, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
+  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
 
   // The paths rule also catches a finding elsewhere whose task would write under it.
   const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
