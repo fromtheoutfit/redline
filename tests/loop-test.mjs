@@ -1767,7 +1767,9 @@ function samePrefix(name, first, second, n) {
   handoff = comment(run.calls, 'handoff comment')
   check('posted text: Earlier rounds escapes each read-back title once, with the knownAs and the why, and posts an earlier reply as written', handoff.includes('### Earlier rounds\n\n- **R1-1** ' + posted + ': carried forward as R2-2: fixed in ') && handoff.includes('\n- **R1-2** Old &lt;b> &amp; title: carried forward as R2-1: already tracked in #41 @' + WJ + 'param\n') && handoff.includes('\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: resolved: The &lt;i> line @' + WJ + 'went away. · decided by: redline\n') && handoff.includes('\n- **R1-4** Escape &lt; by hand: already handled in round 1: not acted on in this run. Keep <b>. · decided by: @author'), handoff)
   check('posted text: a carried finding\'s Decisions line escapes its read-back title once', handoff.includes('### Decisions\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
-  check('posted text: nothing read back is escaped twice or neutralised twice', ![r2.body, ...r2.comments.map((c) => c.body), handoff].some((t) => t.includes('&amp;lt;') || t.includes('&amp;amp;') || t.includes(WJ + WJ)), [r2.body, handoff])
+  // postedText adds a joiner only before an ASCII letter or digit, so no posted text can show a
+  // joiner readBack left in place: the carry-list check above pins the strip (#89, R1-1).
+  check('posted text: nothing read back is escaped twice', ![r2.body, ...r2.comments.map((c) => c.body), handoff].some((t) => t.includes('&amp;lt;') || t.includes('&amp;amp;')), [r2.body, handoff])
 
   // The round trip once per way the reading can go wrong: each title as the workflow posts it, read
   // back, decoded and posted again on a Resolved line, comes out byte for byte the same.
