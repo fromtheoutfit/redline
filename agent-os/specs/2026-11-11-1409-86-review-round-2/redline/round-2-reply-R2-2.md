@@ -1,0 +1,1 @@
+Redline round 2: fixed in 2e8d556 (redline: R2-2 name the result check for what it asserts and pin the accounting the result keeps (#85)). · decided by: redline

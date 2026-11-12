@@ -1,0 +1,1 @@
+Redline round 5: fixed in c6a5b0e (redline: R5-1 pin an ampersand inside a code span of the set-aside block as written (#85)). · decided by: redline

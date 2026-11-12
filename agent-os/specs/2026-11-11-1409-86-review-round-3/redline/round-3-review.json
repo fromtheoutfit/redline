@@ -1,0 +1,4 @@
+{
+  "body": "Redline round 3\n\nFinal nit pass: reviewed only the nit fixes (fd65cb4..966fbc5) for correctness bugs they introduced.\n\nThe round 2 fixes add a qualifier in the agent file, the verify prompt (candidatesBlock) and docs/running.md: a partly tracked remainder caused in the diff is a finding unless another rule puts it elsewhere. That closes R2-1 without changing the coverage-off prompt. They also make the round-record check assert what its name now says. The new check holds on a trace: the result's coverage object keys are head, candidates, counts, accounting in that order, each accounting entry is index, outcome, ref, and the new key phrase is in the agent file and in candidatesBlock only. The fix diff introduces no correctness bug.\n\nNo findings.",
+  "comments": []
+}

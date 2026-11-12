@@ -1,0 +1,198 @@
+{
+  "round": 4,
+  "reviewed": "pr",
+  "range": {
+    "from": "dbfcd69e0cb71befb708946dc8124429718c6387",
+    "to": "dbfcd69e0cb71befb708946dc8124429718c6387"
+  },
+  "summary": "The follow-up widens the block by one rule (LISTED_ELSEWHERE) and gives a duplicate its target. It escapes `&` and `<` outside code spans, with the two fallbacks the spec names. The loop test pins the escaped text case by case, and the accounting sentence is the same in the verify prompt and the agent file. Both findings are about the duplicate's target. The parse reads only a bare index, but this PR's own accounting sentences invite a ref that names the issue or explains itself. The parse's neighbouring forms also have no check. Both findings are traced from the code. The repository has no routes/console.php, so no scheduled or queued work shares these files. The version moves from 0.2.1 to 0.2.2 against main, and the follow-up plan names its Docs sections.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "workflows/redline-loop.js",
+      "line": 2153,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A duplicate ref written as the accounting sentences ask gets no target, so a duplicate of a dropped candidate can hide again",
+      "description": "A set-aside line gives a duplicate's target place and outcome only when its trimmed ref is exactly `3`, `candidate 3` or `index 3`. The regex at this line is anchored at both ends, so any text after the number fails it. This PR's accounting sentence, in candidatesBlock (line 1244) and in agents/redline-reviewer.md:50, tells the verifier two things. It names a partly tracked candidate's issue in \"the ref of any other outcome\", and `duplicate` is one of those. It also says to \"write each of those refs for the teammate who may overrule it\". A ref that follows either, such as `3; #7 tracks the case-folding` or `candidate 3: same missing owner check`, fails the match, so `into` is null. The line then reads `- `app/z.php:6` · saving drops the note · duplicate: candidate 3: same missing owner check`, with no place or outcome. Block lines carry no index, and the block skips findings and For the person entries, so the reader cannot tell which line is candidate 3 or that it was refuted. docs/running.md:48, agent-os/standards/workflow/agents.md:37, the comment at line 881 and the PR body all say such a duplicate cannot hide. The follow-up spec's shaping default chose these three forms and shows any other ref as written. This is the shape R1-4 fixed for finding refs, here on duplicate refs; R1-4's fix is not undone. Traced from the regex and the two sentences.",
+      "proposedFix": "Which way is yours to decide: (a) read a leading index token, for example `/^(?:(?:candidate|index)\\s+)?(\\d+)\\b/i`, so a note after the number keeps the target (not `#3`, which GitHub links as an issue); (b) say in candidatesBlock and the agent file that a duplicate's ref opens with the index or the id, with any note after it, a prompt change that decision 6 of the follow-up spec says to ask about; (c) keep the parse and narrow the 'cannot hide' sentences in docs/running.md, workflow/agents.md, the comment and the PR body to a bare index ref. Under (a) or (b), add a check to the set-aside scenario in tests/loop-test.mjs with `{ index: 8, outcome: 'duplicate', ref: '3; #7 tracks the case-folding' }`. Expect the line to end `duplicate: 3; #7 tracks the case-folding (candidate 3, `app/z.php:5`: refuted)`, and see it red before the change.",
+      "needsDecision": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "tests/loop-test.mjs",
+      "line": 1520,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The duplicate-target parse has no check for `index N`, any case, a self-reference or an out-of-range index",
+      "description": "The follow-up spec's shaping default reads a duplicate ref as an index when it is `3`, `candidate 3` or `index 3`, in any case, and names another candidate of the round. It shows a ref naming the candidate itself, or an index out of range, as written. The only duplicate refs in the suite are `R1-1`, `3` and `candidate 2` (lines 1519 to 1521). Three mutations of workflows/redline-loop.js keep every check green: dropping `index` from the regex at line 2153, removing its `i` flag, or removing the `to !== e.index` guard at line 2155. Without the guard, a self-duplicate's line would end `(candidate 8, ...: duplicate)`. agent-os/standards/testing/tests.md line 22 asks for a case beside each neighbouring decision. An out-of-range index cannot throw today, since `byIndex` holds only indexes accountCoverage accepted, but no check pins that it reads as written.",
+      "proposedFix": "Add duplicate entries whose refs are `Index 3` (target expected), the entry's own index, and `99`; the last two are expected as written with no addition. Use a sibling scenario if the nine-candidate one has no room. Confirm each check goes red under its mutation above. If R4-1 widens the parse, add its new forms beside these.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 896,
+      "text": "Coverage candidate 2, plausible but not rendered here (the markdown API is refused to the reviewer). blockText escapes only `&` and `<`, so a bare `@word` outside backticks in a finder's summary, such as `@param`, `@click` or a Blade `@csrf`, is a live mention in every round body and the handoff. GitHub notifies that account. Before this PR only an unaccounted or misaccounted candidate's summary reached GitHub raw; the block now posts every set-aside one. Decisions 4 and 10 escape `&` and `<` only, so whether the block should also neutralise `@` is yours to decide."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 911,
+      "text": "Coverage candidate 6, true and cosmetic. Outside a code span, a backslash before `<` or `&` becomes `\\&lt;` or `\\&amp;`. CommonMark reads `\\&` as an escaped ampersand, so `\\<word\\>` shows as `&lt;word>`. Unescaped, it would show `<word>`, so neither version reads as written. Also escaping `\\` outside spans would fix it, but on its own it is not worth a plan task."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2146,
+      "text": "Coverage candidate 8, plausible but not reproduced. It widens round 2's For the person note on that round's candidate 2 from drops to collapses. The block now posts each settled, known and duplicate entry with its ref, so a later pass that reads earlier bodies (CLAUDE.md's check-before-reporting rule) could take a wrong collapse as settled. One sample points the other way: this round's pass read rounds 1 and 2's bodies and re-raised, with reasons, two candidates they had ruled on (candidates 4 and 8) instead of leaving them out."
+    }
+  ],
+  "coverage": {
+    "head": "dbfcd69e0cb71befb708946dc8124429718c6387",
+    "candidates": 10,
+    "counts": {
+      "finding": 2,
+      "forThePerson": 3,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 1,
+      "disproportionate": 4
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "finding",
+        "ref": "R4-1"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "Plausible: blockText leaves `@` alone, but the mention could not be rendered or confirmed here, and escaping `@` is outside decisions 4 and 10 as written."
+      },
+      {
+        "index": 3,
+        "outcome": "disproportionate",
+        "ref": "Conditions: a summary or a verifier ref has to hold a lone carriage return (a CR with no LF). LLM-written JSON strings essentially never carry one, and no recorded pass has. An LF or a CRLF already goes to the escape-whole fallback, and the base branch had no escaping, so no guard was removed."
+      },
+      {
+        "index": 4,
+        "outcome": "disproportionate",
+        "ref": "Conditions: to pass GitHub's 65,536-character body limit, one round has to set aside on the order of 80 candidates at roughly 700 characters a line, or fewer beside a For the person list of comparable size. The block now also lists settled, known and duplicate entries. Still, the passes recorded on this PR returned 11, 10 and 10 candidates and the #817 rerun 25. The base branch had no cap, so no guard was removed; round 1 ruled the same for the drops-only block."
+      },
+      {
+        "index": 5,
+        "outcome": "disproportionate",
+        "ref": "Conditions: under `correctness only`, the verifier has to report a nit finding against its scope rule, and the same round has to account for a second candidate as a duplicate of that nit. The only effect is one set-aside line naming an id that the body lists by title under For the person."
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "True and cosmetic: `\\&` renders as a literal ampersand, so the entity text shows. Not worth a plan task on its own."
+      },
+      {
+        "index": 7,
+        "outcome": "outside",
+        "ref": "The unescaped path the candidate names is base code: accountCoverage's For the person lines for an unaccounted candidate (line 1381) and for a finding ref naming no finding (line 1356) come from #79 and #80, and this PR does not change them. The follow-up spec's decision 5 and its known-and-out-of-scope list (shape.md line 79: those lines 'put the same text into the review body unescaped') already record the gap, as does the PR body's Out of scope list ('a bare tag there can still break the body, the set-aside block included'). Moving blockText into personLine would reverse decision 5, which is the person's to reopen."
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "Plausible, not reproduced. It widens round 2's For the person note from drops to collapses, and this round's own pass is one sample against it."
+      },
+      {
+        "index": 9,
+        "outcome": "finding",
+        "ref": "R4-2"
+      },
+      {
+        "index": 10,
+        "outcome": "disproportionate",
+        "ref": "Conditions: findIndex rescans from the first run, so a text with k unmatched backtick runs costs on the order of k squared comparisons. That is measurable only at thousands of runs, while a summary and its ref hold a handful."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 2153,
+        "summary": "A duplicate's target is found only when the trimmed ref is exactly `3`, `candidate 3` or `index 3`. The new accounting sentence tells the verifier to write each set-aside ref for the teammate, and R1-4's wording tells it to name the issue in 'the ref of any other outcome'. So a natural duplicate ref gets no target place or outcome, and a duplicate of a dropped or tracked candidate can hide again.",
+        "failure_scenario": "Round N: candidate 3 is refuted, and the verifier accounts for candidate 8 as {outcome:'duplicate', ref:'candidate 3: same missing owner check'}, or 'candidate 3; #7 tracks the case-folding', or '#3'. The regex fails, `into` is null, and the line reads `- `app/z.php:6` · saving drops the note · duplicate: candidate 3: same missing owner check`. Block lines carry no index, so the reader cannot see that the target was refuted: the hidden-collapse case the follow-up spec set out to close. A '#3' ref also links to and cross-references issue #3. docs/running.md:48, agent-os/standards/workflow/agents.md:37 and the comment at line 883 all claim such a duplicate 'cannot hide'."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 896,
+        "summary": "The set-aside block now posts the finder's raw summary for every duplicate, settled, known, refuted, outside and disproportionate candidate, in every round's review body and in the handoff. blockText escapes only `&` and `<`, so an `@word` outside a code span becomes a live GitHub user mention.",
+        "failure_scenario": "A PHP or JS candidate summary reads 'the @param docblock and @return type disagree' and the verifier refutes it. Rendered through `gh api markdown -f mode=gfm`, the set-aside line turns @param and @return into user-mention links to the real accounts github.com/PARAM and github.com/return. On a public repository (this one runs Redline on itself) those users are notified by every round body and again by the handoff. Before this diff, those candidates' summaries never reached GitHub."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 912,
+        "summary": "The fallback that escapes the whole text checks `\\n` only. CommonMark also treats a lone `\\r` as a line ending, so a text with a CR goes through the span pairing. A `</details>` that blockText takes to be inside a code span is left raw, and GitHub reads it as an HTML block that interrupts the list item.",
+        "failure_scenario": "Summary 'foo `\\r</details>` bar'. blockText returns it unchanged, since the two backticks pair. Probe through `gh api markdown -f mode=gfm`: the output is `<li>... foo `</li></ul></details>` bar` followed by the later set-aside lines as raw text outside the collapse. The block closes early, against the documented guarantee that no tag can end the block. Fix: test `/[\\r\\n]|\\\\`/`."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 863,
+        "summary": "Nothing caps the review body or the handoff at GitHub's 65,536-character limit. Round 1 (candidate 6) ruled this disproportionate because it would take about 80 drops. This diff widens the block from 3 outcomes to 6, and the refuted ref grows to 'claim + evidence', so the conditions are much less implausible than that ruling assumed.",
+        "failure_scenario": "On a large PR (Losers League #778, 336 files), an xhigh pass with --max-findings all returns about 60 candidates. On a fix-diff round most are `settled` re-samples of earlier findings, and each is now listed with its full summary (up to about 480 characters) and ref (up to about 700 characters for refuted). Add For the person, findings and Not placed inline, and the body passes 65,536. post-review gets a 422, the run stops at stage post, and the handoff, which repeats the block after every round's For the person, can fail the same way at Finish."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2155,
+        "summary": "Under `correctness only`, accountCoverage turns only `finding` entries that name a nit into For the person. A `duplicate` entry whose ref names that nit keeps the bare id, and its set-aside line points at an id that appears nowhere in the review or the handoff.",
+        "failure_scenario": "scope 'correctness': the reviewer returns R1-2 (nit), with accounting {2:'finding' R1-2} and {3:'duplicate' 'R1-2'}. The main loop drops R1-2 from `considered`, so no finding line, and For the person lists it as 'title R1-2' with no id. The set-aside block shows '· duplicate: R1-2', and the person cannot find what candidate 3 collapsed into."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 911,
+        "summary": "Outside a code span, a backslash before `<` or `&` becomes `\\&lt;` or `\\&amp;`. CommonMark reads `\\&` as an escaped ampersand, so GitHub shows the entity text instead of the character. The fallback covers only a backslash before a backtick.",
+        "failure_scenario": "Summary 'grep uses \\<word\\> boundaries' or 'sed replacement uses \\& here', outside backticks. GitHub would show '<word>' and '&'. After blockText the line renders as '&lt;word>' and '&amp;', against decision 4's aim that the person reads the finder's words as written."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 874,
+        "summary": "Altitude: the escaping is a special case inside setAsideBlock, not at the shared line renderer. A For the person line for an unaccounted candidate, or one whose finding ref names no finding (accountCoverage lines 1356 and 1381), carries the same raw finder summary, unescaped, and sits before the `<details>`. The follow-up spec's decision 5 records the general gap; this repeat of the same text is not in it.",
+        "failure_scenario": "Candidate 4's summary holds a bare `<details>`. Accounted for as refuted, it is escaped inside the block. Left unaccounted, it is pushed to For the person verbatim, rendered above the set-aside block, and opens a details element that folds the set-aside block, the trailing sentence and Not placed inline into one collapse. Applying blockText in personLine, and in the finding and Already tracked lines, would close it in one place."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 2146,
+        "summary": "Already raised in PR #86 round 2's For the person (coverage candidate 2): a later coverage pass that follows CLAUDE.md's check-before-reporting rule reads the block in earlier review bodies and handoff.md. That note covers drops only. This diff also posts every settled, known and duplicate collapse with its ref, which the note does not cover.",
+        "failure_scenario": "Round 1's verifier wrongly collapses candidate 5 as {duplicate: 'R1-1'} or {known: '#7'}. Round 2's pass runs `gh pr view <n> --comments`, reads 'duplicate: R1-1' beside the summary, treats it as already settled and leaves it out. The wrong collapse then never reaches a verifier again, and the handoff carries only the last covered round's block, so it is gone from the handoff too."
+      },
+      {
+        "index": 9,
+        "file": "tests/loop-test.mjs",
+        "line": 1520,
+        "summary": "The duplicate-target parser's documented forms and neighbouring decisions have no case: `index 3`, any case, a self-reference, and an out-of-range index (shown as written). agent-os/standards/testing/tests.md requires 'a row beside it for the neighbouring decision that must not change'.",
+        "failure_scenario": "Change the regex to drop `index`, or remove the `to !== e.index` guard so a self-duplicate gets '(candidate 8, ...: duplicate)', or let an out-of-range index throw on `candidates[to - 1].file`. The suite only scripts refs '3', 'candidate 2' and 'R1-1', so each regression stays green."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 919,
+        "summary": "Efficiency: blockText finds each opener's closer with `runs.findIndex((r, j) => j > i && ...)`, which rescans from index 0 every time, so a text with many unclosed backtick runs costs quadratic time.",
+        "failure_scenario": "A long ref or summary with k unmatched backtick runs takes O(k^2) predicate calls. It is small in practice, but a plain loop from i + 1 that stops at the first equal-length run does the same job in one forward scan."
+      }
+    ]
+  }
+}

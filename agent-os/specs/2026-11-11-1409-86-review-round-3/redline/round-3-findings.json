@@ -1,0 +1,11 @@
+{
+  "round": 3,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "fd65cb42496dd44b272b3b3c0d577bb6176e660d",
+    "to": "966fbc5954dcfd32d0ba053904acec062432462e"
+  },
+  "summary": "The round 2 fixes add a qualifier in the agent file, the verify prompt (candidatesBlock) and docs/running.md: a partly tracked remainder caused in the diff is a finding unless another rule puts it elsewhere. That closes R2-1 without changing the coverage-off prompt. They also make the round-record check assert what its name now says. The new check holds on a trace: the result's coverage object keys are head, candidates, counts, accounting in that order, each accounting entry is index, outcome, ref, and the new key phrase is in the agent file and in candidatesBlock only. The fix diff introduces no correctness bug.",
+  "findings": [],
+  "forThePerson": []
+}

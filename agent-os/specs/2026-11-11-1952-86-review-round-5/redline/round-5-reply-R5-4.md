@@ -1,0 +1,1 @@
+Redline round 5: fixed in 22944c6 (redline: R5-4 name the finding's id on a duplicate of a candidate that became a finding (#85)). · decided by: redline

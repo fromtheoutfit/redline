@@ -1,0 +1,1 @@
+Redline round 1: fixed in 174000d (redline: R1-4 say where a partly tracked candidate's issue is named, since a finding ref is the finding's id alone (#85)). · decided by: redline

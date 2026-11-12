@@ -1,0 +1,1 @@
+Redline round 2: fixed in 890ac40 (redline: R2-1 say a partly tracked remainder meets every other rule, so one caused in the diff is a finding unless another rule puts it elsewhere (#85)) and 8807864 (redline: record the round 2 review lessons in the standards, finishing R2-1 (#85)). · decided by: redline

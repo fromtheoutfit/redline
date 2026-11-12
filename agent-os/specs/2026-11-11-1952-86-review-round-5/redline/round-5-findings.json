@@ -1,0 +1,230 @@
+{
+  "round": 5,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "dbfcd69e0cb71befb708946dc8124429718c6387",
+    "to": "dd42671379b76df9a7b70dba64f104822d990102"
+  },
+  "summary": "The round 4 fixes add the `\\b` end anchor to the duplicate-target parse and the 'opening with the index ... anything meant for the reader after it' sentence, in both the verify prompt and the agent file. The coverage-off prompt is left untouched, and a key-phrase check pins the sentence. I traced the widened regex on the refs the prompt now invites and found no correctness bug in the fix diff. The four findings are all nits about tightness and clarity on the block's edges: two parse and escape clauses no case turns on, a comment that says Already tracked candidates are not set aside, and a duplicate line that names a finding's outcome but not its id. The repository has no routes/console.php, so no scheduled or queued work shares these files. The version stays at 0.2.2 against main's 0.2.1.",
+  "findings": [
+    {
+      "id": "R5-1",
+      "file": "tests/loop-test.mjs",
+      "line": 1574,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "No escaping case puts `&` inside a code span, so 'a span is left as written' is pinned for `<` only",
+      "description": "The escaping scenario's spans hold `<Head title=\"x\" />`, ``a ` b <c>``, `<c>` and `<b>`, and the only `&` is in candidate 1's ref ('Tom & Jerry wrote &lt; by hand'), outside every span. So a blockText that escaped `&` across the whole text before pairing spans would produce the same six expected lines and stay green. On GitHub, a span such as `a && b` would then show as `a &amp;&amp; b`, the result the follow-up spec's probe recorded as wrong. The testing/tests.md bullet on pinning escaped text asks for a case per form. Traced from the six cases and the expected lines at 1590-1597.",
+      "proposedFix": "Add a candidate to the `tags` scenario whose summary holds `&` inside a span and outside it, for example cand('app/g.vue', 7, 'a span `a && b <c>` keeps its ampersands & this one does not') with an `outside` ref. Expect the line '- `app/g.vue:7` · a span `a && b <c>` keeps its ampersands &amp; this one does not · outside: untouched code', raise the label's count to 7, and see the check red with `&` escaped before the span pairing.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-2",
+      "file": "tests/loop-test.mjs",
+      "line": 1620,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The duplicate-target parse's new `\\b` end anchor and its `\\s+` have no case that turns on them",
+      "description": "The R4-1 fix widened the parse at workflows/redline-loop.js:2154 to `/^(?:(?:candidate|index)\\s+)?(\\d+)\\b/i`, and the same commit range adds a testing/tests.md rule that each form gets a case seen red under a mutation of its own clause. Every duplicate ref the loop test uses ('R1-1', '3', 'candidate 2', 'index 1', 'CANDIDATE 1', '4', '99', '1; #7 tracks the case-folding') reads the same with `(\\d+)` in place of `(\\d+)\\b`, and with `\\s*` in place of `\\s+`. So a ref like '1st pass missed it' would read as candidate 1, and 'candidate1' as an index, with all checks green. The R4-2 fix pinned the forms that existed when it was raised; the `\\b` came after it. Traced from the regex and the test's refs.",
+      "proposedFix": "Add two entries to formsOut: { index: 7, outcome: 'duplicate', ref: '1st pass missed it' } and { index: 8, outcome: 'duplicate', ref: 'candidate1' }, with candidates for them, and check that each line ends with the ref as written and no '(candidate 1, ...)'. See the first red with `\\b` removed and the second red with `\\s+` changed to `\\s*`.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-3",
+      "file": "workflows/redline-loop.js",
+      "line": 508,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "LISTED_ELSEWHERE's comment says a `finding` entry covers Already tracked, but those candidates are `known` and set aside",
+      "description": "The comment reads 'The outcomes the round lists elsewhere: a finding under Findings or Already tracked'. But accountCoverage (line 1368) rewrites every `finding` entry whose finding carries a knownAs to `known` before the set-aside filter at line 2148 runs. So a candidate behind an Already tracked finding is never a `finding` entry there: it is set aside and listed in the block as well as under Already tracked, as the loop test's 'a known finding from a candidate is listed in the set-aside block' check expects. A reader who trusts the comment would think such a candidate is listed only under Already tracked.",
+      "proposedFix": "Reword the comment to 'a finding under Findings, an entry under For the person; a finding under Already tracked is accounted as `known` (accountCoverage), so it is set aside too and its line names the issue'.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-4",
+      "file": "workflows/redline-loop.js",
+      "line": 891,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A duplicate of a candidate that became a finding names the target's place and outcome, but not the finding's id",
+      "description": "`into` carries the target candidate's index, file, line and outcome only, so the line reads '(candidate 1, `app/x.php:3`: finding)'. The target candidate is not in the block, since findings are listed elsewhere, and the verifier may anchor the finding on another line inside the diff. With several findings, the reader cannot tell which finding the duplicate collapsed into. The target's ref, which is the finding's id after accountCoverage, is already in byIndex at line 2156. The accounting sentence allows a duplicate's ref to open with either the candidate's index or the finding's id, so this form is reachable as the prompt asks. Traced from setAsideBlock and the `into` builder.",
+      "proposedFix": "Carry the target's ref in `into` when its outcome is `finding` (and `known`, whose ref opens with the finding's id), and render it after the outcome, for example '(candidate 1, `app/x.php:3`: finding R5-2)'. Add a check to the duplicate-forms scenario with a target accounted as a finding.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 2148,
+      "text": "Coverage candidate 1, traced: the block skips every `forThePerson` entry on trust that a For the person line exists. A verifier that accounts a candidate as forThePerson but writes no line leaves it as a count only. That trust is #79's accountCoverage (line 1373), not this PR, and since For the person lines carry no index there is no exact check. A count check (fewer lines than forThePerson entries gives a warning) is the cheap alternative."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 912,
+      "text": "Coverage candidates 2 and 5, plausible but not reproduced here (the markdown API and node are refused to the reviewer). In CommonMark a link's destination or title is parsed at `]`, before a backtick inside it is paired, so in '[a](/u \"`\") </details> `' blockText pairs that backtick with the last one and leaves `</details>` raw. With round 4's lone CR, this is a second gap in the hand-written pairing model. The docs' 'no tag ... can end the block' is stronger than the code. Candidate 5's alternative: keep a span unescaped only when the text holds none of `[`, `\\r`, `\\` or a newline, and escape the whole text otherwise."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 863,
+      "text": "Coverage candidate 10: the set-aside block has no heading of its own. In a round with no For the person entries it follows straight after Already tracked or Findings in the body, and after Rounds in the handoff, so a reader scanning headings sees it inside that section. docs/running.md places it 'after For the person'. Whether it gets its own heading, or sits under For the person always, is a copy choice."
+    }
+  ],
+  "coverage": {
+    "head": "dd42671379b76df9a7b70dba64f104822d990102",
+    "candidates": 10,
+    "counts": {
+      "finding": 4,
+      "forThePerson": 3,
+      "duplicate": 1,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 2
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "forThePerson",
+        "ref": "The cause is base code: accountCoverage (#79) takes a forThePerson outcome on trust, and For the person lines carry no index. Listed under For the person."
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "Plausible from CommonMark's link parsing, but not rendered here. Listed under For the person with candidate 5's alternative."
+      },
+      {
+        "index": 3,
+        "outcome": "disproportionate",
+        "ref": "Conditions: the reviewer must return a malformed finding id that is a bare number, and the same round must account for a duplicate by a bare index equal to that number. In that case the ref really is ambiguous between the two. Round 2 ruled the same rename path disproportionate."
+      },
+      {
+        "index": 4,
+        "outcome": "disproportionate",
+        "ref": "Conditions: the verifier must collapse two candidates into each other, with neither collapsing into a finding. Even then both still show in the block, each with its own summary and '(candidate N, ...: duplicate)', so neither is hidden; only the count sentence's group name is wrong for them."
+      },
+      {
+        "index": 5,
+        "outcome": "duplicate",
+        "ref": "2; same cause, blockText's hand-written model of GitHub's inline parser. The simpler rule it proposes is on candidate 2's For the person line."
+      },
+      {
+        "index": 6,
+        "outcome": "finding",
+        "ref": "R5-4"
+      },
+      {
+        "index": 7,
+        "outcome": "finding",
+        "ref": "R5-2"
+      },
+      {
+        "index": 8,
+        "outcome": "finding",
+        "ref": "R5-1"
+      },
+      {
+        "index": 9,
+        "outcome": "finding",
+        "ref": "R5-3"
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "A copy and layout choice, not a defect. Listed under For the person."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 2148,
+        "summary": "The set-aside block skips every candidate accounted for as `forThePerson`, assuming each one has a For the person line, but nothing checks that the line exists. A `forThePerson` entry with no matching line reaches the person only as a count, which is the failure #85 set out to fix.",
+        "failure_scenario": "The verifier returns coverage [{index:1, outcome:'forThePerson', ref:''}, {index:2, outcome:'outside', ref:'untouched code'}] and forThePerson []. Reproduced: the review body says '1 for the person', there is no ### For the person section, the set-aside block lists only candidate 2, the handoff shows the same, and the run has no warnings. Candidate 1's claim is in neither the review nor the handoff. A `finding` ref is checked and an index left out falls back to For the person, but a `forThePerson` outcome is taken on trust. The agent file and the prompt (agents/redline-reviewer.md:50) never say a `forThePerson` entry needs a line either."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 915,
+        "summary": "blockText pairs backtick runs by length only, but in CommonMark a link's destination or title can swallow a backtick before code spans are matched. blockText then treats text as inside a code span when it is not, and leaves a bare `</details>` there unescaped, which ends the block.",
+        "failure_scenario": "A summary or ref of '[a](/u \"`\") </details> `' (or '[a](`) </details> `') comes out of blockText unchanged. Rendered through `gh api markdown -f mode=gfm`, the block closes at that line and the next set-aside lines show outside the collapse. This breaks the promise in docs/running.md:48, agent-os/standards/workflow/agents.md:37 and the PR body that no tag in a summary or ref can end the block."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 2130,
+        "summary": "When the reviewer returns a bare-number finding id, the id rename also rewrites a `duplicate` ref with the same text. A bare index, which R4-1 made the documented first form of a duplicate ref, becomes a finding id, and the duplicate's real target is lost.",
+        "failure_scenario": "The reviewer returns finding id '1' for candidate 3, which is renamed R1-1. Candidate 1 is refuted, and candidate 2 is a duplicate with ref '1', meaning candidate 1. Reproduced: candidate 2's line reads 'duplicate: R1-1' with no '(candidate 1, ...: refuted)'. A duplicate of a dropped candidate now looks collapsed into a real finding, the case the block says 'cannot hide'. The only warning is about the rename."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 2156,
+        "summary": "Duplicate refs are not checked the way `finding` refs are. Two candidates marked as duplicates of each other collapse into nothing, and the count sentence still says they collapsed into findings already reported or settled.",
+        "failure_scenario": "Coverage [{1, outside}, {2, duplicate, '3'}, {3, duplicate, '2'}] with no findings. Reproduced: the body says '0 confirmed, ... 2 collapsed into findings already reported or settled', the block shows both as '(candidate N, ...: duplicate)', and there are no warnings. Two candidates are in effect dropped while the count says otherwise. The one-hop design assumes the chain ends at a real target."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 912,
+        "summary": "Altitude: the escaping depends on a hand-written model of GitHub's inline parser (backtick runs, plus fallbacks for `\\n` and backslash-backtick). Every construct the model leaves out (link destinations and titles, lone `\\r`, backslash escapes) is a separate hole, each patched one special case at a time.",
+        "failure_scenario": "So far this PR has added two special-case fallbacks and still leaves at least three gaps: a link title or destination (above), a lone CR (round 4) and backslash escapes (round 4). A simpler rule is to leave a code span unescaped only when the text has none of the risky characters (`[`, `\\r`, `\\`, a newline) and to escape everything otherwise. That gives up `&lt;` inside spans only in rare lines and makes the safety claim true without a parser model."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 891,
+        "summary": "When a duplicate's target candidate became a finding, the line reads '(candidate N, `file:line`: finding)' with no finding id. The verifier may anchor the finding elsewhere (inside the diff), so the reader can't tell which finding it was.",
+        "failure_scenario": "Candidate 1 at app/x.php:3 becomes R1-2, anchored at app/x.php:7. Candidate 4 is a duplicate with ref '1'. Its line ends '(candidate 1, `app/x.php:3`: finding)', and no finding sits at app/x.php:3, so with several findings the reader can't match it. The target's own ref (the finding id) is already in byIndex and could be shown."
+      },
+      {
+        "index": 7,
+        "file": "tests/loop-test.mjs",
+        "line": 1614,
+        "summary": "The duplicate-target parse's `\\b` and `\\s+` parts have no test case. That breaks the standard this PR adds in testing/tests.md: one case per form, each seen red when its own clause is mutated.",
+        "failure_scenario": "Change `(\\d+)\\b` to `(\\d+)` (so '3rd candidate' reads as candidate 3), or `\\s+` to `\\s*` (so 'candidate3' reads as an index), and all 617 checks still pass, because the forms scenario only uses '1; #7 ...', 'index 1', 'CANDIDATE 1', '4' and '99'."
+      },
+      {
+        "index": 8,
+        "file": "tests/loop-test.mjs",
+        "line": 1573,
+        "summary": "No escaping case puts `&` inside a code span, so the rule that a span is left exactly as written is pinned only for `<`.",
+        "failure_scenario": "Change blockText to escape `&` across the whole text before matching spans. The six tag cases still pass: the only `&` is in the ref 'Tom & Jerry wrote &lt; by hand', which is outside any span. On GitHub a span like `a && b` would then show as 'a &amp;&amp; b', which the spec's own probe recorded as wrong."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 508,
+        "summary": "The comment on LISTED_ELSEWHERE says the `finding` outcome covers findings under Already tracked. But accountCoverage turns every finding with a knownAs into `known`, so those candidates are in the set-aside block as well as under Already tracked.",
+        "failure_scenario": "Someone who trusts the comment and decides to drop the double listing (or to treat set-aside as 'not listed elsewhere') would get it wrong. The loop test's 'a known finding from a candidate is listed in the set-aside block' check shows such a candidate in both places, which the comment says can't happen."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 863,
+        "summary": "The block has no heading of its own. With no For the person section, it sits under whatever section comes before it, so it reads as part of Already tracked or Findings in the body, and Rounds or Left to you in the handoff.",
+        "failure_scenario": "In a round with no For the person entries, the body goes straight from the '### Already tracked' list to '<details><summary>Candidates set aside ...', and the handoff (reproduced) goes straight from '### Rounds' to the block. A reader scanning headings sees refuted or outside candidates inside the Already tracked or Rounds section. The docs place the block 'after For the person'."
+      }
+    ]
+  }
+}
