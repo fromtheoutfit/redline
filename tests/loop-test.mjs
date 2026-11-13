@@ -2234,7 +2234,7 @@ function samePrefix(name, first, second, n) {
     '',
     '### Declined by Redline (2)',
     '',
-    'To overrule one, reply in its thread, then run `/redline-revise 114 review @author`.',
+    'To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run `/redline-revise 114 review @author`.',
     '',
     '- **R1-3** title R1-3: declined: the spec keeps R1-3 as it is on purpose · decided by: redline',
     '- **R1-6** title R1-6: declined: could not confirm: needs two workers on one queue · decided by: redline',
@@ -2279,7 +2279,7 @@ function samePrefix(name, first, second, n) {
   // With no login the fallback names nobody's role: headings, lines and the way to overrule.
   const anon = await go('layout: no login', { ...covArgs, askRules: rules, login: '', decisions }, scenario)
   const anonHandoff = comment(anon.calls, 'handoff comment')
-  check('layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login', anon.res.status === 'done' && anonHandoff.includes('### Put to the person running Redline (1)') && anonHandoff.includes('### Left to the person running Redline (repository rules)') && anonHandoff.includes('left to the person running Redline under repository rule craft-config') && anonHandoff.includes('To overrule one, reply in its thread, then run `/redline-revise 114 review @<your login>`.') && !anonHandoff.includes('the author'), anonHandoff)
+  check('layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login', anon.res.status === 'done' && anonHandoff.includes('### Put to the person running Redline (1)') && anonHandoff.includes('### Left to the person running Redline (repository rules)') && anonHandoff.includes('left to the person running Redline under repository rule craft-config') && anonHandoff.includes('To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run `/redline-revise 114 review @<your login>`.') && !anonHandoff.includes('the author'), anonHandoff)
 
   // A human-review pass is unchanged, its no-login fallback included: "the author", as before.
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Is ${id} the right default?`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })

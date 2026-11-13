@@ -3208,7 +3208,7 @@ function handoffComment(ending, prBody, threads) {
     lines.push('', `### Overruled by ${personLabel} (${overruled.length})`, '', ...overruled.map(line))
   }
   if (declined.length) {
-    lines.push('', `### Declined by Redline (${declined.length})`, '', `To overrule one, reply in its thread, then run \`/redline-revise ${pr} review ${login ? `@${login}` : '@<your login>'}\`.`, '', ...declined.map(line))
+    lines.push('', `### Declined by Redline (${declined.length})`, '', `To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run \`/redline-revise ${pr} review ${login ? `@${login}` : '@<your login>'}\`.`, '', ...declined.map(line))
   }
   // What the workflow declined under a correctness-only scope: ids that are not bold, as in the
   // review bodies, so no reader takes a line for a finding with a disposition.
