@@ -3445,7 +3445,10 @@ function threadCandidates() {
       const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
       const settled = SETTLED_KINDS.includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
-      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      // The scope declined the carried finding, so its earlier thread gets no reply and stays
+      // open, and a later run without the scope sees it fresh (#94, R1-19).
+      const scopeDeclined = (record.scoped || []).some((s) => s.id === newId)
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : scopeDeclined ? 'declined under the scope' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
     for (const r of record.resolvedPrior || []) {

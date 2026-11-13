@@ -710,6 +710,9 @@ function samePrefix(name, first, second, n) {
 
   run = await go('carry: correctness scope', { ...baseArgs, firstRound: 2, scope: 'correctness', priorFindings: [prior('R1-3', 'none', { comment_id: 13, category: 'nit' })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-3' })]] })
   check('carry: a carried nit under the correctness scope is declined by the scope, said so in the handoff, with no reply and no sweep', run.res.status === 'done' && comment(run.calls, 'handoff comment').includes('- **R1-3** title R1-3: carried forward as R2-1: declined: outside this run\'s scope (correctness only) · decided by: redline') && !pick(run.calls, 'push and reply r2') && !pick(run.calls, 'resolve threads'), [labels(run.calls), comment(run.calls, 'handoff comment')])
+  // Its earlier thread stays open, named as the handoff names it (#94, R1-19).
+  const scopeThreads = run.res.threads || { open: [] }
+  check('carry: the earlier thread of a carried finding the scope declined stays open as declined under the scope', scopeThreads.open.some((o) => o.id === 'R1-3' && o.reason === 'declined under the scope') && comment(run.calls, 'handoff comment').includes('R1-3 (declined under the scope)'), [scopeThreads, comment(run.calls, 'handoff comment').slice(0, 400)])
 
   // A carrying finding the post moved into the review body has no thread, so its earlier thread
   // settles on its own reply (#46, R1-4).
