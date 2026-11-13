@@ -58,6 +58,12 @@ Deviations from the shaped plan, found while building:
 - **Task 3, the other roles' prompts.** "Judgment calls are returned, never decided" also stood in the resolve, plan approver, standards approver and implementer prompts. On a Redline round those now say that a pending decision is the person's and a decision already made, the shaper's own included, is applied as recorded. A human-review pass keeps the old sentence in every prompt.
 - **Task 3, the sweep.** The kinds that settle a thread were listed in two places; they are one constant now, and a carried finding the new round declines has its earlier thread resolved, which a second check pins.
 
+- **Task 4, a carried finding the verifier left out.** The workflow already carried such a finding as reported; it carried the earlier round's confidence with it. Nobody verified it at the new head, so it is carried as `unconfirmed`, with a line saying so, and the shaper's second look decides it.
+- **Task 4, a nit an issue already tracks, under `correctness only`.** It is listed under Already tracked, where a tracked finding of any kind sits, and is not declined by the scope: there is nothing for the scope to decline.
+- **Task 4, a candidate kept as reported.** It is a `correctness` finding of `medium` severity, since the finder gives neither; its title is the candidate's summary on one line and its description the failure scenario.
+- **Task 4, the skill's review-only report.** It read `rounds[0].forThePerson`, which the result no longer carries, so its one line changed in this slice and not with the rest of the skill in Task 6.
+- **Task 4, the closing sentence of a review body.** "Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why": the plan's wording ("in each thread") read as a promise of a thread for every item, which an item in the review body does not have.
+
 Shaping defaults (recorded, not asked; each was listed in the plan the owner approved):
 
 - A fix diff means a commit that names an item; the round's spec and standards commits are not one.
