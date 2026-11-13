@@ -287,6 +287,9 @@ is "author tail: its left to the author reply is still left" "$(jq -r '.[0].disp
 pf18="$(gh prior-findings 18)"
 is "underscore login: the rule tail of a login with an underscore is stripped from the title" "$(jq -r '.[0].title' <<<"$pf18")" "Field handle renamed"
 is "underscore login: its left to @login reply is left" "$(jq -r '.[0].disposition' <<<"$pf18")" "left"
+# A finding minted from a candidate with no file is posted at (no file), line 0, so its line reads
+# back (#94, R2-6).
+is "no file: a finding minted with no file reads back at (no file), line 0" "$(jq -c '.[1] | [.id, .file, .line, .confidence]' <<<"$pf18")" '["R1-2","(no file)",0,"unconfirmed"]'
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?

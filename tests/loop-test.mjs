@@ -1478,6 +1478,10 @@ function samePrefix(name, first, second, n) {
   // its leading id with a warning, so the note never mints a second finding (#94, R2-5).
   run = await go('coverage: a verified ref with a note after the id', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1 (the guard)' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], settledAll] })
   check('coverage: a ref with a note after the id counts as that finding and mints nothing', run.res.rounds[0].findings.length === 1 && run.res.rounds[0].coverage.counts.verified === 1 && run.res.rounds[0].coverage.counts.unconfirmed === 0 && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`)[0] === '1:verified:R1-1' && run.res.warnings.some((w) => w.includes('with ref "R1-1 (the guard)"') && w.includes('read as R1-1')), [run.res.rounds[0].findings.map((x) => x.id), run.res.rounds[0].coverage, run.res.warnings])
+  // A candidate with no file is minted at a place prior-findings reads back (#94, R2-6).
+  const noPlace = fenced([{ summary: 'no place', failure_scenario: 'f' }])
+  run = await go('coverage: a candidate with no file', covArgs, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-2'], secondLook: { 'R1-2': 'unconfirmed' }, commitIds: [['R1-1']], coverage: [noPlace, noPlace], coverageOut: [[], [{ index: 1, outcome: 'settled', ref: 'R1-2' }]] })
+  check('coverage: a candidate with no file is minted at (no file), line 0, and its body line has a place', body(run.calls, 'post r1').includes('· unconfirmed · `(no file):0` · no place') && !body(run.calls, 'post r1').includes('`:0`'), body(run.calls, 'post r1'))
 
   // A candidate is counted where the round puts it (#80, R1-4): under correctness only a nit the
   // verifier reported from a candidate is verified, and declined by the scope in its own list (#93);

@@ -1513,6 +1513,10 @@ function coverageMessage(cause) {
 // unconfirmed entry is counted by its finding's own confidence, and one naming a finding with a
 // knownAs is known, since the body lists that finding under Already tracked.
 const MINTED_WOULD_CONFIRM = 'The verifier gave no account of this candidate; check the claim as the finder made it.'
+// The place of a minted finding whose candidate named no file (#94, R2-6): prior-findings reads a
+// body line back only with text before the colon, so `:0` would leave it neither carried nor
+// settled. The post script moves its comment into the review body, as it does any path in no hunk.
+const NO_FILE = '(no file)'
 function accountCoverage(round, out, candidates) {
   const byId = new Map(out.findings.map((f) => [f.id, f]))
   const seen = new Map()
@@ -1568,10 +1572,10 @@ function accountCoverage(round, out, candidates) {
     }
     const id = `R${round}-${++next}`
     if (!told.has(index)) {
-      warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file}:${c.line}); kept as ${id}, an unconfirmed finding, as reported`)
+      warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file || NO_FILE}:${c.line}); kept as ${id}, an unconfirmed finding, as reported`)
     }
     out.findings.push({
-      id, file: c.file, line: c.line, side: 'RIGHT', category: 'correctness', severity: 'medium', confidence: 'unconfirmed',
+      id, file: c.file || NO_FILE, line: c.line, side: 'RIGHT', category: 'correctness', severity: 'medium', confidence: 'unconfirmed',
       title: String(c.summary || '').replace(/\s+/g, ' ').trim(), description: String(c.failure_scenario || '').trim(), proposedFix: '',
       wouldConfirm: MINTED_WOULD_CONFIRM, outsideDiff: false, knownAs: '', carriedFrom: '', askRule: '',
     })
