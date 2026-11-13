@@ -1361,7 +1361,7 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${matchSentence ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
   )
   if (reviewed === 'final-nit-pass') {
-    lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce.')
+    lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce. This scope stands over the instruction below to report every finding wherever its cause lies: a bug this diff did not introduce is not reported here.')
   } else if (scope === 'correctness') {
     lines.push('', 'Scope: correctness only. Run no nit checks of your own: no naming, clarity, docblock or test-tightness pass, and no Docs or Version nit. Spend that time on reproducing the correctness candidates you have. A nit a candidate raises is still verified and reported as one, since you state what is true; the run declines it under the scope, in one list, with no thread.')
   }
