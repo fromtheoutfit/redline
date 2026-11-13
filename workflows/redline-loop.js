@@ -966,8 +966,9 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   // The closing sentence speaks of the items, so it follows the last list the round has and comes
   // before the set-aside block, never under the block's heading (the #87 follow-up spec, answer
   // 9). No reader in redline-gh.sh depends on where it sits.
+  // What the scope declined has neither, so the sentence says so when the body lists any (#94, R1-6).
   if (active.length) {
-    lines.push('', 'Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item\'s thread, or in a PR comment that opens with its marker, with what it decided and why.')
+    lines.push('', `Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why.${scoped.length ? ' The items declined under this run\'s scope have no inline comment and no reply.' : ''}`)
   }
   const setAside = review.setAsideCandidates || []
   if (setAside.length) {

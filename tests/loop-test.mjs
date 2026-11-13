@@ -437,6 +437,8 @@ function samePrefix(name, first, second, n) {
   const all = await go('scope all (default) keeps the nit pass', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], [f('R2-1', 'nit')], []], commitIds: [['R1-1', 'R1-2'], ['R2-1']] })
   check('scope all: the final nit pass still runs', all.res.status === 'done' && labels(all.calls).includes('final nit pass r3'), labels(all.calls))
   check('scope all: a run without the scope writes no scoped key in its findings file', !('scoped' in findingsFile(all.calls, 'post r1')) && (findingsFile(all.calls, 'post r1').findings || []).length === 2, findingsFile(all.calls, 'post r1'))
+  // The closing sentence says the scope-declined items get neither a comment nor a reply (#94, R1-6).
+  check('scope: the closing sentence says the items declined under the scope have no inline comment and no reply, and a run without the scope says nothing of them', scopeBody.body.includes(`${CLOSING} The items declined under this run's scope have no inline comment and no reply.`) && !(pick(all.calls, 'post r1') || { prompt: '' }).prompt.includes('declined under this run\'s scope have no inline comment'), scopeBody.body)
 }
 
 // ---------------------------------------------------------------------------
