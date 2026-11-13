@@ -1889,6 +1889,27 @@ function samePrefix(name, first, second, n) {
   check('pin: every prompt before the handoff comment equals the run without drift', beforeFinish > 0 && agents.calls.slice(0, beforeFinish).every((c, i) => same(c, pinned.calls[i])), labels(agents.calls))
   const empty = await go('pin: drift with nothing in it', { ...decided, drift: { workflow: '', pinned: true, agents: [] } }, scenario)
   check('pin: an empty drift leaves every prompt and the warnings as they were', empty.calls.length === pinned.calls.length && empty.calls.every((c, i) => same(c, pinned.calls[i])) && JSON.stringify(empty.res.warnings) === JSON.stringify(pinned.res.warnings), empty.res.warnings)
+  // A resume after the handoff comment posted (#91, R1-1). The comment is the one prompt that names
+  // the agent list, and a resume at the record commit (a rejected push) or at the comment itself (a
+  // review request that failed) reruns Finish from there, so run drift passes the list the marker's
+  // args held. With it every prompt through the comment is the first attempt's and replays, or the
+  // resumed comment's duplicate check finds the posted one; with the list read afresh the comment
+  // is the first prompt to change, so it would be posted again.
+  const heldDrift = { workflow: '', pinned: true, agents: ['agents/redline-reviewer.md'] }
+  const freshDrift = { workflow: '', pinned: true, agents: ['agents/redline-reviewer.md', 'agents/redline-shaper.md'] }
+  const pushFail = await go('pin: the record commit fails after the handoff comment posted', { ...decided, drift: heldDrift }, { ...scenario, recordError: 'push rejected: fetch first' })
+  check('pin: the record commit error is resumable at the record commit', pushFail.res.status === 'error' && JSON.stringify(pushFail.res.resumeFrom) === JSON.stringify({ label: 'record commit', attempt: 2 }), [pushFail.res.status, pushFail.res.resumeFrom])
+  const atRecord = { 'record commit': { attempt: 2, error: pushFail.res.error, hand: { commits: [], paths: [] } } }
+  const throughComment = (calls) => calls.slice(0, calls.findIndex((c) => c.label === 'handoff comment') + 1)
+  const heldResume = await go('pin: the record commit resume with the marker\'s agent list', { ...decided, drift: heldDrift, resume: atRecord }, scenario)
+  check('pin: with the marker\'s agent list every prompt through the handoff comment replays', throughComment(pushFail.calls).length > 1 && throughComment(pushFail.calls).every((c, i) => same(c, heldResume.calls[i])), labels(heldResume.calls))
+  const freshResume = await go('pin: the record commit resume with the agent list read afresh', { ...decided, drift: freshDrift, resume: atRecord }, scenario)
+  const firstChanged = pushFail.calls.findIndex((c, i) => !same(c, freshResume.calls[i]))
+  check('pin: with the agent list read afresh the handoff comment is the first prompt to change', firstChanged > 0 && pushFail.calls[firstChanged].label === 'handoff comment', [firstChanged, labels(freshResume.calls)])
+  const requestFail = await go('pin: the review request fails after the handoff comment posted', { ...decided, drift: heldDrift }, { ...scenario, finishError: 'could not request a review from sam' })
+  const atComment = { 'handoff comment': { attempt: 2, error: requestFail.res.error, hand: { commits: [], paths: [] } } }
+  const commentResume = await go('pin: the handoff comment resume with the marker\'s agent list', { ...decided, drift: heldDrift, resume: atComment }, { ...scenario, finishUrl: '' })
+  check('pin: with the marker\'s agent list the resumed comment is the posted one byte for byte, so its duplicate check can find it', comment(requestFail.calls, 'handoff comment').includes('`agents/redline-reviewer.md`') && comment(commentResume.calls, 'handoff comment') === comment(requestFail.calls, 'handoff comment'), comment(commentResume.calls, 'handoff comment').slice(0, 600))
   for (const bad of ['yes', [], { workflow: 1, pinned: true, agents: [] }, { workflow: '', pinned: 'no', agents: [] }, { workflow: '', pinned: true, agents: [''] }, { workflow: '', pinned: true }]) {
     const run = await go('pin: malformed drift', { ...decided, drift: bad }, scenario)
     check(`pin: args.drift ${JSON.stringify(bad)} fails at startup`, run.thrown !== null && run.thrown.message.includes('args.drift') && run.calls.length === 0, run.thrown && run.thrown.message)

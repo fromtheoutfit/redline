@@ -193,10 +193,14 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
 #       pin; line then names the file and says to finish with a fresh run. agents lists every
 #       file under agents/ that differs from the launch commit, uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says and the handoff comment
-#       repeats. drift is what the skill passes as args.drift ({workflow, pinned, agents}), null
-#       when nothing changed. Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's
-#       own repository only; anywhere else no marker is read).
+#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
+#       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
+#       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
+#       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
+#       when none), since that resume can rerun Finish from a step after the handoff comment
+#       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
+#       Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's own repository only;
+#       anywhere else no marker is read).
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #

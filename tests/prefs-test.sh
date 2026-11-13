@@ -307,6 +307,22 @@ printf 'shaper v2\n' >> "$REPO/agents/redline-shaper.md"
 SENTENCE='Agent files changed since this run launched (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): this run'"'"'s remaining rounds may run under them, while the workflow'"'"'s own prompts are the launch'"'"'s.'
 runj "drift: changed agent files are named, an uncommitted edit included, and the run goes on" '[.launch, (.agents|join(",")), .line] | join("|")' "scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|$SENTENCE" drift "$REPO" 7 --plugin "$REPO"
 runj "drift: the agent files ride in drift for the workflow" '.drift.agents | join(",")' "agents/redline-reviewer.md,agents/redline-shaper.md" drift "$REPO" 7 --plugin "$REPO"
+# An error or a harness stop can be resumed after the handoff comment posted, and the comment is
+# the one prompt that names the agent list, so on those markers drift keeps the list the marker's
+# own args passed, while agents and line still name every changed file; a hand-off (the case above)
+# or a reviewed stop, both before Finish, reads the list afresh (#91, R1-1).
+HELD='{"workflow":"workflows/redline-loop.js","pinned":true,"agents":["agents/redline-reviewer.md"]}'
+printf '%s\n' '{"runId":"wf_13","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"error","stage":"finish","error":"committing the run record failed: push rejected: fetch first","resumeFrom":{"label":"record commit","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-error.json"
+printf '%s\n' '{"runId":"wf_14","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'"}}' > "$REC/pinned-stopped.json"
+printf '%s\n' '{"runId":"wf_15","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-reviewed.json"
+run save "$REPO" 7 --run-id wf_13 --record "$REC/pinned-error.json" >/dev/null 2>&1
+runj "drift: an error marker keeps the agent list its args passed" '[.launch, (.agents|join(",")), (.drift|tostring)] | join("|")' "scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|$HELD" drift "$REPO" 7 --plugin "$REPO"
+runj "drift: on an error marker the line still names every changed file" '.line' "$SENTENCE" drift "$REPO" 7 --plugin "$REPO"
+run save "$REPO" 7 --run-id wf_14 --record "$REC/pinned-stopped.json" >/dev/null 2>&1
+runj "drift: a stopped marker whose args passed no drift keeps an empty agent list" '[.launch, (.agents|join(",")), (.drift|tostring)] | join("|")' 'scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|{"workflow":"workflows/redline-loop.js","pinned":true,"agents":[]}' drift "$REPO" 7 --plugin "$REPO"
+run save "$REPO" 7 --run-id wf_15 --record "$REC/pinned-reviewed.json" >/dev/null 2>&1
+runj "drift: a reviewed marker reads the agent list afresh" '.drift.agents | join(",")' "agents/redline-reviewer.md,agents/redline-shaper.md" drift "$REPO" 7 --plugin "$REPO"
+run save "$REPO" 7 --run-id wf_11 --record "$REC/pinned.json" >/dev/null 2>&1
 "${G[@]}" checkout -q -- agents/redline-shaper.md
 printf 'new role\n' > "$REPO/agents/redline-new.md"
 runj "drift: an untracked agent file counts" '.agents | join(",")' "agents/redline-new.md,agents/redline-reviewer.md" drift "$REPO" 7 --plugin "$REPO"

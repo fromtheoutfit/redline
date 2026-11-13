@@ -57,10 +57,14 @@
 #       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
 #       pin; line then names the file and says to finish with a fresh run. agents lists every
 #       file under agents/ that differs from the launch commit, uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says and the handoff comment
-#       repeats. drift is what the skill passes as args.drift ({workflow, pinned, agents}), null
-#       when nothing changed. Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's
-#       own repository only; anywhere else no marker is read).
+#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
+#       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
+#       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
+#       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
+#       when none), since that resume can rerun Finish from a step after the handoff comment
+#       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
+#       Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's own repository only;
+#       anywhere else no marker is read).
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #
@@ -217,10 +221,16 @@ if [[ "$cmd" == "run" ]]; then
             git -C "$root" diff --quiet "$start" -- "$wf" 2>/dev/null || changed=true
         fi
         agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | sort -u | jq -R . | jq -sc .)"
-        jq -n --arg wf "$wf" --arg pin "$pin" --argjson changed "$changed" --argjson agents "$agents" --arg pr "$pr" --arg q "'" '
+        # The agent list drift passes (#91, R1-1). The handoff comment is the one prompt that names
+        # it, and an error or stopped resume can rerun Finish from a step after the comment posted,
+        # so on those markers drift keeps the list the marker's own args passed; a hand-off or a
+        # reviewed stop, both before Finish, reads it afresh (held is null there).
+        held="$(jq -c 'if .kind == "error" or .kind == "stopped" then (.args.drift | .agents? // []) else null end' <<<"$entry")"
+        jq -n --arg wf "$wf" --arg pin "$pin" --argjson changed "$changed" --argjson agents "$agents" --argjson held "$held" --arg pr "$pr" --arg q "'" '
             (if $changed then (if $pin != "" then "scriptPath" else "refuse" end) else "name" end) as $launch
+            | ($held // $agents) as $passed
             | {self: true, launch: $launch, scriptPath: (if $launch == "scriptPath" then $pin else "" end), workflow: $wf, agents: $agents,
-               drift: (if $changed or ($agents | length) > 0 then {workflow: (if $changed then $wf else "" end), pinned: ($pin != ""), agents: $agents} else null end),
+               drift: (if $changed or ($passed | length) > 0 then {workflow: (if $changed then $wf else "" end), pinned: ($pin != ""), agents: $passed} else null end),
                line: (if $launch == "refuse"
                       then "\($wf) changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline \($pr)"
                       elif ($agents | length) > 0
