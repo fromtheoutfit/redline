@@ -43,7 +43,8 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  ask rule's tail (#49), " · left to <person> under rule <id>" or,
 #                                  before #93, " · yours under rule <id>", are stripped from the
 #                                  title; <person> is @<login>, or "the person running Redline"
-#                                  when the run had no login. comment_id and body
+#                                  when the run had no login ("the author" in a final nit pass
+#                                  after a human review pass with none). comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening

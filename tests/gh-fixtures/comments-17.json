@@ -1,0 +1,28 @@
+[
+  {
+    "id": 1701,
+    "pull_request_review_id": 50,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-1** · correctness · low · confirmed\n\n**Rule-covered nit**\n\nThe value is set in project config.\n\nThis one is left to the author: repository rule craft-config (Config is changed by hand).",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:00Z"
+  },
+  {
+    "id": 1711,
+    "pull_request_review_id": 51,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: left to the author under repository rule craft-config (Config is changed by hand). No change made; the author makes it. · decided by: the author",
+    "in_reply_to_id": 1701,
+    "created_at": "2026-11-13T12:00:00Z"
+  }
+]

@@ -33,7 +33,8 @@
 #                                  ask rule's tail (#49), " · left to <person> under rule <id>" or,
 #                                  before #93, " · yours under rule <id>", are stripped from the
 #                                  title; <person> is @<login>, or "the person running Redline"
-#                                  when the run had no login. comment_id and body
+#                                  when the run had no login ("the author" in a final nit pass
+#                                  after a human review pass with none). comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening
@@ -343,7 +344,9 @@ case "$cmd" in
             # The disposition a reply states, by the fixed wording replyBody in the workflow writes.
             # A decline opens "declined: " (#93); a reply that only mentions one is decided. The
             # person a repository rule leaves a finding to is named by login since #93, or as "the
-            # person running Redline" when the run had none; "the author" is the wording before it.
+            # person running Redline" when the run had none; "the author" is the wording before it,
+            # and a human review pass with no login writes it in the rule tail of a final nit pass
+            # too (#94, R1-3).
             def classify:
                 if startswith("fixed in ") then "fixed"
                 elif startswith("mitigated") then "deferred"
@@ -359,7 +362,7 @@ case "$cmd" in
             | ($issues[0]) as $issue_comments
             | [$reviews[0][] | select(redline_review) | . as $r | round_of as $n
                 | finding_lines[] | . as $f
-                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · (yours|left to (@[A-Za-z0-9-]+|the person running Redline)) under rule [a-z][a-z0-9-]*)?$")) as $t
+                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · (yours|left to (@[A-Za-z0-9-]+|the person running Redline|the author)) under rule [a-z][a-z0-9-]*)?$")) as $t
                 | ($all | map(select(.in_reply_to_id == null and ((.body // "") | startswith("**" + $f.id + "** · ")))) | first) as $root
                 | ($root.id // 0) as $cid
                 | (if $cid > 0

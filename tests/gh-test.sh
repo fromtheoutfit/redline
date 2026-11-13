@@ -59,7 +59,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -144,6 +144,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/16/reviews") pages=("$PAGES/reviews-16.json") ;;
     "repos/{owner}/{repo}/pulls/16/comments") pages=("$PAGES/comments-16.json") ;;
     "repos/{owner}/{repo}/issues/16/comments") pages=("$PAGES/issue-comments-16.json") ;;
+    "repos/{owner}/{repo}/pulls/17/reviews") pages=("$PAGES/reviews-17.json") ;;
+    "repos/{owner}/{repo}/pulls/17/comments") pages=("$PAGES/comments-17.json") ;;
+    "repos/{owner}/{repo}/issues/17/comments") pages=("$PAGES/issue-comments-17.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -271,6 +274,11 @@ is "#93 forms: the login tail is stripped from the title and a left to @login re
 is "#93 forms: with no login the fallback tail is stripped and its reply is left" "$(jq -c '.[5] | [.title, .disposition, .round]' <<<"$pf16")" '["Fresh one","left",2]'
 is "#93 forms: a decided reply that opens left to @login without the rule's words is still decided" "$(jq -c '.[6] | [.id, .disposition]' <<<"$pf16")" '["R2-3","decided"]'
 is "#93 forms: last-round reads the new layout" "$(gh last-round 16)" "2"
+# A final nit pass after a human review pass with no login names the person "the author" in a
+# rule's tail (#94, R1-3): the tail is stripped from the title, and the reply still reads as left.
+pf17="$(gh prior-findings 17)"
+is "author tail: a left to the author under rule tail is stripped from the title" "$(jq -r '.[0].title' <<<"$pf17")" "Rule-covered nit"
+is "author tail: its left to the author reply is still left" "$(jq -r '.[0].disposition' <<<"$pf17")" "left"
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?
