@@ -3211,29 +3211,35 @@ function handoffComment(ending, prBody, threads) {
   // overruled first, then what Redline declined on its own, with how to overrule one, since that
   // is what a reader audits; then what was deferred, left under a rule, not picked or not changed;
   // the fixes last and folded, since each is a commit below. The single Decisions list is gone.
+  // One test per group, read by the lists below and by the Rounds counts, so the two never drift
+  // (#94, R2-13).
+  const isKind = (kind) => (d) => d.kind === kind
+  const isAsked = (d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT
+  const isAuto = (d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT
+  const isOverruled = (d) => d.kind === 'decided' && d.overruled
   const of = (test) => decidedAll.filter(test)
-  const asked = of((d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT)
-  const auto = of((d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT)
-  const overruled = of((d) => d.kind === 'decided' && d.overruled)
-  const declined = of((d) => d.kind === 'declined')
-  const notPicked = of((d) => d.kind === 'dropped')
-  const notChanged = of((d) => d.kind === 'not-changed')
-  const fixed = of((d) => d.kind === 'fixed')
+  const asked = of(isAsked)
+  const auto = of(isAuto)
+  const overruled = of(isOverruled)
+  const declined = of(isKind('declined'))
+  const notPicked = of(isKind('dropped'))
+  const notChanged = of(isKind('not-changed'))
+  const fixed = of(isKind('fixed'))
   const scoped = rounds.flatMap((record) => record.scoped || [])
   lines.push('', '### Rounds', '')
   for (const record of rounds) {
     const mine = decidedAll.filter((d) => d.round === record.round)
     const count = (test) => mine.filter(test).length
     const parts = [
-      [count((d) => d.kind === 'fixed'), 'fixed'],
-      [count((d) => d.kind === 'declined'), 'declined'],
-      [count((d) => d.kind === 'deferred'), 'deferred'],
-      [count((d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT), `put to ${personLabel}`],
-      [count((d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT), 'decided on autopilot'],
-      [count((d) => d.kind === 'decided' && d.overruled), `overruled by ${personLabel}`],
-      [count((d) => d.kind === 'left'), `left to ${personLabel}`],
-      [count((d) => d.kind === 'dropped'), `not picked by ${personLabel}`],
-      [count((d) => d.kind === 'not-changed'), 'not changed'],
+      [count(isKind('fixed')), 'fixed'],
+      [count(isKind('declined')), 'declined'],
+      [count(isKind('deferred')), 'deferred'],
+      [count(isAsked), `put to ${personLabel}`],
+      [count(isAuto), 'decided on autopilot'],
+      [count(isOverruled), `overruled by ${personLabel}`],
+      [count(isKind('left')), `left to ${personLabel}`],
+      [count(isKind('dropped')), `not picked by ${personLabel}`],
+      [count(isKind('not-changed')), 'not changed'],
       [(record.scoped || []).length, 'declined under the scope'],
     ].filter(([n]) => n > 0)
     const items = parts.reduce((sum, [n]) => sum + n, 0)
