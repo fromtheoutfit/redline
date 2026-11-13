@@ -1,0 +1,1 @@
+Redline round 2: fixed in 7da0f89 (redline: R2-1 say the pinned relaunch prompt is expected and not measured yet, in the docs and the skill line (#81)). · decided by: redline

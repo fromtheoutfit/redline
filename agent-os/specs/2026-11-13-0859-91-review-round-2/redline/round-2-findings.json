@@ -1,0 +1,149 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "1c96b8c8a07ed05634822a8fa34a4a1f817ec0dd",
+    "to": "ff3f8d5787cbd62c5b50da6f90dad739a8b86c70"
+  },
+  "summary": "The R1-1 fix puts the held-list rule in `redline-prefs.sh run drift`, where a prefs case pins it. The loop test shows that every prompt through the handoff comment replays on a record-commit resume, and that a freshly read list changes the comment first. The scripts header, `docs/scripts.md`, the skill, `docs/running.md` and README all describe it. The fix diff introduces no correctness bug. The one finding is a docs nit: the no-prompt relaunch in bypass-permissions is stated as fact, but the spec says it was never measured. The other candidates go to the person as gaps in hardening, scope or tests. This repository has no scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "docs/running.md",
+      "line": 84,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Docs state the no-prompt relaunch in bypass-permissions as fact, though it was never measured",
+      "description": "docs/running.md:84 says that in bypass-permissions \"the relaunch runs with no prompt\". The skill's spoken line at skills/redline/SKILL.md:223 says \"In bypass-permissions, which is how the plugin reviews itself, there is no prompt\". The #81 spec's Unmeasured section (agent-os/specs/2026-11-12-1852-81-pin-relaunch-script-finish-rule/shape.md:81) and the PR description both say that \"none in bypass-permissions\" was not measured: only the headless denial was. Round 1's Decision 4 also says it is \"still unmeasured\". README Known limits (line 104, reworded in this fix diff) lists only the outside-bypass prompt count as unmeasured. So the person running a self-review is told as fact that no prompt will appear, and the README's list of what was not measured leaves this case out.",
+      "proposedFix": "Mark the bypass case as unmeasured in all three places. In docs/running.md \"Hand-off and relaunch\" (line 84) and in the skill's line at SKILL.md:223, write \"in bypass-permissions it is expected to run with no prompt (not measured yet)\". In README \"Known limits\" (line 104), change the second unmeasured item to \"whether a relaunch from the pinned script asks exactly once outside bypass-permissions, and not at all in bypass-permissions\".",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 228,
+      "text": "R1-1 was decided, and its shape.md (\"What it gives up\") accepts one cost: an error resume before Finish (a failed `recheck r2`, say) keeps a stale agent list. In autopilot that list is `[]`, so the handoff comment names no agent file even when the resumed rounds ran in a reopened session that loads the edited agents. The shape says a narrower rule would need the workflow's label names. But an error marker already carries `stage`, so holding the list only for `kind == \"error\" and .stage == \"finish\"` (and for `stopped`) would need no label names."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 3134,
+      "text": "The Finish read trusts `round` whenever `error` is empty. On a run that posted, `last.round < finishing` cannot be true: it would mean the GitHub agent returned 0 for a failed read without setting `error`. Treating it as a failed read would harden the backstop for the PR #80 shape. That takes both a re-run round and an agent that ignores its prompt."
+    },
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 223,
+      "text": "`run drift` reports only files under `agents/`. A self-review round can also edit `scripts/redline-gh.sh`, the other scripts, or README's \"Git rules for Redline agents\", and agents read all of these live. A reopened session also loads an edited `skills/redline/SKILL.md`. None of these is reported or pinned. Should the sentence cover them? That is a scope question for the author."
+    },
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 230,
+      "text": "Pre-existing, not a regression. A run launched by the section 6 `scriptPath` fallback ran because the name is not registered in that session. While the workflow file is unchanged, `run drift` answers `name`, and a relaunch by name in the same session fails as not found. Section 7 has no fallback. The new routing could answer `scriptPath` with the live file in that case."
+    },
+    {
+      "file": "docs/running.md",
+      "line": 122,
+      "text": "\"Run markers and resume\" still says a resume \"relaunches with the marker's args plus `resume`\". On the plugin's own repository a resume first runs `run drift`: it may go by `scriptPath` or be refused, and it adds `args.drift` with the held agent list (R1-1). Only \"Hand-off and relaunch\" says so. The #81 plan's first Docs entry said this section would name `run drift`, and the as-built entry moved that to \"Saved launch settings\"."
+    },
+    {
+      "file": "tests/loop-test.mjs",
+      "line": 1934,
+      "text": "No Finish-rule case covers a human review pass's summary. There is no human sequence with `lastPosted` above the nit-pass round that checks the summary comment and the record commit do not run. docs/running.md promises the same read for the summary."
+    }
+  ],
+  "coverage": {
+    "head": "ff3f8d5787cbd62c5b50da6f90dad739a8b86c70",
+    "candidates": 6,
+    "counts": {
+      "finding": 1,
+      "forThePerson": 5,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:3134"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "scripts/redline-prefs.sh:223"
+      },
+      {
+        "index": 3,
+        "outcome": "forThePerson",
+        "ref": "scripts/redline-prefs.sh:230"
+      },
+      {
+        "index": 4,
+        "outcome": "finding",
+        "ref": "R2-1"
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "docs/running.md:122"
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "tests/loop-test.mjs:1934"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3134,
+        "summary": "The Finish backstop only stops when the read round is above the finishing round. A read below the finishing round lets the run finish, even when it cannot be true for a run that posted (or skipped as already posted) its finishing round.",
+        "failure_scenario": "A self-hosted re-run round 1 comes back clean while rounds 2-3 are posted and open (the PR #80 shape). The GitHub agent's last-round call is refused, or prints something unexpected, and the model returns {round: 0, error: \"\"} without setting error as the prompt asks. `Number.isInteger(0) && 0 > 1` is false, so Finish posts the false handoff and requests review: exactly what #81 is meant to prevent. In a non-dry run where `record.reviewPosted` is true, `last.round < finishing` proves the read is wrong and should stop at the read label, as `last.error` does."
+      },
+      {
+        "index": 2,
+        "file": "scripts/redline-prefs.sh",
+        "line": 223,
+        "summary": "run drift reports only files under agents/. Agents also run scripts/redline-gh.sh (and the other scripts) and read the README's 'Git rules for Redline agents' (RUN_LINE) live on every call, and a reopened session loads the edited skills/redline/SKILL.md. Self-review rounds edit all of these, and none is reported or pinned.",
+        "failure_scenario": "A self-review round commits a change to scripts/redline-gh.sh (post-review formatting, has-review or last-round matching, reply routing; PRs #87 and #89 did this) or to the README git rules. Later rounds post, skip and read under the edited script. The skill's line and the handoff comment say nothing, because the agents list has no such entry. After `claude --resume`, the edited SKILL.md is the code that runs `run drift` and builds the relaunch, so the pin does not cover the logic that does the pinning. Diffing the plugin's live inputs (agents/, scripts/, skills/, README.md) against startSha would report them all through the same sentence."
+      },
+      {
+        "index": 3,
+        "file": "scripts/redline-prefs.sh",
+        "line": 229,
+        "summary": "For a launch that went by the scriptPath fallback, run drift answers launch \"name\" whenever the workflow file is unchanged (pinned by the prefs case 'a launch from the live file with the workflow as launched goes by name'). The fallback ran because the name is not registered in that session, so the by-name relaunch the skill makes cannot find it.",
+        "failure_scenario": "A session that does not list redline:redline-loop launches via Workflow({scriptPath: <live file>}) (section 6 fallback). It reaches a hand-off, run drift prints launch: name, and the skill calls Workflow({name: 'redline:redline-loop', ..., resumeFromRunId}) in the same session, which fails as not found. Section 7 has no fallback at relaunch. This was already true before the PR; the new routing knows the record path is the live file but still sends the relaunch by name. It could answer scriptPath with the live file while the file is unchanged."
+      },
+      {
+        "index": 4,
+        "file": "README.md",
+        "line": 104,
+        "summary": "Known limits lists only the outside-bypass prompt count as unmeasured. docs/running.md:84 and the skill's spoken line (skills/redline/SKILL.md:223) state 'in bypass-permissions ... there is no prompt' as fact. The #81 spec's Unmeasured section says 'none in bypass-permissions' was not measured either: only the headless denial was.",
+        "failure_scenario": "The person running a self-review in bypass-permissions is told no prompt will appear. If the harness's 'Review dynamic workflow before running' check is not skipped by bypass, the relaunch prompts or is denied, against what the docs promised. Round 1 of this PR made no scriptPath relaunch (its Decision 4), so the bypass case is still untested. The docs should mark it unmeasured, as the spec does."
+      },
+      {
+        "index": 5,
+        "file": "docs/running.md",
+        "line": 122,
+        "summary": "'Run markers and resume' still says a resume 'relaunches with the marker's args plus resume'. It does not mention that on the plugin's own repository a resume first runs run drift, may relaunch by scriptPath from the pinned copy or be refused, and adds args.drift with the held agent list. The #81 plan's Docs entry said this section would name run drift; as built, it is only in 'Saved launch settings' and 'Hand-off and relaunch'.",
+        "failure_scenario": "A teammate who reads only the resume section to understand an error resume on the plugin repo learns that the resume uses the marker's args plus resume. It actually adds args.drift and can go by scriptPath or be refused and cleared. That is the contract R1-1 depends on, and it is described somewhere else (process/docs-gate, bash-conventions line 11)."
+      },
+      {
+        "index": 6,
+        "file": "tests/loop-test.mjs",
+        "line": 1934,
+        "summary": "The Finish-rule cases cover the handoff and the cap-hit comment stopping from a lower round, but not a human review pass's summary. The human sequences only show that 'last round' appears in the call list; no case has lastPosted above the nit-pass round and checks that the summary comment and record commit are not run.",
+        "failure_scenario": "The finish() read is guarded by `rounds.filter((r) => !r.human)`. A change that, say, uses `record.round` (the human pass number n) as `finishing`, or skips the read for kind 'human-summary', would still pass every check, while docs/running.md:92 promises the summary is held to the same read. testing/tests asks for a case per form."
+      }
+    ]
+  }
+}

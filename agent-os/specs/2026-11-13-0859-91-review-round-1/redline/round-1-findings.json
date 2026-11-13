@@ -1,0 +1,287 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "1c96b8c8a07ed05634822a8fa34a4a1f817ec0dd",
+    "to": "1c96b8c8a07ed05634822a8fa34a4a1f817ec0dd"
+  },
+  "summary": "This PR pins a self-hosted relaunch to the script the run launched with, through `run drift`. It also adds a Finish read that stops a run finishing below the highest posted round. Both come with prefs, loop and guard tests for every answer `run drift` gives and for the refusal. The one finding is in the new agent-change sentence: it reaches the handoff comment through `args.drift`, which the skill recomputes on every relaunch, an error resume included, so a resume after the comment posted can post it again. Most other candidates are gaps in the agent report and in the Finish backstop, listed for the person. This repository has no scheduled or queued work, and the version bump and Docs entries are in place.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "workflows/redline-loop.js",
+      "line": 2990,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A resume after the handoff comment posted posts it again when args.drift changed",
+      "description": "The handoff comment's text now carries AGENTS_CHANGED, which is built from `args.drift`. Section 7 of the skill (skills/redline/SKILL.md:220-226) has every relaunch rerun `run drift` and set `args.drift` again, and that includes an `error` or `stopped` resume. So the agent list at a resume can differ from the one the Finish launch had. In an autopilot self-review that is true of any agent edit, since autopilot never relaunches before Finish. In a guided one it is true of an agent edit made after the last hand-off. When the lists differ, the `handoff comment` prompt changes even though the comment is already on the PR.\n\nCase 1, a resume at `record files` or `record commit` (for example after a rejected push), or a stopped run relaunched after the comment posted. The harness reruns `handoff comment`, and that prompt has no duplicate check: tests/loop-test.mjs:1207 pins that the handoff comment before a record-commit resume carries no clause. A second Redline handoff comment is posted and review is requested again.\n\nCase 2, a resume at `handoff comment` itself (a review request that failed after the post). The duplicate check looks for a comment with exactly the body of the new file. That body now holds the sentence, so the check finds no match and the comment is posted again.\n\nThis breaks the skill's sentence \"The workflow reads it only at startup and at Finish, so no replayed prompt depends on it\" (SKILL.md:226) and the new workflow/replay.md bullet for Finish's own replayed prompts. Traced through `handoffComment`, `finishPrompt`, `resumeLine` and section 7. The scratch reproduction /tmp/redlinerepro/reviewer-r1-repro.mjs is built on the loop test's mock but could not be run here, because node is refused to this role.",
+      "proposedFix": "Keep the Finish prompts stable across attempts. The smallest fix is in the skill: on an `error` or `stopped` resume, pass `args.drift` exactly as the marker's args hold it. Still run `run drift` to choose name, scriptPath or refuse and to say its agent line. Only a hand-off or `reviewed` relaunch sets `args.drift` again. Write this in section 7 and in docs/running.md, \"Hand-off and relaunch\". The alternative is for the workflow to read the changed agent files itself at Finish, in a GitHub-agent call with a fixed prompt that replays from cache on a resume. That also reports an agent edit in a run that never relaunched. Either way, add a loop-test check: on a `record commit` resume with unchanged args, every prompt through `handoff comment` replays byte for byte, and a different `drift.agents` changes the `handoff comment` prompt. That second half is the risk the rule guards against.",
+      "needsDecision": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "forThePerson": [
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 3134,
+      "text": "The Finish rule stops only when a posted round is above the finishing round. A re-run of the highest posted round itself, whose post is skipped as already posted, still hands off if it comes back clean. It needs the pin to fail first. A check on a skipped post would also stop a legitimate resume at `post rN`, which skips the post and uses the cached findings."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 226,
+      "text": "On the plugin's own repository, when `run save` exits 2 the skill follows line 218 (\"go on: the relaunch in this session does not need the marker\"). The person answers every call, then `run drift` exits 2 and the skill stops, so the answers are lost. Decision 9 chose the stop, but the two sentences now disagree. Saying so at the save, or letting `run drift` read the run's record directly, would avoid it."
+    },
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 208,
+      "text": "A pin that cannot be found (no record, a record without `scriptPath`, or a persisted copy that is gone) is treated like a launch by the scriptPath fallback. A changed workflow is then refused with a line saying the launch ran from the file itself, which is not the cause in that case. The refusal is safe; only its stated reason is wrong. The harness records read here do carry `scriptPath`."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 244,
+      "text": "The agent sentence exists only when a relaunch passed `args.drift`. An autopilot self-review that edits an agent file reports nothing, and neither does a guided one that edits one after its last hand-off. The cap-hit comment and a human review summary never carry the sentence. So shape.md's \"an agent change is read from git and reported, whatever the session has loaded\" holds only at relaunches. That matters if an interactive session does reload agent files mid-session, which was not measured."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 224,
+      "text": "Both refusals, the skill's `refuse` and the workflow's stage `relaunch`, run `run clear` without telling the person which uncommitted spec folders the earlier run left. The stage `relaunch` result's `specFolders` is empty, and the marker that named them is cleared. The fresh run's clean-tree precheck then fails without its `commit or remove <folders>` line."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 245,
+      "text": "The handoff comment is posted after the last round, so \"this run's remaining rounds may run under them\" reads there as a forecast. Something like \"the later rounds may have run under them\" would fit. The wording is decision 1's rider, so the change is the author's call."
+    },
+    {
+      "file": "skills/redline/SKILL.md",
+      "line": 220,
+      "text": "`run drift` runs only just before the relaunch, after the person has answered the calls. A `refuse` can only follow a launch by the scriptPath fallback, and it could be detected at the stop instead, before any call is presented."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 3126,
+      "text": "The Finish read also runs in a dry run, where nothing was posted and the check cannot fire. Skipping it when `postToGitHub` is false would save one agent call and one GitHub read. The loop test pins today's dry-run call list."
+    },
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 227,
+      "text": "The agent sentence and the refusal text are each written twice, in this jq and in the workflow (AGENTS_CHANGED and the stage `relaunch` error). Each copy is pinned by its own test, so an edit to one copy passes while the skill's spoken line and the handoff comment drift apart."
+    },
+    {
+      "file": "scripts/redline-prefs.sh",
+      "line": 192,
+      "text": "The self-hosted test (`--plugin` resolves to the repository root) now appears twice in this script, here and in `run check`'s `plugin` reason at line 277. One helper would keep them from disagreeing when #66 changes how self-hosting is detected."
+    },
+    {
+      "file": "workflows/redline-loop.js",
+      "line": 3407,
+      "text": "The workflow's second layer fires only when the skill ran `run drift`, got `refuse` and launched anyway with that `drift`. A relaunch that skipped `run drift` arrives with no `args.drift` and is not caught, so the pin depends entirely on the skill following section 7."
+    },
+    {
+      "file": "agent-os/specs/2026-11-12-1852-81-pin-relaunch-script-finish-rule/shape.md",
+      "line": 53,
+      "text": "The probe report (harness behaviour measured headless on 2.1.322) is written into this public spec and into two standards. CLAUDE.md keeps spike notes in `redline-internal`, and the #72 spike cited its notes there by file name. This spec says the probes are its own and nothing was copied. Whether a probe report belongs here is the author's call."
+    }
+  ],
+  "coverage": {
+    "head": "1c96b8c8a07ed05634822a8fa34a4a1f817ec0dd",
+    "candidates": 15,
+    "counts": {
+      "finding": 1,
+      "forThePerson": 12,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0,
+      "refuted": 0,
+      "outside": 0,
+      "disproportionate": 2
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "finding",
+        "ref": "R1-1"
+      },
+      {
+        "index": 2,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:3134"
+      },
+      {
+        "index": 3,
+        "outcome": "disproportionate",
+        "ref": "#88 tracks Redline's own posted text forging a line. The remainder, Finish stopping on an over-count, needs a review body posted during the run, by a teammate or in a moved finding's description, with a line opening `Redline round M` for an M above the round the run is finishing from. Any such line posted before launch is already counted, because the launch's `firstRound` comes from the same `last-round` read."
+      },
+      {
+        "index": 4,
+        "outcome": "disproportionate",
+        "ref": "Needs two things: a session reopened mid-run after a round changed the workflow file, so the registry holds the edit, and then a later round restoring `workflows/redline-loop.js` byte for byte to the launch's version. Only then does `run drift` answer `name` while the registry would run the edit."
+      },
+      {
+        "index": 5,
+        "outcome": "forThePerson",
+        "ref": "skills/redline/SKILL.md:226"
+      },
+      {
+        "index": 6,
+        "outcome": "forThePerson",
+        "ref": "scripts/redline-prefs.sh:208"
+      },
+      {
+        "index": 7,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:244"
+      },
+      {
+        "index": 8,
+        "outcome": "forThePerson",
+        "ref": "skills/redline/SKILL.md:224"
+      },
+      {
+        "index": 9,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:245"
+      },
+      {
+        "index": 10,
+        "outcome": "forThePerson",
+        "ref": "skills/redline/SKILL.md:220"
+      },
+      {
+        "index": 11,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:3126"
+      },
+      {
+        "index": 12,
+        "outcome": "forThePerson",
+        "ref": "scripts/redline-prefs.sh:227"
+      },
+      {
+        "index": 13,
+        "outcome": "forThePerson",
+        "ref": "scripts/redline-prefs.sh:192"
+      },
+      {
+        "index": 14,
+        "outcome": "forThePerson",
+        "ref": "workflows/redline-loop.js:3407"
+      },
+      {
+        "index": 15,
+        "outcome": "forThePerson",
+        "ref": "agent-os/specs/2026-11-12-1852-81-pin-relaunch-script-finish-rule/shape.md:53"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 2990,
+        "summary": "The agent-change sentence (AGENTS_CHANGED, from args.drift) goes into the handoff comment text, which is a Finish prompt a resume replays. args.drift is set fresh at each relaunch, so the prompt can differ between the launch that posted the comment and the resume. The comment step then reruns with no duplicate check and posts a second handoff comment and a second review request. This contradicts the claim that no replayed prompt depends on drift.",
+        "failure_scenario": "A self-review on autopilot, or a guided run whose last relaunch came before the round that edited `agents/redline-github.md`. The run reaches Finish with no args.drift and posts the handoff comment without the sentence. Then the record commit fails (a rejected push) or the harness stops the run. The error resumes at 'record commit'. Before relaunching, the skill runs `run drift`, gets agents=[agents/redline-github.md] and sets args.drift. The 'handoff comment' prompt now differs from the cache, so the GitHub agent writes handoff.md again and runs `redline-gh.sh comment` and `request-review` again. Only the resumed label ('record commit') gets the 'look for an earlier comment' line, so a second Redline handoff comment is posted and review is requested twice. The same happens when a resume copies the marker's args.drift (\"the marker's args exactly\") from an earlier relaunch and the agent list has changed since."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 3134,
+        "summary": "The Finish backstop only stops when the highest posted round is strictly above the finishing round. A re-run of the highest posted round itself comes back clean and finishes the run, which is the same false-handoff fault as PR #80.",
+        "failure_scenario": "Rounds 1 and 2 are posted and round 2's review has open correctness findings. A relaunch diverges at round 2's review prompt, for example because the skill relaunched by name when it should not have. Round 2 is reviewed again, and the post is skipped because `has-review` finds the existing review. The re-run comes back with no correctness finding. finishing=2 and last-round=2, so `2 > 2` is false. The PR description, the sweep, the handoff comment ('no new correctness finding') and the review request all go out while the posted round 2 findings stay open. A check on `record.post.skipped` for the finishing round, or on the posted review's id, would catch it."
+      },
+      {
+        "index": 3,
+        "file": "scripts/redline-gh.sh",
+        "line": 315,
+        "summary": "Already tracked in #88: `last-round` counts any line, in any review body, that starts with 'Redline round N'. #88 does not say that this PR makes the over-count end a run: Finish now uses that number and stops with a non-resumable error naming a 're-run' that never happened. #88 also covers only Redline's own free text, while a teammate's review body is read the same way.",
+        "failure_scenario": "In a self-review, a finding moved into a review body under 'Not placed inline' has a description line starting 'Redline round 9 …' (for example a finding about these readers). Alternatively, a teammate's review contains a line starting 'Redline round 5'. At Finish, last-round prints 9 (or 5), which is above finishing=2. The run throws the `fresh` Finish error ('round 2 is a re-run of an earlier round'), resumeFrom is null and the skill clears the marker. No handoff, sweep, review request or record commit happens, and the person must start a fresh run, which also numbers its rounds from the forged value."
+      },
+      {
+        "index": 4,
+        "file": "scripts/redline-prefs.sh",
+        "line": 215,
+        "summary": "`launch: name` is chosen by comparing the pinned copy with the file on disk. A launch by name runs the session's registry, which the spec's probe b measured as loaded at session start or reopen, not the file on disk. When the registry holds a different version than the pin, a 'name' relaunch runs that version and replay diverges. Per the probe, it also overwrites the pin.",
+        "failure_scenario": "The run launches by name with V1 (pin=V1). Round 1 commits V2. The session ends and is reopened with `claude --resume`, which loads V2 into the registry. The resume correctly relaunches by scriptPath from the pin, V1. Round 2 then reverts the workflow file to V1, a plausible review fix. At the next hand-off, `cmp pin live` is equal, so drift answers `name`. The relaunch by name runs the registry's V2, every step after the first changed prompt reruns (PR #80), and the persisted copy becomes V2. Once a pin exists, always relaunching by scriptPath on the plugin's own repository would avoid this."
+      },
+      {
+        "index": 5,
+        "file": "skills/redline/SKILL.md",
+        "line": 218,
+        "summary": "The skill still says that when `run save` exits 2 (no record, no session id) it should 'go on: the relaunch in this session does not need the marker'. On the plugin's own repository, `run drift` now requires the marker (exit 2, then stop), so in that case the in-session relaunch is blocked and the person's answers are lost.",
+        "failure_scenario": "A self-review stops at a decisions hand-off in a session where `run save` cannot find the record by glob, or CLAUDE_CODE_SESSION_ID is unset. The skill says the save line and goes on as instructed. The person answers every call and types `relaunch`. `run drift` hits line 196 ('no stopped run is recorded'), exits 2 and the skill stops. Before this PR the same relaunch worked. Now the run can only be finished fresh, and the recorded decisions are discarded."
+      },
+      {
+        "index": 6,
+        "file": "scripts/redline-prefs.sh",
+        "line": 205,
+        "summary": "A missing harness record, a record with no `scriptPath`, or a pinned copy that no longer exists all leave pin empty, just as a launch by the scriptPath fallback does. drift then refuses with a line saying 'the launch ran from the file itself', and the skill clears the marker. The header documents the refusal only for the fallback case.",
+        "failure_scenario": "The run was launched by name, but the record moved or the harness's `workflows/scripts/` copy was cleaned up (or this harness version records the path under another key), and a round has edited redline-loop.js. drift prints `refuse` with a false explanation and exits 1. The skill says that line, runs `run clear` and stops. The person is told the launch used the scriptPath fallback, which it did not, and the real cause (a missing record or pin) is never named."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 244,
+        "summary": "The agent-change report exists only when the skill passed args.drift on a relaunch, so it is often missing. Three cases: a run that edits an agent file and finishes in the same launch, or edits after its last relaunch, gets no sentence; the cap-hit comment and a human review pass's summary never carry it; a later relaunch whose drift is null (the file was reverted) drops it. README and docs/running.md promise that 'the handoff comment carries the same sentence'.",
+        "failure_scenario": "A guided self-review relaunches once after round 1 (no agent change yet, drift null). Round 2 commits `agents/redline-shaper.md`, and round 3 runs and finishes in the same launch. The handoff comment has no agent sentence, so the teammate is not told. Interactive mid-session reloads were not measured, so later rounds may in fact have run under the edit. The same edit ending in a cap-hit comment or a human-review summary is never reported either."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 3408,
+        "summary": "Both refusal paths, the workflow's stage 'relaunch' result and the skill's `refuse`, clear the marker and return specFolders: []. The person is told to 'finish with a fresh run' but not which uncommitted spec folders block that run's clean-tree precheck.",
+        "failure_scenario": "On a relaunch refused because the workflow file changed with no pin, the workflow returns before any replay, so `rounds` is empty and result.specFolders is []. The skill's error handler runs `run clear`, which deletes the marker's specFolders, then names 'the uncommitted spec folders' from an empty list. `/redline:redline <pr>` then finds no marker, so 'Start fresh' cannot name them either, and precheck step 4 fails on the earlier run's shaped round folder."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 245,
+        "summary": "The agent-change sentence says the run's 'remaining rounds may run under them'. It is posted verbatim in the handoff comment, after every round has run, so the teammate reads a forward-looking hedge instead of the statement docs/running.md describes ('the later rounds ran under instructions the run itself edited').",
+        "failure_scenario": "A self-review whose round 1 edited `agents/redline-reviewer.md` finishes after round 3. The handoff comment tells the teammate that this run's 'remaining rounds may run under them, while the workflow's own prompts are the launch's'. No rounds remain, and the teammate cannot tell whether rounds 2 and 3 actually used the edited reviewer."
+      },
+      {
+        "index": 10,
+        "file": "skills/redline/SKILL.md",
+        "line": 220,
+        "summary": "`run drift` runs only just before the relaunch, after the person has answered every judgment call or picked findings and typed `relaunch`. A `refuse` at that point throws that work away, although the workflow file cannot change between the stop and the relaunch.",
+        "failure_scenario": "A self-review launched by the scriptPath fallback stops at a hand-off with five calls after a round edited redline-loop.js. The person answers all five, confirms each restatement and types `relaunch`. Only then does drift return `refuse`, and the skill clears the marker and stops. Running drift at the stop, before presenting the calls, would give the same answer with nothing wasted."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 3125,
+        "summary": "The Finish read starts a GitHub agent (a model call) at every Finish, including dry runs. In a dry run it cannot fire: nothing was posted and firstRound is above the posted rounds from the precheck.",
+        "failure_scenario": "Every `dry run` (seed PRs and debugging) pays one extra agent start-up and model round trip, plus a live GitHub API call, for a check that can only pass. If GitHub API access fails, a dry run now stops with a Finish error where before it finished. Skipping the read when `!postToGitHub` removes the waste without weakening the check."
+      },
+      {
+        "index": 12,
+        "file": "scripts/redline-prefs.sh",
+        "line": 225,
+        "summary": "The agent-change sentence and the refusal message are each written twice, once in the jq of `run drift` and once in the workflow (AGENTS_CHANGED and the stage 'relaunch' error). The two copies must stay byte-identical by hand.",
+        "failure_scenario": "Any wording edit has to land in both bash/jq (with the `$q` apostrophe workaround) and JS. Two tests (prefs-test SENTENCE and loop-test `sentence`) pin each copy separately, so a one-sided edit passes its own test while the skill's spoken line and the handoff comment diverge. Have the workflow compose the text from `drift.agents` alone and stop emitting it from the script, or the reverse."
+      },
+      {
+        "index": 13,
+        "file": "scripts/redline-prefs.sh",
+        "line": 191,
+        "summary": "The 'this repository is the plugin itself' test (`-n plugin && -d plugin && realdir plugin == realdir root`) is written out again in `run drift`, inverted, beside the same test in `run check`'s `plugin` reason.",
+        "failure_scenario": "Two copies of the self-hosted predicate in one script. A future change to how self-hosting is detected (for example #66's manifest-based check) has to find and change both, and a missed copy makes `run check` and `run drift` disagree about whether the run is a self-review. Factor it into one `is_self` helper next to `realdir`."
+      },
+      {
+        "index": 14,
+        "file": "workflows/redline-loop.js",
+        "line": 3407,
+        "summary": "The workflow's 'second layer' refusal only fires when the skill has run drift, received `refuse` (exit 1) and launched anyway with drift.pinned=false. Its one real case, the skill relaunching by name without running drift at all, reaches the workflow with no args.drift and is not caught. The pin therefore rests entirely on the skill following prose.",
+        "failure_scenario": "The skill skips `run drift` on one relaunch (an instruction-following slip, or a resume path that takes 'the marker's args exactly'). The edited workflow runs by name, A.drift is absent and the startup check passes. Replay diverges as on PR #80, and only Finish's round-number check (with the gap above) remains. A launch-time identity in args that the script compares with a constant it carries would detect the mismatch without trusting the skill."
+      },
+      {
+        "index": 15,
+        "file": "agent-os/specs/2026-11-12-1852-81-pin-relaunch-script-finish-rule/shape.md",
+        "line": 53,
+        "summary": "This public spec carries the probe write-up (spike/API notes on harness behaviour on 2.1.322: persisted script paths, registry reload timing, allow-rule denials). /Users/michaelwitwicki/Code/Claude/redline/CLAUDE.md says: \"The public repo carries no internal design record. Step notes, spike notes and the design document live in the private sibling repository `redline-internal`. A spec here may cite one by file name; it never copies the text in.\"",
+        "failure_scenario": "The section '## What the probes did and showed' (lines 53-84) puts spike measurements into the public repository. The #72 precedent kept them in `redline-internal/docs/` and cited them by file name ('the public spec carries no figure'). The same harness measurements were also written into the `workflow/replay.md` and `workflow/agents.md` standards."
+      }
+    ]
+  }
+}
