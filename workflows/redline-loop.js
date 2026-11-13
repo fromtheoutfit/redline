@@ -3137,13 +3137,16 @@ async function revise(record, inScope, reviewedKind) {
   // correctness item the shaper fixes (in full, or by a deferral's mitigation) or puts to the
   // person buys the next round, whatever the person answered and whether or not a commit resulted;
   // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
-  // and neither does any item that is not a correctness one. `fixed` is the items a commit names:
-  // the round's spec and standards commits are no fix diff. A call stays in `calls` when a reshape
+  // and neither does any item that is not a correctness one. A call stays in `calls` when a reshape
   // re-sorts its finding, so an item put to the person buys the round whatever the reshape
   // returned (#94, R2-11).
+  // `fixed` is the items a commit names, never a declined item or a none, whose `commits` only
+  // mention them (#94, R2-12): the round's spec and standards commits are no fix diff. A deferral's
+  // mitigation counts, since its commit is unreviewed code the final nit pass must read; the final
+  // nit pass's sentences still call such an item fixed (R2-12, deferred).
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
   const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || ['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
-  const fixed = inScope.filter((f) => outcomes[f.id].commits.length > 0).map((f) => f.id)
+  const fixed = inScope.filter((f) => !['declined', 'none'].includes(outcomes[f.id].kind) && outcomes[f.id].commits.length > 0).map((f) => f.id)
   return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
 

@@ -2205,6 +2205,13 @@ function samePrefix(name, first, second, n) {
   // its task touches no file (acceptedCalls) and no commit has to name it.
   run = await go('done: an answered ask a reshape declines still buys the round', { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-13' } } }, { reviews: [[f('R1-1', 'nit'), f('R1-2', 'correctness')], []], ask: ['R1-2'], acceptedCalls: ['R1-2'], planBounce: 1, reshapeDecline: ['R1-2'], reshapeOmitCall: ['R1-2'], commitIds: [['R1-1'], []] })
   check('done: an answered correctness ask that a reshape re-sorts to a decline still buys the next round', labels(run.calls).includes('reshape r1 #1') && labels(run.calls).includes('re-review r2') && !labels(run.calls).includes('final nit pass r2'), labels(run.calls))
+  // A commit that mentions a declined item never makes the sentence call it fixed (#94, R2-12).
+  run = await go('done: the final nit pass, a declined item a commit mentions', covArgs, nitThen({ decline: ['R2-2'], commitIds: [['R1-1'], ['redline: R2-1 guard the loop; R2-2 needs no change']] }))
+  check('done: a commit that mentions a declined item does not count it fixed in the final nit pass sentence', comment(run.calls, 'handoff comment').includes('The final nit pass found 2 correctness items in the nit fixes: 1 fixed in one more pass, which was not re-reviewed (please look at that commit first); 1 not changed, listed below. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  // The neighbour: a deferral's mitigation commit is still counted, so it is flagged for a look.
+  // The sentence still calls it fixed; naming it apart is R2-12's deferred full fix.
+  run = await go('done: the final nit pass, one deferred with its mitigation', covArgs, nitThen({ defer: ['R2-1'], commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
+  check('done: a final nit pass deferral\'s mitigation commit is still flagged as unreviewed', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('### Deferred (mitigated now, full fix left open)\n\n- **R2-1** '), [run.res.status, run.res.lastFixUnreviewed, comment(run.calls, 'handoff comment')])
 
   // The same after a human-review pass: its summary gives the counts (decision 8's question).
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
