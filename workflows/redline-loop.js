@@ -908,6 +908,13 @@ function findingLine(f) {
   return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${postedText(f.title)}${carried}${yours}${would}`
 }
 
+// A line the correctness-only scope declined (#93): its id is not bold, so redline-gh.sh
+// prior-findings never reads it back as a finding, and a later run without the scope sees the
+// item fresh. The title is the verifier's and goes through postedText (#87; #94, R1-16).
+function scopedLine(f) {
+  return `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`
+}
+
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
 // fixes of a human review pass, #36); empty for a Redline round's nit fixes.
 function reviewBody(round, reviewed, range, review, active, known, source) {
@@ -953,7 +960,7 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   // scope as its reason (#93): one list, an id that is not bold, so redline-gh.sh prior-findings
   // never reads a line back and a later run without the scope sees these fresh; no inline comment.
   if (scoped.length) {
-    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map((f) => `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`))
+    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   // Earlier rounds' findings with no disposition, re-verified and carried into this round (#35).
   if (carried.length) {
@@ -3226,7 +3233,7 @@ function handoffComment(ending, prBody, threads) {
   // What the workflow declined under a correctness-only scope: ids that are not bold, as in the
   // review bodies, so no reader takes a line for a finding with a disposition.
   if (scoped.length) {
-    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map((f) => `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`))
+    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
