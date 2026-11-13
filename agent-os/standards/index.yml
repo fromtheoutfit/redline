@@ -26,6 +26,6 @@ testing:
 
 workflow:
   agents:
-    description: One role per file, model and disallowedTools in frontmatter, judgment calls returned never decided, an owner on every decision
+    description: One role per file, model and disallowedTools in frontmatter, the verifier states facts and the shaper decides, a person asked in named cases only, an owner and a reason on every decision
   replay:
     description: Every prompt before a stopping point is byte-identical on relaunch; decisions enter after shaping; no clock reads

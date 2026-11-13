@@ -34,7 +34,7 @@ function check(name, condition, detail) {
 const SHA = (n) => String(n).padEnd(40, 'b')
 // The review body's closing sentence, written when the round has findings, after the last finding
 // list and before For the person (the #87 follow-up spec, answer 9).
-const CLOSING = 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.'
+const CLOSING = 'Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item\'s thread, or in a PR comment that opens with its marker, with what it decided and why.'
 // The word joiner's numeric character reference the workflow puts after a neutralised `@`: plain
 // ASCII, so the GitHub agent's byte-for-byte copy keeps it, and GitHub shows it as U+2060 (#87;
 // the #87 follow-up spec, answer 8). RAW_WJ is the raw character, written as its escape, for the
@@ -144,13 +144,12 @@ function mock(scenario) {
       reviewN += 1
       // scenario.resolved[n] is the nth review's resolved list (#35): earlier findings the reviewer found gone.
       // scenario.coverageOut[n] is the nth review's accounting of the coverage candidates and
-      // scenario.forThePerson[n] its For the person entries (#79); absent, the keys are left out,
+      // (#79; a verifier since #93 returns no For the person list); absent, the key is left out,
       // as a reviewer before the pass existed would. scenario.summary[n] is the nth review's summary
       // (#87), 'S' when absent.
       return {
         round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: scenario.summary ? scenario.summary[reviewN - 1] || 'S' : 'S',
         ...(scenario.coverageOut ? { coverage: scenario.coverageOut[reviewN - 1] || [] } : {}),
-        ...(scenario.forThePerson ? { forThePerson: scenario.forThePerson[reviewN - 1] || [] } : {}),
       }
     }
     if (t === 'redline:redline-shaper') {
@@ -159,15 +158,22 @@ function mock(scenario) {
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
+      // scenario.decline (#93): the ids the shaper declines on its own, each with a reason
+      // (scenario.reason[id], or a default one); scenario.declineNoReason leaves the reason out,
+      // a shape-stage error. scenario.whyHuman[id] is a judgment call's why_human ('product
+      // decision' when absent), and scenario.secondLook[id] the shaper's second look at an item
+      // the verifier could not confirm.
+      const decline = scenario.decline || []
       // A human review pass (#36): a fix is the reviewer's (decidedBy "reviewer"), unless the
       // scenario scripts another owner (scenario.shaperOwner) to prove the workflow corrects it.
       const human = prompt.includes('a revise pass whose findings are the review comments')
       // A reshape answers what the reshape prompt asks for (#61, R1-2), and only when scripted: the
       // ids whose call it leaves out (reshapeOmitCall), sorts fix with the call kept (reshapeFix),
-      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall).
+      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall), or
+      // declines (reshapeDecline).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
-      const disposition = (id) => (onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : none.includes(id) ? 'none' : 'fix')
+      const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
@@ -177,19 +183,22 @@ function mock(scenario) {
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
           ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
+          ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
+          ...(scenario.secondLook && scenario.secondLook[id] ? { secondLook: scenario.secondLook[id] } : {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding.
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: scenario.mitigation || 'a guard clause', fullFix: 'a lock' })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
-        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
+        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
       }
     }
     if (t === 'redline:redline-resolve') {
       const ids = [...new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{/g)].map((m) => m[1]))]
       // An accepted override has no files to touch, nor does a finding left to the person under a
       // repository ask rule (its decision carries rule, #49); everything else gets a task with a file.
-      const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]))
+      // scenario.acceptedCalls (#93): the judgment calls the person answered with no change.
+      const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]).concat(scenario.acceptedCalls || []))
       const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
       const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
       return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
@@ -224,7 +233,7 @@ function mock(scenario) {
   return { agent, calls }
 }
 
-const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category, severity: 'low', confidence: 'likely', title: `title ${id}`, description: 'd', proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: '', ...extra })
+const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category, severity: 'low', confidence: 'confirmed', title: `title ${id}`, description: 'd', proposedFix: '', knownAs: '', carriedFrom: '', ...extra })
 // An earlier round's finding as redline-gh.sh prior-findings prints it (#35).
 const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split('-')[0]), review_id: 20, category: 'correctness', severity: 'low', confidence: 'likely', file: 'app/x.php', line: 1, title: `title ${id}`, comment_id: 0, body: '', reply: null, carried_from: '', carried_to: '', disposition, ...extra })
 const baseArgs = {
@@ -234,6 +243,10 @@ const baseArgs = {
   // below section 15 runs today's rounds and today's done rule byte for byte.
   models: { revise: { model: 'claude-opus-5-5' }, coverage: null }, baselineSeconds: 33,
 }
+
+// No review, reply or closing comment of any scenario holds a For the person section (#93): every
+// prompt of every run is read, and one check at the end says so.
+const forThePerson = []
 
 async function go(name, args, scenario, script = body) {
   const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
@@ -249,6 +262,7 @@ async function go(name, args, scenario, script = body) {
   }
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
+  forThePerson.push(...calls.filter((c) => c.prompt.includes('### For the person') || c.prompt.includes('forThePerson')).map((c) => `${name}: ${c.label}`))
   // Every run that reaches Finish ends with the run-record commit: after the closing comment, or
   // after the post of a review-only run or the replies of a revise-only run (#10).
   if (!thrown && (res.status === 'capped' || res.status === 'review-only' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
@@ -261,6 +275,17 @@ async function go(name, args, scenario, script = body) {
 
 const labels = (calls) => calls.map((c) => c.label)
 const pick = (calls, label) => calls.find((c) => c.label === label)
+// The why_human enum of a shaper call's schema, [] when the call or the path is absent (#94, R1-5).
+const whyEnum = (calls, label) => {
+  const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
+  const call = ((schema.properties || {}).judgmentCalls || {}).items || {}
+  return ((call.properties || {}).why_human || {}).enum || []
+}
+const dispositionEnum = (calls, label) => {
+  const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
+  const item = ((schema.properties || {}).findings || {}).items || {}
+  return ((item.properties || {}).disposition || {}).enum || []
+}
 const comment = (calls, label) => {
   const p = pick(calls, label).prompt
   return p.slice(p.indexOf('```markdown\n') + 12, p.lastIndexOf('\n```'))
@@ -285,7 +310,7 @@ function samePrefix(name, first, second, n) {
 // 1. guided (the default): a judgment call ends the run; the relaunch carries the decision.
 // ---------------------------------------------------------------------------
 {
-  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const first = await go('guided: hand-off', baseArgs, scenario)
   check('guided: status handoff (decisions)', first.res.status === 'handoff' && first.res.handoffKind === 'decisions', first.res.status)
   check('guided: stops after the shaper', labels(first.calls).join('|') === 'gather r1|review r1|post r1|shape r1|spec status r1', labels(first.calls))
@@ -301,8 +326,8 @@ function samePrefix(name, first, second, n) {
   check('guided: R1-2 reply carries the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author keeps it because the board already shows it. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
   check('guided: R1-1 reply is decided by redline', replyFor(second.calls, 'push and reply r1', 'R1-1').endsWith(' · decided by: redline'), replyFor(second.calls, 'push and reply r1', 'R1-1'))
   const handoff = comment(second.calls, 'handoff comment')
-  check('guided: handoff comment lists every decision with its owner', handoff.includes('### Decisions\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n- **R1-2** title R1-2: The author keeps it because the board already shows it. · decided by: @author'), handoff)
-  check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
+  check('guided: the handoff lists what was put to the person, then what was fixed, folded, each with its owner, and has no Decisions list', handoff.includes('### Put to @author (1)\n\n- **R1-2** title R1-2: The author keeps it because the board already shows it. Applied in 2bbbbbb. · decided by: @author\n\n### Fixed (1)\n\n<details>\n<summary>With the commits that fixed each</summary>\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n\n</details>') && !handoff.includes('### Decisions'), handoff)
+  check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix, decline and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
   check('guided: result.decided carries owners', second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'R1-1=redline,R1-2=@author', second.res.decided)
 }
 
@@ -310,14 +335,14 @@ function samePrefix(name, first, second, n) {
 // 2. autopilot: the same judgment call is decided from the recommendation and the run goes on.
 // ---------------------------------------------------------------------------
 {
-  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const run = await go('autopilot: judgment call decided from the recommendation', { ...baseArgs, interrupt: 'autopilot' }, scenario)
   check('autopilot: never ends for a judgment call', run.res.status === 'done', run.res.status)
   check('autopilot: resolve ran', !!pick(run.calls, 'resolve r1'))
   const resolve = pick(run.calls, 'resolve r1').prompt
   check('autopilot: resolve prompt carries the autopilot decision', resolve.includes('"decidedBy": "redline (autopilot)"') && resolve.includes('"notes": "Autopilot took the shaper\'s recommendation: Keep it."') && resolve.includes('"choice": "Keep it"'), resolve)
   check('autopilot: R1-2 reply is labelled', replyFor(run.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: Autopilot took the shaper\'s recommendation: Keep it. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: redline (autopilot)', replyFor(run.calls, 'push and reply r1', 'R1-2'))
-  check('autopilot: handoff comment labels it', comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: Autopilot took the shaper\'s recommendation: Keep it. · decided by: redline (autopilot)'), comment(run.calls, 'handoff comment'))
+  check('autopilot: handoff comment labels it', comment(run.calls, 'handoff comment').includes('### Asked, decided on autopilot (1)\n\n- **R1-2** title R1-2: Autopilot took the shaper\'s recommendation: Keep it. Applied in 2bbbbbb. · decided by: redline (autopilot)') && !comment(run.calls, 'handoff comment').includes('### Put to '), comment(run.calls, 'handoff comment'))
   check('autopilot: plan approver sees the decision as decided', pick(run.calls, 'plan approver r1').prompt.includes('"decidedBy": "redline (autopilot)"'))
   const stuck = await go('autopilot: resolve cannot apply the recommendation', { ...baseArgs, interrupt: 'autopilot' }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
   check('autopilot: an unresolved decision is an error, not a hand-off', stuck.res.status === 'error' && stuck.res.stage === 'resolve', stuck.res)
@@ -328,7 +353,7 @@ function samePrefix(name, first, second, n) {
 //    may change a disposition.
 // ---------------------------------------------------------------------------
 {
-  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], [f('R2-1', 'nit')], []], ask: ['R1-2'], commitIds: [['R1-2'], ['R2-1']] }
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], [f('R2-1', 'nit')], []], ask: ['R1-2'], commitIds: [['R1-2'], ['R2-1']] }
   const planArgs = { ...baseArgs, interrupt: 'plan' }
   const first = await go('plan: round 1 stops after shape', planArgs, scenario)
   check('plan: status handoff (plan)', first.res.status === 'handoff' && first.res.handoffKind === 'plan', first.res.status)
@@ -354,7 +379,12 @@ function samePrefix(name, first, second, n) {
   const third = await go('plan: both rounds approved', { ...round1, approvedPlans: [1, 2] }, scenario)
   samePrefix('plan round 2', second.calls, third.calls, second.calls.length)
   check('plan: finishes after the final nit pass', third.res.status === 'done' && third.res.rounds.length === 3, [third.res.status, third.res.rounds.length])
-  check('plan: handoff comment names the approvals', comment(third.calls, 'handoff comment').includes('- Round 1 (pr): 2 correctness, 0 nit; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 2 (fix-diff): 0 correctness, 1 nit; 1 commits; plan approved by @author;'), comment(third.calls, 'handoff comment'))
+  check('plan: handoff comment names the approvals', comment(third.calls, 'handoff comment').includes('- Round 1 (pr): 2 items: 1 put to @author, 1 overruled by @author; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 2 (fix-diff): 1 item: 1 fixed; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 3 (final-nit-pass): no new items; 0 commits;') && comment(third.calls, 'handoff comment').includes('### Overruled by @author (1)\n\n- **R1-1** title R1-1: The author accepts the current behaviour; the edge case cannot happen in production data. No code change. · decided by: @author'), comment(third.calls, 'handoff comment'))
+  // An accept that keeps a decline is the person's decision, put to them on the plan dial, and no
+  // overrule; an accept on a fix still is one (the check above) (#94, R2-10).
+  const keptDecline = await go('plan: an accept that keeps a decline', { ...round1, approvedPlans: [1, 2] }, { ...scenario, decline: ['R1-1'] })
+  const keptHandoff = comment(keptDecline.calls, 'handoff comment')
+  check('plan: an accept that keeps a decline is listed as put to the person, never as overruled', keptDecline.res.status === 'done' && keptHandoff.includes('- Round 1 (pr): 2 items: 2 put to @author;') && !keptHandoff.includes('### Overruled by') && (keptDecline.res.decided || []).some((d) => d.id === 'R1-1' && d.overruled === false && d.kind === 'decided'), [keptDecline.res.status, keptHandoff, keptDecline.res.decided])
   // plan with autopilot-style unanswered ask: approving without answering falls back to a decisions hand-off.
   const unanswered = await go('plan: approved without answering the ask', { ...planArgs, approvedPlans: [1] }, scenario)
   check('plan: an unanswered ask after approval is a decisions hand-off', unanswered.res.status === 'handoff' && unanswered.res.handoffKind === 'decisions', unanswered.res)
@@ -377,12 +407,12 @@ function samePrefix(name, first, second, n) {
   check('review: shapes only the selected finding', shape.includes('"id": "R1-1"') && !shape.includes('"id": "R1-2"') && !shape.includes('"id": "R1-3"'))
   check('review: dropped findings get a reply with the reason and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: not acted on in this run. Naming is fine as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
   check('review: an unlisted finding is dropped with the default reason', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: not acted on in this run. Not selected for this run. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
-  check('review: the handoff comment lists the drops', comment(second.calls, 'handoff comment').includes('- **R1-2** title R1-2: not acted on in this run: Naming is fine as it is. · decided by: @author') && comment(second.calls, 'handoff comment').includes('2 not acted on (@author\'s pick)'), comment(second.calls, 'handoff comment'))
+  check('review: the handoff comment lists the drops', comment(second.calls, 'handoff comment').includes('### Not picked by @author (2)\n\n') && comment(second.calls, 'handoff comment').includes('- **R1-2** title R1-2: not acted on in this run: Naming is fine as it is. · decided by: @author') && comment(second.calls, 'handoff comment').includes('2 not picked by @author;'), comment(second.calls, 'handoff comment'))
   check('review: the re-review sees the drops as settled', pick(second.calls, 're-review r2').prompt.includes('"outcome": "not acted on in this run: Naming is fine as it is. · decided by: @author"'), pick(second.calls, 're-review r2').prompt)
   check('review: round record lists the drops', JSON.stringify(second.res.rounds[0].dropped) === '[{"id":"R1-2","reason":"Naming is fine as it is."},{"id":"R1-3","reason":"Not selected for this run."}]', second.res.rounds[0].dropped)
   const none = await go('review: nothing selected', { ...reviewArgs, selected: { act: [], dropped: { 'R1-1': 'Known and accepted.' } } }, scenario)
   check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|last round|PR description|handoff comment|record files|record commit', labels(none.calls))
-  const later = await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
+  const later = await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
   check('review: a later round hands off its asks as guided does', later.res.status === 'handoff' && later.res.handoffKind === 'decisions' && later.res.handoffRound === 2, later.res.status)
 }
 
@@ -393,13 +423,33 @@ function samePrefix(name, first, second, n) {
 {
   const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], [f('R2-1', 'nit')]], commitIds: [['R1-1']] }
   const run = await go('scope correctness', { ...baseArgs, scope: 'correctness' }, scenario)
-  check('scope: reviewer prompt says no nits', pick(run.calls, 'review r1').prompt.includes('Scope: correctness only. Do not look for nits at all') && pick(run.calls, 're-review r2').prompt.includes('Scope: correctness only'))
-  check('scope: a nit the reviewer still reports is dropped', run.res.rounds[0].droppedNits === 1 && run.res.rounds[0].findings.length === 1, run.res.rounds[0])
+  check('scope: reviewer prompt says no nits', pick(run.calls, 'review r1').prompt.includes('Scope: correctness only. Run no nit checks of your own') && pick(run.calls, 're-review r2').prompt.includes('Scope: correctness only'))
+  // A nit the verifier reports under correctness only is declined by the workflow with the scope as
+  // its reason (#93): it stays a finding of the round, is listed once in the review body with an id
+  // that is not bold (so prior-findings never reads it back), gets no inline comment and no shaper,
+  // and the next review sees it as declined, so it is not raised again.
+  const scopeBody = JSON.parse(pick(run.calls, 'post r1').prompt.slice(pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"'), pick(run.calls, 'post r1').prompt.indexOf('\n}\n', pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"')) + 2))
+  // The round's findings file, File 2 of the post prompt; {} when the prompt has none.
+  const findingsFile = (calls, label) => {
+    const p = (pick(calls, label) || { prompt: '' }).prompt
+    const at = p.indexOf('```json\n', p.indexOf('File 2:')) + 8
+    return p.includes('File 2:') ? JSON.parse(p.slice(at, p.indexOf('\n```', at))) : {}
+  }
+  // What the scope declined is the record's, under its own key (#94, R1-10): a revise of the
+  // round reads findings only, so it never shapes those items, as before #93.
+  const scopeFile = findingsFile(run.calls, 'post r1')
+  check('scope: the findings file keeps what the scope declined under scoped, apart from its findings', JSON.stringify((scopeFile.findings || []).map((x) => x.id)) === '["R1-1"]' && JSON.stringify((scopeFile.scoped || []).map((x) => x.id)) === '["R1-2"]', [scopeFile.findings, scopeFile.scoped])
+  check('scope: a nit the verifier reports is declined by the scope and kept in the round', run.res.rounds[0].droppedNits === 0 && run.res.rounds[0].findings.length === 2 && run.res.rounds[0].outcomes['R1-2'] === 'declined: outside this run\'s scope (correctness only) · decided by: redline', run.res.rounds[0])
+  check('scope: the review body lists it once under the scope, with no bold id and no inline comment', scopeBody.body.includes('### Correctness (1)\n\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · title R1-1\n\n### Declined under this run\'s scope (correctness only) (1)\n\n- R1-2 · `app/x.php:1` · title R1-2\n') && !scopeBody.body.includes('### Other items') && scopeBody.comments.length === 1 && scopeBody.comments[0].body.startsWith('**R1-1** · '), scopeBody)
+  check('scope: the next review sees the scope decline as an outcome', pick(run.calls, 're-review r2').prompt.includes('"outcome": "declined: outside this run\'s scope (correctness only) · decided by: redline"'), pick(run.calls, 're-review r2').prompt.slice(0, 2500))
   check('scope: done after the correctness-free re-review, no nit pass', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('final nit pass')), labels(run.calls))
   check('scope: shape prompt carries only the correctness finding', !pick(run.calls, 'shape r1').prompt.includes('R1-2'))
   check('scope: reported in the result', run.res.scope === 'correctness')
   const all = await go('scope all (default) keeps the nit pass', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], [f('R2-1', 'nit')], []], commitIds: [['R1-1', 'R1-2'], ['R2-1']] })
   check('scope all: the final nit pass still runs', all.res.status === 'done' && labels(all.calls).includes('final nit pass r3'), labels(all.calls))
+  check('scope all: a run without the scope writes no scoped key in its findings file', !('scoped' in findingsFile(all.calls, 'post r1')) && (findingsFile(all.calls, 'post r1').findings || []).length === 2, findingsFile(all.calls, 'post r1'))
+  // The closing sentence says the scope-declined items get neither a comment nor a reply (#94, R1-6).
+  check('scope: the closing sentence says the items declined under the scope have no inline comment and no reply, and a run without the scope says nothing of them', scopeBody.body.includes(`${CLOSING} The items declined under this run's scope have no inline comment and no reply.`) && !(pick(all.calls, 'post r1') || { prompt: '' }).prompt.includes('declined under this run\'s scope have no inline comment'), scopeBody.body)
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +478,7 @@ function samePrefix(name, first, second, n) {
   run = await go('bad scope word', { ...baseArgs, scope: 'nits' }, { reviews: [[]] })
   check('bad scope: refused', run.thrown && /args.scope must be/.test(run.thrown.message))
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
-  check('no login: the author stands in', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
+  check('no login: the person running Redline stands in, never the author', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the person running Redline') && !comment(run.calls, 'handoff comment').includes('the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
 }
 
 // ---------------------------------------------------------------------------
@@ -476,7 +526,7 @@ function samePrefix(name, first, second, n) {
   check('record: the cap-hit run commits its record too', run.res.status === 'capped' && labels(run.calls).slice(-3).join('|') === 'cap-hit comment|record files|record commit', labels(run.calls).slice(-3))
 
   for (const [name, args, s] of [
-    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness', { needsDecision: true })]], ask: ['R1-1'] }],
+    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'] }],
     ['the review dial', { ...baseArgs, interrupt: 'review' }, { reviews: [[f('R1-1', 'correctness')]] }],
   ]) {
     run = await go(`record: ${name} stops before Finish`, args, s)
@@ -509,7 +559,7 @@ function samePrefix(name, first, second, n) {
   check('no inline: the already-posted check is the reply\'s own line, not the marker', pick(run.calls, 'push and reply r1').prompt.includes('look in `/p/scripts/redline-gh.sh pr-comments 114` for its second line') && pick(run.calls, 'push and reply r1').prompt.includes('from the Redline round 1 review body`), never for the marker'), pick(run.calls, 'push and reply r1').prompt)
   check('no inline: the post prompt says a thread-less review is not an error', pick(run.calls, 'post r1').prompt.includes('A review with no inline comment at all is a valid result, not an error'))
   check('no inline: the deferred list is unaffected', run.res.deferred.length === 0)
-  check('no inline: the review body does not promise an inline comment for every finding', pick(run.calls, 'post r1').prompt.includes('sits under Not placed inline below') && !pick(run.calls, 'post r1').prompt.includes('Redline replies in each thread'))
+  check('no inline: the review body does not promise an inline comment for every finding', pick(run.calls, 'post r1').prompt.includes('sits under Not placed inline below') && !pick(run.calls, 'post r1').prompt.includes('Redline replies in each thread') && pick(run.calls, 'post r1').prompt.includes('or in a PR comment that opens with its marker'))
   const errorScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']], noInline: true, postError: 'no inline comment could be anchored' }
   run = await go('no inline with an agent error', baseArgs, errorScenario)
   check('posted error: the #778 shape continues into shape with a warning', run.res.status === 'done' && !!pick(run.calls, 'shape r1') && run.res.warnings.some((w) => w.includes('reported an error for a review it posted; continuing: no inline comment could be anchored')), [run.res.status, run.res.warnings])
@@ -642,7 +692,7 @@ function samePrefix(name, first, second, n) {
   const scenario = { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2' }), f('R2-2', 'nit')], []], resolved: [[{ id: 'R1-4', why: 'The line was removed.' }]], commitIds: [['R2-1', 'R2-2', 'R2-3']] }
   let run = await go('carry: posted side', carryArgs, scenario)
   const post = pick(run.calls, 'post r2').prompt
-  check('carry: the fresh findings and the carried ones sit under their own headings, with counts', post.includes('### Findings (0 correctness, 1 nit)\\n\\n- **R2-2** · nit') && post.includes('### Carried forward from earlier rounds (2 correctness, 0 nit)\\n\\n- **R2-1** · correctness · low · likely · `app/x.php:1` · title R2-1 · first reported as R1-2\\n- **R2-3** · correctness · low · likely · `app/x.php:1` · title R1-5 · first reported as R1-5'), post.slice(0, 1500))
+  check('carry: the fresh findings and the carried ones sit under their own headings, with counts', post.includes('### Other items (1)\\n\\n- **R2-2** · nit') && post.includes('### Carried forward from earlier rounds (2 correctness, 0 nit)\\n\\n- **R2-1** · correctness · low · confirmed · `app/x.php:1` · title R2-1 · first reported as R1-2\\n- **R2-3** · correctness · low · unconfirmed · `app/x.php:1` · title R1-5 · first reported as R1-5\\n  Would confirm it: The verifier did not re-verify this carried finding; check it at this head.'), post.slice(0, 1500))
   check('carry: the resolved earlier findings are listed with why', post.includes('### Resolved from earlier rounds\\n\\n- **R1-4** title R1-4: The line was removed.'), post.slice(0, 1500))
   check('carry: the inline comment of a carried finding names its origin after the title', post.includes('**title R2-1**\\n\\nFirst reported as R1-2 in Redline round 1.\\n\\nd'), post.slice(0, 2500))
   const r = replies(run.calls, 'push and reply r2')
@@ -670,7 +720,10 @@ function samePrefix(name, first, second, n) {
   check('carry: both earlier threads are swept, the second with its earlier reply', ((pick(run.calls, 'resolve threads') || {}).prompt || '').includes('resolve-threads 114 11 200 12 250 201'), (pick(run.calls, 'resolve threads') || {}).prompt)
 
   run = await go('carry: correctness scope', { ...baseArgs, firstRound: 2, scope: 'correctness', priorFindings: [prior('R1-3', 'none', { comment_id: 13, category: 'nit' })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-3' })]] })
-  check('carry: a carried nit under the correctness scope is out of scope, said so in the handoff, with no reply and no sweep', run.res.status === 'done' && comment(run.calls, 'handoff comment').includes('- **R1-3** title R1-3: carried forward as R2-1, out of scope (correctness only)') && !pick(run.calls, 'push and reply r2') && !pick(run.calls, 'resolve threads'), [labels(run.calls), comment(run.calls, 'handoff comment')])
+  check('carry: a carried nit under the correctness scope is declined by the scope, said so in the handoff, with no reply and no sweep', run.res.status === 'done' && comment(run.calls, 'handoff comment').includes('- **R1-3** title R1-3: carried forward as R2-1: declined: outside this run\'s scope (correctness only) · decided by: redline') && !pick(run.calls, 'push and reply r2') && !pick(run.calls, 'resolve threads'), [labels(run.calls), comment(run.calls, 'handoff comment')])
+  // Its earlier thread stays open, named as the handoff names it (#94, R1-19).
+  const scopeThreads = run.res.threads || { open: [] }
+  check('carry: the earlier thread of a carried finding the scope declined stays open as declined under the scope', scopeThreads.open.some((o) => o.id === 'R1-3' && o.reason === 'declined under the scope') && comment(run.calls, 'handoff comment').includes('R1-3 (declined under the scope)'), [scopeThreads, comment(run.calls, 'handoff comment').slice(0, 400)])
 
   // A carrying finding the post moved into the review body has no thread, so its earlier thread
   // settles on its own reply (#46, R1-4).
@@ -953,24 +1006,24 @@ function samePrefix(name, first, second, n) {
 //     dry run, no push, a capped run, a hand-off and review only sweep nothing.
 // ---------------------------------------------------------------------------
 {
-  const four = [f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness', { needsDecision: true }), f('R1-4', 'nit')]
+  const four = [f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness'), f('R1-4', 'nit')]
   const scenario = { reviews: [four, []], ask: ['R1-3'], defer: ['R1-2'], commitIds: [['R1-1', 'R1-2', 'R1-3', 'R1-4']], moved: ['R1-4'] }
   const args = { ...baseArgs, decisions: { 'R1-3': { choice: 'Keep it', notes: 'Kept, the board shows it.', date: '2026-10-20' } } }
   let run = await go('threads: settled findings', args, scenario)
   let sweep = pick(run.calls, 'resolve threads')
   check('threads: the sweep runs after the PR description and before the handoff comment', run.res.status === 'done' && labels(run.calls).slice(-5).join('|') === 'PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
-  check('threads: the command names the inline and reply ids of the fixed, deferred and decided findings, in finding order, and nothing of the body finding', sweep.prompt.includes('\n/p/scripts/redline-gh.sh resolve-threads 114 100 200 101 202 102 201\n'), sweep.prompt)
-  check('threads: the prompt lists each settled finding with its round and its two ids', sweep.prompt.includes('- R1-1 (round 1): comments 100, 200\n- R1-2 (round 1): comments 101, 202\n- R1-3 (round 1): comments 102, 201\n') && !sweep.prompt.includes('R1-4'), sweep.prompt)
+  check('threads: the command names the inline and reply ids of the fixed, deferred and decided findings, in finding order, and nothing of the body finding', sweep.prompt.includes('\n/p/scripts/redline-gh.sh resolve-threads 114 100 200 102 202 101 201\n'), sweep.prompt)
+  check('threads: the prompt lists each settled finding with its round and its two ids', sweep.prompt.includes('- R1-1 (round 1): comments 100, 200\n- R1-2 (round 1): comments 102, 202\n- R1-3 (round 1): comments 101, 201\n') && !sweep.prompt.includes('R1-4'), sweep.prompt)
   check('threads: the sweep is a Finish call of the GitHub agent, run once and nothing else', sweep.agentType === 'redline:redline-github' && sweep.opts.phase === 'Finish' && sweep.prompt.includes('Operation: resolve-threads. PR #114.') && sweep.prompt.includes('Run this once, exactly as given, and nothing else:'), sweep.opts)
-  check('threads: the handoff line counts the resolved, after the round sentence; a body finding is not a thread', comment(run.calls, 'handoff comment').includes('the last one found no correctness bugs.\n\nResolved 3 threads; 0 left open.\n'), comment(run.calls, 'handoff comment'))
+  check('threads: the handoff line counts the resolved, after the round sentence; a body finding is not a thread', comment(run.calls, 'handoff comment').includes('the last one verified no new correctness item to fix or ask about.\n\nResolved 3 threads; 0 left open.\n'), comment(run.calls, 'handoff comment'))
   check('threads: the result records the sweep', JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-2","R1-3"],"open":[]}', run.res.threads)
   check('threads: the round record keeps the reply ids, none for the body finding', JSON.stringify(Object.entries(run.res.rounds[0].replyIds).sort()) === '[["R1-1",200],["R1-2",202],["R1-3",201]]', run.res.rounds[0].replyIds)
 
-  run = await go('threads: a teammate replied after Redline', args, { ...scenario, threadsSkipped: { 101: "last comment 202 is not Redline's" } })
+  run = await go('threads: a teammate replied after Redline', args, { ...scenario, threadsSkipped: { 102: "last comment 202 is not Redline's" } })
   check('threads: a thread the script skipped stays open with the reason', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 1 left open: R1-2 (a reply after Redline\'s).\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[{"id":"R1-2","reason":"a reply after Redline\'s"}]}', [comment(run.calls, 'handoff comment'), run.res.threads])
-  run = await go('threads: the author resolved one by hand', args, { ...scenario, threadsSkipped: { 101: 'already resolved' } })
+  run = await go('threads: the author resolved one by hand', args, { ...scenario, threadsSkipped: { 102: 'already resolved' } })
   check('threads: a thread already resolved is neither resolved by the sweep nor left open', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 0 left open.\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[]}', [comment(run.calls, 'handoff comment'), run.res.threads])
-  run = await go('threads: a teammate commented between Redline\'s two', args, { ...scenario, threadsSkipped: { 101: "comment 150 is not Redline's" } })
+  run = await go('threads: a teammate commented between Redline\'s two', args, { ...scenario, threadsSkipped: { 102: "comment 150 is not Redline's" } })
   check('threads: a thread with a comment that is not Redline\'s stays open with that reason', comment(run.calls, 'handoff comment').includes('\n\nResolved 2 threads; 1 left open: R1-2 (a comment that is not Redline\'s).\n') && JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-3"],"open":[{"id":"R1-2","reason":"a comment that is not Redline\'s"}]}', [comment(run.calls, 'handoff comment'), run.res.threads])
 
   const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1']] }
@@ -984,7 +1037,7 @@ function samePrefix(name, first, second, n) {
     ['a dry run', { ...baseArgs, postToGitHub: false }, one, 'handoff comment'],
     ['no push', { ...baseArgs, push: false }, one, 'handoff comment'],
     ['a capped run', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] }, 'cap-hit comment'],
-    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness', { needsDecision: true })]], ask: ['R1-1'] }, ''],
+    ['a hand-off', baseArgs, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'] }, ''],
     ['review only', { ...baseArgs, interrupt: 'review only' }, one, ''],
   ]) {
     run = await go(`threads: ${name} sweeps nothing`, a, s)
@@ -1020,9 +1073,14 @@ function samePrefix(name, first, second, n) {
   const calls = first.res.judgmentCalls
   check('rules: the synthesised call names the rule, quotes its reason and offers the person\'s options', calls[0].id === 'R1-2' && calls[0].why_human === 'repository rule craft-config' && calls[0].story === `Repository rule craft-config: ${reason}. d` && calls[0].options.map((o) => o.label).join('|') === 'Make the change by hand after the run|Accept, no change' && calls[0].recommendation === 'By hand: fix R1-2 this way.' && JSON.stringify(calls[0].forced) === `{"rule":"craft-config","reason":"${reason}","recommendation":"By hand: fix R1-2 this way."}`, calls[0])
   check('rules: the prose-tagged call names its rule', calls[1].id === 'R1-3' && calls[1].why_human === 'repository rule billing' && calls[1].forced.rule === 'billing', calls[1])
+  // The shaper's schema is built per pass (#94, R1-5, R1-12): a Redline round's why_human enum is
+  // the round's cases and the rule reasons, so a human pass's reason is refused in the shaper's run.
+  const roundEnum = whyEnum(first.calls, 'shape r1')
+  check('rules: a Redline round\'s shaper schema takes the round\'s reasons and the rule reasons, and none of a human pass\'s own', ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file', 'repository rule craft-config', 'repository rule billing'].every((w) => roundEnum.includes(w)) && ['unsure', 'new standard', 'disproportionate fix'].every((w) => !roundEnum.includes(w)), roundEnum)
+  check('rules: a Redline round\'s shaper schema takes fix, decline, defer and ask, and no none', dispositionEnum(first.calls, 'shape r1').join('|') === 'fix|decline|defer|ask', dispositionEnum(first.calls, 'shape r1'))
   const post = pick(first.calls, 'post r1').prompt
-  check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · yours under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · yours under rule billing\\n') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
-  check('rules: the inline comment says whose it is and why', post.includes(`This one is yours to act on: repository rule craft-config (${reason}).`) && post.includes('This one is yours to act on: repository rule billing (Billing changes are reviewed by finance).'), post)
+  check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · left to @author under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · left to @author under rule billing\\n') && !post.includes('yours under rule') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
+  check('rules: the inline comment says whose it is and why', post.includes(`This one is left to @author: repository rule craft-config (${reason}).`) && post.includes('This one is left to @author: repository rule billing (Billing changes are reviewed by finance).'), post)
   check('rules: the reviewer, the shaper and the plan approver get the rule list', pick(first.calls, 'review r1').prompt.includes('Repository ask rules, as JSON: what a person is always brought in for') && pick(first.calls, 'review r1').prompt.includes('"id": "craft-config"') && pick(first.calls, 'shape r1').prompt.includes('askRule set to the id') && pick(first.calls, 'shape r1').prompt.includes('"prose": "the change alters what a customer is charged"'), pick(first.calls, 'shape r1').prompt.slice(0, 2500))
 
   const decided = { ...ruleArgs, decisions: { 'R1-2': { choice: 'Make the change by hand after the run', notes: 'The author renames the field through the control panel after the merge.', date: '2026-10-30' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
@@ -1032,43 +1090,43 @@ function samePrefix(name, first, second, n) {
   const resolve = pick(second.calls, 'resolve r1').prompt
   check('rules: the resolve prompt carries the rule on the decision and the left-to-the-person sentence', resolve.includes('"rule": "craft-config"') && resolve.includes('"rule": "billing"') && resolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers'), resolve)
   check('rules: the plan approver sees the rules and the asks', pick(second.calls, 'plan approver r1').prompt.includes('"id": "craft-config"') && pick(second.calls, 'plan approver r1').prompt.includes('"askRule": "craft-config"'), pick(second.calls, 'plan approver r1').prompt)
-  check('rules: the reply says left to the author, with the rule, its reason, the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author renames the field through the control panel after the merge. · decided by: @author`, replyFor(second.calls, 'push and reply r1', 'R1-2'))
-  check('rules: an accepted one is left too, in the person\'s words', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: left to the author under repository rule billing (Billing changes are reviewed by finance). The author leaves the charge as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
+  check('rules: the reply says left to the author, with the rule, its reason, the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author renames the field through the control panel after the merge. · decided by: @author`, replyFor(second.calls, 'push and reply r1', 'R1-2'))
+  check('rules: an accepted one is left too, in the person\'s words', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: left to @author under repository rule billing (Billing changes are reviewed by finance). The author leaves the charge as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
   const handoff = comment(second.calls, 'handoff comment')
-  check('rules: the handoff lists both under their rules', handoff.includes(`### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author\n- **R1-3** title R1-3: rule billing (Billing changes are reviewed by finance); left to the author under repository rule billing: The author leaves the charge as it is. · decided by: @author`) && !handoff.includes('### Deferred'), handoff)
+  check('rules: the handoff lists both under their rules', handoff.includes(`### Left to @author (repository rules)\n\n- **R1-2** title R1-2: rule craft-config (${reason}); left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author\n- **R1-3** title R1-3: rule billing (Billing changes are reviewed by finance); left to @author under repository rule billing: The author leaves the charge as it is. · decided by: @author`) && !handoff.includes('Left to you') && !handoff.includes('### Deferred'), handoff)
   check('rules: their threads stay open, named with the rule; the fixed one is swept', pick(second.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && handoff.includes('\n\nResolved 1 thread; 2 left open: R1-2 (repository rule craft-config), R1-3 (repository rule billing).\n'), handoff)
   check('rules: the result names them', JSON.stringify(second.res.forced.map((x) => [x.id, x.rule, x.round])) === '[["R1-2","craft-config",1],["R1-3","billing",1]]' && second.res.rounds[0].forced['R1-2'].rule === 'craft-config' && second.res.deferred.length === 0, [second.res.forced, second.res.deferred])
-  check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
+  check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
   // Posted text (#87): a Left to you line holds the finding's title and its owner; the title is
   // escaped and neutralised, the rule, the restatement and `decided by: @author` are as written.
   const titled = await go('rules: a title with a tag and an @', decided, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
-  check('posted text: a Left to you line escapes the title and posts the rule, the outcome and its owner as written', comment(titled.calls, 'handoff comment').includes(`- **R1-2** Field &lt;b> renamed @${WJ}config: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author`), comment(titled.calls, 'handoff comment'))
+  check('posted text: a Left to you line escapes the title and posts the rule, the outcome and its owner as written', comment(titled.calls, 'handoff comment').includes(`- **R1-2** Field &lt;b> renamed @${WJ}config: rule craft-config (${reason}); left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author`), comment(titled.calls, 'handoff comment'))
 
   const auto = await go('rules: autopilot', { ...ruleArgs, interrupt: 'autopilot' }, scenario)
   check('rules: autopilot never applies a forced finding and demands no commit', auto.res.status === 'done', [auto.res.status, auto.res.error])
   const autoResolve = pick(auto.calls, 'resolve r1').prompt
-  check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; the person makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
-  check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; the person makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
+  check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; @author makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
+  check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; @author makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
   const autoHandoff = comment(auto.calls, 'handoff comment')
-  check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to you under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
+  check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to @author under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to @author under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to @author (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
   check('rules: the deferred list carries the rule and no mitigation', JSON.stringify(auto.res.deferred.map((d) => [d.id, d.rule, d.mitigation, d.fullFix])) === '[["R1-2","craft-config","none (repository rule craft-config)","By hand: fix R1-2 this way."],["R1-3","billing","none (repository rule billing)","By hand: fix R1-3 this way."]]', auto.res.deferred)
   // Posted text (#87): the Deferred line of a finding autopilot leaves under a rule makes its own
   // postedText call, beside the shipped branch section 16 pins, so it is pinned with a title the
   // function changes: a plain title reads the same with or without the call (#89, R3-2).
   const autoTitled = await go('rules: autopilot, a title with a tag and an @', { ...ruleArgs, interrupt: 'autopilot' }, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
-  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
+  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to @author under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
 
   // The paths rule also catches a finding elsewhere whose task would write under it.
   const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
   check('rules: the shaper\'s files force the ask', viaFiles.res.status === 'handoff' && viaFiles.res.judgmentCalls[0].forced.rule === 'craft-config', viaFiles.res)
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
-  check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · yours under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
+  check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · left to @author under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
   const unknown = await go('rules: an unknown tag', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'nope' })], []], askRule: { 'R1-1': 'nope' }, commitIds: [['R1-1']] })
   check('rules: an unknown tag is cleared with a warning, by the reviewer and by the shaper', unknown.res.status === 'done' && unknown.res.warnings.includes('round 1: the reviewer tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; cleared') && unknown.res.warnings.includes('round 1: the shaper tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; ignored') && !pick(unknown.calls, 'post r1').prompt.includes('yours under rule'), unknown.res.warnings)
 
   // No rules: a run with no key and one with [] build the same prompts, with no rule text in them.
-  const plain = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const plain = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const noKey = await go('rules: no askRules key', { ...baseArgs, interrupt: 'autopilot' }, plain)
   const empty = await go('rules: askRules []', { ...baseArgs, interrupt: 'autopilot', askRules: [] }, plain)
   samePrefix('rules: no key against []', noKey.calls, empty.calls, noKey.calls.length)
@@ -1081,7 +1139,7 @@ function samePrefix(name, first, second, n) {
   check('rules: the plan hand-off carries the rule on the entry and the call', planFirst.res.status === 'handoff' && planFirst.res.handoffKind === 'plan' && planFirst.res.plan[1].disposition === 'ask' && planFirst.res.plan[1].forced.rule === 'craft-config' && planFirst.res.plan[0].forced === null && planFirst.res.judgmentCalls[0].forced.rule === 'craft-config', planFirst.res.plan)
   const overridden = { ...ruleArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-2': { choice: 'fix', notes: 'The author wants it fixed anyway.', date: '2026-10-30', disposition: 'fix' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
   const planSecond = await go('rules: plan dial override to fix', overridden, scenario)
-  check('rules: an override to fix on a forced finding is refused with a warning and the finding stays the person\'s', planSecond.res.status === 'done' && planSecond.res.warnings.includes('round 1: R1-2 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && replyFor(planSecond.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author wants it fixed anyway. · decided by: @author` && !pick(planSecond.calls, 'resolve r1').prompt.includes('Disposition overrides'), [planSecond.res.status, planSecond.res.warnings, replyFor(planSecond.calls, 'push and reply r1', 'R1-2')])
+  check('rules: an override to fix on a forced finding is refused with a warning and the finding stays the person\'s', planSecond.res.status === 'done' && planSecond.res.warnings.includes('round 1: R1-2 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && replyFor(planSecond.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author wants it fixed anyway. · decided by: @author` && !pick(planSecond.calls, 'resolve r1').prompt.includes('Disposition overrides'), [planSecond.res.status, planSecond.res.warnings, replyFor(planSecond.calls, 'push and reply r1', 'R1-2')])
 
   // A human review pass on autopilot: a comment under a paths rule is left to the author the same way.
   const folder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
@@ -1122,10 +1180,11 @@ function samePrefix(name, first, second, n) {
   check('resume: no other prompt carries the line', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label).join() === 'recheck r1', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label))
   check('resume: the relaunch finishes', second.res.status === 'done' && second.res.resumeFrom === undefined, [second.res.status, second.res.error])
   check('resume: the relaunch note names the field', first.res.relaunch.how.includes('error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.'), first.res.relaunch.how)
+  check('resume: the relaunch note says a decline overruled at a decisions stop carries its disposition', first.res.relaunch.how.includes('handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop).'), first.res.relaunch.how)
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
-  const later = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], checker: onlyFirst.checker }
+  const later = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], checker: onlyFirst.checker }
   const stop = await go('resume: a hand-off after the resume', resumeArgs, later)
   check('resume: the hand-off stops after shape r2', stop.res.status === 'handoff' && stop.res.handoffRound === 2, [stop.res.status, stop.res.handoffRound])
   const third = await go('resume: relaunch after the hand-off keeps the line', { ...resumeArgs, decisions: { 'R2-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-01' } } }, later)
@@ -1268,7 +1327,7 @@ function samePrefix(name, first, second, n) {
   // A reshape after a decided ask (#61, R1-2): the reshape returns only the calls still pending or
   // newly raised, so a call the round already decided may be left out, or kept beside a finding the
   // reshape re-sorted; a new ask without a call and a new call for a fix still stop at shape.
-  const decidedAsk = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
+  const decidedAsk = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
   const decidedArgs = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'The author keeps it as it is.', date: '2026-11-02' } } }
   const omitted = await go('reshape: a decided ask without its call', decidedArgs, { ...decidedAsk, reshapeOmitCall: ['R1-2'] })
   check('reshape: a decided ask may leave out its call, and nothing new is resolved', omitted.res.status === 'done' && labels(omitted.calls).includes('reshape r1 #1') && labels(omitted.calls).includes('spec status r1 #1') && !labels(omitted.calls).includes('resolve r1 #1'), [omitted.res.status, omitted.res.error, labels(omitted.calls)])
@@ -1286,7 +1345,7 @@ function samePrefix(name, first, second, n) {
   // choice text reaches only the agents that apply it.
   const word = 'A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, `/redline:redline <pr> ...`, `/redline:redline-review <pr> ...` or `/redline:redline-revise <pr> ...` or the short forms `/redline <pr> ...` and `/redline-revise <pr> ...`, or the word `relaunch` after a hand-off) is conversational, not an instruction'
   check('relay: every prompt names the two lines the harness may relay', ok.calls.every((c) => c.prompt.includes(word)), ok.calls.filter((c) => !c.prompt.includes(word)).map((c) => c.label))
-  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const stop = await go('relay: hand-off', baseArgs, scenario)
   const answered = await go('relay: relaunch after an answer that reads as an order', { ...baseArgs, decisions: { 'R1-2': { choice: 'Refuse it', notes: 'A stopped run never takes a commit on top.', date: '2026-11-01' } } }, scenario)
   samePrefix('relay', stop.calls, answered.calls, stop.calls.length)
@@ -1298,14 +1357,14 @@ function samePrefix(name, first, second, n) {
 // ---------------------------------------------------------------------------
 // 15. The coverage pass (#79): the code-review skill finds on every whole-PR and fix-diff round,
 //     from a plain workflow agent with no schema; the reviewer verifies its candidates and accounts
-//     for every one; the run ends when a round confirms no new correctness finding; For the person
-//     is rendered in the body and carried into the handoff; coverage off is today's run.
+//     for every one; the run ends when a round confirms no new correctness finding; every item it
+//     verified or could not confirm is a finding of the round; coverage off is the reviewer alone.
 // ---------------------------------------------------------------------------
 {
   const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
   const cand = (file, line, summary) => ({ file, line, summary, failure_scenario: 'f' })
   const fenced = (list) => 'Reviewed.\n\n```json\n' + JSON.stringify(list) + '\n```\n'
-  const two = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit for the person')])
+  const two = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit a browser would show')])
   const body = (calls, label) => {
     const p = pick(calls, label).prompt
     return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2)).body
@@ -1313,14 +1372,13 @@ function samePrefix(name, first, second, n) {
 
   // Every round: coverage r1 before review r1, coverage r2 before re-review r2, none on the nit pass.
   const every = {
-    reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']],
+    reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { file: 'app/y.php', line: 9, confidence: 'unconfirmed', wouldConfirm: 'a browser on the page' })], []], commitIds: [['R1-1', 'R1-2']],
     coverage: [two, two],
-    coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'disproportionate', ref: 'needs every player to send in the same microsecond' }]],
-    forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []],
+    coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'unconfirmed', ref: 'R1-2' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'settled', ref: 'R1-2' }]],
   }
   let run = await go('coverage: every round', covArgs, every)
   check('coverage: round 1 runs the pass before the review, round 2 before the re-review', labels(run.calls).slice(0, 5).join('|') === 'gather r1|coverage r1|review r1|post r1|shape r1' && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|'), labels(run.calls))
-  check('coverage: a round whose verifier confirms nothing new ends the run (non-empty list, all settled or dropped)', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('coverage r3')), [run.res.status, run.res.rounds.length])
+  check('coverage: a round whose verifier confirms nothing new ends the run (non-empty list, all settled)', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('coverage r3')), [run.res.status, run.res.rounds.length])
   const c1 = pick(run.calls, 'coverage r1')
   const c2 = pick(run.calls, 'coverage r2')
   check('coverage: the pass is the default workflow agent with no schema, at models.coverage', c1.opts.agentType === undefined && c1.opts.schema === undefined && c1.opts.model === 'm-cov' && c1.opts.effort === 'xhigh' && c1.opts.phase === 'Review' && c2.opts.phase === 'Re-review', [c1.opts, c2.opts])
@@ -1328,42 +1386,41 @@ function samePrefix(name, first, second, n) {
   check('coverage: round 2 runs the pass over the whole PR at the pushed head', c2.prompt.includes(`at ${run.res.rounds[1].range.to}`) && c2.prompt.includes('not only the last round\'s fixes'), c2.prompt.slice(0, 400))
   const r1 = pick(run.calls, 'review r1').prompt
   const r2 = pick(run.calls, 're-review r2').prompt
-  check('coverage: the review prompt carries the candidates, the verify instruction and the definition of new', r1.includes('Candidates from the coverage pass.') && r1.includes('"index": 1') && r1.includes('"summary": "the real one"') && r1.includes('you run no discovery pass of your own') && r1.includes('A candidate is new when it collapses into none of these') && r1.includes('disproportionate') && r1.includes('anchored outside the diff is never a finding'), r1.slice(-1500))
+  check('coverage: the review prompt carries the candidates, the verify instruction and the definition of new', r1.includes('Candidates from the coverage pass.') && r1.includes('"index": 1') && r1.includes('"summary": "the real one"') && r1.includes('you run no discovery pass of your own') && r1.includes('A candidate is new when it collapses into none of these') && r1.includes('What to do about a true claim is not yours to decide') && r1.includes('turns on something the repository cannot show') && !r1.includes('forThePerson') && !r1.includes('disproportionate'), r1.slice(-1500))
   check('coverage: the re-review prompt keeps the fix-diff recheck beside the candidates', r2.includes('only the fix diff') && r2.includes('Candidates from the coverage pass.') && r2.includes('Your recheck of the fix diff named above stays as your instructions say'), r2.slice(-800))
-  check('coverage: the result carries each round\'s For the person and accounting', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'a nit for the person' }]) && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.forThePerson === 1 && run.res.rounds[1].coverage.counts.settled === 1 && run.res.rounds[1].coverage.counts.disproportionate === 1 && run.res.rounds[1].coverage.accounting[1].ref === 'needs every player to send in the same microsecond', [run.res.rounds[0].coverage, run.res.rounds[1].coverage])
+  check('coverage: the result carries each round\'s accounting, and no For the person list', !('forThePerson' in run.res.rounds[0]) && run.res.rounds[0].coverage.counts.verified === 1 && run.res.rounds[0].coverage.counts.unconfirmed === 1 && run.res.rounds[1].coverage.counts.settled === 2 && Object.keys(run.res.rounds[0].coverage.counts).join(',') === 'verified,unconfirmed,refuted,duplicate,settled,known', [run.res.rounds[0].coverage, run.res.rounds[1].coverage])
   const b1 = body(run.calls, 'post r1')
   const b2 = body(run.calls, 'post r2')
-  check('coverage: the round 1 body counts the candidates, closes its finding list with the closing sentence, and lists For the person after it, last', b1.includes('Reviewed the whole pull request.\n\nThe coverage pass over the whole pull request at aaaaaaa returned 2 candidates: 1 confirmed, 1 for the person, 0 collapsed into findings already reported or settled, 0 already tracked, 0 dropped (refuted, outside the diff or disproportionate).') && /\n- \*\*R1-\d+\*\* · [^\n]*\n\nEach finding has an inline comment/.test(b1) && b1.endsWith('\n\n' + CLOSING + '\n\n### For the person\n\n- `app/y.php:9` · a nit for the person'), b1)
-  check('coverage: the round 2 body names both the fix diff and the whole PR', b2.startsWith(`Redline round 2\n\nReviewed the fix diff from round 1 (aaaaaaa..${run.res.rounds[1].range.to.slice(0, 7)}), and the coverage pass's candidates over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)}.\n\nThe coverage pass over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)} returned 2 candidates: 0 confirmed, 0 for the person, 1 collapsed into findings already reported or settled, 0 already tracked, 1 dropped`), b2)
+  check('coverage: the round 1 body counts the candidates, lists the items by kind with what would confirm the unconfirmed one, and ends with the closing sentence', b1.includes('Reviewed the whole pull request.\n\nThe coverage pass over the whole pull request at aaaaaaa returned 2 candidates: 1 verified, 1 could not be confirmed, 0 refuted, 0 collapsed into items already reported or settled, 0 already tracked.') && b1.endsWith('\n\n### Correctness (1)\n\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · title R1-1\n\n### Could not confirm (1)\n\n- **R1-2** · nit · low · unconfirmed · `app/y.php:9` · title R1-2\n  Would confirm it: a browser on the page\n\n' + CLOSING) && !b1.includes('For the person'), b1)
+  check('coverage: the round 2 body names both the fix diff and the whole PR', b2.startsWith(`Redline round 2\n\nReviewed the fix diff from round 1 (aaaaaaa..${run.res.rounds[1].range.to.slice(0, 7)}), and the coverage pass's candidates over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)}.\n\nThe coverage pass over the whole pull request at ${run.res.rounds[1].range.to.slice(0, 7)} returned 2 candidates: 0 verified, 0 could not be confirmed, 0 refuted, 2 collapsed into items already reported or settled, 0 already tracked.`), b2)
   const findingsFile = pick(run.calls, 'post r1').prompt
-  check('coverage: the findings file carries forThePerson and the coverage record', findingsFile.includes('"forThePerson": [\n    {\n      "file": "app/y.php"') && findingsFile.includes('"coverage": {\n    "head": "aaaaaaaaaa') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-900))
+  check('coverage: the findings file carries the coverage record and no For the person list', !findingsFile.includes('"forThePerson"') && findingsFile.includes('"wouldConfirm": "a browser on the page"') && findingsFile.includes('"coverage": {\n    "head": "aaaaaaaaaa') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-900))
   // The findings file keeps the candidate list its accounting indexes point into (#80, R1-5); the
   // round record and the result keep the count only.
   check('coverage: the findings file carries the candidate list beside the accounting', findingsFile.includes('"list": [') && findingsFile.includes('"index": 1') && findingsFile.includes('"summary": "the real one"') && findingsFile.includes('"candidates": 2'), findingsFile.slice(-1200))
   check('coverage: the result\'s coverage record has no candidate list', !('list' in run.res.rounds[0].coverage) && run.res.rounds[0].coverage.candidates === 2, run.res.rounds[0].coverage)
   let handoff = comment(run.calls, 'handoff comment')
-  check('coverage: the handoff carries For the person before Commits', handoff.indexOf('### For the person\n\n- `app/y.php:9` · a nit for the person') > 0 && handoff.indexOf('### For the person') < handoff.indexOf('### Commits'), handoff)
+  check('coverage: the handoff has no For the person section', !handoff.includes('For the person') && handoff.includes('### Commits'), handoff)
   check('coverage: the log line names the accounting (no throw, two rounds)', run.res.rounds[1].coverage.candidates === 2)
 
   // The done rule's other branches: a new verified finding runs another round; nits only end in the
   // final nit pass with no coverage call; correctness only is done at once; the cap holds.
-  const settledAll = [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]
-  run = await go('coverage: a new verified finding runs another round', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'known', ref: '#7' }], settledAll] })
+  const settledAll = [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]
+  run = await go('coverage: a new verified finding runs another round', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'known', ref: '#7' }], settledAll] })
   check('coverage: round 3 runs after a new finding in round 2, then the run is done', run.res.status === 'done' && run.res.rounds.length === 3 && labels(run.calls).join('|').includes('|gather r3|coverage r3|re-review r3|'), [run.res.status, labels(run.calls)])
   // A candidate matching a fixed finding that still reproduces at this head is new, named with the
   // earlier id, so a fix that did not fully land runs another round (#80, R2-1).
   const reopens = (p) => p.includes('whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new') && p.includes('the earlier id named in its description')
   check('coverage: a fixed finding that still reproduces is new', reopens(pick(run.calls, 're-review r2').prompt) && reopens(pick(run.calls, 'review r1').prompt), pick(run.calls, 're-review r2').prompt.slice(-2500))
-  run = await go('coverage: nits only end in the final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
+  run = await go('coverage: nits only end in the final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'verified', ref: 'R2-1' }], settledAll] })
   check('coverage: the final nit pass has no coverage call and the run is done', run.res.status === 'done' && run.res.rounds.length === 3 && labels(run.calls).includes('final nit pass r3') && !labels(run.calls).includes('coverage r3'), labels(run.calls))
   check('coverage: the final nit pass review has no candidates block and no accounting', !pick(run.calls, 'final nit pass r3').prompt.includes('Candidates from the coverage pass') && run.res.rounds[2].coverage === null, run.res.rounds[2].coverage)
   handoff = comment(run.calls, 'handoff comment')
   check('coverage: the handoff says the coverage pass reviewed the whole PR at every round\'s head but the final nit pass\'s', handoff.includes('The coverage pass reviewed the whole PR at the head of every round but the final nit pass; see [Known limits]') && !handoff.includes('Only round 1 reviewed the whole PR'), handoff.split('\n')[2])
-  check('coverage: the handoff carries round 1\'s For the person through a three-round run', handoff.includes('### For the person\n\n- `app/y.php:9` · a nit for the person'), handoff)
-  run = await go('coverage: correctness only is done at once', { ...covArgs, scope: 'correctness' }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], settledAll] })
+  run = await go('coverage: correctness only is done at once', { ...covArgs, scope: 'correctness' }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
   check('coverage: correctness only, nothing new in round 2, no nit pass', run.res.status === 'done' && run.res.rounds.length === 2 && !labels(run.calls).some((l) => l.startsWith('final nit pass')), labels(run.calls))
-  check('coverage: the correctness-only prompt tells the verifier where a nit candidate goes', pick(run.calls, 'review r1').prompt.includes('under a correctness-only scope a nit candidate goes there too'))
-  run = await go('coverage: the cap holds', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'x' }]] })
+  check('coverage: the correctness-only prompt tells the verifier a nit candidate is still verified and that the run declines it', pick(run.calls, 'review r1').prompt.includes('Scope: correctness only. Run no nit checks of your own') && pick(run.calls, 'review r1').prompt.includes('the run declines it under the scope'))
+  run = await go('coverage: the cap holds', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'x' }]] })
   check('coverage: capped with a new finding every round', run.res.status === 'capped' && labels(run.calls).includes('coverage r2'), [run.res.status, labels(run.calls)])
 
   // An earlier run's handled findings (#80, R1-2): the pass samples the whole PR at every head, so
@@ -1371,7 +1428,7 @@ function samePrefix(name, first, second, n) {
   // it; the carry-forward list stays on the whole-PR round. With coverage off the re-review's
   // prompt is as before: neither the list nor the sentence.
   const handled = { firstRound: 2, priorFindings: [prior('R1-1', 'deferred', { comment_id: 11 })] }
-  const handledScenario = (cov) => ({ reviews: [[f('R2-1', 'correctness')], []], commitIds: [['R2-1']], ...(cov ? { coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] } : {}) })
+  const handledScenario = (cov) => ({ reviews: [[f('R2-1', 'correctness')], []], commitIds: [['R2-1']], ...(cov ? { coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]] } : {}) })
   run = await go('coverage: an earlier run\'s handled findings on a fix-diff round', { ...covArgs, ...handled }, handledScenario(true))
   const handledR3 = pick(run.calls, 're-review r3').prompt
   check('coverage: a fix-diff round that ran the pass lists the earlier run\'s handled findings and matches against them', handledR3.includes('Findings Redline\'s earlier rounds on this PR already handled') && handledR3.includes('"id": "R1-1"') && handledR3.includes('match against them, not against their review comments') && !handledR3.includes('Findings from earlier rounds with no disposition'), handledR3.slice(0, 2500))
@@ -1379,19 +1436,26 @@ function samePrefix(name, first, second, n) {
   const handledOff = pick(run.calls, 're-review r3').prompt
   check('coverage: off, the fix-diff round has neither the handled list nor the sentence, as before', !handledOff.includes('already handled') && !handledOff.includes('match against them') && pick(run.calls, 'review r2').prompt.includes('"id": "R1-1"'), handledOff.slice(0, 2500))
   const handledOffR2 = pick(run.calls, 'review r2').prompt
+  // The decline-reopen exception reaches every wording of the never-raised rule (#94, R1-1): the
+  // agent file's sentence, and the history header of a round with candidates; with coverage off
+  // the header is as before.
+  check('coverage: the agent file says a declined finding is not raised again, except one declined for want of confirmation that the verifier now confirms', reviewerAgent.includes('is not raised again, except one declined because it could not be confirmed'))
+  check('coverage: the history header carries the decline-reopen exception on a covered round, and a coverage off round keeps the header as before', (handledR3 || '').includes('never re-raise a declined, deferred or decided one, except one declined because it could not be confirmed that you now confirm') && (handledOff || '').includes('never re-raise a declined, deferred or decided one):'), [(handledR3 || '').slice(0, 2500), (handledOff || '').slice(0, 2500)])
 
   // A decided finding stays settled whatever its commits (#80, R3-4): a candidate that still
-  // reproduces one goes under For the person naming its id, counts as no finding, and the run ends.
+  // reproduces one is accounted for as settled, naming its id and saying so, is shown in the
+  // set-aside block of the review and the handoff (For the person is gone, #93), and the run ends.
   // A fixed one that still reproduces is new and runs another round, and the handled-list header
   // carries that exception only when the pass ran (#80, R2-1, R3-3).
   const decidedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'decided', { comment_id: 11 })] }
-  run = await go('coverage: a decided finding that still reproduces', { ...covArgs, ...decidedPrior }, { reviews: [[]], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'forThePerson', ref: '' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]], forThePerson: [[{ file: 'app/x.php', line: 3, text: 'R1-1 was decided, and this still reproduces it' }]] })
+  run = await go('coverage: a decided finding that still reproduces', { ...covArgs, ...decidedPrior }, { reviews: [[]], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'settled', ref: 'R1-1 was decided, and this still reproduces it' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]] })
   const decidedR2 = pick(run.calls, 'review r2').prompt
-  check('coverage: a decided finding that still reproduces is For the person with its id, not new, and the run ends', run.res.status === 'done' && run.res.rounds.length === 1 && run.res.rounds[0].findings.length === 0 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 1 && comment(run.calls, 'handoff comment').includes('- `app/x.php:3` · R1-1 was decided, and this still reproduces it') && decidedR2.includes('A decided finding stays settled whatever its commits') && decidedR2.includes('a decided one stays settled whatever its commits'), [run.res.status, run.res.rounds.length, run.res.rounds[0].coverage, decidedR2.slice(0, 2500)])
+  check('coverage: a decided finding that still reproduces is settled with its id, shown in the block, not new, and the run ends', run.res.status === 'done' && run.res.rounds.length === 1 && run.res.rounds[0].findings.length === 0 && run.res.rounds[0].coverage.counts.verified === 0 && run.res.rounds[0].coverage.counts.settled === 1 && body(run.calls, 'post r2').includes('- `app/x.php:3` · the real one · settled: R1-1 was decided, and this still reproduces it\n') && comment(run.calls, 'handoff comment').includes('### Candidates set aside in round 2 (2)') && comment(run.calls, 'handoff comment').includes('- `app/x.php:3` · the real one · settled: R1-1 was decided, and this still reproduces it\n') && decidedR2.includes('A decided finding stays settled whatever its commits') && decidedR2.includes('accounted for as settled') && decidedR2.includes('a decided one stays settled whatever its commits'), [run.res.status, run.res.rounds.length, run.res.rounds[0].coverage, decidedR2.slice(0, 2500)])
   const fixedPrior = { firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { comment_id: 11 })] }
-  run = await go('coverage: a fixed finding that still reproduces', { ...covArgs, ...fixedPrior }, { reviews: [[f('R2-1', 'correctness', { description: 'R1-1 was fixed, but still reproduces here' })], []], commitIds: [['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'outside', ref: 'untouched code' }]] })
+  run = await go('coverage: a fixed finding that still reproduces', { ...covArgs, ...fixedPrior }, { reviews: [[f('R2-1', 'correctness', { description: 'R1-1 was fixed, but still reproduces here' })], []], commitIds: [['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R2-1' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]] })
   const fixedR2 = pick(run.calls, 'review r2').prompt
-  check('coverage: a fixed finding that still reproduces is new and runs another round; the header says so only with the pass', run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].findings[0].knownAs === '' && run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r3') && fixedR2.includes('never re-raise one, except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs') && handledOffR2.includes('"<id>: <disposition>"; never re-raise one):'), [run.res.status, run.res.rounds.map((r) => r.coverage && r.coverage.counts), labels(run.calls), fixedR2.slice(0, 2500)])
+  check('coverage: the handled-list header names both reopenings when the pass ran', fixedR2.includes('and one declined for want of confirmation that you now confirm, which is new the same way; a decided one stays settled whatever its commits') && !handledOffR2.includes('for want of confirmation'), fixedR2.slice(0, 2500))
+  check('coverage: a fixed finding that still reproduces is new and runs another round; the header says so only with the pass', run.res.rounds[0].coverage.counts.verified === 1 && run.res.rounds[0].findings[0].knownAs === '' && run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r3') && fixedR2.includes('never re-raise one, except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs') && handledOffR2.includes('"<id>: <disposition>"; never re-raise one):'), [run.res.status, run.res.rounds.map((r) => r.coverage && r.coverage.counts), labels(run.calls), fixedR2.slice(0, 2500)])
 
   // Defaults: models.coverage absent means on, at reviewerFirstRound's model and effort; with no
   // effort anywhere the pass is told high.
@@ -1402,41 +1466,55 @@ function samePrefix(name, first, second, n) {
   run = await go('coverage: a bad effort word', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, coverage: { model: 'm', effort: 'ultra' } } }, { reviews: [[]] })
   check('coverage: an effort word the skill would run elsewhere fails at launch', run.thrown && run.thrown.message.includes('must be one of low | medium | high | xhigh | max'), run.thrown && run.thrown.message)
 
-  // Accounting: an index the verifier left out, or gave an unknown outcome, is For the person as
-  // reported, with a warning; a finding ref that names no finding is For the person as reported
-  // too, with a warning, and never counted confirmed (#80, R1-4); a disproportionate candidate is
-  // in no list.
+  // Accounting: an index the verifier left out, or gave an unknown outcome, becomes a finding of
+  // the round as reported, unconfirmed, with a warning; so does a ref that names no finding, which
+  // is never counted verified (#80, R1-4; #93). The shaper's second look then decides each one,
+  // so no candidate leaves quietly and none is parked.
   const three = fenced([cand('app/x.php', 3, 'one'), cand('app/y.php', 4, 'two'), cand('app/z.php', 5, 'three')])
-  run = await go('coverage: accounting', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R9-9' }, { index: 3, outcome: 'maybe', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'disproportionate', ref: 'needs the clock to run backwards' }, { index: 3, outcome: 'settled', ref: 'R1-1' }]] })
-  check('coverage: unaccounted, unknown-outcome and no-finding-ref candidates are For the person as reported', JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/x.php', line: 3, text: 'one' }, { file: 'app/y.php', line: 4, text: 'two' }, { file: 'app/z.php', line: 5, text: 'three' }]) && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:forThePerson:finding ref R9-9 names no finding,2:forThePerson:unaccounted,3:forThePerson:unaccounted', run.res.rounds[0])
-  check('coverage: a finding ref that names no finding is not counted confirmed', run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.forThePerson === 3, run.res.rounds[0].coverage.counts)
-  check('coverage: the warnings name the index and the bad ref', run.res.warnings.some((w) => w === 'round 1: the reviewer did not account for coverage candidate 2 (app/y.php:4); listed under For the person as reported') && run.res.warnings.some((w) => w.includes('coverage candidate 3 the outcome "maybe"')) && run.res.warnings.some((w) => w.includes('as a finding with ref "R9-9", which is not a finding of this round')), run.res.warnings)
-  check('coverage: a disproportionate candidate is dropped with its sentence and is in no list', run.res.rounds[1].coverage.accounting[1].outcome === 'disproportionate' && run.res.rounds[1].coverage.accounting[1].ref === 'needs the clock to run backwards' && run.res.rounds[1].forThePerson.length === 0 && run.res.rounds[1].findings.length === 0 && run.res.status === 'done', run.res.rounds[1])
+  run = await go('coverage: accounting', covArgs, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-2', 'R1-3', 'R1-4'], secondLook: { 'R1-2': 'unconfirmed', 'R1-3': 'unconfirmed', 'R1-4': 'refuted' }, commitIds: [['R1-1']], coverage: [three, three], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R9-9' }, { index: 3, outcome: 'maybe', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-2' }, { index: 2, outcome: 'settled', ref: 'R1-3' }, { index: 3, outcome: 'settled', ref: 'R1-4' }]] })
+  check('coverage: unaccounted, unknown-outcome and no-finding-ref candidates become unconfirmed findings as reported', run.res.rounds[0].findings.map((x) => `${x.id}:${x.category}:${x.confidence}:${x.file}:${x.line}:${x.title}`).join(',') === 'R1-1:correctness:confirmed:app/x.php:1:title R1-1,R1-2:correctness:unconfirmed:app/x.php:3:one,R1-3:correctness:unconfirmed:app/y.php:4:two,R1-4:correctness:unconfirmed:app/z.php:5:three' && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:unconfirmed:R1-2,2:unconfirmed:R1-3,3:unconfirmed:R1-4', run.res.rounds[0])
+  check('coverage: a ref that names no finding is not counted verified', run.res.rounds[0].coverage.counts.verified === 0 && run.res.rounds[0].coverage.counts.unconfirmed === 3, run.res.rounds[0].coverage.counts)
+  check('coverage: the warnings name the index, the new id and the bad ref', run.res.warnings.some((w) => w === 'round 1: the reviewer did not account for coverage candidate 2 (app/y.php:4); kept as R1-3, an unconfirmed finding, as reported') && run.res.warnings.some((w) => w.includes('coverage candidate 3 the outcome "maybe"')) && run.res.warnings.some((w) => w.includes('with ref "R9-9", which is not a finding of this round')), run.res.warnings)
+  check('coverage: each one goes to the shaper with a line on what would confirm it, is decided, and the next round collapses it as settled', pick(run.calls, 'shape r1').prompt.includes('"id": "R1-3"') && pick(run.calls, 'shape r1').prompt.includes('"wouldConfirm": "The verifier gave no account of this candidate; check the claim as the finder made it."') && replyFor(run.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: declined: the spec keeps R1-3 as it is on purpose · decided by: redline' && run.res.rounds[1].findings.length === 0 && run.res.rounds[1].coverage.counts.settled === 3 && run.res.status === 'done', [run.res.rounds[1], run.res.status])
+  // An unconfirmed finding that says nothing on what would confirm it is posted saying so, with a
+  // warning; an entry whose outcome disagrees with its finding's own confidence is counted by the
+  // finding's, with a warning, so the count sentence and the body's headings never disagree.
+  run = await go('coverage: an unconfirmed finding with nothing to confirm it', covArgs, { reviews: [[f('R1-1', 'correctness', { confidence: 'unconfirmed' }), f('R1-2', 'nit')], []], decline: ['R1-1'], commitIds: [['R1-2']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'unconfirmed', ref: 'R1-2' }], settledAll] })
+  check('coverage: an unconfirmed finding that says nothing on what would confirm it is posted as not stated, with a warning', body(run.calls, 'post r1').includes('### Could not confirm (1)\n\n- **R1-1** · correctness · low · unconfirmed · `app/x.php:1` · title R1-1\n  Would confirm it: not stated\n') && pick(run.calls, 'post r1').prompt.includes('Could not confirm. Would confirm it: not stated') && run.res.warnings.includes('round 1: the reviewer could not confirm R1-1 and did not say what would confirm it'), [body(run.calls, 'post r1'), run.res.warnings])
+  check('coverage: an entry is counted by its finding\'s own confidence, with a warning when the two disagree', run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`).join(',') === '1:unconfirmed:R1-1,2:verified:R1-2' && body(run.calls, 'post r1').includes('returned 2 candidates: 1 verified, 1 could not be confirmed,') && run.res.warnings.includes('round 1: the reviewer accounted for coverage candidate 1 as verified, but R1-1 is unconfirmed; counted as unconfirmed') && run.res.warnings.includes('round 1: the reviewer accounted for coverage candidate 2 as unconfirmed, but R1-2 is confirmed; counted as verified'), [run.res.rounds[0].coverage, run.res.warnings])
   // A finding the workflow renames keeps its accounting entry: the ref is renamed with it, so the
-  // candidate is counted confirmed and is not listed under For the person (#80, R2-3).
-  run = await go('coverage: a renamed finding keeps its accounting', covArgs, { reviews: [[f('X-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'X-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], settledAll] })
+  // candidate is counted verified and is not kept as a second, unconfirmed finding (#80, R2-3).
+  run = await go('coverage: a renamed finding keeps its accounting', covArgs, { reviews: [[f('X-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'X-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], settledAll] })
   const renamedRound = run.res.rounds[0]
-  check('coverage: a renamed finding keeps its accounting', renamedRound.findings[0].id === 'R1-1' && renamedRound.coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`)[0] === '1:finding:R1-1' && renamedRound.coverage.counts.finding === 1 && renamedRound.coverage.counts.forThePerson === 0 && JSON.stringify(renamedRound.forThePerson) === '[]' && body(run.calls, 'post r1').includes('1 confirmed') && run.res.warnings.includes('round 1: reviewer returned id "X-1"; renamed R1-1') && !run.res.warnings.some((w) => w.includes('which is not a finding of this round')), [renamedRound.coverage, renamedRound.forThePerson, run.res.warnings])
+  check('coverage: a renamed finding keeps its accounting', renamedRound.findings[0].id === 'R1-1' && renamedRound.coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`)[0] === '1:verified:R1-1' && renamedRound.coverage.counts.verified === 1 && renamedRound.coverage.counts.unconfirmed === 0 && renamedRound.findings.length === 1 && body(run.calls, 'post r1').includes('1 verified') && run.res.warnings.includes('round 1: reviewer returned id "X-1"; renamed R1-1') && !run.res.warnings.some((w) => w.includes('which is not a finding of this round')), [renamedRound.coverage, renamedRound.findings, run.res.warnings])
+  // A verified or unconfirmed ref with a note after the id still names that finding: it is read by
+  // its leading id with a warning, so the note never mints a second finding (#94, R2-5).
+  run = await go('coverage: a verified ref with a note after the id', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1 (the guard)' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], settledAll] })
+  check('coverage: a ref with a note after the id counts as that finding and mints nothing', run.res.rounds[0].findings.length === 1 && run.res.rounds[0].coverage.counts.verified === 1 && run.res.rounds[0].coverage.counts.unconfirmed === 0 && run.res.rounds[0].coverage.accounting.map((e) => `${e.index}:${e.outcome}:${e.ref}`)[0] === '1:verified:R1-1' && run.res.warnings.some((w) => w.includes('with ref "R1-1 (the guard)"') && w.includes('read as R1-1')), [run.res.rounds[0].findings.map((x) => x.id), run.res.rounds[0].coverage, run.res.warnings])
+  // A candidate with no file is minted at a place prior-findings reads back (#94, R2-6).
+  const noPlace = fenced([{ summary: 'no place', failure_scenario: 'f' }])
+  run = await go('coverage: a candidate with no file', covArgs, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-2'], secondLook: { 'R1-2': 'unconfirmed' }, commitIds: [['R1-1']], coverage: [noPlace, noPlace], coverageOut: [[], [{ index: 1, outcome: 'settled', ref: 'R1-2' }]] })
+  check('coverage: a candidate with no file is minted at (no file), line 0, and its body line has a place', body(run.calls, 'post r1').includes('· unconfirmed · `(no file):0` · no place') && !body(run.calls, 'post r1').includes('`:0`'), body(run.calls, 'post r1'))
 
   // A candidate is counted where the round puts it (#80, R1-4): under correctness only a nit the
-  // verifier reported from a candidate goes under For the person, knownAs or not (the nit rule runs
-  // first); otherwise a finding listed under Already tracked counts as already tracked.
-  const nitCorrectness = (nit) => ({ reviews: [[f('R1-1', 'correctness'), nit], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R1-2' }], settledAll] })
+  // verifier reported from a candidate is verified, and declined by the scope in its own list (#93);
+  // a finding listed under Already tracked counts as already tracked, a nit under the scope included.
+  const nitCorrectness = (nit) => ({ reviews: [[f('R1-1', 'correctness'), nit], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'verified', ref: 'R1-2' }], settledAll] })
   run = await go('coverage: a nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9 })))
   let nb = body(run.calls, 'post r1')
-  check('coverage: under correctness only a nit from a candidate is For the person, listed and counted there', nb.includes('returned 2 candidates: 1 confirmed, 1 for the person,') && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2') && JSON.stringify(run.res.rounds[0].forThePerson) === JSON.stringify([{ file: 'app/y.php', line: 9, text: 'title R1-2' }]) && run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson', [nb, run.res.rounds[0].coverage])
+  check('coverage: under correctness only a nit from a candidate is verified, and declined by the scope in its own list', nb.includes('returned 2 candidates: 2 verified, 0 could not be confirmed,') && nb.includes('### Declined under this run\'s scope (correctness only) (1)\n\n- R1-2 · `app/y.php:9` · title R1-2') && run.res.rounds[0].coverage.accounting[1].outcome === 'verified' && run.res.rounds[0].outcomes['R1-2'].startsWith('declined: outside this run\'s scope'), [nb, run.res.rounds[0].coverage])
   run = await go('coverage: a known nit under correctness only', { ...covArgs, scope: 'correctness' }, nitCorrectness(f('R1-2', 'nit', { file: 'app/y.php', line: 9, knownAs: '#7' })))
   nb = body(run.calls, 'post r1')
-  check('coverage: under correctness only a known nit is still For the person, not already tracked', run.res.rounds[0].coverage.accounting[1].outcome === 'forThePerson' && run.res.rounds[0].coverage.counts.known === 0 && nb.includes('### For the person\n\n- `app/y.php:9` · title R1-2'), [nb, run.res.rounds[0].coverage])
-  run = await go('coverage: a known finding from a candidate', covArgs, { reviews: [[f('R1-1', 'correctness', { knownAs: '#7' })]], coverage: [two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }]] })
+  check('coverage: under correctness only a known nit is already tracked, not declined by the scope', run.res.rounds[0].coverage.accounting[1].outcome === 'known' && run.res.rounds[0].coverage.counts.known === 1 && nb.includes('### Already tracked\n\n- **R1-2** title R1-2: #7') && !nb.includes('Declined under this run'), [nb, run.res.rounds[0].coverage])
+  run = await go('coverage: a known finding from a candidate', covArgs, { reviews: [[f('R1-1', 'correctness', { knownAs: '#7' })]], coverage: [two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }]] })
   nb = body(run.calls, 'post r1')
-  check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.finding === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 confirmed') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
+  check('coverage: a finding listed under Already tracked counts as already tracked, not confirmed', run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.counts.verified === 0 && run.res.rounds[0].coverage.counts.refuted === 1 && nb.includes('0 verified') && nb.includes('1 already tracked'), [nb, run.res.rounds[0].coverage])
   // Its accounting entry is known, so the set-aside block lists the candidate's own summary beside
   // the finding and the issue it is tracked in (the #85 follow-up spec, decision 1).
-  check('coverage: a known finding from a candidate is listed in the set-aside block with the finding and the issue', nb.includes('### Candidates set aside (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · known: R1-1: #7\n- `app/y.php:9` · a nit for the person · refuted: not reachable\n'), nb)
-  run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }], settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], [], []] })
-  check('coverage: under scope all a nit from a candidate is still confirmed', run.res.rounds[1].coverage.counts.finding === 1 && run.res.rounds[1].coverage.counts.forThePerson === 0, run.res.rounds[1].coverage)
-  check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
+  check('coverage: a known finding from a candidate is listed in the set-aside block with the finding and the issue', nb.includes('### Candidates set aside (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · the real one · known: R1-1: #7\n- `app/y.php:9` · a nit a browser would show · refuted: not reachable\n'), nb)
+  run = await go('coverage: a nit under scope all', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'verified', ref: 'R2-1' }], settledAll] })
+  check('coverage: under scope all a nit from a candidate is verified like any item', run.res.rounds[1].coverage.counts.verified === 1 && run.res.rounds[1].coverage.counts.unconfirmed === 0 && body(run.calls, 'post r2').includes('### Other items (1)\n\n- **R2-1** · nit'), run.res.rounds[1].coverage)
+  check('coverage: an accounting with no pass behind it is cleared with a warning', (await go('coverage: accounting without a pass', baseArgs, { reviews: [[]], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }]] })).res.warnings.some((w) => w === 'round 1: the reviewer returned a coverage accounting, but this round ran no coverage pass; cleared'))
 
   // The three causes stop the round at review, resumable at the coverage label; an empty array is
   // zero candidates, not an error.
@@ -1459,34 +1537,34 @@ function samePrefix(name, first, second, n) {
     run = await go(`coverage: an array of ${name}`, covArgs, { reviews: [[]], coverage: [fenced(list)] })
     check(`coverage: an array of ${name} stops the round as recipe drift, resumable at coverage r1`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes('holds no fenced json array') && run.res.error.includes('launch again with coverage off') && !labels(run.calls).includes('review r1'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
   }
-  run = await go('coverage: denied on round 2', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, 'coverage: skill denied\nno'], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }]] })
+  run = await go('coverage: denied on round 2', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, 'coverage: skill denied\nno'], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }]] })
   check('coverage: a cause on round 2 resumes at coverage r2 with round 1 intact', run.res.status === 'error' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r2', attempt: 2 }) && run.res.rounds.length === 1, [run.res.status, run.res.resumeFrom, run.res.rounds.length])
   run = await go('coverage: empty array', covArgs, { reviews: [[]], coverage: ['```json\n[]\n```'] })
   check('coverage: an empty array is zero candidates, not an error', run.res.status === 'done' && pick(run.calls, 'review r1').prompt.includes('returned no candidates. Run no discovery pass of your own') && run.res.rounds[0].coverage.candidates === 0 && body(run.calls, 'post r1').includes('returned no candidates.'), [run.res.status, run.res.error])
 
   // Resume at the coverage label appends the resume line to that prompt only.
-  const plain = await go('coverage: before a resume', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
-  const resumed = await go('coverage: resume at coverage r2', { ...covArgs, resume: { 'coverage r2': { attempt: 2, error: 'the Skill tool was denied', hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
+  const plain = await go('coverage: before a resume', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
+  const resumed = await go('coverage: resume at coverage r2', { ...covArgs, resume: { 'coverage r2': { attempt: 2, error: 'the Skill tool was denied', hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], settledAll] })
   const at = labels(plain.calls).indexOf('coverage r2')
   samePrefix('coverage resume', plain.calls, resumed.calls, at)
   check('coverage: the resumed coverage prompt carries the resume line, round 1\'s does not', pick(resumed.calls, 'coverage r2').prompt.includes('Resume attempt 2 of this step') && !pick(resumed.calls, 'coverage r1').prompt.includes('Resume attempt'), pick(resumed.calls, 'coverage r2').prompt.slice(-300))
 
   // Replay across the round boundary: a hand-off in round 2 and its relaunch replay every prompt
   // before the stop, the coverage prompts included.
-  const askLater = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'finding', ref: 'R2-1' }, { index: 2, outcome: 'settled', ref: 'R1-1' }], settledAll] }
+  const askLater = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'settled', ref: 'R1-1' }], settledAll] }
   const stop = await go('coverage: hand-off in round 2', covArgs, askLater)
   check('coverage: the hand-off stops after round 2\'s shaper', stop.res.status === 'handoff' && labels(stop.calls).slice(-2).join('|') === 'shape r2|spec status r2' && labels(stop.calls).includes('coverage r2'), labels(stop.calls))
   const again = await go('coverage: relaunch after the hand-off', { ...covArgs, decisions: { 'R2-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-05' } } }, askLater)
   samePrefix('coverage replay', stop.calls, again.calls, stop.calls.length)
   check('coverage: the relaunch finishes after round 3', again.res.status === 'done' && again.res.rounds.length === 3, [again.res.status, again.res.rounds.length])
 
-  // coverage off: no pass on any round, no candidates block, today's handoff sentence, and For the
-  // person from a reviewer-only round still renders.
-  run = await go('coverage: off', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
+  // coverage off: no pass on any round, no candidates block, today's handoff sentence, and no For
+  // the person section either: the reviewer alone reports under the same contract (#93).
+  run = await go('coverage: off', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
   check('coverage: off runs no pass on any round and adds no block', !labels(run.calls).some((l) => l.startsWith('coverage')) && !pick(run.calls, 'review r1').prompt.includes('Candidates from the coverage pass') && !pick(run.calls, 'final nit pass r2').prompt.includes('Candidates from the coverage pass') && run.res.rounds[0].coverage === null, labels(run.calls))
   check('coverage: off carries no fixed-reopens sentence', !pick(run.calls, 'review r1').prompt.includes('whose outcome is fixed') && !pick(run.calls, 'final nit pass r2').prompt.includes('whose outcome is fixed'), labels(run.calls))
   check('coverage: off keeps today\'s whole-PR sentence in the handoff', comment(run.calls, 'handoff comment').includes('Only round 1 reviewed the whole PR; see [Known limits]'), comment(run.calls, 'handoff comment').split('\n')[2])
-  check('coverage: off still renders For the person from the reviewer alone', body(run.calls, 'post r1').includes('### For the person\n\n- `app/q.php:2` · seen by the reviewer alone') && comment(run.calls, 'handoff comment').includes('### For the person\n\n- `app/q.php:2` · seen by the reviewer alone'), body(run.calls, 'post r1'))
+  check('coverage: off has no For the person section, and the reviewer is told to report what it verified', !body(run.calls, 'post r1').includes('For the person') && !comment(run.calls, 'handoff comment').includes('For the person') && pick(run.calls, 'review r1').prompt.includes('You establish what is true') && !pick(run.calls, 'review r1').prompt.includes('needsDecision'), body(run.calls, 'post r1'))
   const mixed = await go('coverage: a bad config value', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, coverage: 'off' } }, { reviews: [[]] })
   check('coverage: a config value that is neither an object nor null fails at launch', mixed.thrown && mixed.thrown.message.includes('args.models.coverage must be an object'), mixed.thrown && mixed.thrown.message)
 
@@ -1499,16 +1577,22 @@ function samePrefix(name, first, second, n) {
   // sixth pins the accounting sentence that says what the set-aside block lists, widened with the
   // block (the #85 follow-up spec, answer 11). The seventh pins that a duplicate's ref opens with
   // the index or the id, so the target parse reads it (#86, R4-1).
-  const offRules = await go('coverage: off, the verifier rules and the set-aside block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']], forThePerson: [[{ file: 'app/q.php', line: 2, text: 'seen by the reviewer alone' }], []] })
+  const offRules = await go('coverage: off, the verifier rules and the set-aside block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
   const uncovered = pick(offRules.calls, 'review r1').prompt
   const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })).calls, 'review r1').prompt
-  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is not disproportionate', 'this pull request stopped handling'], ['a finding entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is neither a finding nor a For the person entry', 'every candidate that is neither a finding nor'], ['a duplicate\'s ref opens with the index or the id', 'opening with the index of the candidate or the id of the finding']]) {
+  for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is a fact the verifier states', 'this pull request stopped handling'], ['a verified or unconfirmed entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is not a finding of the round', 'every candidate that is not a finding of this round'], ['a duplicate\'s ref opens with the index or the id', 'opening with the index of the candidate or the id of the finding'], ['could not confirm is the narrow case', 'turns on something the repository cannot show'], ['no candidate is held back for its size, its cost or where its cause lies', 'What to do about a true claim is not yours to decide'], ['a decline for want of confirmation reopens once confirmed', 'could not be confirmed, and that you now confirm'], ['a decided finding that still reproduces is settled', 'accounted for as settled']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
   // The known-finding section opens on what is tracked in full (#86, R1-1). The review prompt's own
   // known-finding sentence stays as it was, so a coverage-off prompt is unchanged, and this sentence
   // is pinned in the agent file alone.
   check('coverage: the agent file opens its known-finding check on what is already tracked in full', reviewerAgent.includes('look for what is already tracked in full'), 'agents/redline-reviewer.md, "Check for known findings first"')
+  // The kind is stated wherever the verifier reads its instructions, with or without the pass, since
+  // a correctness item the run acts on buys another round (#93, the done rule's rider).
+  for (const phrase of ['a promise this pull request makes', 'a privacy leak', 'You establish what is true']) {
+    check(`coverage: the agent file and every review prompt, covered or not, say "${phrase}"`, reviewerAgent.includes(phrase) && covered.includes(phrase) && uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
+  }
+  check('coverage: the agent file no longer has a For the person list, a needsDecision field or a disproportionate outcome', !reviewerAgent.includes('forThePerson') && !reviewerAgent.includes('For the person') && !reviewerAgent.includes('needsDecision') && !reviewerAgent.includes('disproportionate'), 'agents/redline-reviewer.md')
 
   // A candidate an issue tracks only in part (#85): the remainder caused in this pull request's
   // diff is a finding that names the issue, knownAs empty, so it is confirmed, listed under
@@ -1520,85 +1604,86 @@ function samePrefix(name, first, second, n) {
     reviews: [[f('R1-1', 'correctness', { file: 'app/x.php', line: 3, description: 'Issue #7 tracks the case-insensitive lookup; the owner check this pull request removed from the save is not in it.' })], []],
     commitIds: [['R1-1']],
     coverage: [partlyCandidates, partlyCandidates],
-    coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'known', ref: '#7' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'known', ref: '#7' }]],
+    coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'known', ref: '#7' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'known', ref: '#7' }]],
   })
   const pb = body(run.calls, 'post r1')
-  check('coverage: a partly tracked candidate is a finding naming the issue, confirmed, shaped, and the run goes on', pick(run.calls, 'review r1').prompt.includes('the remainder is judged as its own candidate') && run.res.rounds[0].coverage.counts.finding === 1 && run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].findings[0].knownAs === '' && pb.includes('1 confirmed') && pb.includes('1 already tracked') && pb.includes('### Findings (1 correctness, 0 nit)\n\n- **R1-1**') && !pb.includes('### Already tracked') && pick(run.calls, 'post r1').prompt.includes('Issue #7 tracks the case-insensitive lookup') && pick(run.calls, 'shape r1').prompt.includes('"id": "R1-1"') && labels(run.calls).includes('re-review r2') && run.res.status === 'done', [pb, run.res.rounds[0].coverage, labels(run.calls)])
+  check('coverage: a partly tracked candidate is a finding naming the issue, confirmed, shaped, and the run goes on', pick(run.calls, 'review r1').prompt.includes('the remainder is judged as its own candidate') && run.res.rounds[0].coverage.counts.verified === 1 && run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].findings[0].knownAs === '' && pb.includes('1 verified') && pb.includes('1 already tracked') && pb.includes('### Correctness (1)\n\n- **R1-1**') && !pb.includes('### Already tracked') && pick(run.calls, 'post r1').prompt.includes('Issue #7 tracks the case-insensitive lookup') && pick(run.calls, 'shape r1').prompt.includes('"id": "R1-1"') && labels(run.calls).includes('re-review r2') && run.res.status === 'done', [pb, run.res.rounds[0].coverage, labels(run.calls)])
   const knownLine = '- `app/x.php:8` · the lookup ignores case · known: #7'
-  check('coverage: the set-aside block lists a partly tracked candidate\'s tracked part as known, naming the issue, in the review body and the handoff', pb.includes('### Candidates set aside (1)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + knownLine + '\n\n</details>') && comment(run.calls, 'handoff comment').includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the save no longer checks the owner, and the lookup ignores case · settled: R1-1\n' + knownLine + '\n\n</details>'), [pb, comment(run.calls, 'handoff comment')])
-  check('coverage: a round whose candidates are all findings or For the person has no set-aside block', b1.includes('1 confirmed, 1 for the person,') && !b1.includes('<details>'), b1)
+  check('coverage: the set-aside block lists a partly tracked candidate\'s tracked part as known, naming the issue, in the review body and the handoff', pb.includes('### Candidates set aside (1)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n' + knownLine + '\n\n</details>') && comment(run.calls, 'handoff comment').includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · the save no longer checks the owner, and the lookup ignores case · settled: R1-1\n' + knownLine + '\n\n</details>'), [pb, comment(run.calls, 'handoff comment')])
+  check('coverage: a round whose candidates are all findings has no set-aside block', b1.includes('1 verified, 1 could not be confirmed,') && !b1.includes('<details>'), b1)
 
-  // The set-aside block (#85; the #85 follow-up spec): every candidate that is neither a finding
-  // nor a For the person entry, by one rule, one line each after For the person, in index order,
+  // The set-aside block (#85; the #85 follow-up spec; #93): every candidate that is not a finding
+  // of the round, by one rule, one line each after the closing sentence, in index order,
   // with the candidate's own file, line and summary, as written, then the outcome and the
   // verifier's ref. A known line names the issue; a duplicate of another candidate's index also
-  // gives that candidate's place and outcome, so a duplicate of a dropped or For the person
+  // gives that candidate's place and outcome, so a duplicate of a refuted or tracked
   // candidate cannot hide; a duplicate of a finding id is as written. The label's count is the
-  // count sentence's collapsed, already tracked and dropped added up. The handoff carries the block
+  // count sentence's refuted, collapsed and already tracked added up. The handoff carries the block
   // of the last round that ran the pass, naming that round; an earlier round's block stays in its
   // own review body.
-  const nine = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit for the person'), cand('app/z.php', 5, 'Saving clears the `note` field when the form *omits* it'), cand('lib/w.php', 12, 'an old helper rounds down'), cand('app/v.php', 7, 'two saves in the same millisecond lose one'), cand('app/u.php', 4, 'the export skips archived rows'), cand('app/x.php', 4, 'the save skips the owner check'), cand('app/z.php', 6, 'saving drops the note'), cand('app/y.php', 10, 'the person should see the nit')])
+  const nine = fenced([cand('app/x.php', 3, 'the real one'), cand('app/y.php', 9, 'a nit a browser would show'), cand('app/z.php', 5, 'Saving clears the `note` field when the form *omits* it'), cand('lib/w.php', 12, 'an old helper rounds down'), cand('app/v.php', 7, 'two saves in the same millisecond lose one'), cand('app/u.php', 4, 'the export skips archived rows'), cand('app/x.php', 4, 'the save skips the owner check'), cand('app/z.php', 6, 'saving drops the note'), cand('app/y.php', 10, 'the same nit, seen from the template')])
   const setAsideOut = [
-    { index: 5, outcome: 'disproportionate', ref: 'needs two saves in the same millisecond' },
-    { index: 1, outcome: 'finding', ref: 'R1-1' },
-    { index: 2, outcome: 'forThePerson', ref: '' },
+    { index: 5, outcome: 'verified', ref: 'R1-3' },
+    { index: 1, outcome: 'verified', ref: 'R1-1' },
+    { index: 2, outcome: 'verified', ref: 'R1-2' },
     { index: 3, outcome: 'refuted', ref: 'The claim is that saving clears the note when the form omits it; the form always sends the field, and the save test posts without it and keeps the note.' },
-    { index: 4, outcome: 'outside', ref: 'lib/w.php is not changed by this pull request' },
+    { index: 4, outcome: 'verified', ref: 'R1-4' },
     { index: 6, outcome: 'known', ref: '#7' },
     { index: 7, outcome: 'duplicate', ref: 'R1-1' },
     { index: 8, outcome: 'duplicate', ref: '3' },
     { index: 9, outcome: 'duplicate', ref: 'candidate 2' },
   ]
-  run = await go('coverage: the set-aside block', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [nine, two], coverageOut: [setAsideOut, settledAll], forThePerson: [[{ file: 'app/y.php', line: 9, text: 'a nit for the person' }], []] })
+  // What the verifier used to drop is a finding now, with the fact stated: the conditions a failure
+  // needs (R1-3) and a cause in code the pull request did not change (R1-4, outsideDiff).
+  run = await go('coverage: the set-aside block', covArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { file: 'app/y.php', line: 9 }), f('R1-3', 'correctness', { file: 'app/v.php', line: 7, description: 'Needs two saves in the same millisecond.' }), f('R1-4', 'correctness', { file: 'lib/w.php', line: 12, outsideDiff: true })], []], commitIds: [['R1-1', 'R1-2', 'R1-3', 'R1-4']], coverage: [nine, two], coverageOut: [setAsideOut, settledAll] })
   const setAside1 = [
-    '### Candidates set aside (7)',
+    '### Candidates set aside (5)',
     '',
     '<details>',
-    '<summary>Collapsed, already tracked or dropped</summary>',
+    '<summary>Refuted, collapsed or already tracked</summary>',
     '',
     '- `app/z.php:5` · Saving clears the `note` field when the form *omits* it · refuted: The claim is that saving clears the note when the form omits it; the form always sends the field, and the save test posts without it and keeps the note.',
-    '- `lib/w.php:12` · an old helper rounds down · outside: lib/w.php is not changed by this pull request',
-    '- `app/v.php:7` · two saves in the same millisecond lose one · disproportionate: needs two saves in the same millisecond',
     '- `app/u.php:4` · the export skips archived rows · known: #7',
     '- `app/x.php:4` · the save skips the owner check · duplicate: R1-1',
     '- `app/z.php:6` · saving drops the note · duplicate: 3 (candidate 3, `app/z.php:5`: refuted)',
-    '- `app/y.php:10` · the person should see the nit · duplicate: candidate 2 (candidate 2, `app/y.php:9`: forThePerson)',
+    '- `app/y.php:10` · the same nit, seen from the template · duplicate: candidate 2 (candidate 2, `app/y.php:9`: verified R1-2)',
     '',
     '</details>',
   ].join('\n')
   const db = body(run.calls, 'post r1')
-  check('coverage: the review body lists every candidate that is neither a finding nor For the person after For the person, in index order, with its own summary, the outcome and the ref, and ends with the block, the closing sentence above For the person', db.endsWith('\n\n' + CLOSING + '\n\n### For the person\n\n- `app/y.php:9` · a nit for the person\n\n' + setAside1), db)
-  check('coverage: the set-aside block\'s count is the count sentence\'s collapsed, already tracked and dropped added up', db.includes('returned 9 candidates: 1 confirmed, 1 for the person, 3 collapsed into findings already reported or settled, 1 already tracked, 3 dropped (refuted, outside the diff or disproportionate).') && db.includes('Candidates set aside (7)'), db)
+  check('coverage: the review body lists every candidate that is not a finding of the round after the closing sentence, in index order, with its own summary, the outcome and the ref, and ends with the block', db.endsWith('\n\n' + CLOSING + '\n\n' + setAside1), db)
+  check('coverage: the set-aside block\'s count is the count sentence\'s refuted, collapsed and already tracked added up', db.includes('returned 9 candidates: 4 verified, 0 could not be confirmed, 1 refuted, 3 collapsed into items already reported or settled, 1 already tracked.') && db.includes('Candidates set aside (5)'), db)
+  check('coverage: a cause outside the diff is a fact on the finding, stated in its inline comment, never a reason to drop it', pick(run.calls, 'post r1').prompt.includes('The cause is in code this pull request did not change.') && pick(run.calls, 'shape r1').prompt.includes('"outsideDiff": true') && db.includes('- **R1-4** · correctness · low · confirmed · `lib/w.php:12` · title R1-4'), db)
   check('coverage: no set-aside line opens with a finding id, so prior-findings never reads one back', db.includes('<details>') && !db.slice(db.indexOf('<details>'), db.indexOf('</details>')).split('\n').some((l) => l.startsWith('- **R')), db)
-  const lastBlock = '### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit for the person · outside: untouched code\n\n</details>'
+  const lastBlock = '### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit a browser would show · refuted: untouched code\n\n</details>'
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, after For the person and before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('### For the person') < handoff.indexOf('<details>') && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
+  check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('### Candidates set aside') < handoff.indexOf('### Commits') && handoff.split('### Candidates set aside').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
   // What the result keeps of a covered round (#80, R1-5; #86, R2-2): the candidate count, the
   // counts by outcome and the accounting, each set-aside candidate's index, outcome and ref among
   // it, and no setAsideCandidates field and no candidate list. The set-aside entries, with their
   // file, line and summary, ride on the round record, which only the handoff reads (the handoff
   // check above).
-  check('coverage: the result keeps the candidate count, the dropped counts and each set-aside candidate\'s index, outcome and ref in the accounting, and no setAsideCandidates field or candidate list', !('setAsideCandidates' in run.res.rounds[0]) && Object.keys(run.res.rounds[0].coverage).join(',') === 'head,candidates,counts,accounting' && run.res.rounds[0].coverage.candidates === 9 && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.outside === 1 && run.res.rounds[0].coverage.counts.disproportionate === 1 && run.res.rounds[0].coverage.accounting.every((e) => Object.keys(e).join(',') === 'index,outcome,ref') && setAsideOut.filter((d) => !['finding', 'forThePerson'].includes(d.outcome)).every((d) => run.res.rounds[0].coverage.accounting.some((e) => e.index === d.index && e.outcome === d.outcome && e.ref === d.ref)), [Object.keys(run.res.rounds[0]), run.res.rounds[0].coverage])
+  check('coverage: the result keeps the candidate count, the counts by outcome and each set-aside candidate\'s index, outcome and ref in the accounting, and no setAsideCandidates field or candidate list', !('setAsideCandidates' in run.res.rounds[0]) && Object.keys(run.res.rounds[0].coverage).join(',') === 'head,candidates,counts,accounting' && run.res.rounds[0].coverage.candidates === 9 && run.res.rounds[0].coverage.counts.refuted === 1 && run.res.rounds[0].coverage.counts.duplicate === 3 && run.res.rounds[0].coverage.counts.known === 1 && run.res.rounds[0].coverage.accounting.every((e) => Object.keys(e).join(',') === 'index,outcome,ref') && setAsideOut.filter((d) => !['verified', 'unconfirmed'].includes(d.outcome)).every((d) => run.res.rounds[0].coverage.accounting.some((e) => e.index === d.index && e.outcome === d.outcome && e.ref === d.ref)), [Object.keys(run.res.rounds[0]), run.res.rounds[0].coverage])
 
   // A run that ends in a final nit pass, which runs no coverage pass, carries the block of the
   // round before it, and names that round.
-  run = await go('coverage: the set-aside block before a final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [three, three, three], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'forThePerson', ref: '' }, { index: 3, outcome: 'outside', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'finding', ref: 'R2-1' }, { index: 3, outcome: 'refuted', ref: 'The claim is three; the code does two.' }]] })
+  run = await go('coverage: the set-aside block before a final nit pass', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [three, three, three], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'x' }, { index: 3, outcome: 'refuted', ref: 'untouched code' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'verified', ref: 'R2-1' }, { index: 3, outcome: 'refuted', ref: 'The claim is three; the code does two.' }]] })
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('outside: untouched code'), handoff)
-  // The block's own heading (#87): round 2 has no For the person entries, so before #87 the block
-  // read as part of its Findings; now its heading sits directly above it, after the closing
+  check('coverage: after a final nit pass the handoff carries the round before it, named', labels(run.calls).includes('final nit pass r3') && handoff.includes('### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n- `app/z.php:5` · three · refuted: The claim is three; the code does two.\n\n</details>') && !handoff.includes('in round 3') && !handoff.includes('refuted: untouched code'), handoff)
+  // The block's own heading (#87): the block sits under its own heading, so it never reads as part
+  // of the lists above it; the heading sits directly above it, after the closing
   // sentence, which follows the findings (the #87 follow-up spec, answer 9).
   const noPerson = body(run.calls, 'post r2')
-  check('coverage: with no For the person entries the set-aside block still opens under its own heading, after the findings and the closing sentence', !noPerson.includes('### For the person') && noPerson.includes('- **R2-1** · nit · low · likely · `app/x.php:1` · title R2-1\n\n' + CLOSING + '\n\n### Candidates set aside (2)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n'), noPerson)
+  check('coverage: the set-aside block opens under its own heading, after the findings and the closing sentence', noPerson.includes('### Other items (1)\n\n- **R2-1** · nit · low · confirmed · `app/x.php:1` · title R2-1\n\n' + CLOSING + '\n\n### Candidates set aside (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · one · settled: R1-1\n'), noPerson)
 
   // A set-aside entry with no ref still gets its line, reading "no reason given", and a warning
   // naming the index, so the slip is visible and the candidate never leaves silently.
-  run = await go('coverage: a set-aside candidate with no reason', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: '  ' }], [{ index: 1, outcome: 'forThePerson', ref: '' }, { index: 2, outcome: 'forThePerson', ref: '' }]], forThePerson: [[], [{ file: 'app/x.php', line: 3, text: 'the real one, plausible' }, { file: 'app/y.php', line: 9, text: 'a nit for the person' }]] })
-  check('coverage: a set-aside candidate with no reason reads "no reason given", with a warning naming its index', body(run.calls, 'post r1').includes('- `app/y.php:9` · a nit for the person · refuted: no reason given\n') && run.res.warnings.includes('round 1: the reviewer set aside coverage candidate 2 as refuted with no reason; listed as "no reason given"'), [body(run.calls, 'post r1'), run.res.warnings])
+  run = await go('coverage: a set-aside candidate with no reason', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit', { file: 'app/x.php', line: 3 }), f('R2-2', 'nit', { file: 'app/y.php', line: 9, confidence: 'unconfirmed', wouldConfirm: 'w' })], []], commitIds: [['R1-1'], ['R2-1', 'R2-2']], coverage: [two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: '  ' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'unconfirmed', ref: 'R2-2' }]] })
+  check('coverage: a set-aside candidate with no reason reads "no reason given", with a warning naming its index', body(run.calls, 'post r1').includes('- `app/y.php:9` · a nit a browser would show · refuted: no reason given\n') && run.res.warnings.includes('round 1: the reviewer set aside coverage candidate 2 as refuted with no reason; listed as "no reason given"'), [body(run.calls, 'post r1'), run.res.warnings])
   // The handoff carries the last covered round's block, not the last round with one (#85,
   // decision 14; #86, R1-2): round 1 set candidate 2 aside, round 2 ran the pass and put both
-  // candidates under For the person, so the handoff has no block.
-  check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
+  // candidates among its findings, so the handoff has no block.
+  check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('Candidates set aside'), comment(run.calls, 'handoff comment'))
 
   // The escaping of posted text (#87; the #85 follow-up spec): `&` then `<` are escaped and the word
   // joiner's reference `&#8288;` follows each `@` before an ASCII letter or digit (the #87 follow-up
@@ -1611,7 +1696,7 @@ function samePrefix(name, first, second, n) {
   // spec's Evidence). `[` alone is no trigger, nor is a backslash elsewhere, so code talk with
   // brackets or a namespace keeps its spans (#89, R3-3). An `&` inside a span is left as written,
   // beside one outside it that is escaped (#86, R5-1). A `@&#8288;` the finder typed has its `&`
-  // escaped, so it reads back as typed. A For the person line goes through the same function. Each
+  // escaped, so it reads back as typed. A Would confirm line goes through the same function. Each
   // line is pinned as the string the workflow writes, one case per way the reading can go wrong.
   const tags = fenced([
     cand('app/a.vue', 1, 'a bare </details> ends the block, a bare <details> opens one, and `<Head title="x" />` in a span is text'),
@@ -1634,37 +1719,37 @@ function samePrefix(name, first, second, n) {
   ])
   const tagsOut = [
     { index: 1, outcome: 'refuted', ref: 'Tom & Jerry wrote &lt; by hand' },
-    { index: 2, outcome: 'outside', ref: 'untouched code' },
-    { index: 3, outcome: 'disproportionate', ref: 'needs a lone backtick' },
+    { index: 2, outcome: 'refuted', ref: 'untouched code' },
+    { index: 3, outcome: 'refuted', ref: 'needs a lone backtick' },
     { index: 4, outcome: 'refuted', ref: '`<c>` pairs it across the ref' },
-    ...[5, 6, 7].map((index) => ({ index, outcome: 'outside', ref: 'untouched code' })),
+    ...[5, 6, 7].map((index) => ({ index, outcome: 'refuted', ref: 'untouched code' })),
     { index: 8, outcome: 'refuted', ref: 'not a mention of @param' },
-    ...[9, 10, 11, 12, 13, 14, 15, 16, 17].map((index) => ({ index, outcome: 'outside', ref: 'untouched code' })),
+    ...[9, 10, 11, 12, 13, 14, 15, 16, 17].map((index) => ({ index, outcome: 'refuted', ref: 'untouched code' })),
   ]
-  run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[]], coverage: [tags], coverageOut: [tagsOut], forThePerson: [[{ file: 'app/q.vue', line: 1, text: 'a <b> & c note from @param' }]] })
+  run = await go('coverage: the set-aside block escapes outside code spans', covArgs, { reviews: [[f('R1-1', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'a <b> & c note from @param' })]], decline: ['R1-1'], coverage: [tags], coverageOut: [tagsOut] })
   const escapedLines = [
     '- `app/a.vue:1` · a bare &lt;/details> ends the block, a bare &lt;details> opens one, and `<Head title="x" />` in a span is text · refuted: Tom &amp; Jerry wrote &amp;lt; by hand',
-    '- `app/b.vue:2` · a double-backtick span ``a ` b <c>`` keeps its single backtick · outside: untouched code',
-    '- `app/c.vue:3` · an unclosed ` before &lt;i> is plain text · disproportionate: needs a lone backtick',
+    '- `app/b.vue:2` · a double-backtick span ``a ` b <c>`` keeps its single backtick · refuted: untouched code',
+    '- `app/c.vue:3` · an unclosed ` before &lt;i> is plain text · refuted: needs a lone backtick',
     '- `app/d.vue:4` · one ` left open in the summary · refuted: `&lt;c>` pairs it across the ref',
-    '- `app/e.vue:5` · two\nlines with `&lt;b>` · outside: untouched code',
-    '- `app/f.vue:6` · an escaped \\` then &lt;i>` · outside: untouched code',
-    '- `app/g.vue:7` · a span `a && b <c>` keeps its ampersands &amp; this one does not · outside: untouched code',
+    '- `app/e.vue:5` · two\nlines with `&lt;b>` · refuted: untouched code',
+    '- `app/f.vue:6` · an escaped \\` then &lt;i>` · refuted: untouched code',
+    '- `app/g.vue:7` · a span `a && b <c>` keeps its ampersands &amp; this one does not · refuted: untouched code',
     '- `app/h.vue:8` · binds @' + WJ + 'click, `@click` in a span, @' + WJ + '123, @-x and a@' + WJ + 'b.co · refuted: not a mention of @' + WJ + 'param',
-    '- `app/i.vue:9` · see [a](/u "`") &lt;/details> ` end · outside: untouched code',
-    '- `app/j.vue:10` · see [a][q`] &lt;i>x&lt;/i> `c` · outside: untouched code',
-    '- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · outside: untouched code',
-    '- `app/l.vue:12` · see WWW.x.com/`a &lt;i>x&lt;/i> `b` · outside: untouched code',
-    '- `app/m.vue:13` · first\r&lt;/details> and @' + WJ + 'param · outside: untouched code',
-    '- `app/n.vue:14` · App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c · outside: untouched code',
-    '- `app/o.vue:15` · see [a](/u) and `@' + WJ + 'param` · outside: untouched code',
-    '- `app/p.vue:16` · `$a[0] < $b` and `[data-x] <i>` &amp; more · outside: untouched code',
-    '- `app/r.vue:17` · a typed @&amp;#8288;x stays as typed · outside: untouched code',
+    '- `app/i.vue:9` · see [a](/u "`") &lt;/details> ` end · refuted: untouched code',
+    '- `app/j.vue:10` · see [a][q`] &lt;i>x&lt;/i> `c` · refuted: untouched code',
+    '- `app/k.vue:11` · see http://x.com/a`b &lt;i>x&lt;/i> `c` · refuted: untouched code',
+    '- `app/l.vue:12` · see WWW.x.com/`a &lt;i>x&lt;/i> `b` · refuted: untouched code',
+    '- `app/m.vue:13` · first\r&lt;/details> and @' + WJ + 'param · refuted: untouched code',
+    '- `app/n.vue:14` · App\\Models\\User::save drops `<x-slot>` and `@csrf` when `$a && $b`, beside a \\&lt;b> and \\&amp; c · refuted: untouched code',
+    '- `app/o.vue:15` · see [a](/u) and `@' + WJ + 'param` · refuted: untouched code',
+    '- `app/p.vue:16` · `$a[0] < $b` and `[data-x] <i>` &amp; more · refuted: untouched code',
+    '- `app/r.vue:17` · a typed @&amp;#8288;x stays as typed · refuted: untouched code',
   ]
   const eb = body(run.calls, 'post r1')
   handoff = comment(run.calls, 'handoff comment')
   const oneBlock = (text) => text.split('<details>').length === 2 && text.split('</details>').length === 2 && text.split('<summary>').length === 2
-  check('coverage: the set-aside block escapes & and < and neutralises @ outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('### Candidates set aside (17)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && handoff.includes('### Candidates set aside in round 1 (17)\n\n<details>\n<summary>Collapsed, already tracked or dropped</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
+  check('coverage: the set-aside block escapes & and < and neutralises @ outside code spans, leaves a span as written, and stays one collapsed block, in the review body and the handoff', eb.includes('### Candidates set aside (17)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && handoff.includes('### Candidates set aside in round 1 (17)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n' + escapedLines.join('\n') + '\n\n</details>') && oneBlock(eb) && oneBlock(handoff), [eb, handoff])
   // One check per way the reading can go wrong, so a failure names the rule that broke.
   const blockLine = (n) => eb.includes(escapedLines[n - 1] + '\n')
   check('posted text: an @ before a letter or a digit gets the joiner\'s reference &#8288;, outside a span and in the ref, while @ in a span and @-x stay as written', blockLine(8), eb)
@@ -1681,7 +1766,7 @@ function samePrefix(name, first, second, n) {
   // What the GitHub agent copies with the Write tool holds the neutraliser as plain ASCII, so a copy
   // that dropped it would show, and holds no raw joiner (the #87 follow-up spec, decision 2).
   check('posted text: the post prompt and the handoff prompt carry @&#8288; and no raw U+2060', ['post r1', 'handoff comment'].every((label) => pick(run.calls, label).prompt.includes('@' + WJ + 'param') && !pick(run.calls, label).prompt.includes(RAW_WJ)), ['post r1', 'handoff comment'].map((label) => pick(run.calls, label).prompt.includes(RAW_WJ)))
-  check('posted text: a For the person line goes through the same function, in the review body and the handoff', eb.includes('### For the person\n\n- `app/q.vue:1` · a &lt;b> &amp; c note from @' + WJ + 'param\n') && handoff.includes('- `app/q.vue:1` · a &lt;b> &amp; c note from @' + WJ + 'param\n'), eb)
+  check('posted text: a Would confirm line goes through the same function', eb.includes('### Could not confirm (1)\n\n- **R1-1** · nit · low · unconfirmed · `app/x.php:1` · title R1-1\n  Would confirm it: a &lt;b> &amp; c note from @' + WJ + 'param\n'), eb)
 
   // A duplicate's target, by the form of its ref (the #85 follow-up spec's shaping default "A
   // duplicate's target"; #86, R4-2): `index N` in lower case and `candidate N` in upper case each
@@ -1719,14 +1804,14 @@ function samePrefix(name, first, second, n) {
   // A duplicate of a candidate that became a finding (#86, R5-4): the block does not list the
   // finding, which sits under Findings and may be anchored on another line than the candidate, so
   // the duplicate's line names the finding's id after the target's place and outcome. A target of
-  // any other outcome gets no id: the refuted and For the person targets above end at the outcome.
+  // any other outcome gets no id: the refuted targets above end at the outcome.
   const intoFinding = fenced([cand('app/x.php', 3, 'the real one'), cand('app/x.php', 8, 'the same cause, seen from the save')])
-  run = await go('coverage: a duplicate of a candidate that became a finding', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [intoFinding, two], coverageOut: [[{ index: 1, outcome: 'finding', ref: 'R1-1' }, { index: 2, outcome: 'duplicate', ref: '1' }], settledAll] })
+  run = await go('coverage: a duplicate of a candidate that became a finding', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [intoFinding, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'duplicate', ref: '1' }], settledAll] })
   const ib = body(run.calls, 'post r1')
-  check('coverage: a duplicate of a candidate that became a finding names the finding\'s id after the target\'s place and outcome', ib.includes('\n- `app/x.php:8` · the same cause, seen from the save · duplicate: 1 (candidate 1, `app/x.php:3`: finding R1-1)\n'), ib)
+  check('coverage: a duplicate of a candidate that became a finding names the finding\'s id after the target\'s place and outcome', ib.includes('\n- `app/x.php:8` · the same cause, seen from the save · duplicate: 1 (candidate 1, `app/x.php:3`: verified R1-1)\n'), ib)
 
   // coverage off: no candidates, so no set-aside block anywhere.
-  check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
+  check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('Candidates set aside'), body(offRules.calls, 'post r1'))
 }
 
 // ---------------------------------------------------------------------------
@@ -1747,32 +1832,31 @@ function samePrefix(name, first, second, n) {
   // The lines outside the block, with a defer: the finding line and its inline comment's title, an
   // Already tracked line whose title leaves a backtick open that pairs with one in its knownAs (read
   // apart, `<c>` would sit outside GitHub's span), the summary (one with a newline is escaped
-  // whole), For the person, and the handoff's Deferred line, whose shaper mitigation stays raw.
+  // whole), and the handoff's Deferred line, whose shaper mitigation stays raw. The finding line
+  // keeps a suffix after its escaped title: R1-1 is under a repository ask rule.
   const outside = [
-    f('R1-1', 'correctness', { title: 'Binds @click to <b> & more', needsDecision: true }),
+    f('R1-1', 'correctness', { title: 'Binds @click to <b> & more', askRule: 'billing' }),
     f('R1-2', 'nit', { title: 'one ` open', knownAs: '#41 `<c>`' }),
     f('R1-3', 'correctness', { title: 'Deferred @csrf <i> check' }),
   ]
-  let run = await go('posted text: the lines outside the block', baseArgs, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], mitigation: 'a <b> guard', commitIds: [['R1-1', 'R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'], forThePerson: [[{ file: 'app/q.vue', line: 2, text: 'see @param <b> & c' }], []] })
+  let run = await go('posted text: the lines outside the block', { ...baseArgs, askRules: [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }], decisions: { 'R1-1': { choice: 'Make the change by hand after the run', notes: 'The author makes it by hand.', date: '2026-11-13' } } }, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], askRule: { 'R1-1': 'billing' }, mitigation: 'a <b> guard', commitIds: [['R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'] })
   const r1 = review(run.calls, 'post r1')
-  check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · likely · `app/x.php:1` · ' + posted + ' · needs a decision\n'), r1.body)
+  check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · ' + posted + ' · left to @author under rule billing\n'), r1.body)
   check('posted text: the inline comment\'s title line is escaped the same way', r1.comments.some((c) => c.body.includes('\n\n**' + posted + '**\n\n')), r1.comments.map((c) => c.body))
   check('posted text: an Already tracked line reads its title and knownAs as one text', r1.body.includes('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`'), r1.body)
   check('posted text: the summary is escaped and neutralised', r1.body.includes('\n\nUses @' + WJ + 'param and &lt;b>.\n\n'), r1.body)
   check('posted text: a summary with a newline is escaped whole, its span included', review(run.calls, 'post r2').body.includes('\n\nLine one with `&lt;b>`\nline two\n\n'), review(run.calls, 'post r2').body)
-  check('posted text: a For the person line is escaped and neutralised', r1.body.includes('### For the person\n\n- `app/q.vue:2` · see @' + WJ + 'param &lt;b> &amp; c'), r1.body)
-  check('posted text: the closing sentence follows the last finding list, Already tracked, and comes before For the person', r1.body.includes('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`\n\n' + CLOSING + '\n\n### For the person\n\n'), r1.body)
+  check('posted text: the closing sentence follows the last finding list, Already tracked, and ends the body', r1.body.endsWith('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`\n\n' + CLOSING), r1.body)
   let handoff = comment(run.calls, 'handoff comment')
   check('posted text: the handoff\'s Deferred line escapes the title and posts the shaper\'s mitigation as written', handoff.includes('- **R1-3** Deferred @' + WJ + 'csrf &lt;i> check: shipped a <b> guard; open: a lock'), handoff)
-  check('posted text: the handoff\'s For the person line is escaped too', handoff.includes('- `app/q.vue:2` · see @' + WJ + 'param &lt;b> &amp; c'), handoff)
   check('posted text: the hand-off line to the reviewer is written as before, a live mention', handoff.includes('\n\n@sam, over to you for the human review.\n\n'), handoff)
 
   // A decision line holds a finding's title and its owner: the title is neutralised, the person's
   // restatement and `decided by: @author` are posted as written.
-  const asked = { reviews: [[f('R1-1', 'correctness', { title: 'Asked <s> & @param', needsDecision: true })], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const asked = { reviews: [[f('R1-1', 'correctness', { title: 'Asked <s> & @param' })], []], ask: ['R1-1'], commitIds: [['R1-1']] }
   run = await go('posted text: a decision line', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'The author keeps <s> as it is.', date: '2026-11-12' } } }, asked)
   handoff = comment(run.calls, 'handoff comment')
-  check('posted text: a Decisions line escapes the title and keeps the restatement and the owner as written', handoff.includes('### Decisions\n\n- **R1-1** Asked &lt;s> &amp; @' + WJ + 'param: The author keeps <s> as it is. · decided by: @author'), handoff)
+  check('posted text: a decision\'s line escapes the title and keeps the restatement and the owner as written', handoff.includes('### Put to @author (1)\n\n- **R1-1** Asked &lt;s> &amp; @' + WJ + 'param: The author keeps <s> as it is. Applied in 1bbbbbb. · decided by: @author'), handoff)
 
   // The round trip (#87, decision 7): a title prior-findings read back escaped is decoded at intake,
   // so the reviewer reads it as written and every line that posts it again escapes it once. R1-1
@@ -1791,14 +1875,14 @@ function samePrefix(name, first, second, n) {
   check('posted text: the reviewer\'s carry list shows a read-back title decoded, the joiner\'s reference stripped', rp.includes('"title": "Binds @click to <b> & more"'), rp.slice(rp.indexOf('with no disposition')))
   check('posted text: a read-back literal &lt; reaches the reviewer as <', rp.includes('"title": "Escape < by hand"'), rp.slice(rp.indexOf('already handled')))
   const r2 = review(run.calls, 'post r2')
-  check('posted text: the fallback carry posts the read-back title escaped once', r2.body.includes('\n- **R2-2** · correctness · low · likely · `app/x.php:1` · ' + posted + ' · first reported as R1-1\n'), r2.body)
+  check('posted text: the fallback carry posts the read-back title escaped once', r2.body.includes('\n- **R2-2** · correctness · low · unconfirmed · `app/x.php:1` · ' + posted + ' · first reported as R1-1\n  Would confirm it: '), r2.body)
   check('posted text: the fallback carry\'s inline comment title is escaped once', r2.comments.some((c) => c.body.startsWith('**R2-2** · ') && c.body.includes('\n\n**' + posted + '**\n\nFirst reported as R1-1')), r2.comments.map((c) => c.body))
   check('posted text: a carried title posted before #87 is escaped, beside its knownAs, read as one text', r2.body.includes('\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2'), r2.body)
   check('posted text: a Resolved line escapes the read-back title and the verifier\'s why as one text', r2.body.includes('### Resolved from earlier rounds\n\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: The &lt;i> line @' + WJ + 'went away.'), r2.body)
-  check('posted text: with Carried forward, Resolved and Already tracked and no For the person, the closing sentence ends the body, after Already tracked', r2.body.endsWith('### Already tracked\n\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2\n\n' + CLOSING), r2.body)
+  check('posted text: with Carried forward, Resolved and Already tracked the closing sentence ends the body, after Already tracked', r2.body.endsWith('### Already tracked\n\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2\n\n' + CLOSING), r2.body)
   handoff = comment(run.calls, 'handoff comment')
   check('posted text: Earlier rounds escapes each read-back title once, with the knownAs and the why, and posts an earlier reply as written', handoff.includes('### Earlier rounds\n\n- **R1-1** ' + posted + ': carried forward as R2-2: fixed in ') && handoff.includes('\n- **R1-2** Old &lt;b> &amp; title: carried forward as R2-1: already tracked in #41 @' + WJ + 'param\n') && handoff.includes('\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: resolved: The &lt;i> line @' + WJ + 'went away. · decided by: redline\n') && handoff.includes('\n- **R1-4** Escape &lt; by hand: already handled in round 1: not acted on in this run. Keep <b>. · decided by: @author'), handoff)
-  check('posted text: a carried finding\'s Decisions line escapes its read-back title once', handoff.includes('### Decisions\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
+  check('posted text: a carried finding\'s line under Fixed escapes its read-back title once', handoff.includes('<summary>With the commits that fixed each</summary>\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
   // A `@&#8288;` readBack left in place has its `&` escaped when the title is posted again, so a
   // missing strip shows as `&amp;#8288;` beside the other double escapes. The raw joiner's clause,
   // dropped in #89, R1-1, could not fail; this one can (the #87 follow-up spec).
@@ -1845,7 +1929,7 @@ function samePrefix(name, first, second, n) {
 //     highest posted round, so a run can never finish from a re-run earlier round.
 // ---------------------------------------------------------------------------
 {
-  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
   const decided = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-12' } } }
   const first = await go('pin: hand-off', baseArgs, scenario)
   check('pin: the launch stops at the hand-off', first.res.status === 'handoff', first.res.status)
@@ -1875,16 +1959,18 @@ function samePrefix(name, first, second, n) {
   check('pin: a changed workflow with a pinned copy runs on', kept.res.status === 'done', [kept.res.status, kept.res.error])
   check('pin: and every prompt equals the relaunch without drift', kept.calls.length === pinned.calls.length && kept.calls.every((c, i) => same(c, pinned.calls[i])), labels(kept.calls))
 
-  // Agent files cannot be pinned, so a changed one is reported: a warning in the result and the
-  // same sentence in the handoff comment. Nothing before Finish reads it.
+  // Agent files cannot be pinned, so a changed one is reported: a warning in the result, which the
+  // skill shows while rounds are still ahead, and the same fact in the handoff comment, in the past
+  // tense, since the comment is posted after the last round (#93). Nothing before Finish reads it.
   const sentence = 'Agent files changed since this run launched (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): this run\'s remaining rounds may run under them, while the workflow\'s own prompts are the launch\'s.'
+  const past = 'Agent files changed during this run (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): the rounds after the change may have run under them, while the workflow\'s own prompts were the launch\'s.'
   const agents = await go('pin: changed agent files', { ...decided, drift: { workflow: '', pinned: true, agents: ['agents/redline-reviewer.md', 'agents/redline-shaper.md'] } }, scenario)
   check('pin: changed agent files do not stop the run', agents.res.status === 'done', [agents.res.status, agents.res.error])
   check('pin: the result warns with the sentence', agents.res.warnings.includes(sentence), agents.res.warnings)
   const withSentence = comment(agents.calls, 'handoff comment')
   const without = comment(pinned.calls, 'handoff comment')
-  check('pin: the handoff comment carries the same sentence as its own paragraph', withSentence.includes(`\n\n${sentence}\n\n`), withSentence.slice(0, 600))
-  check('pin: and is otherwise the handoff comment of a run without drift', withSentence.replace(`${sentence}\n\n`, '') === without, withSentence.slice(0, 600))
+  check('pin: the handoff comment says the same in the past tense, as its own paragraph, and never as a forecast', withSentence.includes(`\n\n${past}\n\n`) && !withSentence.includes('remaining rounds may run'), withSentence.slice(0, 600))
+  check('pin: and is otherwise the handoff comment of a run without drift', withSentence.replace(`${past}\n\n`, '') === without, withSentence.slice(0, 600))
   const beforeFinish = agents.calls.findIndex((c) => c.label === 'handoff comment')
   check('pin: every prompt before the handoff comment equals the run without drift', beforeFinish > 0 && agents.calls.slice(0, beforeFinish).every((c, i) => same(c, pinned.calls[i])), labels(agents.calls))
   const empty = await go('pin: drift with nothing in it', { ...decided, drift: { workflow: '', pinned: true, agents: [] } }, scenario)
@@ -1937,6 +2023,343 @@ function samePrefix(name, first, second, n) {
   const unread = await go('finish: the read fails', baseArgs, { reviews: [[]], lastRoundError: 'gh: not logged in' })
   check('finish: a failed read stops the run at the read, resumable there', unread.res.status === 'error' && unread.res.stage === 'finish' && unread.res.resumeFrom && unread.res.resumeFrom.label === 'last round' && unread.res.error.includes('gh: not logged in') && labels(unread.calls).slice(-1)[0] === 'last round', [unread.res.error, unread.res.resumeFrom])
 }
+
+// ---------------------------------------------------------------------------
+// 18. The shaper decides (#93): a decline is a disposition of its own, with a reason, a reply and
+//     a settled thread and no commit; a decline without a reason, and an ask outside the cases,
+//     stop at shape; a human review pass still refuses both a decline and nothing else it took
+//     before; a finding a repository ask rule covers is put to the person even when the shaper
+//     would decline it; the plan dial shows a decline and can overrule it; an earlier run's
+//     decline is handled, never carried.
+// ---------------------------------------------------------------------------
+{
+  const shaperAgent = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
+  const template = fs.readFileSync(path.join(here, '..', 'templates', 'shape-spec-unattended.md'), 'utf8')
+  const section = fs.readFileSync(path.join(here, '..', '.claude', 'commands', 'agent-os', 'shape-spec.md'), 'utf8')
+  const why = 'the pull request\'s spec keeps the name on purpose (decision 4 in its shape.md)'
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'nit')], []], decline: ['R1-2', 'R1-3'], reason: { 'R1-2': why }, commitIds: [['R1-1']] }
+  let run = await go('decline: the shaper declines two on its own', baseArgs, scenario)
+  check('decline: a decline never stops a guided run, and nothing is resolved by a person', run.res.status === 'done' && !labels(run.calls).some((l) => l.startsWith('resolve r')), [run.res.status, labels(run.calls)])
+  check('decline: the reply gives the reason and the owner', replyFor(run.calls, 'push and reply r1', 'R1-2') === `Redline round 1: declined: ${why} · decided by: redline`, replyFor(run.calls, 'push and reply r1', 'R1-2'))
+  check('decline: the round records it as declined, and the fix beside it as fixed', run.res.rounds[0].outcomes['R1-2'] === `declined: ${why} · decided by: redline` && run.res.rounds[0].outcomes['R1-1'].startsWith('fixed in 1bbbbbb'), run.res.rounds[0].outcomes)
+  check('decline: the next review sees it as an outcome', pick(run.calls, 're-review r2').prompt.includes(`"outcome": "declined: ${why} · decided by: redline"`), pick(run.calls, 're-review r2').prompt.slice(0, 2500))
+  check('decline: the handoff carries its line with the reason and the owner', comment(run.calls, 'handoff comment').includes(`**R1-2** title R1-2: declined: ${why} · decided by: redline`), comment(run.calls, 'handoff comment'))
+  const sweep = pick(run.calls, 'resolve threads').prompt
+  check('decline: a declined thread is settled and swept with the fixed one', sweep.includes('- R1-1 (round 1): comments 100, ') && sweep.includes('- R1-2 (round 1): comments 101, ') && sweep.includes('- R1-3 (round 1): comments 102, ') && comment(run.calls, 'handoff comment').includes('Resolved 3 threads; 0 left open.'), sweep)
+  const shape = pick(run.calls, 'shape r1').prompt
+  check('decline: the shape prompt names the four dispositions and the ask cases, and no longer returns every judgment call', shape.includes('Sort each finding into fix, decline, defer or ask') && shape.includes('the person is asked in five cases only') && shape.includes('never a degree of confidence') && shape.includes('serious if it were true') && !shape.includes('Judgment calls are returned, never decided'), shape.slice(-2600))
+  const planPrompt = pick(run.calls, 'plan approver r1').prompt
+  check('decline: the plan approver sees the decline with its reason and is told it has no task', planPrompt.includes('"disposition": "decline"') && planPrompt.includes(`"reason": "${why.replace(/'/g, "'")}"`) && planPrompt.includes('A declined finding has no task') && !planPrompt.includes('Judgment calls are returned, never decided'), planPrompt.slice(-1600))
+  check('decline: the implementer is told a declined finding has no task', pick(run.calls, 'implement r1').prompt.includes('a declined finding has no task') && pick(run.calls, 'implement r1').prompt.includes('A decision that is still pending is the person\'s'), pick(run.calls, 'implement r1').prompt.slice(0, 1800))
+  for (const phrase of ['asked in five cases only', 'never a degree of confidence', 'could not confirm: needs', 'serious if it were true', 'one idea, smaller than the pull request', 'records as deliberate']) {
+    check(`decline: the shaper's file, the template and this repository's section all say "${phrase}"`, shaperAgent.includes(phrase) && template.includes(phrase) && section.includes(phrase), [shaperAgent.includes(phrase), template.includes(phrase), section.includes(phrase)])
+  }
+
+  run = await go('decline: no reason', baseArgs, { ...scenario, declineNoReason: ['R1-3'] })
+  check('decline: a decline with no reason stops at shape, resumable at the shaper', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper declined R1-3 with no reason; a decline carries the reason a teammate reads in the thread' && run.res.resumeFrom && run.res.resumeFrom.label === 'shape r1', [run.res.status, run.res.error, run.res.resumeFrom])
+
+  const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  run = await go('ask: outside the cases', baseArgs, { ...asked, whyHuman: { 'R1-1': 'unsure' } })
+  check('ask: a reason that is not one of the cases stops at shape, and the person is not asked', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper asked about R1-1 because of "unsure", which is not one of the cases the person is asked in on a Redline round (product decision, spec assumption, outside the pull request, no clear pick, unconfirmed, serious if true, redline\'s own file, or a repository rule)' && (run.res.judgmentCalls || []).length === 0, [run.res.status, run.res.error])
+  check('ask: a refused reason names the shaper as the step to resume, not the spec check', JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'shape r1', attempt: 2 }), run.res.resumeFrom)
+  // On a reshape the error names that reshape (#94, R2-9).
+  run = await go('ask: outside the cases on a reshape', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, reshapeAsk: ['R1-1'], whyHuman: { 'R1-1': 'unsure' }, commitIds: [['R1-1']] })
+  check('ask: a refused reason on a reshape names that reshape as the step to resume', run.res.status === 'error' && run.res.stage === 'shape' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [run.res.status, run.res.error, run.res.resumeFrom])
+  // A call a repository rule covers is judged by the reason the rule gives it, so the shaper's own
+  // reason, outside the cases, never stops the round (#94, R1-13).
+  run = await go('ask: outside the cases, under a repository rule', { ...baseArgs, askRules: [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }] }, { ...asked, reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], whyHuman: { 'R1-1': 'unsure' } })
+  check('ask: a rule-covered call whose reason is outside the cases is not refused, and is asked under the rule', run.res.status === 'handoff' && run.res.handoffKind === 'decisions' && (run.res.judgmentCalls || []).length === 1 && run.res.judgmentCalls[0].why_human === 'repository rule craft-config', [run.res.status, run.res.error, run.res.judgmentCalls])
+  for (const reason of ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file']) {
+    run = await go(`ask: ${reason}`, baseArgs, { ...asked, whyHuman: { 'R1-1': reason } })
+    check(`ask: "${reason}" is a reason the person is asked for, and the run stops for them`, run.res.status === 'handoff' && run.res.handoffKind === 'decisions' && run.res.judgmentCalls[0].why_human === reason, [run.res.status, run.res.error])
+  }
+
+  // A human review pass is unchanged: it keeps its own reasons and its own wording, and it gains
+  // no decline.
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanArgs = (findings) => ({ ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings, commentIds: Object.fromEntries(findings.map((x) => [x.id, x.threadId])), posted: true } })
+  run = await go('human: the shaper declines', humanArgs([h('H1-1')]), { reviews: [], decline: ['H1-1'], commitIds: [[]] })
+  check('human: a decline stops the pass at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1', [run.res.status, run.res.error, labels(run.calls)])
+  run = await go('human: an ask for a reason of its own', humanArgs([h('H1-1')]), { reviews: [], ask: ['H1-1'], whyHuman: { 'H1-1': 'unsure' }, commitIds: [[]] })
+  check('human: a human pass still asks for its own reasons, in its own words', run.res.status === 'handoff' && run.res.judgmentCalls[0].why_human === 'unsure' && pick(run.calls, 'shape h1').prompt.includes('Judgment calls are returned, never decided') && pick(run.calls, 'shape h1').prompt.includes('Sort each finding into fix, ask or none; never defer'), [run.res.status, run.res.error])
+  // Its schema is its own (#94, R1-5): HUMAN_WHY, and none of the Redline round's cases.
+  const humanEnum = whyEnum(run.calls, 'shape h1')
+  check('human: a human pass\'s shaper schema keeps its own reasons and has none of a Redline round\'s', ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].every((w) => humanEnum.includes(w)) && !humanEnum.includes('redline\'s own file') && !humanEnum.includes('outside the pull request'), humanEnum)
+  check('human: a human pass\'s shaper schema takes fix, ask and none, and no decline or defer', dispositionEnum(run.calls, 'shape h1').join('|') === 'fix|ask|none', dispositionEnum(run.calls, 'shape h1'))
+
+  // A repository ask rule still wins: the person is brought in even for what the shaper would decline.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruled = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], decline: ['R1-2'], reason: { 'R1-2': 'the handle is renamed on purpose' }, commitIds: [['R1-1']] }
+  run = await go('decline: under a repository rule', { ...baseArgs, askRules: rules }, ruled)
+  check('decline: a rule-covered decline is still put to the person, with a warning', run.res.status === 'handoff' && JSON.stringify(run.res.decisionsNeeded) === '["R1-2"]' && run.res.warnings.includes('round 1: the shaper sorted R1-2 as decline; repository rule craft-config makes it an ask for the person'), [run.res.status, run.res.warnings])
+  check('decline: its call says what Redline would have done and recommends no change', run.res.judgmentCalls[0].why_human === 'repository rule craft-config' && run.res.judgmentCalls[0].recommendation === 'Accept, no change: the handle is renamed on purpose.' && run.res.judgmentCalls[0].options[0].effect === 'Redline would have declined it: the handle is renamed on purpose.', run.res.judgmentCalls[0])
+
+  // Autopilot never stops: the ask is taken, the decline is Redline's own and stays so.
+  const mixed = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], commitIds: [['R1-1', 'R1-3']] }
+  run = await go('decline: autopilot', { ...baseArgs, interrupt: 'autopilot' }, mixed)
+  check('decline: autopilot goes through, and the decline is redline\'s, not the autopilot\'s', run.res.status === 'done' && replyFor(run.calls, 'push and reply r1', 'R1-2').endsWith(' · decided by: redline') && replyFor(run.calls, 'push and reply r1', 'R1-3').endsWith(' · decided by: redline (autopilot)'), [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-2')])
+
+  // The plan dial shows a decline with its reason, and the person can overrule it there.
+  const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], decline: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const planArgs = { ...baseArgs, interrupt: 'plan' }
+  const first = await go('decline: the plan dial shows it', planArgs, two)
+  check('decline: the plan list carries the decline, its reason and its owner', first.res.status === 'handoff' && first.res.handoffKind === 'plan' && first.res.plan[1].disposition === 'decline' && first.res.plan[1].reason === 'the spec keeps R1-2 as it is on purpose' && first.res.plan[1].decidedBy === 'redline', first.res.plan)
+  const overruled = { ...planArgs, approvedPlans: [1], decisions: { 'R1-2': { choice: 'fix', notes: 'The author wants the rename now, since a third caller lands next week.', date: '2026-11-13', disposition: 'fix' } } }
+  const second = await go('decline: overruled on the plan dial', overruled, two)
+  samePrefix('decline plan', first.calls, second.calls, 5)
+  const resolve = pick(second.calls, 'resolve r1').prompt
+  check('decline: the resolve agent gets the override and is told a decline can be changed', second.res.status === 'done' && resolve.includes('Disposition overrides') && resolve.includes('"disposition": "fix"') && resolve.includes('a finding the shaper declined') && resolve.includes('A decision that is still pending is the person\'s'), [second.res.status, resolve.slice(-1500)])
+  check('decline: an overruled decline is fixed, decided by the person', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author wants the rename now, since a third caller lands next week. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
+
+  // An earlier run's decline is a disposition: handled, never carried into the new run.
+  const priors = [prior('R1-1', 'declined', { comment_id: 11, reply: { id: 250, body: 'declined: the spec keeps it on purpose · decided by: redline' } })]
+  run = await go('decline: an earlier run declined one', { ...baseArgs, firstRound: 2, priorFindings: priors }, { reviews: [[]] })
+  const rp = run.calls.length ? pick(run.calls, 'review r2').prompt : ''
+  check('decline: an earlier decline is in the handled list with its reply, and nothing is carried', !run.thrown && run.res.status === 'done' && rp.includes('"disposition": "declined"') && rp.includes('"reply": "declined: the spec keeps it on purpose · decided by: redline"') && !rp.includes('with no disposition'), [run.thrown && run.thrown.message, rp.slice(0, 200)])
+  check('decline: the handoff says what the earlier round did with it', !run.thrown && comment(run.calls, 'handoff comment').includes('already handled in round 1: declined: the spec keeps it on purpose · decided by: redline'), run.thrown ? run.thrown.message : comment(run.calls, 'handoff comment'))
+  // A carried finding the new round declines: the earlier thread hears the decline and is swept
+  // with the new one, as a carried finding that was fixed is (the second place the settled kinds
+  // are read).
+  run = await go('decline: a carried finding is declined', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-2' })], []], decline: ['R2-1'], commitIds: [[]] })
+  const carriedSweep = labels(run.calls).includes('resolve threads') ? pick(run.calls, 'resolve threads').prompt : ''
+  check('decline: the earlier thread of a carried, declined finding hears it and is swept', run.res.status === 'done' && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; declined: the spec keeps R2-1 as it is on purpose · decided by: redline' && carriedSweep.includes('- R1-2 (round 1): comments 12, ') && carriedSweep.includes('- R2-1 (round 2): comments 100, ') && comment(run.calls, 'handoff comment').includes('Resolved 2 threads; 0 left open.'), [run.res.status, carriedSweep.slice(carriedSweep.indexOf('These findings')), comment(run.calls, 'handoff comment').slice(0, 300)])
+}
+
+// ---------------------------------------------------------------------------
+// 19. The done rule (#93): a round is bought by what it finds, not by what it commits. A new
+//     correctness item the shaper fixes or puts to the person buys the next round, whatever the
+//     answer and with or without a commit; a round whose items are all nits, or all declined by
+//     the shaper on its own, ends: at the handoff when no fix was committed, after one final nit
+//     pass over the fixes when one was. The cap is as it was. With the coverage pass off there
+//     is no pass to rerun, so a bought round that changed no code ends the run. No wording says
+//     an item was fixed when it was declined.
+// ---------------------------------------------------------------------------
+{
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const one = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }]) + '\n```\n'
+  const acct = (ref, outcome = 'verified') => [{ index: 1, outcome, ref }]
+  const promptOf = (calls, label) => (pick(calls, label) || { prompt: '' }).prompt
+  const body = (calls, label) => {
+    const p = promptOf(calls, label)
+    if (!p.includes('{\n  "body"')) {
+      return ''
+    }
+    return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2)).body
+  }
+  const keep = { 'R1-1': { choice: 'Accept', notes: 'The author accepts it as it is.', date: '2026-11-13' } }
+
+  // A correctness fix buys a round, and the run ends when the next round verifies nothing new.
+  let run = await go('done: a correctness fix buys a round', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] })
+  check('done: a correctness fix buys the next round, and a round that verifies nothing new ends the run', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|') && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds; the last one verified no new correctness item to fix or ask about.\n'), [run.res.status, labels(run.calls)])
+
+  // An ask the person answers with no change buys a round too: no commit, so the next round has no
+  // fix diff to recheck, and it runs the coverage pass and verify at the same head.
+  const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] }
+  const stop = await go('done: an ask stops a guided run', covArgs, asked)
+  run = await go('done: an ask answered with no change', { ...covArgs, decisions: keep }, asked)
+  samePrefix('done: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
+  check('done: an ask answered with no change, and no commit, still buys the next round', run.res.status === 'done' && run.res.rounds.length === 2 && replyFor(run.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: The author accepts it as it is. No code change. · decided by: @author' && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|'), [run.res.status, labels(run.calls)])
+  const noDiff = promptOf(run.calls, 're-review r2')
+  check('done: the round after a round that changed no code is told there is no fix diff, and still verifies the candidates', noDiff.includes('- The diff to review: none: round 1 changed no code, so there is no fix diff to recheck') && noDiff.includes('after round 1, which changed no code (HEAD ' + 'a'.repeat(40) + ')') && noDiff.includes('There is no fix diff to recheck this round.') && !noDiff.includes('only the fix diff') && !noDiff.includes('Your recheck of the fix diff named above') && noDiff.includes('Candidates from the coverage pass.'), noDiff.slice(0, 1500))
+  // It says no fix was committed and never claims the diff is empty, which a standards commit is not (#94, R1-20).
+  check('done: the no-fix-diff prompt says the round committed no fix and never claims its diff is empty', noDiff.includes('round 1 committed no fix; its spec and standards commits are not one') && !noDiff.includes('is empty)'), noDiff.slice(0, 1500))
+  check('done: its coverage pass runs at the same head, and its review body says what was reviewed', promptOf(run.calls, 'coverage r2').includes('at ' + 'a'.repeat(40)) && body(run.calls, 'post r2').startsWith('Redline round 2\n\nRound 1 changed no code; reviewed the coverage pass\'s candidates over the whole pull request at aaaaaaa.\n') && run.res.rounds.length === 2 && run.res.rounds[1].range.empty === true, [body(run.calls, 'post r2').slice(0, 300), run.res.rounds.length])
+
+  // An asked nit buys nothing: only a correctness item does.
+  run = await go('done: an asked nit buys nothing', { ...covArgs, decisions: keep }, { reviews: [[f('R1-1', 'nit')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]], coverage: [one], coverageOut: [acct('R1-1')] })
+  check('done: an asked nit, answered with no change, buys no round', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).includes('coverage r2') && run.res.note === 'The last revise pass committed no fix, so there was no fix diff to re-review.', [run.res.status, labels(run.calls), run.res.note])
+
+  // Everything declined by the shaper on its own: no commit, no final nit pass, the handoff.
+  run = await go('done: all declined', covArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')]], decline: ['R1-1', 'R1-2'], commitIds: [[]], coverage: [one], coverageOut: [acct('R1-1')] })
+  check('done: a round whose items are all declined ends at the handoff, with no further pass of any kind', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).some((l) => l.startsWith('coverage r2') || l.startsWith('final nit pass')) && comment(run.calls, 'handoff comment').includes('Redline ran 1 review round; the last one verified no new correctness item to fix or ask about.\n'), [run.res.status, labels(run.calls)])
+
+  // A declined correctness item beside a fixed nit: the fix gets the final nit pass, not a full round.
+  run = await go('done: a declined correctness item beside a fixed nit', covArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], decline: ['R1-1'], commitIds: [['R1-2']], coverage: [one, one], coverageOut: [acct('R1-1')] })
+  check('done: a declined correctness item buys nothing, so a nit fix beside it goes to the final nit pass', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('final nit pass r2') && !labels(run.calls).includes('coverage r2') && !labels(run.calls).includes('re-review r2'), labels(run.calls))
+
+  // A decline the person overrules to a fix buys a round, as a fix of the shaper's own does.
+  run = await go('done: an overruled decline', { ...covArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it now.', date: '2026-11-13', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-1'], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] })
+  check('done: a decline the person overrules to a fix buys the next round', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('coverage r2') && labels(run.calls).includes('re-review r2'), [run.res.status, labels(run.calls)])
+
+  // A finding left to the person under a repository rule is put to the person, so it buys a round
+  // with no commit, on guided and on autopilot alike.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruled = { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], commitIds: [[]], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] }
+  run = await go('done: left to the person on autopilot', { ...covArgs, askRules: rules, interrupt: 'autopilot' }, ruled)
+  check('done: a correctness item left to the person under a rule buys the next round, and autopilot never stops', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('coverage r2') && promptOf(run.calls, 're-review r2').includes('round 1 changed no code'), [run.res.status, labels(run.calls)])
+
+  // With the coverage pass off there is no pass to rerun: a bought round that changed no code ends.
+  run = await go('done: coverage off, a bought round with no fix', { ...baseArgs, decisions: keep }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]] })
+  check('done: with the coverage pass off, a bought round that changed no code ends the run and says why', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).some((l) => l.startsWith('re-review')) && run.res.note === 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' && comment(run.calls, 'handoff comment').includes('Redline ran 1 review round; the last one changed no code, and with the coverage pass off there was nothing further to review.\n'), [run.res.status, run.res.note, comment(run.calls, 'handoff comment').slice(0, 300)])
+  run = await go('done: coverage off, a correctness fix', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('done: with the coverage pass off, a correctness fix still buys a fix-diff round', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r2') && promptOf(run.calls, 're-review r2').includes('only the fix diff'), labels(run.calls))
+
+  // The cap is as it was: past it, a new correctness item, confirmed or not, ends the run with the
+  // cap-hit comment, while a round of nits alone is still fixed and gets its final nit pass.
+  run = await go('done: the cap, an unconfirmed item', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { confidence: 'unconfirmed', wouldConfirm: 'w' })]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R2-1', 'unconfirmed')] })
+  check('done: past the cap a new correctness item ends the run with the cap-hit comment, confirmed or not', run.res.status === 'capped' && run.res.openFindings.map((x) => x.id).join(',') === 'R2-1' && !labels(run.calls).includes('shape r2') && comment(run.calls, 'cap-hit comment').includes('### Still open'), [run.res.status, labels(run.calls)])
+  run = await go('done: the cap, nits only', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R2-1')] })
+  check('done: past the cap a round of nits alone is still fixed and ends in its final nit pass', run.res.status === 'done' && labels(run.calls).includes('shape r2') && labels(run.calls).includes('final nit pass r3'), [run.res.status, labels(run.calls)])
+
+  // The final nit pass's endings: what it found is counted, and only what was fixed is called fixed.
+  const nitThen = (extra) => ({ reviews: [[f('R1-1', 'nit')], [f('R2-1', 'correctness'), f('R2-2', 'correctness')]], coverage: [one], coverageOut: [acct('R1-1')], ...extra })
+  run = await go('done: the final nit pass, one fixed and one declined', covArgs, nitThen({ decline: ['R2-2'], commitIds: [['R1-1'], ['R2-1']] }))
+  check('done: a final nit pass with one item fixed and one declined gives both counts, and flags the unreviewed fix', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness items in the nit fixes: 1 fixed in one more pass, which was not re-reviewed (please look at that commit first); 1 not changed, listed below. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  // The final nit pass's scope stands over the facts-only paragraph after it (#94, R1-8).
+  check('done: the final nit pass\'s scope stands over the facts-only paragraph, in its prompt and the agent file, and a whole-PR prompt has no such line', promptOf(run.calls, 'final nit pass r2').includes('This scope stands over the instruction below') && !promptOf(run.calls, 'review r1').includes('This scope stands over the instruction below') && reviewerAgent.includes('a scope that stands over the rule above'), promptOf(run.calls, 'final nit pass r2').slice(-1500))
+  // The kinds' last sentence is the pass's: a final nit pass is told what a correctness finding
+  // buys there, every other review keeps "buys another round" (#94, R2-2).
+  check('done: the final nit pass is told a correctness finding gets one more revise pass and then the run ends, and a whole-PR prompt keeps buys another round', promptOf(run.calls, 'final nit pass r2').includes('in this final nit pass a correctness finding the run acts on gets one more revise pass, and then the run ends') && !promptOf(run.calls, 'final nit pass r2').includes('buys another round') && promptOf(run.calls, 'review r1').includes('a correctness finding the run acts on buys another round.') && reviewerAgent.includes('(in a final nit pass, one more revise pass, after which the run ends)'), promptOf(run.calls, 'final nit pass r2').slice(-1200))
+  run = await go('done: the final nit pass, both declined', covArgs, nitThen({ decline: ['R2-1', 'R2-2'], commitIds: [['R1-1'], []] }))
+  check('done: a final nit pass whose items were all declined says none was changed, and flags nothing as unreviewed', run.res.status === 'done' && !('lastFixUnreviewed' in run.res) && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness items in the nit fixes; none was changed, and each is listed below. ') && !comment(run.calls, 'handoff comment').split('\n')[2].includes('fixed'), comment(run.calls, 'handoff comment').slice(0, 400))
+  run = await go('done: the final nit pass, both fixed', covArgs, nitThen({ commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
+  check('done: a final nit pass whose two items were both fixed says so in the plural', run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  // A correctness item put to the person buys the round even when a reshape re-sorts it to a
+  // decline afterwards: the call was asked (#94, R2-11). Coverage off, so the next round is a
+  // re-review of the fix diff rather than a final nit pass. The answer keeps the code as it is, so
+  // its task touches no file (acceptedCalls) and no commit has to name it.
+  run = await go('done: an answered ask a reshape declines still buys the round', { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-13' } } }, { reviews: [[f('R1-1', 'nit'), f('R1-2', 'correctness')], []], ask: ['R1-2'], acceptedCalls: ['R1-2'], planBounce: 1, reshapeDecline: ['R1-2'], reshapeOmitCall: ['R1-2'], commitIds: [['R1-1'], []] })
+  check('done: an answered correctness ask that a reshape re-sorts to a decline still buys the next round', labels(run.calls).includes('reshape r1 #1') && labels(run.calls).includes('re-review r2') && !labels(run.calls).includes('final nit pass r2'), labels(run.calls))
+  // A commit that mentions a declined item never makes the sentence call it fixed (#94, R2-12).
+  run = await go('done: the final nit pass, a declined item a commit mentions', covArgs, nitThen({ decline: ['R2-2'], commitIds: [['R1-1'], ['redline: R2-1 guard the loop; R2-2 needs no change']] }))
+  check('done: a commit that mentions a declined item does not count it fixed in the final nit pass sentence', comment(run.calls, 'handoff comment').includes('The final nit pass found 2 correctness items in the nit fixes: 1 fixed in one more pass, which was not re-reviewed (please look at that commit first); 1 not changed, listed below. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  // The neighbour: a deferral's mitigation commit is still counted, so it is flagged for a look.
+  // The sentence still calls it fixed; naming it apart is R2-12's deferred full fix.
+  run = await go('done: the final nit pass, one deferred with its mitigation', covArgs, nitThen({ defer: ['R2-1'], commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
+  check('done: a final nit pass deferral\'s mitigation commit is still flagged as unreviewed', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('### Deferred (mitigated now, full fix left open)\n\n- **R2-1** '), [run.res.status, run.res.lastFixUnreviewed, comment(run.calls, 'handoff comment')])
+
+  // The same after a human-review pass: its summary gives the counts (decision 8's question).
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanArgs = { ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } }
+  const two = [f('R3-1', 'correctness'), f('R3-2', 'correctness')]
+  run = await go('done: a human pass, the nit pass finds two, one fixed and one declined', humanArgs, { reviews: [two], decline: ['R3-2'], commitIds: [['H1-1'], ['R3-1']] })
+  check('done: after a human-review pass, a final nit pass with one item fixed and one declined gives both counts', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes: 1 fixed in one more pass that was not re-reviewed; 1 not changed, answered in its thread.'), comment(run.calls, 'summary comment'))
+  run = await go('done: a human pass, the nit pass finds two, both declined', humanArgs, { reviews: [two], decline: ['R3-1', 'R3-2'], commitIds: [['H1-1'], []] })
+  check('done: after a human-review pass, a final nit pass whose items were all declined never says fixed', run.res.status === 'done' && run.res.lastFixUnreviewed === false && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes; none was changed, and each is answered in its thread.') && !comment(run.calls, 'summary comment').includes('fixed in one more pass'), comment(run.calls, 'summary comment'))
+}
+
+// ---------------------------------------------------------------------------
+// 20. The handoff and the overrule (#93): the handoff groups every item of the run by what became
+//     of it, the declines up top with one line on how to overrule one, the fixes folded; the
+//     person is named by login, never by role; a decline is overruled by a typed line at a stop the
+//     run already makes, with the round's declines in the hand-off result; the result says what
+//     kind each decision was, for the closing summary in the session.
+// ---------------------------------------------------------------------------
+{
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const one = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }]) + '\n```\n'
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const seven = [f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'nit'), f('R1-4', 'correctness'), f('R1-5', 'correctness', { file: 'config/project/project.yaml', line: 3 }), f('R1-6', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'two workers on one queue' }), f('R1-7', 'nit')]
+  const scenario = { reviews: [seven, []], ask: ['R1-2'], decline: ['R1-3', 'R1-6', 'R1-7'], reason: { 'R1-6': 'could not confirm: needs two workers on one queue' }, secondLook: { 'R1-6': 'unconfirmed' }, defer: ['R1-4'], commitIds: [['R1-1', 'R1-2', 'R1-4', 'R1-7']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }]] }
+  const decisions = {
+    'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-13' },
+    'R1-5': { choice: 'Make the change by hand after the run', notes: 'Done by hand after the merge.', date: '2026-11-13' },
+    'R1-7': { choice: 'fix', notes: 'Fix it now; a third caller lands next week.', date: '2026-11-13', disposition: 'fix' },
+  }
+
+  // Door 1: the hand-off the run already makes for its asks carries the round's declines, and the
+  // relaunch takes a typed overrule beside the answers.
+  const stop = await go('layout: the hand-off', { ...covArgs, askRules: rules }, scenario)
+  check('overrule: a decisions hand-off carries the round\'s declines with their reasons', stop.res.status === 'handoff' && stop.res.handoffKind === 'decisions' && JSON.stringify(stop.res.declined) === JSON.stringify([{ id: 'R1-3', title: 'title R1-3', reason: 'the spec keeps R1-3 as it is on purpose' }, { id: 'R1-6', title: 'title R1-6', reason: 'could not confirm: needs two workers on one queue' }, { id: 'R1-7', title: 'title R1-7', reason: 'the spec keeps R1-7 as it is on purpose' }]), stop.res.declined)
+  // A second stop in the same round (here an answer the resolve agent could not apply) does not
+  // list again a decline the person already overruled (#94, R2-15).
+  const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
+  check('overrule: a second decisions stop leaves out a decline the person already overruled', again.res.status === 'handoff' && again.res.handoffKind === 'decisions' && JSON.stringify((again.res.declined || []).map((d) => d.id)) === '["R1-3","R1-6"]', [again.res.status, again.res.handoffKind, again.res.declined])
+  const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions }, scenario)
+  samePrefix('overrule: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
+  check('overrule: a typed overrule at the hand-off turns a decline into a fix decided by the person', run.res.status === 'done' && pick(run.calls, 'resolve r1').prompt.includes('Disposition overrides') && replyFor(run.calls, 'push and reply r1', 'R1-7') === 'Redline round 1: Fix it now; a third caller lands next week. Applied in 4bbbbbb (redline: R1-7 fix). · decided by: @author', [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-7')])
+  const handoff = comment(run.calls, 'handoff comment')
+  const folder = 'agent-os/specs/2026-10-20-1600-114-review-round-'
+  const expected = [
+    'Redline handoff',
+    '',
+    'Redline ran 2 review rounds; the last one verified no new correctness item to fix or ask about.',
+    '',
+    'Resolved 6 threads; 1 left open: R1-5 (repository rule craft-config).',
+    '',
+    '@sam, over to you for the human review.',
+    '',
+    '### Rounds',
+    '',
+    '- Round 1 (pr): 7 items: 1 fixed, 2 declined, 1 deferred, 1 put to @author, 1 overruled by @author, 1 left to @author; 4 commits; spec `' + folder + '1`',
+    '- Round 2 (fix-diff): no new items; 0 commits; spec `' + folder + '2`',
+    '',
+    '### Put to @author (1)',
+    '',
+    '- **R1-2** title R1-2: Kept as it is, on purpose. Applied in 2bbbbbb. · decided by: @author',
+    '',
+    '### Overruled by @author (1)',
+    '',
+    '- **R1-7** title R1-7: Fix it now; a third caller lands next week. Applied in 4bbbbbb. · decided by: @author',
+    '',
+    '### Declined by Redline (2)',
+    '',
+    'To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run `/redline-revise 114 review @author`.',
+    '',
+    '- **R1-3** title R1-3: declined: the spec keeps R1-3 as it is on purpose · decided by: redline',
+    '- **R1-6** title R1-6: declined: could not confirm: needs two workers on one queue · decided by: redline',
+    '',
+    '### Deferred (mitigated now, full fix left open)',
+    '',
+    '- **R1-4** title R1-4: shipped a guard clause; open: a lock',
+    '',
+    '### Left to @author (repository rules)',
+    '',
+    '- **R1-5** title R1-5: rule craft-config (Craft project config is applied through the control panel); left to @author under repository rule craft-config: Done by hand after the merge. · decided by: @author',
+    '',
+    '### Fixed (1)',
+    '',
+    '<details>',
+    '<summary>With the commits that fixed each</summary>',
+    '',
+    '- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline',
+    '',
+    '</details>',
+    '',
+    '### Candidates set aside in round 2 (1)',
+    '',
+    '<details>',
+    '<summary>Refuted, collapsed or already tracked</summary>',
+    '',
+    '- `app/x.php:3` · the real one · settled: R1-1',
+    '',
+    '</details>',
+    '',
+    '### Commits',
+    '',
+    '- 1bbbbbb redline: R1-1 fix',
+    '- 2bbbbbb redline: R1-2 fix',
+    '- 3bbbbbb redline: R1-4 fix',
+    '- 4bbbbbb redline: R1-7 fix',
+  ].join('\n')
+  check('layout: the handoff, every heading in order with its line, is the layout the spec shows', handoff === expected, handoff)
+  check('layout: the person is named by login, never by role or as you', !/the author|Left to you|left to you|yours/.test(handoff) && !/yours under rule|yours to act on|the author/.test(pick(run.calls, 'post r1').prompt.slice(pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"'))), handoff)
+  check('layout: the result says what kind each decision was, with a decline\'s reason, for the closing summary', run.res.decided.map((d) => `${d.id}:${d.kind}`).join(',') === 'R1-1:fixed,R1-2:decided,R1-4:deferred,R1-5:left,R1-3:declined,R1-6:declined,R1-7:decided' && run.res.decided.find((d) => d.id === 'R1-6').reason === 'could not confirm: needs two workers on one queue' && run.res.decided.find((d) => d.id === 'R1-7').overruled === true && run.res.decided.find((d) => d.id === 'R1-2').overruled === false, run.res.decided)
+
+  // With no login the fallback names nobody's role: headings, lines and the way to overrule.
+  const anon = await go('layout: no login', { ...covArgs, askRules: rules, login: '', decisions }, scenario)
+  const anonHandoff = comment(anon.calls, 'handoff comment')
+  check('layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login', anon.res.status === 'done' && anonHandoff.includes('### Put to the person running Redline (1)') && anonHandoff.includes('### Left to the person running Redline (repository rules)') && anonHandoff.includes('left to the person running Redline under repository rule craft-config') && anonHandoff.includes('To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run `/redline-revise 114 review @<your login>`.') && !anonHandoff.includes('the author'), anonHandoff)
+
+  // A human-review pass is unchanged, its no-login fallback included: "the author", as before.
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Is ${id} the right default?`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanNoLogin = await go('layout: a human-review pass with no login', { ...baseArgs, login: '', firstRound: 3, decisions: { 'H1-1': { choice: 'Keep it', notes: '', date: '2026-11-13' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } }, { reviews: [[]], ask: ['H1-1'], acceptedCalls: ['H1-1'], commitIds: [[]] })
+  check('layout: a human-review pass with no login still says the author, as it always did', humanNoLogin.res.status === 'done' && replyFor(humanNoLogin.calls, 'push and reply h1', 'H1-1').startsWith('Redline human review 1: The author chose: Keep it. No code change. · decided by: the author') && comment(humanNoLogin.calls, 'summary comment').includes('for the author'), [replyFor(humanNoLogin.calls, 'push and reply h1', 'H1-1'), comment(humanNoLogin.calls, 'summary comment')])
+
+  // Under correctness only, the handoff lists what the scope declined, once, with ids that are not bold.
+  const scoped = await go('layout: correctness only', { ...covArgs, scope: 'correctness' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { file: 'app/y.php', line: 9 })], [f('R2-1', 'nit', { file: 'app/z.php', line: 2 })]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  const scopedHandoff = comment(scoped.calls, 'handoff comment')
+  check('layout: under correctness only the handoff lists what the scope declined, after the declines and before the rest', scoped.res.status === 'done' && scopedHandoff.includes('### Declined under this run\'s scope (correctness only) (2)\n\n- R1-2 · `app/y.php:9` · title R1-2\n- R2-1 · `app/z.php:2` · title R2-1\n\n### Fixed (1)') && scopedHandoff.includes('- Round 1 (pr): 2 items: 1 fixed, 1 declined under the scope; 1 commits;') && scopedHandoff.includes('- Round 2 (fix-diff): 1 item: 1 declined under the scope; 0 commits;'), scopedHandoff)
+
+  // The cap-hit comment names the person by login too.
+  const capped = await go('layout: the cap-hit comment', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  check('layout: the cap-hit comment says who picks the open findings up, by login', capped.res.status === 'capped' && comment(capped.calls, 'cap-hit comment').includes('so it has not requested a review. @author will pick these up.') && !comment(capped.calls, 'cap-hit comment').includes('The author'), comment(capped.calls, 'cap-hit comment'))
+  // With no login the fallback opens the sentence, so it is capitalised (#94, R1-17).
+  const cappedAnon = await go('layout: the cap-hit comment with no login', { ...covArgs, maxRounds: 1, login: '' }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  check('layout: with no login the cap-hit comment opens its sentence with a capital', cappedAnon.res.status === 'capped' && comment(cappedAnon.calls, 'cap-hit comment').includes('so it has not requested a review. The person running Redline will pick these up.'), comment(cappedAnon.calls, 'cap-hit comment'))
+}
+
+check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)
 for (const failure of failures) {

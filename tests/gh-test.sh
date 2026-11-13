@@ -28,7 +28,11 @@
 # finding, and round 2's fresh finding with no reply. PR 15 is the posted-text fixture (#87): a
 # finding line whose title is escaped and neutralised as the workflow writes it (`&lt;`, `&amp;`, the
 # word joiner's reference `&#8288;` after `@`), carried by round 2, beside a For the person line and the set-aside block
-# under its own `### Candidates set aside (N)` heading. The shim is the
+# under its own `### Candidates set aside (N)` heading. PR 16 is the #93 fixture: two rounds in the
+# layout that issue's review body has (items by kind, a could-not-confirm item with its Would confirm
+# line, a scope-declined line that carries no bold id), with a declined reply in a thread and in an
+# issue comment, a decided reply that only mentions a decline, and a rule's tail and reply naming the
+# person by login and by the no-login fallback. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
 # which threads were resolved and that the mutation is the script's fixed string.
@@ -55,7 +59,7 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$FIX/reviews-18.json" "$FIX/comments-18.json" "$FIX/issue-comments-18.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -137,6 +141,15 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/15/reviews") pages=("$PAGES/reviews-15.json") ;;
     "repos/{owner}/{repo}/pulls/15/comments") pages=("$PAGES/comments-15.json") ;;
     "repos/{owner}/{repo}/issues/15/comments") pages=("$PAGES/issue-comments-15.json") ;;
+    "repos/{owner}/{repo}/pulls/16/reviews") pages=("$PAGES/reviews-16.json") ;;
+    "repos/{owner}/{repo}/pulls/16/comments") pages=("$PAGES/comments-16.json") ;;
+    "repos/{owner}/{repo}/issues/16/comments") pages=("$PAGES/issue-comments-16.json") ;;
+    "repos/{owner}/{repo}/pulls/17/reviews") pages=("$PAGES/reviews-17.json") ;;
+    "repos/{owner}/{repo}/pulls/17/comments") pages=("$PAGES/comments-17.json") ;;
+    "repos/{owner}/{repo}/issues/17/comments") pages=("$PAGES/issue-comments-17.json") ;;
+    "repos/{owner}/{repo}/pulls/18/reviews") pages=("$PAGES/reviews-18.json") ;;
+    "repos/{owner}/{repo}/pulls/18/comments") pages=("$PAGES/comments-18.json") ;;
+    "repos/{owner}/{repo}/issues/18/comments") pages=("$PAGES/issue-comments-18.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -247,6 +260,36 @@ is "posted text: the escaped title still matches its root comment by id" "$(jq -
 is "posted text: the carried line keeps the same bytes, names its origin and carries the earlier finding" "$(jq -a -c '[.[1].title, .[1].carried_from, .[0].disposition, .[0].carried_to]' <<<"$pf15")" '["Binds @&#8288;click to &lt;b> &amp; more","R1-1","carried","R2-1"]'
 is "posted text: last-round reads past the set-aside heading" "$(gh last-round 15)" "2"
 gh has-review 15 2 >/dev/null; is "posted text: has-review finds round 2 with the heading present" "$?" "0"
+# The #93 forms: a reply that opens "declined: " is a disposition of its own, in a thread and in a
+# body item's issue comment, while a reply that only mentions a decline stays decided; a line under
+# Could not confirm is a finding with that word; the rule's tail and its reply name the person by
+# login, or by the no-login fallback, and read as the old "yours under rule" and "left to the
+# author" forms do (PR 14 above still pins those). A scope-declined line carries no bold id and a
+# Would confirm line no id at all, so neither is a finding.
+pf16="$(gh prior-findings 16)"; code=$?
+is "#93 forms: prior-findings exits 0" "$code" "0"
+is "#93 forms: the lines under the new headings are findings; a scope-declined line, a Would confirm line, an Already tracked line and a line with an unknown fourth word are not" "$(jq -c '[.[].id]' <<<"$pf16")" '["R1-1","R1-2","R1-3","R1-4","R1-5","R2-1","R2-3"]'
+is "#93 forms: a reply that opens declined: is declined, with its reason" "$(jq -c '.[0] | [.disposition, .comment_id, .reply.id, .reply.body]' <<<"$pf16")" '["declined",1601,1611,"declined: the pull request'"'"'s spec keeps cancelled orders out on purpose (decision 4 in its shape.md) · decided by: redline"]'
+is "#93 forms: a reply that only mentions a decline is still decided" "$(jq -r '.[2].disposition' <<<"$pf16")" "decided"
+is "#93 forms: a body item's issue comment that opens declined: is declined" "$(jq -c '.[3] | [.disposition, .comment_id, .reply.id]' <<<"$pf16")" '["declined",0,70]'
+is "#93 forms: an unconfirmed line is a finding with that word, its title free of the Would confirm line" "$(jq -c '.[4] | [.confidence, .title, .file, .line, .disposition]' <<<"$pf16")" '["unconfirmed","Two workers can send twice","app/d.php",2,"declined"]'
+is "#93 forms: the login tail is stripped from the title and a left to @login reply is left" "$(jq -c '.[1] | [.title, .disposition, .reply.id]' <<<"$pf16")" '["Field handle renamed in project config","left",1612]'
+is "#93 forms: with no login the fallback tail is stripped and its reply is left" "$(jq -c '.[5] | [.title, .disposition, .round]' <<<"$pf16")" '["Fresh one","left",2]'
+is "#93 forms: a decided reply that opens left to @login without the rule's words is still decided" "$(jq -c '.[6] | [.id, .disposition]' <<<"$pf16")" '["R2-3","decided"]'
+is "#93 forms: last-round reads the new layout" "$(gh last-round 16)" "2"
+# A final nit pass after a human review pass with no login names the person "the author" in a
+# rule's tail (#94, R1-3): the tail is stripped from the title, and the reply still reads as left.
+pf17="$(gh prior-findings 17)"
+is "author tail: a left to the author under rule tail is stripped from the title" "$(jq -r '.[0].title' <<<"$pf17")" "Rule-covered nit"
+is "author tail: its left to the author reply is still left" "$(jq -r '.[0].disposition' <<<"$pf17")" "left"
+# A login may hold an underscore: an Enterprise Managed User login is <handle>_<shortcode> (#94,
+# R2-1). Its rule tail is stripped from the title and its rule reply reads as left.
+pf18="$(gh prior-findings 18)"
+is "underscore login: the rule tail of a login with an underscore is stripped from the title" "$(jq -r '.[0].title' <<<"$pf18")" "Field handle renamed"
+is "underscore login: its left to @login reply is left" "$(jq -r '.[0].disposition' <<<"$pf18")" "left"
+# A finding minted from a candidate with no file is posted at (no file), line 0, so its line reads
+# back (#94, R2-6).
+is "no file: a finding minted with no file reads back at (no file), line 0" "$(jq -c '.[1] | [.id, .file, .line, .confidence]' <<<"$pf18")" '["R1-2","(no file)",0,"unconfirmed"]'
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?

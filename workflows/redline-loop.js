@@ -83,7 +83,7 @@ if (!Number.isInteger(firstRound) || firstRound < 1) {
 // as firstRound: the run's own carried-forward replies change the old threads, so nothing inside
 // the workflow may read them. A finding with no reply, or a "not changed" one, is carried into this
 // run's first round; the rest are tracked and never re-raised.
-const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
+const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'declined', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
 const CARRY = ['none', 'not-changed']
 const priorPosted = A.priorFindings === undefined ? [] : A.priorFindings
 if (!Array.isArray(priorPosted)) {
@@ -183,7 +183,11 @@ const scope = A.scope === 'correctness' ? 'correctness' : 'all'
 // redline-gh.sh login); the shaper's own, settled from evidence, to "redline"; a recommendation
 // taken on autopilot to "redline (autopilot)".
 const login = typeof A.login === 'string' ? A.login.trim().replace(/^@/, '') : ''
-const personLabel = login ? `@${login}` : 'the author'
+// The person running Redline, as every posted line names them (#93): by login, never by role, since
+// on a teammate's pull request the person running Redline is not its author. With no login the
+// fallback names no role either. A human-review pass is unchanged (#93, decision 8): a run that is
+// one keeps "the author" as its fallback, as it keeps that word in its own lines.
+const personLabel = login ? `@${login}` : A.revise && typeof A.revise === 'object' && A.revise.kind === 'human' ? 'the author' : 'the person running Redline'
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
@@ -243,6 +247,11 @@ if (A.drift !== undefined && A.drift !== null) {
 }
 const AGENTS_CHANGED = drift.agents.length
   ? `Agent files changed since this run launched (${drift.agents.map((p) => `\`${p}\``).join(', ')}): this run's remaining rounds may run under them, while the workflow's own prompts are the launch's.`
+  : ''
+// The same fact as the handoff comment states it (#93): the comment is posted after the last round,
+// so it says what happened, where the warning above, shown while rounds are ahead, says what may.
+const AGENTS_CHANGED_HANDOFF = drift.agents.length
+  ? `Agent files changed during this run (${drift.agents.map((p) => `\`${p}\``).join(', ')}): the rounds after the change may have run under them, while the workflow's own prompts were the launch's.`
   : ''
 const handCommits = new Set(Object.values(resume).flatMap((entry) => entry.hand.commits))
 const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.hand.paths))]
@@ -316,7 +325,33 @@ const CHECKS = `${repoRoot}/.claude/redline/checks.sh`
 const BACKGROUND = `${pluginRoot}/scripts/redline-background.sh`
 const README_URL = 'https://github.com/fromtheoutfit/redline/blob/main/README.md'
 const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, \`/redline:redline <pr> ...\`, \`/redline:redline-review <pr> ...\` or \`/redline:redline-revise <pr> ...\` or the short forms \`/redline <pr> ...\` and \`/redline-revise <pr> ...\`, or the word \`relaunch\` after a hand-off) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
+// A Redline round since #93: the shaper decides every finding, and the person is asked in the
+// cases below only, which ROUND_WHY names for the judgment call's why_human. The other roles of a
+// round never decide a pending call and never reopen a decision made. A human review pass keeps
+// NEVER_DECIDE and its own reasons, unchanged.
+// The outcomes that settle a finding's thread once its reply is posted: Finish resolves it. A
+// decline is one since #93; a dropped, left or not-changed finding stays open for the person.
+// What became of a finding the workflow declined under a correctness-only scope (#93).
+const SCOPE_DECLINED = `declined: outside this run's scope (correctness only) · decided by: redline`
+const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
+// The sixth, "redline's own file", is no case of judgment: no Redline role may write one of
+// Redline's own files in the repository under review, so a finding on one is the person's to
+// change by hand, as a finding under a repository ask rule is (the shaper's rule 7).
+const ROUND_WHY = ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', "redline's own file"]
+const HUMAN_WHY = ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix']
+const ASK_CASES = 'You decide every finding, and the person is asked in five cases only: the options differ in what the product does or what a user sees; the fix changes an assumption, the approach or the architecture the original spec agreed; the fix reaches outside what the pull request set out to do; two options are both defensible and neither is the clear pick; or the finding is still unconfirmed after your second look and its harm would be serious if it were true (security, privacy, data loss, money). A finding on a file of Redline\'s own is asked as well, as your instructions say. In every other case you take your own recommendation, a decision to decline included, and record it as decided by redline with its reason. Name the case, never a degree of confidence.'
+const NOT_YOURS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it. A decision already made, the shaper\'s own included (a fix, a decline with its reason, a deferral), is applied as recorded and never reopened.'
+// The verifier since #93: it states what is true, and the kind of each finding, which now keeps a
+// run going. Every review prompt carries both, with the coverage pass or without it.
+const KIND_RULES = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc.'
+const KINDS = `${KIND_RULES} State the kind with care: a correctness finding the run acts on buys another round.`
+// A final nit pass buys no round: what it finds gets one more revise pass and the run ends (#94, R2-2).
+const KINDS_FINAL = `${KIND_RULES} State the kind with care: in this final nit pass a correctness finding the run acts on gets one more revise pass, and then the run ends.`
+const FACTS_ONLY = 'You establish what is true; you do not decide what to do about it. Report every finding you verified, whatever its size, whatever its fix would cost and wherever its cause lies, with confidence confirmed (reproduced, or traced through the code to the result, with the lines cited). Report one you could not confirm with confidence unconfirmed and, in wouldConfirm, one line on what would confirm it. Whether to fix it, decline it or put it to the person is the shaper\'s decision, never yours.'
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
+// The rule a role after the shaper follows about decisions: a human review pass keeps NEVER_DECIDE;
+// a Redline round's roles apply what was decided and leave what is pending (#93; #94, R1-9).
+const decideRule = (pass) => (pass.human ? NEVER_DECIDE : NOT_YOURS)
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
 const humanFolderFor = (n) => `agent-os/specs/${stamp}-${pr}-human-review-${n}`
@@ -502,7 +537,7 @@ const GATHER_SCHEMA = {
 
 const FINDING_SCHEMA = {
   type: 'object',
-  required: ['id', 'file', 'line', 'side', 'category', 'severity', 'confidence', 'title', 'description', 'proposedFix', 'needsDecision', 'knownAs', 'carriedFrom'],
+  required: ['id', 'file', 'line', 'side', 'category', 'severity', 'confidence', 'title', 'description', 'proposedFix', 'knownAs', 'carriedFrom'],
   properties: {
     id: str,
     file: str,
@@ -510,11 +545,17 @@ const FINDING_SCHEMA = {
     side: { type: 'string', enum: ['RIGHT', 'LEFT'] },
     category: { type: 'string', enum: ['correctness', 'nit'] },
     severity: { type: 'string', enum: ['high', 'medium', 'low'] },
-    confidence: { type: 'string', enum: ['confirmed', 'likely', 'unsure'] },
+    // What the verifier established (#93): confirmed is reproduced, or traced through the code to
+    // the claimed result; unconfirmed is the narrow case of a claim the repository cannot show,
+    // with one line on what would confirm it. The shaper takes a second look at an unconfirmed one.
+    confidence: { type: 'string', enum: ['confirmed', 'unconfirmed'] },
     title: str,
     description: str,
     proposedFix: str,
-    needsDecision: bool,
+    wouldConfirm: str,
+    // A fact the verifier states, never a reason to drop the finding: the cause is in code this
+    // pull request did not change.
+    outsideDiff: bool,
     knownAs: str,
     carriedFrom: str,
     // The id of a repository ask rule the reviewer judges the finding to be under (#49);
@@ -523,26 +564,20 @@ const FINDING_SCHEMA = {
   },
 }
 
-// What the reviewer would not act on but a person should see (#79, #73 item 3): one line each, no
-// id, no thread, never shaped or fixed. Rendered under "### For the person" in the review body and
-// carried into the handoff; redline-gh.sh prior-findings never reads one back as a finding.
-const PERSON_SCHEMA = {
-  type: 'object',
-  required: ['file', 'line', 'text'],
-  properties: { file: str, line: int, text: str },
-}
-
 // The verifier's accounting for the coverage pass's candidates (#79): one entry per candidate index.
-const COVERAGE_OUTCOMES = ['finding', 'forThePerson', 'duplicate', 'settled', 'known', 'refuted', 'outside', 'disproportionate']
-// The outcomes the round lists elsewhere: a finding under Findings (or Carried forward, when it
-// carries an earlier round's), an entry under For the person. Every other candidate is set aside,
+// Since #93 the verifier states one of three facts about a candidate (verified, unconfirmed,
+// refuted) or collapses it (duplicate, settled, known); what to do about a true one is the
+// shaper's, so there is no outcome for "not worth acting on" and no list for the person.
+const COVERAGE_OUTCOMES = ['verified', 'unconfirmed', 'refuted', 'duplicate', 'settled', 'known']
+// The outcomes the round lists elsewhere: a verified or unconfirmed candidate is a finding of the
+// round, listed by kind (or under Carried forward). Every other candidate is set aside,
 // by this one rule and not by a list of outcomes, so an outcome the schema adds later is listed too
 // (#85; the #85 follow-up spec): the review body lists each in its set-aside block, and the handoff
 // the last covered round's, so the person can overrule a drop, a collapse or a match to an issue
 // without opening the round folder. A candidate behind a finding under Already tracked is among
 // them: accountCoverage accounts for it as `known`, its ref the finding's id and the issue, so the
 // finding is listed under Already tracked and its candidate in the block (#86, R5-3).
-const LISTED_ELSEWHERE = ['finding', 'forThePerson']
+const LISTED_ELSEWHERE = ['verified', 'unconfirmed']
 const COVERAGE_SCHEMA = {
   type: 'object',
   required: ['index', 'outcome', 'ref'],
@@ -558,7 +593,6 @@ const REVIEW_SCHEMA = {
     findings: { type: 'array', items: FINDING_SCHEMA },
     resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
-    forThePerson: { type: 'array', items: PERSON_SCHEMA },
     coverage: { type: 'array', items: COVERAGE_SCHEMA },
   },
 }
@@ -610,22 +644,27 @@ const SPEC_STATUS_SCHEMA = {
   properties: { operation: str, files: strings, headings: strings, error: str },
 }
 
-const JUDGMENT_CALL_SCHEMA = {
-  type: 'object',
-  required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
-  properties: {
-    id: str,
-    title: str,
-    story: str,
-    // The fixed reasons, plus one per repository ask rule (#49).
-    why_human: { type: 'string', enum: ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
-    options: {
-      type: 'array',
-      items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+// The pass's fixed reasons, plus one per repository ask rule (#49). A Redline round's enum is
+// ROUND_WHY (#93) and a human review pass's HUMAN_WHY, each with the rule reasons, so a value from
+// the other pass is refused by the shaper's structured output inside its own run, and checkWhy
+// stays the second layer (#94, R1-5, R1-12, R1-13).
+function judgmentCallSchema(reasons) {
+  return {
+    type: 'object',
+    required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
+    properties: {
+      id: str,
+      title: str,
+      story: str,
+      why_human: { type: 'string', enum: reasons.concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
+      options: {
+        type: 'array',
+        items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+      },
+      recommendation: str,
+      dependsOn: strings,
     },
-    recommendation: str,
-    dependsOn: strings,
-  },
+  }
 }
 
 const DEFERRED_SCHEMA = {
@@ -633,40 +672,54 @@ const DEFERRED_SCHEMA = {
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str } },
 }
 
-const SHAPE_SCHEMA = {
-  type: 'object',
-  required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
-  properties: {
-    specFolder: str,
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['id', 'disposition', 'decidedBy', 'recommendation'],
-        properties: {
-          id: str,
-          // A Redline round sorts into fix, defer or ask. A human review pass sorts into fix, ask or
-          // none (a comment that asks for nothing); never defer, since nothing a teammate asked for
-          // is deferred by Redline on its own. The workflow refuses the other pass's values.
-          disposition: { type: 'string', enum: ['fix', 'defer', 'ask', 'none'] },
-          // "redline" for a fix or defer settled from the evidence; "pending" for an ask, which
-          // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
-          // fix a teammate's comment asked for, which the workflow maps to their login.
-          decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
-          // One sentence: the change planned for a fix, the mitigation for a defer, the
-          // recommended option for an ask. The plan dial shows it to the person.
-          recommendation: str,
-          // The paths the finding's task would touch, and the repository ask rule the shaper
-          // judged it under (#49); forceAskRules reads both.
-          files: strings,
-          askRule: str,
+// The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
+// and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
+// its own run, and the other way about.
+function shapeSchema(reasons, dispositions) {
+  return {
+    type: 'object',
+    required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
+    properties: {
+      specFolder: str,
+      findings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['id', 'disposition', 'decidedBy', 'recommendation'],
+          properties: {
+            id: str,
+            // A Redline round sorts into fix, decline, defer or ask (#93). A human review pass sorts
+            // into fix, ask or none (a comment that asks for nothing); never defer or decline, since
+            // nothing a teammate asked for is deferred or declined by Redline on its own. The schema
+            // carries the pass's own values, and the workflow still refuses the other pass's (#94, R2-3).
+            disposition: { type: 'string', enum: dispositions },
+            // "redline" for a fix, a decline or a defer settled from the evidence; "pending" for an ask, which
+            // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
+            // fix a teammate's comment asked for, which the workflow maps to their login.
+            decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
+            // One sentence: the change planned for a fix, the mitigation for a defer, the
+            // recommended option for an ask, the decision restated for a decline. The plan dial shows
+            // it to the person.
+            recommendation: str,
+            // A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does
+            // not act, and where the finding belongs when it belongs somewhere. Required for a
+            // decline, which checkDispositions holds the shaper to.
+            reason: str,
+            // What the shaper's second look made of a finding the verifier could not confirm (#93).
+            secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
+            // The paths the finding's task would touch, and the repository ask rule the shaper
+            // judged it under (#49); forceAskRules reads both.
+            files: strings,
+            askRule: str,
+          },
         },
       },
+      deferred: DEFERRED_SCHEMA,
+      judgmentCalls: { type: 'array', items: judgmentCallSchema(reasons) },
     },
-    deferred: DEFERRED_SCHEMA,
-    judgmentCalls: { type: 'array', items: JUDGMENT_CALL_SCHEMA },
-  },
+  }
 }
+const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {
   type: 'object',
@@ -847,13 +900,22 @@ const RECORD_SCHEMA = {
 // ---------------------------------------------------------------------------
 
 function findingLine(f) {
-  const decision = f.needsDecision ? ' · needs a decision' : ''
   // The suffixes redline-gh.sh prior-findings reads back, in this order: carried_from (#35), then
-  // the repository ask rule the finding is the person's under (#49), which stays last.
+  // the repository ask rule the finding is the person's under (#49), which stays last. An
+  // unconfirmed finding carries what would confirm it on a second, indented line, which is no
+  // finding line to that reader.
   const carried = f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''
   const rule = ruleOf(f)
-  const yours = rule ? ` · yours under rule ${rule.id}` : ''
-  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${postedText(f.title)}${decision}${carried}${yours}`
+  const yours = rule ? ` · left to ${personLabel} under rule ${rule.id}` : ''
+  const would = f.confidence === 'unconfirmed' ? `\n  Would confirm it: ${postedText(f.wouldConfirm || 'not stated')}` : ''
+  return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${postedText(f.title)}${carried}${yours}${would}`
+}
+
+// A line the correctness-only scope declined (#93): its id is not bold, so redline-gh.sh
+// prior-findings never reads it back as a finding, and a later run without the scope sees the
+// item fresh. The title is the verifier's and goes through postedText (#87; #94, R1-16).
+function scopedLine(f) {
+  return `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`
 }
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
@@ -865,26 +927,47 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
     ? `Reviewed the whole pull request.${firstRound > 1 ? `${earlier}; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
       ? coverage
-        ? `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
+        ? range.empty
+          ? `Round ${round - 1} changed no code; reviewed the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
+          : `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
         : `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
+  // By kind (#93): what the verifier confirmed, correctness first; then what it could not confirm,
+  // each with what would confirm it. The review is posted before anything is decided, so what
+  // became of each is in its thread and in the handoff.
   const fresh = active.filter((f) => !f.carriedFrom)
   const carried = active.filter((f) => f.carriedFrom)
+  const unconfirmed = fresh.filter((f) => f.confidence === 'unconfirmed')
+  const correctness = fresh.filter((f) => f.confidence !== 'unconfirmed' && f.category === 'correctness')
+  const other = fresh.filter((f) => f.confidence !== 'unconfirmed' && f.category !== 'correctness')
+  const scoped = review.scoped || []
   const counts = (list) => `${list.filter((f) => f.category === 'correctness').length} correctness, ${list.filter((f) => f.category === 'nit').length} nit`
   const lines = [`Redline round ${round}`, '', scope]
   if (coverage) {
     lines.push('', coverageSentence(coverage))
   }
-  lines.push('', postedText(review.summary.trim()), '')
-  if (active.length === 0) {
-    lines.push('No findings.')
+  lines.push('', postedText(review.summary.trim()))
+  if (active.length === 0 && scoped.length === 0) {
+    lines.push('', 'No findings.')
   }
-  if (fresh.length) {
-    lines.push(`### Findings (${counts(fresh)})`, '', ...fresh.map(findingLine))
+  if (correctness.length) {
+    lines.push('', `### Correctness (${correctness.length})`, '', ...correctness.map(findingLine))
+  }
+  if (other.length) {
+    lines.push('', `### Other items (${other.length})`, '', ...other.map(findingLine))
+  }
+  if (unconfirmed.length) {
+    lines.push('', `### Could not confirm (${unconfirmed.length})`, '', ...unconfirmed.map(findingLine))
+  }
+  // Under correctness only, what is not a correctness item is declined by the workflow with the
+  // scope as its reason (#93): one list, an id that is not bold, so redline-gh.sh prior-findings
+  // never reads a line back and a later run without the scope sees these fresh; no inline comment.
+  if (scoped.length) {
+    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   // Earlier rounds' findings with no disposition, re-verified and carried into this round (#35).
   if (carried.length) {
-    lines.push(...(fresh.length ? [''] : []), `### Carried forward from earlier rounds (${counts(carried)})`, '', ...carried.map(findingLine))
+    lines.push('', `### Carried forward from earlier rounds (${counts(carried)})`, '', ...carried.map(findingLine))
   }
   const resolved = review.resolved || []
   if (resolved.length) {
@@ -893,15 +976,12 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   if (known.length) {
     lines.push('', '### Already tracked', '', ...known.map((f) => `- **${f.id}** ${postedText(`${f.title}: ${f.knownAs}`)}${f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''}`))
   }
-  // The closing sentence speaks of the findings, so it follows the last finding list the round has
-  // and comes before For the person and the set-aside block, never under the block's heading (the
-  // #87 follow-up spec, answer 9). No reader in redline-gh.sh depends on where it sits.
+  // The closing sentence speaks of the items, so it follows the last list the round has and comes
+  // before the set-aside block, never under the block's heading (the #87 follow-up spec, answer
+  // 9). No reader in redline-gh.sh depends on where it sits.
+  // What the scope declined has neither, so the sentence says so when the body lists any (#94, R1-6).
   if (active.length) {
-    lines.push('', 'Each finding has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the finding\'s thread, or in a PR comment that opens with its marker, once the round\'s fixes are committed.')
-  }
-  const forThePerson = review.forThePerson || []
-  if (forThePerson.length) {
-    lines.push('', '### For the person', '', ...forThePerson.map(personLine))
+    lines.push('', `Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why.${scoped.length ? ' The items declined under this run\'s scope have no inline comment and no reply.' : ''}`)
   }
   const setAside = review.setAsideCandidates || []
   if (setAside.length) {
@@ -910,25 +990,24 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   return lines.join('\n')
 }
 
-// A For the person entry as it reads in the review body and the handoff: no id, so
-// redline-gh.sh prior-findings (which reads "- **R<n>-<k>** · ..." lines only) never takes it
-// for a finding. The place is the workflow's and is left as written; the text is the finder's or
-// the verifier's and goes through postedText (#87).
+// A line that opens with a place and no id, as a set-aside line does, so redline-gh.sh
+// prior-findings (which reads "- **R<n>-<k>** · ..." lines only) never takes it for a finding.
+// The place is the workflow's and is left as written; the text is the finder's or the verifier's
+// and goes through postedText (#87).
 function personLine(entry) {
   return `- \`${entry.file}:${entry.line}\` · ${postedText(entry.text)}`
 }
 
-// The set-aside block (#85; the #85 follow-up spec): every candidate that is neither a finding
-// nor a For the person entry, collapsed, one line each with the candidate's own file, line and
+// The set-aside block (#85; the #85 follow-up spec; #93): every candidate that is not a finding of
+// the round (refuted, a duplicate, settled or known), collapsed, one line each with the candidate's own file, line and
 // summary, whole, then the outcome and the verifier's ref, so a refutation that answers a
 // different claim shows as a mismatch on the line. A duplicate of another candidate's index also
 // gives that candidate's place and outcome, so a duplicate of a dropped or tracked candidate
 // cannot hide, and, when that candidate became a finding, which the block does not list, the
 // finding's id after the outcome (#86, R5-4). The block sits under its own heading, which carries
-// the count, so it never reads as part of the section before it when a round has no For the person
-// entries (#87); the summary names the count sentence's three groups, which add up to it.
-// Each line is built by personLine, so it opens with the backticked place as a For the person line
-// does, never a finding id, and redline-gh.sh prior-findings never reads it back (#86, R1-3); its
+// the count, so it never reads as part of the section before it (#87); the summary names the count
+// sentence's three groups, which add up to it.
+// Each line is built by personLine, so it opens with the backticked place, never a finding id, and redline-gh.sh prior-findings never reads it back (#86, R1-3); its
 // text, summary, outcome, ref and the duplicate's addition read as one, goes through postedText
 // there, so a tag in a summary or a ref cannot end the block or open another, and no `@` in it
 // mentions anyone. `round` names the round in the handoff, which carries only the last covered
@@ -940,7 +1019,7 @@ function setAsideBlock(entries, round) {
     `### Candidates set aside${where} (${entries.length})`,
     '',
     '<details>',
-    '<summary>Collapsed, already tracked or dropped</summary>',
+    '<summary>Refuted, collapsed or already tracked</summary>',
     '',
     ...entries.map((e) => personLine({ file: e.file, line: e.line, text: `${e.summary} · ${e.outcome}: ${e.ref || 'no reason given'}${into(e)}` })),
     '',
@@ -1020,7 +1099,7 @@ function coverageSentence(coverage) {
   if (n === 0) {
     return `The coverage pass over the whole pull request at ${short(coverage.head)} returned no candidates.`
   }
-  return `The coverage pass over the whole pull request at ${short(coverage.head)} returned ${n} candidate${n === 1 ? '' : 's'}: ${c.finding} confirmed, ${c.forThePerson} for the person, ${c.duplicate + c.settled} collapsed into findings already reported or settled, ${c.known} already tracked, ${c.refuted + c.outside + c.disproportionate} dropped (refuted, outside the diff or disproportionate).`
+  return `The coverage pass over the whole pull request at ${short(coverage.head)} returned ${n} candidate${n === 1 ? '' : 's'}: ${c.verified} verified, ${c.unconfirmed} could not be confirmed, ${c.refuted} refuted, ${c.duplicate + c.settled} collapsed into items already reported or settled, ${c.known} already tracked.`
 }
 
 function commentBody(f) {
@@ -1032,21 +1111,26 @@ function commentBody(f) {
   if (f.proposedFix && f.proposedFix.trim() !== '') {
     lines.push('', `Proposed fix: ${f.proposedFix.trim()}`)
   }
-  if (f.needsDecision) {
-    lines.push('', 'This needs a decision from the author; Redline does not decide it.')
+  // The facts the verifier states beside its description (#93): what would confirm a claim it
+  // could not confirm, and a cause in code the pull request did not change.
+  if (f.confidence === 'unconfirmed') {
+    lines.push('', `Could not confirm. Would confirm it: ${(f.wouldConfirm || 'not stated').trim()}`)
+  }
+  if (f.outsideDiff) {
+    lines.push('', 'The cause is in code this pull request did not change.')
   }
   const rule = ruleOf(f)
   if (rule) {
-    lines.push('', `This one is yours to act on: repository rule ${rule.id} (${rule.reason}).`)
+    lines.push('', `This one is left to ${personLabel}: repository rule ${rule.id} (${rule.reason}).`)
   }
   return lines.join('\n')
 }
 
 // A decision as it reaches GitHub: the session's one-sentence restatement (choice and reasoning),
 // never the person's chat. The choice label stands in only when a decision carries no notes.
-function decisionSentence(decision) {
+function decisionSentence(decision, human) {
   const notes = (decision.notes || '').trim()
-  return notes !== '' ? notes : `The author chose: ${decision.choice}.`
+  return notes !== '' ? notes : `${human ? 'The author' : personLabel} chose: ${decision.choice}.`
 }
 
 // Every decision names its owner, in the spec, in the thread and in the handoff comment.
@@ -1073,10 +1157,10 @@ function autopilotDecision(call) {
 
 // autopilot on a finding a repository ask rule covers (#49): nothing is applied; the finding is
 // left to the person, with the rule as the reason.
-function leftDecision(forced) {
+function leftDecision(forced, human) {
   return {
     choice: 'Left to the person',
-    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; the person makes it.`,
+    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; ${human ? 'the person' : personLabel} makes it.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
     rule: forced.rule,
@@ -1206,9 +1290,13 @@ function replyBody(pass, outcome) {
     case 'deferred':
       return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
     case 'decided':
-      return `${pass.title}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+    case 'declined':
+      // Redline's own decision not to act (#93). redline-gh.sh prior-findings reads the opening
+      // "declined: " back as the disposition, so a later run never raises the finding again.
+      return `${pass.title}: declined: ${outcome.reason}${owner}`
     case 'left':
-      return `${pass.title}: left to the author under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
+      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
     case 'dropped':
       return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
     case 'none':
@@ -1230,12 +1318,18 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round.
 // `candidates` is the coverage pass's list on a round that ran one (#79), null otherwise: with
-// null the prompt is byte for byte what it was before the pass existed, so `coverage off` replays.
+// null the prompt carries no candidates block and none of its rules, so `coverage off` is the
+// reviewer alone under the same contract (#93): facts only, no accounting.
 function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
+  const noFixDiff = reviewed === 'fix-diff' && range.empty === true
   const diff = reviewed === 'pr'
     ? `the whole pull request: \`${GH} diff ${pr}\``
-    : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
-  const after = reviewed === 'pr' ? ` (${startSha})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
+    : noFixDiff
+      // A round the last one bought without changing code (#93): nothing to recheck, the pass's
+      // candidates are the round.
+      ? `none: round ${round - 1} changed no code, so there is no fix diff to recheck (round ${round - 1} committed no fix; its spec and standards commits are not one)`
+      : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
+  const after = reviewed === 'pr' ? ` (${startSha})` : noFixDiff ? ` after round ${round - 1}, which changed no code (HEAD ${range.to})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
   const lines = [
     RUN_LINE,
     '',
@@ -1257,7 +1351,10 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     '>>>',
   ]
   if (history.length) {
-    lines.push('', 'Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one):', json(history))
+    // With candidates, the header carries the decline-reopen exception (#94, R1-1), so it agrees
+    // with the candidates block; with coverage off it is as before.
+    const reopenDeclined = Array.isArray(candidates) ? ', except one declined because it could not be confirmed that you now confirm, which is new as the candidates block below says' : ''
+    lines.push('', `Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one${reopenDeclined}):`, json(history))
   }
   // The PR's earlier Redline rounds, from an earlier run (#35): tracked ones are matched into
   // knownAs; undispositioned ones are re-verified and carried or resolved, never dropped. The
@@ -1271,7 +1368,7 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   if (handledBlock) {
     // With candidates, the header carries the reopen exception (#80, R3-3), so it agrees with the
     // candidates block; with coverage off it is as before.
-    const reopen = Array.isArray(candidates) ? ', except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs; a decided one stays settled whatever its commits' : ''
+    const reopen = Array.isArray(candidates) ? ', except a fixed one a coverage candidate shows still reproduces at this head, which is new and carries no knownAs, and one declined for want of confirmation that you now confirm, which is new the same way; a decided one stays settled whatever its commits' : ''
     lines.push('', `Findings Redline's earlier rounds on this PR already handled (a match goes in knownAs as "<id>: <disposition>"; never re-raise one${reopen}):`, json(trackedList.map((p) => ({ id: p.id, round: p.round, category: p.category, title: p.title, file: p.file, line: p.line, disposition: p.disposition, reply: p.reply ? p.reply.body : '' }))))
   }
   if (priorBlock && carryList.length) {
@@ -1288,25 +1385,28 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     `Before you report anything, run the known-finding check your instructions describe: \`${GH} issues-search "<keywords>"\` for each candidate finding, \`${GH} review-comments ${pr}\`, \`${GH} pr-comments ${pr}\`, and the spec folders ${repoRoot}/agent-os/specs/*-${pr}-review-round-*/ and ${repoRoot}/agent-os/specs/*-${pr}-human-review-*/. A known finding goes in knownAs.${matchSentence ? " Redline's own earlier rounds on this PR are the lists above: match against them, not against their review comments." : ''}`,
   )
   if (reviewed === 'final-nit-pass') {
-    lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce.')
+    lines.push('', 'This is the final nit pass. Report only correctness bugs introduced by this diff. Do not report nits, and do not report anything the diff did not introduce. This scope stands over the instruction below to report every finding wherever its cause lies: a bug this diff did not introduce is not reported here.')
   } else if (scope === 'correctness') {
-    lines.push('', 'Scope: correctness only. Do not look for nits at all, and report none: no naming, clarity, docblock or test-tightness findings. Report only correctness bugs (wrong behaviour reachable in practice, data loss, a security hole, a broken contract), and spend the time a nit pass would take on reproducing the candidates you have.')
+    lines.push('', 'Scope: correctness only. Run no nit checks of your own: no naming, clarity, docblock or test-tightness pass, and no Docs or Version nit. Spend that time on reproducing the correctness candidates you have. A nit a candidate raises is still verified and reported as one, since you state what is true; the run declines it under the scope, in one list, with no thread.')
   }
-  lines.push('', NEVER_DECIDE + ' Report such a finding with needsDecision true and the question stated plainly.', '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
+  lines.push('', reviewed === 'final-nit-pass' ? KINDS_FINAL : KINDS, '', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
 }
 
-// The verify instruction (#79): the coverage pass found, the reviewer verifies. "New" is defined
-// here because it carries the run's done rule: the finder never returns an empty list, so the
-// verifier's collapse is what ends the run. The two guards are the issue's own words. A fixed
-// finding is the one outcome a candidate may reopen, when it still reproduces at this head, so a
-// fix that did not fully land runs another round (#80, R2-1); a decided finding stays settled
-// whatever its commits, and a candidate that reproduces one goes under For the person (#80, R3-4).
+// The verify instruction (#79; #93): the coverage pass found, the reviewer verifies, and since #93
+// it states facts only (verified, could not confirm, refuted) and leaves what to do to the shaper,
+// so there are no guards here: a cause outside the diff and the conditions a failure needs are
+// facts on the finding. "New" is defined here because the finder never returns an empty list. Two
+// outcomes reopen: a fixed finding that still reproduces at this head, so a fix that did not fully
+// land runs another round (#80, R2-1), and a finding declined for want of confirmation that the
+// verifier now confirms (#93). A decided finding stays settled whatever its commits, and a
+// candidate that reproduces one is accounted for as settled, its ref saying so, which the
+// set-aside block shows (#80, R3-4; #93).
 // Three rules from the #817 rerun (#85): an issue that tracks only part of a candidate leaves the
 // remainder to be judged on its own, and a remainder caused in the diff is a finding naming the
 // issue; a refutation answers the candidate's claim, never a neighbouring one or a comment stating
-// intent; a guard this pull request removed is never disproportionate. The ref of every candidate
-// that is neither a finding nor a forThePerson entry is posted in the review body's set-aside
+// intent; a guard this pull request removed is a fact the finding states. The ref of every
+// candidate that is not a finding of the round is posted in the review body's set-aside
 // block (the #85 follow-up spec). The agent file states the same rules, and the loop test pins a
 // key phrase of each in both.
 // A partly tracked candidate's issue is named in the finding's description, never in a finding ref,
@@ -1318,16 +1418,17 @@ function candidatesBlock(reviewed, range, candidates) {
   const head = reviewed === 'pr' ? startSha : range.to
   const lines = []
   if (candidates.length === 0) {
-    lines.push(`Candidates from the coverage pass: the pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all and returned no candidates. Run no discovery pass of your own over the pull request${reviewed === 'fix-diff' ? '; your recheck of the fix diff named above stays as your instructions say' : ''}. The scheduled-and-queued, Docs and Version checks in your instructions still apply. Return coverage as an empty list.`)
+    lines.push(`Candidates from the coverage pass: the pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all and returned no candidates. Run no discovery pass of your own over the pull request${reviewed === 'fix-diff' ? (range.empty ? '; there is no fix diff to recheck this round' : '; your recheck of the fix diff named above stays as your instructions say') : ''}. The scheduled-and-queued, Docs and Version checks in your instructions still apply. Return coverage as an empty list.`)
     return lines
   }
   lines.push(
     `Candidates from the coverage pass. The pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all, and returned these ${candidates.length} candidates, as JSON with an index each:`,
     json(candidates.map((c, i) => ({ index: i + 1, ...c }))),
-    `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.' : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
-    'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, decided, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks in full (the part it does not track is judged on its own, below). One outcome reopens: a candidate that matches an earlier finding whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new, since the fix did not fully land; report it as a finding of this round with the earlier id named in its description only (for example `R1-3 was fixed, but still reproduces here`), leave its knownAs empty, and account for it as finding. A candidate the fix did close no longer reproduces and is settled; a deferred, accepted, dropped, left-to-the-person or still-open finding stays settled. A decided finding stays settled whatever its commits, since an applied decision is often a deliberate keep or mitigation: a candidate that still reproduces one goes under forThePerson, naming the earlier id (for example `R2-5 was decided, and this still reproduces it`), and is accounted for as forThePerson, never as finding. The run ends when a round confirms no new correctness finding, so this collapse is the stop rule: never re-raise a settled finding as new, and never drop a candidate silently.',
-    'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file), and two candidates are not one because one issue\'s title fits both; run the known-finding check, and when an open issue or a teammate\'s comment covers only part of a candidate, the tracked part is known and the remainder is judged as its own candidate, by every rule here: a remainder whose cause is in this pull request\'s diff is a finding unless another rule here puts it elsewhere, as it would put any candidate (a collapse, a refutation, the disproportionate rule, or forThePerson for a removed guard or a candidate plausible but not reproduced), and as a finding it has the issue named in its description and knownAs empty and is accounted for as finding, never a forThePerson line saying what the issue lacks; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline); and give it category, severity, confidence, side, needsDecision and askRule as for any finding. Two guards. A candidate anchored outside the diff is never a finding: when its cause is in the diff, re-anchor it on a line inside the diff; when its cause is in code this pull request did not change, put it under forThePerson if a person should see it, else account for it as outside with the reason. A candidate that is technically true but needs implausible conditions to bite is disproportionate: account for it with that word and one sentence naming the conditions, never a finding, never shaped; but one the base branch handled and this pull request stopped handling (the diff\'s removed lines show the guard) is not disproportionate, and goes under forThePerson naming the removed line. A refutation answers the candidate\'s claim: refuted means evidence against the claim the candidate makes. Evidence for a neighbouring claim does not refute it (a test that pins another behaviour of the same code), and neither does a comment or docblock that states intent; such a candidate goes under forThePerson. A candidate that is plausible but not reproduced, or not worth a plan task, goes under forThePerson, one line each (file, line, text); under a correctness-only scope a nit candidate goes there too.',
-    'Account for every index in coverage, one entry each, with outcome and ref: finding (ref the finding\'s id), forThePerson, duplicate (ref opening with the index of the candidate or the id of the finding it collapses into, anything meant for the reader after it), settled (ref the earlier finding\'s id), known (ref the issue number or the comment), refuted (ref the claim it disproves and the evidence against that claim), outside (ref the reason), disproportionate (ref the conditions). A candidate an issue or a comment tracks only in part is accounted for by what its remainder became, with the issue named in the finding\'s description, the forThePerson line or the ref of any other outcome, since a finding entry\'s ref is the finding\'s id alone; known is for one tracked whole. The review body lists every candidate that is neither a finding nor a forThePerson entry after For the person, one line each beside the candidate\'s own summary, so write each of those refs for the teammate who may overrule it. An index you leave out is listed under For the person as reported, with a warning.',
+    `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? (range.empty ? ' There is no fix diff to recheck this round.' : ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.') : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
+    'For each candidate you establish one thing, whether its claim is true, and you say so as one of three facts. Verified: you reproduced it, or traced it through the code to the result the candidate claims, and you cite the lines; it is a finding of this round with confidence confirmed. Refuted: you hold evidence against the claim the candidate makes; a refutation answers that claim, so evidence for a neighbouring claim does not refute it (a test that pins another behaviour of the same code), and neither does a comment or docblock that states intent. Could not confirm: the claim turns on something the repository cannot show (production data, an external service, timing between processes, a browser); a claim that reading the code or running a test can settle is verified or refuted, never this; it is a finding of this round with confidence unconfirmed, wouldConfirm saying in one line what would confirm it, and its description saying what you tried. What to do about a true claim is not yours to decide: no candidate is held back because it is small, because its fix would cost more than it is worth, because it needs conditions unlikely to occur, or because its cause is in code this pull request did not change. State those as facts in the finding instead: the conditions the failure needs; outsideDiff true and where the cause is, when it is in code the diff did not touch; and, for a guard the base branch had and this pull request stopped handling, the removed line. The shaper decides every finding you report.',
+    'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, declined, decided, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks in full (the part it does not track is judged on its own, below). Two outcomes reopen. A candidate that matches an earlier finding whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new, since the fix did not fully land: report it as a finding of this round with the earlier id named in its description only (for example `R1-3 was fixed, but still reproduces here`), leave its knownAs empty, and account for it as verified. A candidate that matches an earlier finding declined because it could not be confirmed, and that you now confirm, is new in the same way, the earlier id named in its description. A candidate the fix did close no longer reproduces and is settled; a declined, deferred, accepted, dropped, left-to-the-person or still-open finding stays settled. A decided finding stays settled whatever its commits, since an applied decision is often a deliberate keep or mitigation: a candidate that still reproduces one is accounted for as settled, its ref naming the earlier id and saying it still reproduces (for example `R2-5 was decided, and this still reproduces it`), never as a finding. What you report as new, and as correctness, is what keeps the run going: never re-raise a settled finding as new, and never drop a candidate silently.',
+    'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file), and two candidates are not one because one issue\'s title fits both; run the known-finding check, and when an open issue or a teammate\'s comment covers only part of a candidate, the tracked part is known and the remainder is judged as its own candidate, by every rule here: a remainder whose cause is in this pull request\'s diff is a finding unless another rule here puts it elsewhere, as it would put any candidate (a collapse or a refutation), and as a finding it has the issue named in its description and knownAs empty; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff when its cause is in the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline), and keep the candidate\'s own place when the cause is outside the diff, which the post moves into the review body; and give it category, severity, confidence, side and askRule as for any finding.',
+    'Account for every index in coverage, one entry each, with outcome and ref: verified or unconfirmed (ref the finding\'s id), duplicate (ref opening with the index of the candidate or the id of the finding it collapses into, anything meant for the reader after it), settled (ref the earlier finding\'s id), known (ref the issue number or the comment), refuted (ref the claim it disproves and the evidence against that claim). A candidate an issue or a comment tracks only in part is accounted for by what its remainder became, with the issue named in the finding\'s description or in the ref of any other outcome, since a verified or unconfirmed entry\'s ref is the finding\'s id alone; known is for one tracked whole. The review body lists every candidate that is not a finding of this round in a folded block, one line each beside the candidate\'s own summary, so write each of those refs for the teammate who may overrule it. An index you leave out is kept as an unconfirmed finding as reported, with a warning.',
   )
   return lines
 }
@@ -1407,18 +1508,22 @@ function coverageMessage(cause) {
   }
 }
 
-// The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior): every
-// candidate has exactly one entry; one the reviewer left out, or placed with an outcome the
-// schema does not name, is listed under For the person as reported, with a warning, never
-// dropped. A finding entry is counted where the round puts it (#80, R1-4): one whose ref names no
-// finding of this round is listed under For the person as reported, with a warning, like an
-// unaccounted one; under correctness only, one naming a nit is For the person and the nit is
-// listed there, since the main loop drops it before the known split; otherwise one naming a
-// finding with a knownAs is known, since the body lists it under Already tracked.
+// The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior; #93): every
+// candidate has exactly one entry. One the reviewer left out, or placed with an outcome the schema
+// does not name, or accounted for with a ref that names no finding of this round (#80, R1-4),
+// becomes a finding of the round as reported: a new id, correctness, unconfirmed, with a warning,
+// so the shaper's second look decides it and no candidate is dropped or parked. A verified or
+// unconfirmed entry is counted by its finding's own confidence, and one naming a finding with a
+// knownAs is known, since the body lists that finding under Already tracked.
+const MINTED_WOULD_CONFIRM = 'The verifier gave no account of this candidate; check the claim as the finder made it.'
+// The place of a minted finding whose candidate named no file (#94, R2-6): prior-findings reads a
+// body line back only with text before the colon, so `:0` would leave it neither carried nor
+// settled. The post script moves its comment into the review body, as it does any path in no hunk.
+const NO_FILE = '(no file)'
 function accountCoverage(round, out, candidates) {
   const byId = new Map(out.findings.map((f) => [f.id, f]))
-  const listedNits = new Set()
   const seen = new Map()
+  const told = new Set()
   for (const entry of out.coverage) {
     const index = Number(entry.index)
     if (!Number.isInteger(index) || index < 1 || index > candidates.length) {
@@ -1430,42 +1535,54 @@ function accountCoverage(round, out, candidates) {
       continue
     }
     if (!COVERAGE_OUTCOMES.includes(entry.outcome)) {
-      warnings.push(`round ${round}: the reviewer gave coverage candidate ${index} the outcome ${JSON.stringify(entry.outcome)}, which is not one of ${COVERAGE_OUTCOMES.join(' | ')}; listed under For the person as reported`)
+      warnings.push(`round ${round}: the reviewer gave coverage candidate ${index} the outcome ${JSON.stringify(entry.outcome)}, which is not one of ${COVERAGE_OUTCOMES.join(' | ')}; kept as an unconfirmed finding as reported`)
+      told.add(index)
       continue
     }
     const ref = typeof entry.ref === 'string' ? entry.ref.trim() : String(entry.ref === undefined || entry.ref === null ? '' : entry.ref)
-    if (entry.outcome === 'finding') {
-      const finding = byId.get(ref)
-      if (!finding) {
-        const c = candidates[index - 1]
-        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as a finding with ref ${JSON.stringify(ref)}, which is not a finding of this round; listed under For the person as reported`)
-        out.forThePerson.push({ file: c.file, line: c.line, text: c.summary })
-        seen.set(index, { index, outcome: 'forThePerson', ref: `finding ref ${ref} names no finding` })
-        continue
+    if (LISTED_ELSEWHERE.includes(entry.outcome)) {
+      // The ref is the finding's id alone, as the accounting sentence asks; a note after the id is
+      // read past, by its leading id, with a warning, so it never mints a second finding for a
+      // candidate already reported (#94, R2-5). A leading token that names no finding is a bad ref.
+      const id = (/^(R\d+-\d+)(?![\w-])/.exec(ref) || [])[1] || ref
+      const finding = byId.get(id)
+      if (finding && id !== ref) {
+        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome} with ref ${JSON.stringify(ref)}; read as ${id}, the finding its leading id names`)
       }
-      if (scope === 'correctness' && finding.category === 'nit') {
-        if (!listedNits.has(finding.id)) {
-          listedNits.add(finding.id)
-          out.forThePerson.push({ file: finding.file, line: finding.line, text: finding.title })
-        }
-        seen.set(index, { index, outcome: 'forThePerson', ref: `${finding.id}: a nit under correctness only` })
+      if (!finding) {
+        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome} with ref ${JSON.stringify(ref)}, which is not a finding of this round; kept as an unconfirmed finding as reported`)
+        told.add(index)
         continue
       }
       if (finding.knownAs) {
         seen.set(index, { index, outcome: 'known', ref: `${finding.id}: ${finding.knownAs}` })
         continue
       }
+      const own = finding.confidence === 'unconfirmed' ? 'unconfirmed' : 'verified'
+      if (own !== entry.outcome) {
+        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome}, but ${finding.id} is ${finding.confidence}; counted as ${own}`)
+      }
+      seen.set(index, { index, outcome: own, ref: id })
+      continue
     }
     seen.set(index, { index, outcome: entry.outcome, ref })
   }
+  let next = Math.max(0, ...out.findings.map((x) => Number(String(x.id).split('-')[1]) || 0))
   candidates.forEach((c, i) => {
     const index = i + 1
     if (seen.has(index)) {
       return
     }
-    warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file}:${c.line}); listed under For the person as reported`)
-    out.forThePerson.push({ file: c.file, line: c.line, text: c.summary })
-    seen.set(index, { index, outcome: 'forThePerson', ref: 'unaccounted' })
+    const id = `R${round}-${++next}`
+    if (!told.has(index)) {
+      warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file || NO_FILE}:${c.line}); kept as ${id}, an unconfirmed finding, as reported`)
+    }
+    out.findings.push({
+      id, file: c.file || NO_FILE, line: c.line, side: 'RIGHT', category: 'correctness', severity: 'medium', confidence: 'unconfirmed',
+      title: String(c.summary || '').replace(/\s+/g, ' ').trim(), description: String(c.failure_scenario || '').trim(), proposedFix: '',
+      wouldConfirm: MINTED_WOULD_CONFIRM, outsideDiff: false, knownAs: '', carriedFrom: '', askRule: '',
+    })
+    seen.set(index, { index, outcome: 'unconfirmed', ref: id })
   })
   out.coverage = [...seen.values()].sort((a, b) => a.index - b.index)
   const counts = Object.fromEntries(COVERAGE_OUTCOMES.map((o) => [o, out.coverage.filter((e) => e.outcome === o).length]))
@@ -1523,9 +1640,9 @@ ${description}
 Findings for this round, as JSON:
 ${json(inScope)}
 
-Sort each finding into fix, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A finding with needsDecision true is a judgment call unless your investigation shows the question does not arise. A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Every decided entry under Decisions in shape.md (a fix, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
+Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task. Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix and defer or "pending" for ask, and recommendation in one sentence: the change planned for a fix, the mitigation for a defer, the option you recommend for an ask), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer, the option you recommend for an ask; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -1580,9 +1697,9 @@ ${json(adjustments)}
 The round's findings, as JSON:
 ${json(inScope)}
 
-Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. Decisions already recorded as decided in shape.md stay as they are. ${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.
+Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. Decisions already recorded as decided in shape.md stay as they are. ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', and reason for a decline'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -1614,13 +1731,13 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   if (overrides.length) {
     lines.push(
       '',
-      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task and add the finding under Deferred in shape.md with the full fix left open; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner:`,
+      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task and add the finding under Deferred in shape.md with the full fix left open; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner${pass.human ? '' : '; a finding the shaper declined is overruled the same way, its Decisions entry keeping the shaper\'s reason as the record of what the person saw'}:`,
       json(overrideDecisions),
     )
   }
   lines.push(
     '',
-    `${NEVER_DECIDE} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
+    `${decideRule(pass)} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
     '',
     'Return only the JSON your instructions specify.',
   )
@@ -1647,7 +1764,7 @@ ${json({ findings: shaped.findings, deferred: shaped.deferred })}
 
 Decisions made outside the shaper (by the person, or by the autopilot taking the shaper's recommendation; decidedBy names which), already applied by the resolve agent (these are decided, not pending): ${Object.keys(roundDecisions).length ? json(roundDecisions) : 'none'}
 
-Check the plan per your instructions. ${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself. planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
+Check the plan per your instructions. ${pass.human ? `${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself.` : `${NOT_YOURS} A task that turns a still-pending decision into a change is a bounce. A declined finding has no task: its reason is in the dispositions above and under Decisions in shape.md, and a decline with no reason a teammate can read is a bounce. The person is asked in the cases your instructions list and no others, so an ask outside them is a bounce too.`} planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
 
 Return only the JSON your instructions specify.`
 }
@@ -1657,7 +1774,7 @@ function standardsPrompt(pass, specFolder) {
 
 You are the standards approver for ${pass.name}. Spec folder: ${abs(specFolder)}/. Read its shape.md section "Standards retrospective (proposed)" and decide each proposed edit per your instructions.
 
-${NEVER_DECIDE} A proposed edit that depends on a pending decision is returned under deferred.
+${decideRule(pass)} A proposed edit that depends on a pending decision is returned under deferred.
 
 Return only the JSON your instructions specify.`
 }
@@ -1720,7 +1837,7 @@ ${gateLine(ctx, label)}
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(ctx.inScope)}
 
-Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : ''}), as JSON:
+Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a declined finding has no task and no commit'}), as JSON:
 ${json({ findings: ctx.shaped.findings, deferred: ctx.deferred })}
 
 Decisions made outside the shaper (already in the spec; decidedBy names the owner, the person or the autopilot): ${Object.keys(ctx.roundDecisions).length ? json(ctx.roundDecisions) : 'none'}
@@ -1733,7 +1850,7 @@ ${json(ctx.standards.approved.filter((edit) => !edit.alreadyCovered))}
 The standards commit's message names every finding whose fix one of these edits carries, as shape.md's plan for that finding says (for example \`redline: record the ${pass.name} ${pass.human ? '' : 'review '}lessons in the standards, finishing ${pass.idPrefix}-1 (#${issue})\`), so that finding's reply names both of its commits. An edit that is only a lesson names no finding.
 ${ctx.standards.approved.length === 0 || ctx.standards.noChanges ? 'Nothing approved: record "Standards retrospective: no changes" under Decisions in shape.md.' : ''}
 
-${NEVER_DECIDE} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
+${decideRule(pass)} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
 ${ctx.repair ? `\nThis is a repair pass. The checker's independent run of checks.sh failed after your last pass:\n${ctx.repair}\nFix the cause, commit Redline's way, and run the gate until it exits 0.\n` : ''}
 Return only the JSON your instructions specify.`
 }
@@ -1835,7 +1952,7 @@ function resolveThreadsPrompt(settled) {
 
 Operation: resolve-threads. PR #${pr}. postToGitHub: true. push: true.
 
-These findings are settled (fixed, deferred with the mitigation committed, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
+These findings are settled (fixed, deferred with the mitigation committed, declined by Redline with its reason posted, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
 ${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${all(s).join(', ')}`).join('\n')}
 
 Run this once, exactly as given, and nothing else:
@@ -2053,7 +2170,7 @@ let recordCommit = null
 let threadSweep = null
 
 function compactFinding(f) {
-  return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, needsDecision: f.needsDecision, knownAs: f.knownAs, carriedFrom: f.carriedFrom || '' }
+  return { id: f.id, category: f.category, severity: f.severity, file: f.file, line: f.line, title: f.title, confidence: f.confidence, knownAs: f.knownAs, carriedFrom: f.carriedFrom || '' }
 }
 
 function history() {
@@ -2094,7 +2211,6 @@ function result(status, extra) {
       dropped: (record.dropped || []).map((f) => ({ id: f.id, reason: f.reason })),
       carried: record.carried || {},
       resolvedPrior: record.resolvedPrior || [],
-      forThePerson: record.forThePerson || [],
       coverage: record.coverage || null,
       files: record.files || [],
       replyIds: record.replyIds || {},
@@ -2115,7 +2231,7 @@ function result(status, extra) {
     warnings,
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -2187,6 +2303,15 @@ async function review(round, reviewed, range, facts, source) {
       f.id = `R${round}-${index + 1}`
     }
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
+    // The facts beside the claim (#93). Whether to ask is the shaper's question, so a needsDecision
+    // a reviewer still returns is dropped; what would confirm an unconfirmed finding is kept, and
+    // its absence is said.
+    delete f.needsDecision
+    f.outsideDiff = f.outsideDiff === true
+    f.wouldConfirm = f.confidence === 'unconfirmed' && typeof f.wouldConfirm === 'string' ? f.wouldConfirm.trim() : ''
+    if (f.confidence === 'unconfirmed' && !f.wouldConfirm) {
+      warnings.push(`round ${round}: the reviewer could not confirm ${f.id} and did not say what would confirm it`)
+    }
     // The reviewer's ask-rule tag is advisory and must name a declared rule (#49).
     f.askRule = typeof f.askRule === 'string' ? f.askRule.trim() : ''
     if (f.askRule && !ruleById[f.askRule]) {
@@ -2195,11 +2320,8 @@ async function review(round, reviewed, range, facts, source) {
     }
   })
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
-  // For the person and the coverage accounting (#79). Without a coverage pass there is nothing to
-  // account for, so an accounting the reviewer wrote anyway is cleared.
-  out.forThePerson = (Array.isArray(out.forThePerson) ? out.forThePerson : [])
-    .filter((e) => e && typeof e === 'object')
-    .map((e) => ({ file: typeof e.file === 'string' ? e.file : '', line: Number.isInteger(e.line) ? e.line : 0, text: typeof e.text === 'string' ? e.text.trim() : '' }))
+  // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
+  // accounting the reviewer wrote anyway is cleared.
   out.coverage = Array.isArray(out.coverage) ? out.coverage.filter((e) => e && typeof e === 'object') : []
   // Only the run's first round carries, from the earlier rounds' list (#35, decision 9 of its
   // spec), so any other review clears what a reviewer copied from the history (#46, R1-1).
@@ -2222,7 +2344,7 @@ async function review(round, reviewed, range, facts, source) {
     // new id, a finding of this round, so the R1-4 rule for a ref naming no finding does not apply
     // to it (#80, R2-3).
     for (const entry of out.coverage) {
-      if (entry.outcome !== 'finding' && entry.outcome !== 'duplicate') {
+      if (!LISTED_ELSEWHERE.includes(entry.outcome) && entry.outcome !== 'duplicate') {
         continue
       }
       const ref = typeof entry.ref === 'string' ? entry.ref.trim() : entry.ref
@@ -2254,7 +2376,7 @@ async function review(round, reviewed, range, facts, source) {
         }
         const target = e.outcome === 'duplicate' ? /^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(e.ref) : null
         const to = target ? Number(target[1]) : 0
-        const into = to !== e.index && byIndex.has(to) ? { index: to, file: candidates[to - 1].file, line: candidates[to - 1].line, outcome: byIndex.get(to).outcome, id: byIndex.get(to).outcome === 'finding' ? byIndex.get(to).ref : '' } : null
+        const into = to !== e.index && byIndex.has(to) ? { index: to, file: candidates[to - 1].file, line: candidates[to - 1].line, outcome: byIndex.get(to).outcome, id: LISTED_ELSEWHERE.includes(byIndex.get(to).outcome) ? byIndex.get(to).ref : '' } : null
         return { index: e.index, file: c.file, line: c.line, summary: c.summary, outcome: e.outcome, ref: e.ref, into }
       })
   } else {
@@ -2314,8 +2436,9 @@ function reconcilePrior(round, out) {
     warnings.push(`round ${round}: the reviewer did not account for ${p.id} (carried forward from round ${p.round}); carried as reported`)
     const body = (p.body || '').split('\n').slice(1).join('\n').trim()
     out.findings.push({
-      id, file: p.file, line: p.line, side: 'RIGHT', category: p.category, severity: p.severity, confidence: p.confidence, title: p.title,
-      description: body || `See the Redline round ${p.round} review body.`, proposedFix: '', needsDecision: false, knownAs: '', carriedFrom: p.id, askRule: '',
+      id, file: p.file, line: p.line, side: 'RIGHT', category: p.category, severity: p.severity, confidence: 'unconfirmed', title: p.title,
+      // Carried as reported, so nobody verified it at this head: the shaper's second look does.
+      description: body || `See the Redline round ${p.round} review body.`, proposedFix: '', wouldConfirm: 'The verifier did not re-verify this carried finding; check it at this head.', outsideDiff: false, knownAs: '', carriedFrom: p.id, askRule: '',
     })
     carried[p.id] = id
   }
@@ -2331,9 +2454,14 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
       comments: active.map((f) => ({ path: f.file, line: f.line, side: f.side, body: commentBody(f) })),
     }),
   }
+  // What the correctness-only scope declined is the record's, under its own key (#94, R1-10):
+  // `/redline:redline-revise <pr> round <n>` reads `findings` only, so it never shapes those items,
+  // as before #93. The run's record keeps them among its findings, so a later round still
+  // collapses a repeat as settled.
+  const scopedOut = reviewOut.scoped || []
   const findingsFile = {
     path: `${specFolder}/redline/round-${round}-findings.json`,
-    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings, forThePerson: reviewOut.forThePerson || [], ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, list: reviewOut.coverageList } } : {}) }),
+    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings.filter((f) => !scopedOut.includes(f)), ...(scopedOut.length ? { scoped: scopedOut } : {}), ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, list: reviewOut.coverageList } } : {}) }),
   }
   const posted = await run('post', postPrompt(round, specFolder, reviewFile, findingsFile), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `post r${round}`, phase: 'Post', schema: POST_SCHEMA,
@@ -2386,6 +2514,7 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
   const recommendations = Object.fromEntries(shaped.findings.map((f) => [f.id, (f.recommendation || '').trim()]))
+  const reasons = Object.fromEntries(shaped.findings.map((f) => [f.id, (f.reason || '').trim().replace(/\.$/, '')]))
   for (const f of inScope) {
     const named = commits.filter((c) => c.finding === f.id || mentions(c.message, f.id))
     const decision = roundDecisions[f.id]
@@ -2394,11 +2523,14 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const left = (forced || {})[f.id]
     if (left) {
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
-      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision) : 'No change made; the person makes it.', commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
+      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
       outcomes[f.id] = { kind: 'deferred', commits: named, fullFix: deferredItem.fullFix, mitigation: deferredItem.mitigation, decidedBy: owner }
+    } else if (dispositions[f.id] === 'decline') {
+      // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
+      outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
     } else if (dispositions[f.id] === 'none') {
       outcomes[f.id] = { kind: 'none', why: recommendations[f.id] || 'The comment asks for no change.', commits: named, decidedBy: REDLINE }
     } else if (named.length) {
@@ -2410,7 +2542,9 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
   return outcomes
 }
 
-function describeOutcome(outcome) {
+// `human` is a human-review pass, which keeps its own wording: "the author", and a decision's
+// sentence alone. A Redline round names the person by login and says whether a decision was applied.
+function describeOutcome(outcome, human) {
   const owner = decidedBy(outcome.decidedBy)
   switch (outcome.kind) {
     case 'fixed':
@@ -2418,9 +2552,11 @@ function describeOutcome(outcome) {
     case 'deferred':
       return `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
     case 'decided':
-      return `${decisionSentence(outcome)}${owner}`
+      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${owner}`
+    case 'declined':
+      return `declined: ${outcome.reason}${owner}`
     case 'left':
-      return `left to the author under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
+      return `left to ${human ? 'the author' : personLabel} under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
     case 'none':
@@ -2430,10 +2566,27 @@ function describeOutcome(outcome) {
   }
 }
 
-// A human review pass sorts into fix, ask or none; a Redline round into fix, defer or ask. The
+// A human review pass sorts into fix, ask or none; a Redline round into fix, decline, defer or ask
+// (#93). The
 // shaper's JSON is checked here, so a value from the other kind of pass stops the run at shape
 // rather than reaching a plan.
 function checkDispositions(pass, shaped) {
+  // A decline (#93) is a Redline round's: it carries the reason a teammate reads and is Redline's own
+  // decision, never a pending one. A human review pass has none, as it has no defer.
+  const declined = shaped.findings.filter((f) => f.disposition === 'decline')
+  if (pass.human && declined.length) {
+    throw stageError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
+  }
+  const noReason = declined.filter((f) => typeof f.reason !== 'string' || f.reason.trim() === '').map((f) => f.id)
+  if (noReason.length) {
+    throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`)
+  }
+  for (const f of declined) {
+    if (f.decidedBy !== 'redline') {
+      warnings.push(`${pass.name}: the shaper marked the decline of ${f.id} as decided by ${f.decidedBy}; a decline is Redline's own`)
+      f.decidedBy = 'redline'
+    }
+  }
   const bad = pass.human
     ? shaped.findings.filter((f) => f.disposition === 'defer')
     : shaped.findings.filter((f) => f.disposition === 'none' || f.decidedBy === 'reviewer')
@@ -2457,9 +2610,10 @@ function checkDispositions(pass, shaped) {
 // Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
 // shaper's rule 10 says; the script pins it, so a call can never stand in for a finding the shaper
 // did not write as an ask. Runs before forceAskRules, which adds the one call the workflow writes,
-// for a finding a repository ask rule covers. On a reshape, `known` is the round's calls so far: a
-// call the round already decided may be left out or kept beside a re-sorted finding, since the
-// reshape returns only the calls still pending or newly raised (#61, R1-2).
+// for a finding a repository ask rule covers; the reason a call gives is checkWhy's, after it. On a
+// reshape, `known` is the round's calls so far: a call the round already decided may be left out
+// or kept beside a re-sorted finding, since the reshape returns only the calls still pending or
+// newly raised (#61, R1-2).
 function checkCalls(shaped, known = []) {
   const decided = (id) => known.some((c) => c.id === id)
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
@@ -2473,6 +2627,23 @@ function checkCalls(shaped, known = []) {
     const f = shaped.findings.find((x) => x.id === call.id)
     if (!f || f.disposition !== 'ask') {
       throw stageError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
+    }
+  }
+}
+
+// A Redline round asks in the cases of ROUND_WHY only, beside the repository ask rules (#93): a
+// call for any other reason is one the shaper should have decided, so it stops here and never
+// reaches the person. A human review pass keeps its own reasons. Runs after forceAskRules, which
+// gives a call a repository rule covers the rule's reason, so that call is judged by the reason it
+// will be asked with (#94, R1-13). `known` is checkCalls's: the round's calls so far on a reshape.
+// It runs after the `spec status` call, so it names the shaper's label itself; `lastLabel` would
+// name the spec check, and a resume would replay the refused output (#94, R2-9).
+function checkWhy(pass, shaped, known, shaperLabel) {
+  const decided = (id) => known.some((c) => c.id === id)
+  if (!pass.human) {
+    const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
+    if (outside) {
+      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`, {}, shaperLabel)
     }
   }
 }
@@ -2512,7 +2683,7 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
   }
 }
 
-// The forcing point (#49): after shaping, whatever fix, defer or ask the shaper returned, a finding
+// The forcing point (#49): after shaping, whatever fix, decline, defer or ask the shaper returned, a finding
 // a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
 // and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
 // finding becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper
@@ -2545,6 +2716,9 @@ function forceAskRules(record, pass, inScope, shaped) {
       warnings.push(`${pass.name}: the shaper sorted ${f.id} as ${s.disposition}; repository rule ${rule.id} makes it an ask for the person`)
     }
     const recommendation = (s.recommendation || '').trim().replace(/\.$/, '')
+    // What the shaper would have declined is still the person's under the rule (#93): the call
+    // says so and recommends no change, with the shaper's reason.
+    const declineReason = s.disposition === 'decline' ? (s.reason || '').trim().replace(/\.$/, '') : ''
     s.disposition = 'ask'
     s.decidedBy = 'pending'
     s.askRule = rule.id
@@ -2558,10 +2732,10 @@ function forceAskRules(record, pass, inScope, shaped) {
         story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
         why_human: why,
         options: [
-          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
+          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: declineReason ? `Redline would have declined it: ${declineReason}.` : recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
           { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
         ],
-        recommendation: recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        recommendation: declineReason ? `Accept, no change: ${declineReason}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
       shaped.judgmentCalls.push(call)
@@ -2587,7 +2761,7 @@ function droppedReplies(record) {
     outcomes[f.id] = outcome
     record.outcomes[f.id] = describeOutcome(outcome)
     record.outcomeKinds = Object.assign(record.outcomeKinds || {}, { [f.id]: 'dropped' })
-    decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
+    decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason, kind: 'dropped', reason: '', overruled: false })
     return replyEntry(passOf(record), f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
   })
   return entries.concat(carriedReplies(passOf(record), record, dropped, outcomes))
@@ -2676,7 +2850,7 @@ async function revise(record, inScope, reviewedKind) {
 
   phase('Shape')
   let shaped = await run('shape', pass.human ? humanShapePrompt(pass, record, inScope) : shapePrompt(round, specFolder, reviewedKind, inScope, record.prBody), {
-    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
   })
   if (shaped.specFolder.replace(/\/+$/, '') !== specFolder) {
     warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${specFolder}`)
@@ -2689,6 +2863,7 @@ async function revise(record, inScope, reviewedKind) {
   checkCalls(shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
+  checkWhy(pass, shaped, [], `shape ${pass.tag}`)
   record.dispositions = shaped.findings
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
@@ -2713,7 +2888,7 @@ async function revise(record, inScope, reviewedKind) {
       for (const call of open) {
         // A finding a repository ask rule covers is left to the person, never applied (#49).
         const forced = record.forced[call.id]
-        decisions[call.id] = forced ? leftDecision(forced) : autopilotDecision(call)
+        decisions[call.id] = forced ? leftDecision(forced, pass.human) : autopilotDecision(call)
         log(`${pass.name}: autopilot ${forced ? `left ${call.id} to the person (repository rule ${forced.rule})` : `decided ${call.id} (${decisions[call.id].choice})`}`)
       }
       return false
@@ -2721,7 +2896,7 @@ async function revise(record, inScope, reviewedKind) {
     return true
   }
   if (settle(calls.filter((call) => !decisions[call.id]))) {
-    return { handoff: true, kind: 'decisions', pending: calls.filter((call) => !decisions[call.id]), calls }
+    return { handoff: true, kind: 'decisions', pending: calls.filter((call) => !decisions[call.id]), calls, shaped }
   }
 
   // A decision on a finding that was not a judgment call is a disposition override from the plan
@@ -2755,7 +2930,7 @@ async function revise(record, inScope, reviewedKind) {
       if (interrupt === 'autopilot') {
         throw stageError('resolve', `autopilot could not apply the shaper's recommendation for ${ids.join(', ')}`, { unresolved: out.unresolved })
       }
-      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved }
+      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved, shaped }
     }
     deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
     return out
@@ -2800,18 +2975,19 @@ async function revise(record, inScope, reviewedKind) {
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
-      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     checkDispositions(pass, shaped)
     checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
+    checkWhy(pass, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
     if (settle(raised.filter((call) => !decisions[call.id]))) {
-      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls }
+      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped }
     }
     deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id)))
     if (raised.length) {
@@ -2934,10 +3110,18 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
-  record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome)])))
+  record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
+  // The shaper's own disposition of each item, before any override: `overruled` and `bought` read
+  // it. An accept that keeps a decline changes nothing Redline does, so it is the person's decision
+  // on what the plan dial showed them, never an overrule: only a decline changed to fix or defer is
+  // overruled (skills/redline/SKILL.md, the plan dial; #94, R2-10).
+  const shaperOwn = Object.fromEntries(shaped.findings.map((s) => [s.id, s.disposition]))
+  const keptDecline = (id) => shaperOwn[id] === 'decline' && Boolean(roundDecisions[id]) && roundDecisions[id].disposition === 'accept'
   for (const f of inScope) {
-    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id]), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '' })
+    // `kind` is what became of the item, `reason` a decline's reason, and `overruled` a decision the
+    // person made on an item that was not put to them: a disposition they changed at a stop (#93).
+    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && !calls.some((call) => call.id === f.id) && !keptDecline(f.id) })
   }
 
   phase('Push and reply')
@@ -2954,7 +3138,21 @@ async function revise(record, inScope, reviewedKind) {
   record.pushed = pushed.pushed
   keepReplyIds(record, pushed)
   const newHead = roundCommits.length ? roundCommits[roundCommits.length - 1].sha : null
-  return { handoff: false, newHead, commits: roundCommits }
+  // The done rule (#93): a round is bought by what it finds, not by what it commits. A new
+  // correctness item the shaper fixes (in full, or by a deferral's mitigation) or puts to the
+  // person buys the next round, whatever the person answered and whether or not a commit resulted;
+  // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
+  // and neither does any item that is not a correctness one. A call stays in `calls` when a reshape
+  // re-sorts its finding, so an item put to the person buys the round whatever the reshape
+  // returned (#94, R2-11).
+  // `fixed` is the items a commit names, never a declined item or a none, whose `commits` only
+  // mention them (#94, R2-12): the round's spec and standards commits are no fix diff. A deferral's
+  // mitigation counts, since its commit is unreviewed code the final nit pass must read; the final
+  // nit pass's sentences still call such an item fixed (R2-12, deferred).
+  const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
+  const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || ['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
+  const fixed = inScope.filter((f) => !['declined', 'none'].includes(outcomes[f.id].kind) && outcomes[f.id].commits.length > 0).map((f) => f.id)
+  return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
 
 // Known limits in the plugin's README, where the teammate reading the handoff can open it.
@@ -2962,7 +3160,7 @@ function knownLimits() {
   return `[Known limits](${README_URL}#known-limits) in Redline's README`
 }
 
-function handoffComment(lastFixUnreviewed, prBody, threads) {
+function handoffComment(ending, prBody, threads) {
   const lines = ['Redline handoff', '']
   const reviews = rounds.length
   const last = rounds[reviews - 1]
@@ -2972,12 +3170,29 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   const wholePr = rounds.some((record) => record.coverage)
     ? `The coverage pass reviewed the whole PR at the head of every round but the final nit pass; see ${knownLimits()}.`
     : `Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`
-  if (lastFixUnreviewed) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`)
+  // The opening sentence, by how the run ended (#93). `ending.final` is a final nit pass that found
+  // correctness items: how many, and how many of them a commit fixed, since the shaper may decline
+  // one and no wording may call a declined item fixed. `ending.noRecheck` is a bought round that
+  // changed no code with the coverage pass off; `ending.notPicked` a review dial with nothing picked.
+  const end = ending && typeof ending === 'object' ? ending : {}
+  const final = end.final || null
+  const ran = `Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}`
+  if (final && final.fixed === final.found) {
+    lines.push(final.found === 1
+      ? `Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
+      : `Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
+  } else if (final && final.fixed === 0) {
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in the nit fixes; none was changed, and each is listed below. ${wholePr}`)
+  } else if (final) {
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness items in the nit fixes: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
   } else if (last && last.reviewed === 'final-nit-pass') {
     lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
+  } else if (end.noRecheck) {
+    lines.push(`${ran}; the last one changed no code, and with the coverage pass off there was nothing further to review.`)
+  } else if (end.notPicked) {
+    lines.push(`${ran}; none of its findings was picked to act on.`)
   } else {
-    lines.push(`Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}; the last one found no correctness bugs.`)
+    lines.push(`${ran}; the last one verified no new correctness item to fix or ask about.`)
   }
   if (threads) {
     lines.push('', threadsLine(threads))
@@ -2986,44 +3201,93 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
     const file = prBody.file.startsWith(`${repoRoot}/`) ? prBody.file.slice(repoRoot.length + 1) : prBody.file
     lines.push('', `Redline replaced the PR description with the redraft in \`${file}\`; the previous one is in the description's edit history.`)
   }
-  if (AGENTS_CHANGED) {
-    lines.push('', AGENTS_CHANGED)
+  if (AGENTS_CHANGED_HANDOFF) {
+    lines.push('', AGENTS_CHANGED_HANDOFF)
   }
   if (teammate) {
     lines.push('', `@${teammate}, over to you for the human review.`)
   }
+  // Every item of the run, by what became of it (#93): what was put to the person and what they
+  // overruled first, then what Redline declined on its own, with how to overrule one, since that
+  // is what a reader audits; then what was deferred, left under a rule, not picked or not changed;
+  // the fixes last and folded, since each is a commit below. The single Decisions list is gone.
+  // One test per group, read by the lists below and by the Rounds counts, so the two never drift
+  // (#94, R2-13).
+  const isKind = (kind) => (d) => d.kind === kind
+  const isAsked = (d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT
+  const isAuto = (d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT
+  const isOverruled = (d) => d.kind === 'decided' && d.overruled
+  const of = (test) => decidedAll.filter(test)
+  const asked = of(isAsked)
+  const auto = of(isAuto)
+  const overruled = of(isOverruled)
+  const declined = of(isKind('declined'))
+  const notPicked = of(isKind('dropped'))
+  const notChanged = of(isKind('not-changed'))
+  const fixed = of(isKind('fixed'))
+  const scoped = rounds.flatMap((record) => record.scoped || [])
   lines.push('', '### Rounds', '')
   for (const record of rounds) {
-    const correctness = record.findings.filter((f) => !f.knownAs && f.category === 'correctness').length
-    const nits = record.findings.filter((f) => !f.knownAs && f.category === 'nit').length
+    const mine = decidedAll.filter((d) => d.round === record.round)
+    const count = (test) => mine.filter(test).length
+    const parts = [
+      [count(isKind('fixed')), 'fixed'],
+      [count(isKind('declined')), 'declined'],
+      [count(isKind('deferred')), 'deferred'],
+      [count(isAsked), `put to ${personLabel}`],
+      [count(isAuto), 'decided on autopilot'],
+      [count(isOverruled), `overruled by ${personLabel}`],
+      [count(isKind('left')), `left to ${personLabel}`],
+      [count(isKind('dropped')), `not picked by ${personLabel}`],
+      [count(isKind('not-changed')), 'not changed'],
+      [(record.scoped || []).length, 'declined under the scope'],
+    ].filter(([n]) => n > 0)
+    const items = parts.reduce((sum, [n]) => sum + n, 0)
     const approved = approvedPlans.includes(record.round) ? `; plan approved by ${personLabel}` : ''
-    const picked = record.dropped ? `; ${record.dropped.length} not acted on (${personLabel}'s pick)` : ''
-    lines.push(`- Round ${record.round} (${record.reviewed}): ${correctness} correctness, ${nits} nit; ${(record.commits || []).length} commits${approved}${picked}; spec \`${record.specFolder}\``)
-  }
-  const earlier = earlierRoundsLines()
-  if (earlier.length) {
-    lines.push('', '### Earlier rounds', '', ...earlier)
+    lines.push(`- Round ${record.round} (${record.reviewed}): ${items ? `${items} item${items === 1 ? '' : 's'}: ${parts.map(([n, what]) => `${n} ${what}`).join(', ')}` : 'no new items'}; ${(record.commits || []).length} commits${approved}; spec \`${record.specFolder}\``)
   }
   // A finding's title is the verifier's and goes through postedText; the outcome after it is the
   // workflow's, the shaper's or the person's, and is posted as written, so its `decided by: @login`
-  // still names the owner (#87, decision 2). Left to you does the same below.
-  if (decidedAll.length) {
-    lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`))
+  // still names the owner (#87, decision 2). The lists below all do the same.
+  const line = (d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`
+  if (asked.length) {
+    lines.push('', `### Put to ${personLabel} (${asked.length})`, '', ...asked.map(line))
+  }
+  if (auto.length) {
+    lines.push('', `### Asked, decided on autopilot (${auto.length})`, '', ...auto.map(line))
+  }
+  if (overruled.length) {
+    lines.push('', `### Overruled by ${personLabel} (${overruled.length})`, '', ...overruled.map(line))
+  }
+  if (declined.length) {
+    lines.push('', `### Declined by Redline (${declined.length})`, '', `To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run \`/redline-revise ${pr} review ${login ? `@${login}` : '@<your login>'}\`.`, '', ...declined.map(line))
+  }
+  // What the workflow declined under a correctness-only scope: ids that are not bold, as in the
+  // review bodies, so no reader takes a line for a finding with a disposition.
+  if (scoped.length) {
+    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${postedText(d.title)}: left to you under repository rule ${d.rule}; open: ${d.fullFix}`
+      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under repository rule ${d.rule}; open: ${d.fullFix}`
       : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
   }
   const left = leftToYou()
   if (left.length) {
-    lines.push('', '### Left to you (repository rules)', '', ...left)
+    lines.push('', `### Left to ${personLabel} (repository rules)`, '', ...left)
   }
-  // What the reviewer would not act on but the teammate should see (#79), every round's entries
-  // in order, verbatim from the review bodies.
-  const forThePerson = rounds.flatMap((record) => record.forThePerson || [])
-  if (forThePerson.length) {
-    lines.push('', '### For the person', '', ...forThePerson.map(personLine))
+  if (notPicked.length) {
+    lines.push('', `### Not picked by ${personLabel} (${notPicked.length})`, '', ...notPicked.map(line))
+  }
+  if (notChanged.length) {
+    lines.push('', `### Not changed (${notChanged.length})`, '', ...notChanged.map(line))
+  }
+  if (fixed.length) {
+    lines.push('', `### Fixed (${fixed.length})`, '', '<details>', '<summary>With the commits that fixed each</summary>', '', ...fixed.map(line), '', '</details>')
+  }
+  const earlier = earlierRoundsLines()
+  if (earlier.length) {
+    lines.push('', '### Earlier rounds', '', ...earlier)
   }
   // The set-aside block of the last round that ran the coverage pass, named (#85): the round whose
   // verifier ended the run, the one before a final nit pass. Earlier rounds' blocks stay in their
@@ -3048,7 +3312,7 @@ function leftToYou() {
   for (const record of rounds) {
     for (const [id, forced] of Object.entries(record.forced || {})) {
       const f = record.findings.find((x) => x.id === id)
-      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to the author under repository rule ${forced.rule}`
+      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to ${personLabel} under repository rule ${forced.rule}`
       lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
     }
   }
@@ -3095,7 +3359,13 @@ function humanSummary(record, nitPass, threads) {
     ? 'No commits, so no final nit pass.'
     : nitPass.found === 0
       ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
-      : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
+      // What the pass found is counted, and only what a commit fixed is called fixed (#93): the
+      // round's shaper may decline one.
+      : nitPass.fixed === nitPass.found
+        ? `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
+        : nitPass.fixed === 0
+          ? `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness item${nitPass.found === 1 ? '' : 's'} in the fixes; none was changed, and each is answered in its thread.`
+          : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness items in the fixes: ${nitPass.fixed} fixed in one more pass that was not re-reviewed; ${nitPass.found - nitPass.fixed} not changed, answered in ${nitPass.found - nitPass.fixed === 1 ? 'its thread' : 'their threads'}.`
   return `${pass.title} · review by ${pass.reviewer}: ${parts.join('; ')}. ${nit}${threads ? ` ${threadsLine(threads)}` : ''}`
 }
 
@@ -3103,7 +3373,7 @@ function capComment(open) {
   return [
     'Redline stopped at the round cap',
     '',
-    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. The author will pick these up.`,
+    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabel.charAt(0).toUpperCase()}${personLabel.slice(1)} will pick these up.`,
     '',
     '### Still open',
     '',
@@ -3168,7 +3438,7 @@ async function finish(kind, record, compose) {
 }
 
 // The threads Redline opened in this run, each settled or not (#39). A finding with an inline
-// comment is a candidate; a body finding has no thread. Settled means fixed, deferred or decided
+// comment is a candidate; a body finding has no thread. Settled means fixed, deferred, declined or decided (SETTLED_KINDS)
 // and a reply posted, so Redline's comment and its reply are both in the list; the rest stay open
 // with a reason.
 // A human review pass's record holds the teammate's threads, which are never candidates.
@@ -3187,7 +3457,7 @@ function threadCandidates() {
         continue
       }
       const kind = kinds[f.id] || ''
-      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[f.id] > 0
+      const settled = SETTLED_KINDS.includes(kind) && replyIds[f.id] > 0
       const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[f.id] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
@@ -3206,8 +3476,11 @@ function threadCandidates() {
       }
       const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
-      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
-      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      const settled = SETTLED_KINDS.includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
+      // The scope declined the carried finding, so its earlier thread gets no reply and stays
+      // open, and a later run without the scope sees it fresh (#94, R1-19).
+      const scopeDeclined = (record.scoped || []).some((s) => s.id === newId)
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : scopeDeclined ? 'declined under the scope' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
     for (const r of record.resolvedPrior || []) {
@@ -3381,6 +3654,11 @@ function handoffResult(record, outcome) {
     handoffRound: record.round,
     specFolder: record.specFolder,
     judgmentCalls,
+    // What the shaper declined on its own in this round (#93), each with its reason: the skill
+    // lists them after the calls, and a typed line overrules one before the relaunch. A decline the
+    // person already overruled is left out: the overrule is in the decisions the relaunch carries,
+    // and it is applied there (#94, R2-15).
+    declined: (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !(decisions[x.id] && decisions[x.id].disposition)).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() })),
     unresolved: outcome.unresolved || [],
     decisionsNeeded: outcome.pending.map((call) => call.id),
   })
@@ -3448,13 +3726,14 @@ try {
       const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered }, active, known, source)
       const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
       rounds.push(roundRecord)
-      nitPass = { round, found: active.length }
+      nitPass = { round, found: active.length, fixed: 0 }
       if (active.length) {
         const fix = await revise(roundRecord, active, 'correctness')
         if (fix.handoff) {
           return handoffResult(roundRecord, fix)
         }
-        lastFixUnreviewed = true
+        nitPass.fixed = fix.fixed.length
+        lastFixUnreviewed = nitPass.fixed > 0
       }
     }
     const finished = await finish('human-summary', record, (prBody, threads) => humanSummary(record, nitPass, threads))
@@ -3512,23 +3791,30 @@ try {
     const reviewOut = await review(round, reviewed, range, facts)
     let considered = reviewOut.findings
     let droppedNits = 0
-    if (reviewed === 'final-nit-pass' || scope === 'correctness') {
+    if (reviewed === 'final-nit-pass') {
       considered = reviewOut.findings.filter((f) => f.category === 'correctness')
       droppedNits = reviewOut.findings.length - considered.length
       if (droppedNits) {
-        log(`round ${round}: dropped ${droppedNits} nit(s) the reviewer reported; ${reviewed === 'final-nit-pass' ? 'the final nit pass reports correctness only' : 'the scope is correctness only'}`)
+        log(`round ${round}: dropped ${droppedNits} nit(s) the reviewer reported; the final nit pass reports correctness only`)
       }
     }
     const known = considered.filter((f) => f.knownAs)
-    let active = considered.filter((f) => !f.knownAs)
+    // Under correctness only, a verified item that is not a correctness one is declined by the
+    // workflow with the scope as its reason (#93): it stays a finding of the round, so a later
+    // round collapses a repeat as settled, but it is never posted inline, shaped or replied to.
+    const scoped = scope === 'correctness' && reviewed !== 'final-nit-pass' ? considered.filter((f) => !f.knownAs && f.category !== 'correctness') : []
+    let active = considered.filter((f) => !f.knownAs && !scoped.includes(f))
+    if (scoped.length) {
+      log(`round ${round}: ${scoped.length} item(s) declined under the scope (correctness only): ${scoped.map((f) => f.id).join(', ')}`)
+    }
     const coverageNote = reviewOut.coverage
-      ? `, coverage ${reviewOut.coverage.candidates} candidates: ${reviewOut.coverage.counts.finding} confirmed, ${reviewOut.coverage.counts.forThePerson} for the person, ${reviewOut.coverage.counts.duplicate + reviewOut.coverage.counts.settled} collapsed, ${reviewOut.coverage.counts.known} tracked, ${reviewOut.coverage.counts.refuted + reviewOut.coverage.counts.outside + reviewOut.coverage.counts.disproportionate} dropped`
+      ? `, coverage ${reviewOut.coverage.candidates} candidates: ${reviewOut.coverage.counts.verified} verified, ${reviewOut.coverage.counts.unconfirmed} unconfirmed, ${reviewOut.coverage.counts.refuted} refuted, ${reviewOut.coverage.counts.duplicate + reviewOut.coverage.counts.settled} collapsed, ${reviewOut.coverage.counts.known} tracked`
       : ''
     log(`round ${round} (${reviewed}${coverageNote}): ${active.filter((f) => f.category === 'correctness').length} correctness, ${active.filter((f) => f.category === 'nit').length} nit, ${known.length} already tracked`)
 
     phase('Post')
-    const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], forThePerson: reviewOut.forThePerson || [], coverage: reviewOut.coverage || null, setAsideCandidates: reviewOut.setAsideCandidates || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered, scoped }, active, known)
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], scoped, outcomes: Object.fromEntries(scoped.map((f) => [f.id, SCOPE_DECLINED])), coverage: reviewOut.coverage || null, setAsideCandidates: reviewOut.setAsideCandidates || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
@@ -3555,7 +3841,7 @@ try {
       log(`round ${round}: ${personLabel} picked ${active.length} finding(s) to act on, ${record.dropped.length} dropped`)
       if (active.length === 0) {
         await replyStandalone(record)
-        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ notPicked: true }, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'No finding was selected to act on, so there was no revise pass.' })
       }
     }
@@ -3564,21 +3850,24 @@ try {
 
     if (reviewed === 'final-nit-pass') {
       if (correctness.length === 0) {
-        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({}, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
       }
-      // One more fix pass, then stop regardless.
+      // One more pass over what it found, then stop regardless. The shaper decides each item, so the
+      // handoff counts what a commit fixed, and only a fix is flagged as not re-reviewed.
       const outcome = await revise(record, correctness, 'correctness')
       if (outcome.handoff) {
         return handoffResult(record, outcome)
       }
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(true, prBody, threads))
-      return result('done', { lastFixUnreviewed: true, handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
+      const final = { found: correctness.length, fixed: outcome.fixed.length }
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ final }, prBody, threads))
+      return result('done', { ...(final.fixed ? { lastFixUnreviewed: true } : {}), handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
-    if (correctness.length === 0 && nits.length === 0) {
+    // Nothing new to decide: the round verified nothing, or only what the scope declined.
+    if (active.length === 0) {
       await replyStandalone(record)
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment({}, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
@@ -3593,15 +3882,23 @@ try {
     if (outcome.handoff) {
       return handoffResult(record, outcome)
     }
-    if (!outcome.newHead) {
-      // Every finding was settled without a commit (accepted, declined): nothing to re-review.
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
-      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'The last revise pass made no commits, so there was no fix diff to re-review.' })
+    // What comes next (#93). A round that bought another gets a full round: the coverage pass over
+    // the whole PR at the new head, verify, and the recheck of the fix diff when a commit fixed
+    // something. A round that bought nothing ends: at the handoff when no fix was committed, after
+    // one final nit pass over the fixes when one was, which reads those fixes only and reports only
+    // correctness bugs they introduced, so nits never buy a round. With the coverage pass off there
+    // is no pass to rerun, so a bought round that changed no code ends the run too.
+    const fixedAny = outcome.fixed.length > 0
+    if (outcome.bought && (coverageOn || fixedAny)) {
+      finalPass = false
+    } else if (!fixedAny) {
+      const noRecheck = outcome.bought
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(noRecheck ? { noRecheck: true } : {}, prBody, threads))
+      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: noRecheck ? 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' : 'The last revise pass committed no fix, so there was no fix diff to re-review.' })
+    } else {
+      finalPass = true
     }
-    // A round with nits only ends in one final nit pass; under the correctness scope there are
-    // no nits, so a correctness-free re-review is simply done.
-    finalPass = correctness.length === 0
-    range = { from: range.to, to: outcome.newHead }
+    range = { from: range.to, to: outcome.newHead || range.to, ...(fixedAny ? {} : { empty: true }) }
     round += 1
   }
 } catch (error) {

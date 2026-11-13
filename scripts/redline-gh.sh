@@ -24,21 +24,30 @@
 #                                  comment_id, body, reply, carried_from, carried_to, disposition}],
 #                                  by round then number, [] when no Redline review exists. A
 #                                  finding is a review body line "- **R<n>-<k>** · <category> ·
-#                                  <severity> · <confidence> · `<file>:<line>` · <title>" (an
-#                                  "Already tracked" line has no such fields and is not one);
-#                                  " · needs a decision", " · first reported as R<n>-<k>"
-#                                  (carried_from) and " · yours under rule <id>" (a repository ask
-#                                  rule, #49) are stripped from the title. comment_id and body
+#                                  <severity> · <confidence> · `<file>:<line>` · <title>", under
+#                                  whatever heading (an "Already tracked" line has no such fields
+#                                  and is not one, nor is a scope-declined line, whose id is not
+#                                  bold, #93); <confidence> is confirmed or unconfirmed, and likely
+#                                  or unsure in a review posted before #93. " · needs a decision",
+#                                  " · first reported as R<n>-<k>" (carried_from) and a repository
+#                                  ask rule's tail (#49), " · left to <person> under rule <id>" or,
+#                                  before #93, " · yours under rule <id>", are stripped from the
+#                                  title; <person> is @<login>, or "the person running Redline"
+#                                  when the run had no login ("the author" in a final nit pass
+#                                  after a human review pass with none). comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "not acted on in
-#                                  this run." dropped, "not changed in this round." not-changed,
+#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  declined (Redline's own decision not to act, #93; a reply that
+#                                  only mentions a decline is decided), "not acted on in this
+#                                  run." dropped, "not changed in this round." not-changed,
 #                                  "carried forward as R<n>-<k>;" carried (carried_to), "left to
-#                                  the author" left (a finding a repository ask rule left to the
+#                                  <person> under repository rule" or, before #93, "left to the
+#                                  author" left (a finding a repository ask rule left to the
 #                                  person, #49), "resolved; first reported as" fixed (a later
 #                                  run's reviewer found the code no longer has it, #80, R4-3), any
 #                                  other reply decided, no reply none; a finding a later round's
@@ -331,22 +340,30 @@ case "$cmd" in
             def round_of: (.body // "") | capture("^Redline round (?<n>[0-9]+)") | .n | tonumber;
             # The finding lines of a review body, whatever heading they sit under (reviewBody in the workflow).
             def finding_lines: [(.body // "") | split("\n")[]
-                | capture("^- \\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\* · (?<category>correctness|nit) · (?<severity>high|medium|low) · (?<confidence>confirmed|likely|unsure) · `(?<file>[^`]+):(?<line>[0-9]+)` · (?<tail>.*)$")];
+                | capture("^- \\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\* · (?<category>correctness|nit) · (?<severity>high|medium|low) · (?<confidence>confirmed|unconfirmed|likely|unsure) · `(?<file>[^`]+):(?<line>[0-9]+)` · (?<tail>.*)$")];
             # The disposition a reply states, by the fixed wording replyBody in the workflow writes.
+            # A decline opens "declined: " (#93); a reply that only mentions one is decided. The
+            # person a repository rule leaves a finding to is named by login since #93, or as "the
+            # person running Redline" when the run had none; "the author" is the wording before it,
+            # and a human review pass with no login writes it in the rule tail of a final nit pass
+            # too (#94, R1-3). A login may hold an underscore, as an Enterprise Managed User login
+            # does (#94, R2-1).
             def classify:
                 if startswith("fixed in ") then "fixed"
                 elif startswith("mitigated") then "deferred"
+                elif startswith("declined: ") then "declined"
                 elif startswith("not acted on in this run.") then "dropped"
                 elif startswith("not changed in this round.") then "not-changed"
                 elif startswith("carried forward as R") then "carried"
                 elif startswith("left to the author") then "left"
+                elif test("^left to (@[A-Za-z0-9_-]+|the person running Redline) under repository rule ") then "left"
                 elif startswith("resolved; first reported as ") then "fixed"
                 else "decided" end;
             ($comments[0]) as $all
             | ($issues[0]) as $issue_comments
             | [$reviews[0][] | select(redline_review) | . as $r | round_of as $n
                 | finding_lines[] | . as $f
-                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · yours under rule [a-z][a-z0-9-]*)?$")) as $t
+                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · (yours|left to (@[A-Za-z0-9_-]+|the person running Redline|the author)) under rule [a-z][a-z0-9-]*)?$")) as $t
                 | ($all | map(select(.in_reply_to_id == null and ((.body // "") | startswith("**" + $f.id + "** · ")))) | first) as $root
                 | ($root.id // 0) as $cid
                 | (if $cid > 0

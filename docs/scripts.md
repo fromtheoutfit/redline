@@ -34,21 +34,30 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  comment_id, body, reply, carried_from, carried_to, disposition}],
 #                                  by round then number, [] when no Redline review exists. A
 #                                  finding is a review body line "- **R<n>-<k>** · <category> ·
-#                                  <severity> · <confidence> · `<file>:<line>` · <title>" (an
-#                                  "Already tracked" line has no such fields and is not one);
-#                                  " · needs a decision", " · first reported as R<n>-<k>"
-#                                  (carried_from) and " · yours under rule <id>" (a repository ask
-#                                  rule, #49) are stripped from the title. comment_id and body
+#                                  <severity> · <confidence> · `<file>:<line>` · <title>", under
+#                                  whatever heading (an "Already tracked" line has no such fields
+#                                  and is not one, nor is a scope-declined line, whose id is not
+#                                  bold, #93); <confidence> is confirmed or unconfirmed, and likely
+#                                  or unsure in a review posted before #93. " · needs a decision",
+#                                  " · first reported as R<n>-<k>" (carried_from) and a repository
+#                                  ask rule's tail (#49), " · left to <person> under rule <id>" or,
+#                                  before #93, " · yours under rule <id>", are stripped from the
+#                                  title; <person> is @<login>, or "the person running Redline"
+#                                  when the run had no login ("the author" in a final nit pass
+#                                  after a human review pass with none). comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "not acted on in
-#                                  this run." dropped, "not changed in this round." not-changed,
+#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  declined (Redline's own decision not to act, #93; a reply that
+#                                  only mentions a decline is decided), "not acted on in this
+#                                  run." dropped, "not changed in this round." not-changed,
 #                                  "carried forward as R<n>-<k>;" carried (carried_to), "left to
-#                                  the author" left (a finding a repository ask rule left to the
+#                                  <person> under repository rule" or, before #93, "left to the
+#                                  author" left (a finding a repository ask rule left to the
 #                                  person, #49), "resolved; first reported as" fixed (a later
 #                                  run's reviewer found the code no longer has it, #80, R4-3), any
 #                                  other reply decided, no reply none; a finding a later round's
