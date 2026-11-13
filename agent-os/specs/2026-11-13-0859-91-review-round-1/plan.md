@@ -348,3 +348,56 @@ And:
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #91 round 1 as built (#81)`
+
+## As built
+
+Built as planned, with no deviation, so `shape.md` gains no Decision.
+
+**Commits.**
+
+- Task 1: `89ef4b4` `redline: save review round 1 spec for PR #91 (#81)`. The four spec files only; nothing under `redline/`.
+- Task 2: `ab88ed0` `redline: R1-1 keep the agent list an error or stopped resume passes, so a resume never posts the handoff comment twice (#81)`.
+- Task 3, retrospective: `fd21a23` `redline: record the round 1 review lessons in the standards (#81)`.
+- Task 3, this section: `redline: record PR #91 round 1 as built (#81)`.
+
+**Task 2, red run.** Both test insertions in place, `scripts/redline-prefs.sh` as at `1c96b8c`, and the three `AGENTS_CHANGED` lines removed from `handoffComment`. The gate's `prefs` and `loop` checks each exited 1, at the counts the plan expected:
+
+- `prefs`: `119 passed, 2 failed`.
+  - `FAIL drift: an error marker keeps the agent list its args passed`, with `got: scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|{"workflow":"workflows/redline-loop.js","pinned":true,"agents":["agents/redline-reviewer.md","agents/redline-shaper.md"]}`
+  - `FAIL drift: a stopped marker whose args passed no drift keeps an empty agent list`, with the same `got`.
+- `loop`: `722 checks passed, 3 failed`.
+  - `FAIL pin: the handoff comment carries the same sentence as its own paragraph: Redline handoff`
+  - `FAIL pin: with the agent list read afresh the handoff comment is the first prompt to change: [21,[...]]`. Index 21 is `record commit`, the resumed label with its resume line, since with the sentence gone the comment no longer differs.
+  - `FAIL pin: with the marker's agent list the resumed comment is the posted one byte for byte, so its duplicate check can find it: Redline handoff`
+
+Every other check exited 0. The three lines were then restored with Edit, and `git diff --stat -- workflows/redline-loop.js` printed nothing.
+
+**Task 2, proof.** The green gate, with the fix in place and the workflow restored, read `prefs` `121 passed, 0 failed` and `loop` `725 checks passed, 0 failed`. The greps:
+
+- `--argjson held` and `held // ` each `1` in `scripts/redline-prefs.sh`. `#91, R1-1` there: `2`.
+- `the one prompt that names the list, must not change`: `scripts/redline-prefs.sh:1`, `docs/scripts.md:1`. `line is the sentence the skill says and the handoff comment`: `0` in both.
+- `#91, R1-1`: `skills/redline/SKILL.md:1`, `docs/running.md:1`. `so no replayed prompt depends on it` and `the handoff comment repeats it for the teammate` in `skills/redline/SKILL.md`: `0` each.
+- `never posts the comment twice` in `README.md`: `1`. `handoff comment repeats it (`: `0`.
+- The three record names in `tests/prefs-test.sh`: `6`. `#91, R1-1`: `tests/prefs-test.sh:1`, `tests/loop-test.mjs:1`. `heldDrift` in `tests/loop-test.mjs`: `5`.
+- `lines.push('', AGENTS_CHANGED)` in `workflows/redline-loop.js`: `1`, and its `git diff --stat` printed nothing.
+- The neighbours passed: the prefs cases `drift: the agent files ride in drift for the workflow` and `drift: a changed workflow whose launch ran the live file has no pin and is refused, naming the file`, and the loop checks inside the `0 failed`.
+- `git diff --stat HEAD~1 HEAD`: `7 files changed, 64 insertions(+), 13 deletions(-)`. `git diff --name-only HEAD~1 HEAD`: `README.md`, `docs/running.md`, `docs/scripts.md`, `scripts/redline-prefs.sh`, `skills/redline/SKILL.md`, `tests/loop-test.mjs`, `tests/prefs-test.sh`.
+
+**Gate counts** (steps 1 to 9). `syntax`, `validate` and every harness exited 0:
+
+- guard `594 passed, 0 mismatched`;
+- loop `725 checks passed, 0 failed`;
+- prefs `121 passed, 0 failed`;
+- gate `117 passed, 0 failed`;
+- setup `468 passed, 0 failed`;
+- gh `121 passed, 0 failed`;
+- background `39 passed, 0 failed`.
+
+**Docs (step 10).** As Task 2's Docs entry says, all in `ab88ed0`. **Version (step 11).** `0.2.4`, unchanged.
+
+**Standards retrospective (step 12).** The standards approver approved both items, applied as drafted in `fd21a23`:
+
+- `agent-os/standards/workflow/replay.md` line 20 replaced (item 1);
+- `agent-os/standards/scripts/bash-conventions.md`, a bullet added after line 13 (item 2).
+
+`git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
