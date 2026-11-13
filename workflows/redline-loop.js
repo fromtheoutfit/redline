@@ -346,6 +346,9 @@ const NOT_YOURS = 'A decision that is still pending is the person\'s: you do not
 const KINDS = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc. State the kind with care: a correctness finding the run acts on buys another round.'
 const FACTS_ONLY = 'You establish what is true; you do not decide what to do about it. Report every finding you verified, whatever its size, whatever its fix would cost and wherever its cause lies, with confidence confirmed (reproduced, or traced through the code to the result, with the lines cited). Report one you could not confirm with confidence unconfirmed and, in wouldConfirm, one line on what would confirm it. Whether to fix it, decline it or put it to the person is the shaper\'s decision, never yours.'
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
+// The rule a role after the shaper follows about decisions: a human review pass keeps NEVER_DECIDE;
+// a Redline round's roles apply what was decided and leave what is pending (#93; #94, R1-9).
+const decideRule = (pass) => (pass.human ? NEVER_DECIDE : NOT_YOURS)
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
 const humanFolderFor = (n) => `agent-os/specs/${stamp}-${pr}-human-review-${n}`
@@ -1713,7 +1716,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   }
   lines.push(
     '',
-    `${pass.human ? NEVER_DECIDE : NOT_YOURS} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
+    `${decideRule(pass)} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
     '',
     'Return only the JSON your instructions specify.',
   )
@@ -1750,7 +1753,7 @@ function standardsPrompt(pass, specFolder) {
 
 You are the standards approver for ${pass.name}. Spec folder: ${abs(specFolder)}/. Read its shape.md section "Standards retrospective (proposed)" and decide each proposed edit per your instructions.
 
-${pass.human ? NEVER_DECIDE : NOT_YOURS} A proposed edit that depends on a pending decision is returned under deferred.
+${decideRule(pass)} A proposed edit that depends on a pending decision is returned under deferred.
 
 Return only the JSON your instructions specify.`
 }
@@ -1826,7 +1829,7 @@ ${json(ctx.standards.approved.filter((edit) => !edit.alreadyCovered))}
 The standards commit's message names every finding whose fix one of these edits carries, as shape.md's plan for that finding says (for example \`redline: record the ${pass.name} ${pass.human ? '' : 'review '}lessons in the standards, finishing ${pass.idPrefix}-1 (#${issue})\`), so that finding's reply names both of its commits. An edit that is only a lesson names no finding.
 ${ctx.standards.approved.length === 0 || ctx.standards.noChanges ? 'Nothing approved: record "Standards retrospective: no changes" under Decisions in shape.md.' : ''}
 
-${pass.human ? NEVER_DECIDE : NOT_YOURS} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
+${decideRule(pass)} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
 ${ctx.repair ? `\nThis is a repair pass. The checker's independent run of checks.sh failed after your last pass:\n${ctx.repair}\nFix the cause, commit Redline's way, and run the gate until it exits 0.\n` : ''}
 Return only the JSON your instructions specify.`
 }
