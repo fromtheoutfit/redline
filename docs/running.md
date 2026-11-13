@@ -151,7 +151,7 @@ The comment opens with how the run ended, then groups every item of the run by w
 - `### Declined under this run's scope (correctness only) (n)`: on a `correctness only` run, what the scope declined.
 - `### Deferred (mitigated now, full fix left open)` (`shipped <mitigation>; open: <full fix>`) and `### Left to @<login> (repository rules)`.
 - `### Not picked by @<login> (n)` on the review dial, and `### Not changed (n)` for a fix that did not land.
-- `### Fixed (n)`: folded, one line per item with its commit.
+- `### Fixed (n)`: folded, one line per item with the commits that fixed it (one item can have two, and two items can share one).
 - `### Earlier rounds` (see below), the set-aside block of the last round that ran the coverage pass (the round before a final nit pass, else the last round), under `### Candidates set aside in round <n> (N)`, which names that round, since earlier rounds' blocks stay in their own review bodies (#85), and `### Commits`. With `push` off it says the commits are local only.
 
 The person running Redline is named by login in every line, never by role: on a teammate's pull request the person running Redline is not its author. With no login, the lines say "the person running Redline".

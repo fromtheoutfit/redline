@@ -3283,7 +3283,7 @@ function handoffComment(ending, prBody, threads) {
     lines.push('', `### Not changed (${notChanged.length})`, '', ...notChanged.map(line))
   }
   if (fixed.length) {
-    lines.push('', `### Fixed (${fixed.length})`, '', '<details>', '<summary>Each in its own commit</summary>', '', ...fixed.map(line), '', '</details>')
+    lines.push('', `### Fixed (${fixed.length})`, '', '<details>', '<summary>With the commits that fixed each</summary>', '', ...fixed.map(line), '', '</details>')
   }
   const earlier = earlierRoundsLines()
   if (earlier.length) {

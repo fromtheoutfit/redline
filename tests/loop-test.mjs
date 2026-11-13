@@ -326,7 +326,7 @@ function samePrefix(name, first, second, n) {
   check('guided: R1-2 reply carries the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author keeps it because the board already shows it. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
   check('guided: R1-1 reply is decided by redline', replyFor(second.calls, 'push and reply r1', 'R1-1').endsWith(' · decided by: redline'), replyFor(second.calls, 'push and reply r1', 'R1-1'))
   const handoff = comment(second.calls, 'handoff comment')
-  check('guided: the handoff lists what was put to the person, then what was fixed, folded, each with its owner, and has no Decisions list', handoff.includes('### Put to @author (1)\n\n- **R1-2** title R1-2: The author keeps it because the board already shows it. Applied in 2bbbbbb. · decided by: @author\n\n### Fixed (1)\n\n<details>\n<summary>Each in its own commit</summary>\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n\n</details>') && !handoff.includes('### Decisions'), handoff)
+  check('guided: the handoff lists what was put to the person, then what was fixed, folded, each with its owner, and has no Decisions list', handoff.includes('### Put to @author (1)\n\n- **R1-2** title R1-2: The author keeps it because the board already shows it. Applied in 2bbbbbb. · decided by: @author\n\n### Fixed (1)\n\n<details>\n<summary>With the commits that fixed each</summary>\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n\n</details>') && !handoff.includes('### Decisions'), handoff)
   check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix, decline and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
   check('guided: result.decided carries owners', second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'R1-1=redline,R1-2=@author', second.res.decided)
 }
@@ -1882,7 +1882,7 @@ function samePrefix(name, first, second, n) {
   check('posted text: with Carried forward, Resolved and Already tracked the closing sentence ends the body, after Already tracked', r2.body.endsWith('### Already tracked\n\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2\n\n' + CLOSING), r2.body)
   handoff = comment(run.calls, 'handoff comment')
   check('posted text: Earlier rounds escapes each read-back title once, with the knownAs and the why, and posts an earlier reply as written', handoff.includes('### Earlier rounds\n\n- **R1-1** ' + posted + ': carried forward as R2-2: fixed in ') && handoff.includes('\n- **R1-2** Old &lt;b> &amp; title: carried forward as R2-1: already tracked in #41 @' + WJ + 'param\n') && handoff.includes('\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: resolved: The &lt;i> line @' + WJ + 'went away. · decided by: redline\n') && handoff.includes('\n- **R1-4** Escape &lt; by hand: already handled in round 1: not acted on in this run. Keep <b>. · decided by: @author'), handoff)
-  check('posted text: a carried finding\'s line under Fixed escapes its read-back title once', handoff.includes('<summary>Each in its own commit</summary>\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
+  check('posted text: a carried finding\'s line under Fixed escapes its read-back title once', handoff.includes('<summary>With the commits that fixed each</summary>\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
   // A `@&#8288;` readBack left in place has its `&` escaped when the title is posted again, so a
   // missing strip shows as `&amp;#8288;` beside the other double escapes. The raw joiner's clause,
   // dropped in #89, R1-1, could not fail; this one can (the #87 follow-up spec).
@@ -2306,7 +2306,7 @@ function samePrefix(name, first, second, n) {
     '### Fixed (1)',
     '',
     '<details>',
-    '<summary>Each in its own commit</summary>',
+    '<summary>With the commits that fixed each</summary>',
     '',
     '- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline',
     '',
