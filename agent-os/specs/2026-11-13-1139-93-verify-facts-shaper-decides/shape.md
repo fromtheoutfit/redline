@@ -108,7 +108,7 @@ Shaping defaults (recorded, not asked; each was listed in the plan the owner app
 
 ## Standards retrospective
 
-Done mechanically (gate step 12): every decision above, every deviation found while building, and every check that went red and was fixed by learning something about the harness, each checked against `agent-os/standards/`.
+Done mechanically (gate step 12): every decision above, every deviation found while building, and every check that went red and was fixed by learning something about the harness, each checked against `agent-os/standards/`. The fourteen edits below were approved by @michaelfromtheoutfit on 2026-11-13 and applied in their own commit, `8f5fd84`.
 
 ### Contradicted by this spec (the standard is now wrong)
 

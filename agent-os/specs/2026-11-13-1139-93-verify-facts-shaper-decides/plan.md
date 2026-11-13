@@ -92,7 +92,7 @@ The change splits what is true from what to do about it. The verifier states fac
 
 - Dispositions: `fix`, `decline` (with `reason`), `defer`, `ask`. A human-review pass still sorts into fix, ask or none, never defer or decline.
 - "Judgment calls are returned, never decided" becomes: you decide, and the person is asked in five cases only (decision 4's four, and decision 14's rider), beside the repository ask rules. Everything else is decided by redline with the reason.
-- `why_human` on a Redline round: `product decision`, `spec assumption`, `outside the pull request`, `no clear pick`, `unconfirmed, serious if true`, `repository rule <id>`. The workflow refuses any other on a round (a stage error naming the item, resumable at the shaper), so "asked only in the cases" is checked, not hoped. The human-review pass keeps today's values.
+- `why_human` on a Redline round: `product decision`, `spec assumption`, `outside the pull request`, `no clear pick`, `unconfirmed, serious if true`, `repository rule <id>`, and `redline's own file` (asked while building; see As built). The workflow refuses any other on a round (a stage error naming the item, resumable at the shaper), so "asked only in the cases" is checked, not hoped. The human-review pass keeps today's values.
 - Proportionality: a fix out of proportion is `defer` when a cheap mitigation exists, otherwise `decline` with the reason, or `ask` when a case holds. A removed guard weighs toward `fix`.
 - The second look (decision 14): the shaper returns `secondLook` (`confirmed | refuted | unconfirmed`) for each item the verifier could not confirm, and records what it ran or read.
 - The small-refactor test (decision 15) and its rider.
@@ -161,7 +161,7 @@ The coverage pass over the whole pull request at 0a1b2c3 returned 15 candidates:
 
 (as today)
 
-Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in each thread with what it decided and why.
+Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why.
 
 ### Candidates set aside (2)
 
@@ -378,3 +378,52 @@ It is the first real run of the new model and the first real test of #81's pinne
 ## Standards applied
 
 All ten: `workflow/agents`, `workflow/replay`, `testing/tests`, `scripts/bash-conventions`, `scripts/guard` (to confirm nothing here needs it), `process/docs-gate`, `process/release`, `process/internal-notes`, `process/standards-retrospective`, `prompts/attribution`.
+
+## As built
+
+Built 2026-11-13, one slice per commit, each commit made by the owner.
+
+**The gate.** `.claude/redline/checks.sh --baseline` exits 0 with all nine checks green: guard 594 passed, 0 mismatched; loop 828 checks passed, 0 failed (725 before this spec); prefs 121; gate 117; setup 470; gh 131; background 39. `claude plugin validate .` passes with the known icon warning. `scripts/redline-gate.sh check .` reports a match, since the gate's backticked text did not move. `scripts/redline-setup.sh version .` reports the template and this repository's section both at v4.
+
+**The slices, red then green.**
+
+| Commit | Slice | Harness, red then green |
+| --- | --- | --- |
+| `33de20a` | Task 1, the spec folder | none (documents) |
+| `bf03333` | Task 2, the reader of earlier rounds | `tests/gh-test.sh`: 124 passed, 6 failed; then 131 passed, 0 failed |
+| `d29c9a8` | Task 3, the shaper decides | `node tests/loop-test.mjs`: 741 passed, 22 failed; then 765, 0. `tests/setup-test.sh`: 468 passed, 1 failed; then 470, 0 |
+| `6b4b6c3` | Task 4, the verifier states facts | `node tests/loop-test.mjs`: 724 passed, 49 failed; then 778, 0 |
+| `b4e08d7` | Task 5, the done rule | `node tests/loop-test.mjs`: 798 passed, 14 failed; then 813, 0 |
+| `471d481` | Task 6, the handoff and the overrule | `node tests/loop-test.mjs`: 797 passed, 29 failed; then 828, 0 |
+| `a041969` | Task 7, docs | none changed; setup 470, loop 828 stay green |
+| `8f5fd84` | Task 8, the standards retrospective | none reads the standards |
+
+The checks written after their code (the unconfirmed finding with nothing to confirm it, the accounting counted by a finding's own confidence, the rule over every scenario) and every clause of the done rule were seen red under a mutation of the clause they pin.
+
+**Deviations from the plan above.** Each is recorded under Decisions in `shape.md`, with its reason: two questions asked while building (a finding on one of Redline's own files stays an ask with its own reason; after a human-review pass the final nit pass's line gives counts), and the deviations listed there for Tasks 3 to 6.
+
+### Docs (gate step 10)
+
+| File | Section | Commit |
+| --- | --- | --- |
+| `workflows/redline-loop.js` | `docs/running.md`: Rounds, The coverage pass, Dispositions, Overruling a decline, Hand-off and relaunch, The handoff comment, Decided by, Earlier rounds, How the review is posted | `a041969` |
+| `agents/redline-reviewer.md` | `docs/running.md`, "The coverage pass"; `README.md`, Known limits ("What a clean run means", "Each coverage pass is a sample") | `a041969` |
+| `agents/redline-shaper.md`, `templates/shape-spec-unattended.md`, `templates/history/shape-spec-unattended.v3.md` | `docs/running.md`, "Dispositions"; `docs/contract.md`, "The unattended section" and "Template version"; `docs/upgrading.md`, "Unattended section versions" | `a041969` |
+| `agents/redline-plan-approver.md`, `agents/redline-resolve.md`, `agents/redline-github.md`, `agents/redline-implementer.md` | `docs/running.md`, "Rounds" and "Dispositions" | `a041969` |
+| `skills/redline/SKILL.md` | `docs/running.md`, "Hand-off and relaunch" and "Overruling a decline"; `README.md`, Dials | `a041969` |
+| `scripts/redline-gh.sh` | `docs/scripts.md`, its header (`bf03333`); `docs/running.md`, "Earlier rounds" (`a041969`) | as named |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | the descriptions state the done rule and were reworded with the README's opening, the skill's description and `agent-os/product/mission.md` (`a041969`); the version itself has no reader-facing change beyond the number, and the `CHANGELOG.md` entry is the owner's step after the merge | `a041969` |
+
+No new config key, subcommand, allow rule or exit code. Two notes were added to Known limits in `README.md`: a decline is Redline's judgment, and a subscribed teammate gets one notification per reply.
+
+### Version (gate step 11)
+
+0.3.0 in `.claude-plugin/plugin.json` and in the marketplace entry (`d29c9a8`), a minor bump: the unattended section's body changed, so a setup rerun carries it. The marker is `<!-- redline-unattended: v4 -->`, the previous body is frozen as `templates/history/shape-spec-unattended.v3.md`, and its hash and the v4 hash are pinned in `tests/setup-test.sh`.
+
+### Standards retrospective (gate step 12)
+
+Fourteen edits, approved by the owner and applied in their own commit, `8f5fd84`. The list is under "Standards retrospective" in `shape.md`.
+
+### Left to the owner
+
+As "After the gate" above says: the two measurements, this pull request's own review, a `/redline:setup` rerun in each repository that uses Redline, the follow-up issue on one notification per round, and the tag and changelog after the merge.
