@@ -1313,7 +1313,7 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     : noFixDiff
       // A round the last one bought without changing code (#93): nothing to recheck, the pass's
       // candidates are the round.
-      ? `none: round ${round - 1} changed no code, so there is no fix diff to recheck (\`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` is empty)`
+      ? `none: round ${round - 1} changed no code, so there is no fix diff to recheck (round ${round - 1} committed no fix; its spec and standards commits are not one)`
       : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
   const after = reviewed === 'pr' ? ` (${startSha})` : noFixDiff ? ` after round ${round - 1}, which changed no code (HEAD ${range.to})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
   const lines = [
@@ -3837,7 +3837,7 @@ try {
     } else if (!fixedAny) {
       const noRecheck = outcome.bought
       const finished = await finish('handoff', record, (prBody, threads) => handoffComment(noRecheck ? { noRecheck: true } : {}, prBody, threads))
-      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: noRecheck ? 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' : 'The last revise pass made no commits, so there was no fix diff to re-review.' })
+      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: noRecheck ? 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' : 'The last revise pass committed no fix, so there was no fix diff to re-review.' })
     } else {
       finalPass = true
     }
