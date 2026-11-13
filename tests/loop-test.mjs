@@ -196,7 +196,8 @@ function mock(scenario) {
       const ids = [...new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{/g)].map((m) => m[1]))]
       // An accepted override has no files to touch, nor does a finding left to the person under a
       // repository ask rule (its decision carries rule, #49); everything else gets a task with a file.
-      const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]))
+      // scenario.acceptedCalls (#93): the judgment calls the person answered with no change.
+      const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]).concat(scenario.acceptedCalls || []))
       const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
       const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
       return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
@@ -981,7 +982,7 @@ function samePrefix(name, first, second, n) {
   check('threads: the command names the inline and reply ids of the fixed, deferred and decided findings, in finding order, and nothing of the body finding', sweep.prompt.includes('\n/p/scripts/redline-gh.sh resolve-threads 114 100 200 102 202 101 201\n'), sweep.prompt)
   check('threads: the prompt lists each settled finding with its round and its two ids', sweep.prompt.includes('- R1-1 (round 1): comments 100, 200\n- R1-2 (round 1): comments 102, 202\n- R1-3 (round 1): comments 101, 201\n') && !sweep.prompt.includes('R1-4'), sweep.prompt)
   check('threads: the sweep is a Finish call of the GitHub agent, run once and nothing else', sweep.agentType === 'redline:redline-github' && sweep.opts.phase === 'Finish' && sweep.prompt.includes('Operation: resolve-threads. PR #114.') && sweep.prompt.includes('Run this once, exactly as given, and nothing else:'), sweep.opts)
-  check('threads: the handoff line counts the resolved, after the round sentence; a body finding is not a thread', comment(run.calls, 'handoff comment').includes('the last one found no correctness bugs.\n\nResolved 3 threads; 0 left open.\n'), comment(run.calls, 'handoff comment'))
+  check('threads: the handoff line counts the resolved, after the round sentence; a body finding is not a thread', comment(run.calls, 'handoff comment').includes('the last one verified no new correctness item to fix or ask about.\n\nResolved 3 threads; 0 left open.\n'), comment(run.calls, 'handoff comment'))
   check('threads: the result records the sweep', JSON.stringify(run.res.threads) === '{"resolved":["R1-1","R1-2","R1-3"],"open":[]}', run.res.threads)
   check('threads: the round record keeps the reply ids, none for the body finding', JSON.stringify(Object.entries(run.res.rounds[0].replyIds).sort()) === '[["R1-1",200],["R1-2",202],["R1-3",201]]', run.res.rounds[0].replyIds)
 
@@ -2056,6 +2057,99 @@ function samePrefix(name, first, second, n) {
   run = await go('decline: a carried finding is declined', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-2' })], []], decline: ['R2-1'], commitIds: [[]] })
   const carriedSweep = labels(run.calls).includes('resolve threads') ? pick(run.calls, 'resolve threads').prompt : ''
   check('decline: the earlier thread of a carried, declined finding hears it and is swept', run.res.status === 'done' && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; declined: the spec keeps R2-1 as it is on purpose · decided by: redline' && carriedSweep.includes('- R1-2 (round 1): comments 12, ') && carriedSweep.includes('- R2-1 (round 2): comments 100, ') && comment(run.calls, 'handoff comment').includes('Resolved 2 threads; 0 left open.'), [run.res.status, carriedSweep.slice(carriedSweep.indexOf('These findings')), comment(run.calls, 'handoff comment').slice(0, 300)])
+}
+
+// ---------------------------------------------------------------------------
+// 19. The done rule (#93): a round is bought by what it finds, not by what it commits. A new
+//     correctness item the shaper fixes or puts to the person buys the next round, whatever the
+//     answer and with or without a commit; a round whose items are all nits, or all declined by
+//     the shaper on its own, ends: at the handoff when no fix was committed, after one final nit
+//     pass over the fixes when one was. The cap is as it was. With the coverage pass off there
+//     is no pass to rerun, so a bought round that changed no code ends the run. No wording says
+//     an item was fixed when it was declined.
+// ---------------------------------------------------------------------------
+{
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const one = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }]) + '\n```\n'
+  const acct = (ref, outcome = 'verified') => [{ index: 1, outcome, ref }]
+  const promptOf = (calls, label) => (pick(calls, label) || { prompt: '' }).prompt
+  const body = (calls, label) => {
+    const p = promptOf(calls, label)
+    if (!p.includes('{\n  "body"')) {
+      return ''
+    }
+    return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2)).body
+  }
+  const keep = { 'R1-1': { choice: 'Accept', notes: 'The author accepts it as it is.', date: '2026-11-13' } }
+
+  // A correctness fix buys a round, and the run ends when the next round verifies nothing new.
+  let run = await go('done: a correctness fix buys a round', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] })
+  check('done: a correctness fix buys the next round, and a round that verifies nothing new ends the run', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|') && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds; the last one verified no new correctness item to fix or ask about.\n'), [run.res.status, labels(run.calls)])
+
+  // An ask the person answers with no change buys a round too: no commit, so the next round has no
+  // fix diff to recheck, and it runs the coverage pass and verify at the same head.
+  const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] }
+  const stop = await go('done: an ask stops a guided run', covArgs, asked)
+  run = await go('done: an ask answered with no change', { ...covArgs, decisions: keep }, asked)
+  samePrefix('done: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
+  check('done: an ask answered with no change, and no commit, still buys the next round', run.res.status === 'done' && run.res.rounds.length === 2 && replyFor(run.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: The author accepts it as it is. No code change. · decided by: @author' && labels(run.calls).join('|').includes('|gather r2|coverage r2|re-review r2|post r2|'), [run.res.status, labels(run.calls)])
+  const noDiff = promptOf(run.calls, 're-review r2')
+  check('done: the round after a round that changed no code is told there is no fix diff, and still verifies the candidates', noDiff.includes('- The diff to review: none: round 1 changed no code, so there is no fix diff to recheck') && noDiff.includes('after round 1, which changed no code (HEAD ' + 'a'.repeat(40) + ')') && noDiff.includes('There is no fix diff to recheck this round.') && !noDiff.includes('only the fix diff') && !noDiff.includes('Your recheck of the fix diff named above') && noDiff.includes('Candidates from the coverage pass.'), noDiff.slice(0, 1500))
+  check('done: its coverage pass runs at the same head, and its review body says what was reviewed', promptOf(run.calls, 'coverage r2').includes('at ' + 'a'.repeat(40)) && body(run.calls, 'post r2').startsWith('Redline round 2\n\nRound 1 changed no code; reviewed the coverage pass\'s candidates over the whole pull request at aaaaaaa.\n') && run.res.rounds.length === 2 && run.res.rounds[1].range.empty === true, [body(run.calls, 'post r2').slice(0, 300), run.res.rounds.length])
+
+  // An asked nit buys nothing: only a correctness item does.
+  run = await go('done: an asked nit buys nothing', { ...covArgs, decisions: keep }, { reviews: [[f('R1-1', 'nit')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]], coverage: [one], coverageOut: [acct('R1-1')] })
+  check('done: an asked nit, answered with no change, buys no round', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).includes('coverage r2') && run.res.note === 'The last revise pass made no commits, so there was no fix diff to re-review.', [run.res.status, labels(run.calls), run.res.note])
+
+  // Everything declined by the shaper on its own: no commit, no final nit pass, the handoff.
+  run = await go('done: all declined', covArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')]], decline: ['R1-1', 'R1-2'], commitIds: [[]], coverage: [one], coverageOut: [acct('R1-1')] })
+  check('done: a round whose items are all declined ends at the handoff, with no further pass of any kind', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).some((l) => l.startsWith('coverage r2') || l.startsWith('final nit pass')) && comment(run.calls, 'handoff comment').includes('Redline ran 1 review round; the last one verified no new correctness item to fix or ask about.\n'), [run.res.status, labels(run.calls)])
+
+  // A declined correctness item beside a fixed nit: the fix gets the final nit pass, not a full round.
+  run = await go('done: a declined correctness item beside a fixed nit', covArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], decline: ['R1-1'], commitIds: [['R1-2']], coverage: [one, one], coverageOut: [acct('R1-1')] })
+  check('done: a declined correctness item buys nothing, so a nit fix beside it goes to the final nit pass', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('final nit pass r2') && !labels(run.calls).includes('coverage r2') && !labels(run.calls).includes('re-review r2'), labels(run.calls))
+
+  // A decline the person overrules to a fix buys a round, as a fix of the shaper's own does.
+  run = await go('done: an overruled decline', { ...covArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it now.', date: '2026-11-13', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-1'], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] })
+  check('done: a decline the person overrules to a fix buys the next round', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('coverage r2') && labels(run.calls).includes('re-review r2'), [run.res.status, labels(run.calls)])
+
+  // A finding left to the person under a repository rule is put to the person, so it buys a round
+  // with no commit, on guided and on autopilot alike.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruled = { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], commitIds: [[]], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R1-1', 'settled')] }
+  run = await go('done: left to the person on autopilot', { ...covArgs, askRules: rules, interrupt: 'autopilot' }, ruled)
+  check('done: a correctness item left to the person under a rule buys the next round, and autopilot never stops', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('coverage r2') && promptOf(run.calls, 're-review r2').includes('round 1 changed no code'), [run.res.status, labels(run.calls)])
+
+  // With the coverage pass off there is no pass to rerun: a bought round that changed no code ends.
+  run = await go('done: coverage off, a bought round with no fix', { ...baseArgs, decisions: keep }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[]] })
+  check('done: with the coverage pass off, a bought round that changed no code ends the run and says why', run.res.status === 'done' && run.res.rounds.length === 1 && !labels(run.calls).some((l) => l.startsWith('re-review')) && run.res.note === 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' && comment(run.calls, 'handoff comment').includes('Redline ran 1 review round; the last one changed no code, and with the coverage pass off there was nothing further to review.\n'), [run.res.status, run.res.note, comment(run.calls, 'handoff comment').slice(0, 300)])
+  run = await go('done: coverage off, a correctness fix', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('done: with the coverage pass off, a correctness fix still buys a fix-diff round', run.res.status === 'done' && run.res.rounds.length === 2 && labels(run.calls).includes('re-review r2') && promptOf(run.calls, 're-review r2').includes('only the fix diff'), labels(run.calls))
+
+  // The cap is as it was: past it, a new correctness item, confirmed or not, ends the run with the
+  // cap-hit comment, while a round of nits alone is still fixed and gets its final nit pass.
+  run = await go('done: the cap, an unconfirmed item', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { confidence: 'unconfirmed', wouldConfirm: 'w' })]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R2-1', 'unconfirmed')] })
+  check('done: past the cap a new correctness item ends the run with the cap-hit comment, confirmed or not', run.res.status === 'capped' && run.res.openFindings.map((x) => x.id).join(',') === 'R2-1' && !labels(run.calls).includes('shape r2') && comment(run.calls, 'cap-hit comment').includes('### Still open'), [run.res.status, labels(run.calls)])
+  run = await go('done: the cap, nits only', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R2-1')] })
+  check('done: past the cap a round of nits alone is still fixed and ends in its final nit pass', run.res.status === 'done' && labels(run.calls).includes('shape r2') && labels(run.calls).includes('final nit pass r3'), [run.res.status, labels(run.calls)])
+
+  // The final nit pass's endings: what it found is counted, and only what was fixed is called fixed.
+  const nitThen = (extra) => ({ reviews: [[f('R1-1', 'nit')], [f('R2-1', 'correctness'), f('R2-2', 'correctness')]], coverage: [one], coverageOut: [acct('R1-1')], ...extra })
+  run = await go('done: the final nit pass, one fixed and one declined', covArgs, nitThen({ decline: ['R2-2'], commitIds: [['R1-1'], ['R2-1']] }))
+  check('done: a final nit pass with one item fixed and one declined gives both counts, and flags the unreviewed fix', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness items in the nit fixes: 1 fixed in one more pass, which was not re-reviewed (please look at that commit first); 1 not changed, listed below. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  run = await go('done: the final nit pass, both declined', covArgs, nitThen({ decline: ['R2-1', 'R2-2'], commitIds: [['R1-1'], []] }))
+  check('done: a final nit pass whose items were all declined says none was changed, and flags nothing as unreviewed', run.res.status === 'done' && !('lastFixUnreviewed' in run.res) && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness items in the nit fixes; none was changed, and each is listed below. ') && !comment(run.calls, 'handoff comment').split('\n')[2].includes('fixed'), comment(run.calls, 'handoff comment').slice(0, 400))
+  run = await go('done: the final nit pass, both fixed', covArgs, nitThen({ commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
+  check('done: a final nit pass whose two items were both fixed says so in the plural', run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. '), comment(run.calls, 'handoff comment').slice(0, 400))
+
+  // The same after a human-review pass: its summary gives the counts (decision 8's question).
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanArgs = { ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } }
+  const two = [f('R3-1', 'correctness'), f('R3-2', 'correctness')]
+  run = await go('done: a human pass, the nit pass finds two, one fixed and one declined', humanArgs, { reviews: [two], decline: ['R3-2'], commitIds: [['H1-1'], ['R3-1']] })
+  check('done: after a human-review pass, a final nit pass with one item fixed and one declined gives both counts', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes: 1 fixed in one more pass that was not re-reviewed; 1 not changed, answered in its thread.'), comment(run.calls, 'summary comment'))
+  run = await go('done: a human pass, the nit pass finds two, both declined', humanArgs, { reviews: [two], decline: ['R3-1', 'R3-2'], commitIds: [['H1-1'], []] })
+  check('done: after a human-review pass, a final nit pass whose items were all declined never says fixed', run.res.status === 'done' && run.res.lastFixUnreviewed === false && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes; none was changed, and each is answered in its thread.') && !comment(run.calls, 'summary comment').includes('fixed in one more pass'), comment(run.calls, 'summary comment'))
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))

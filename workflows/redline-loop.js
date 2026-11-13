@@ -895,7 +895,9 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
     ? `Reviewed the whole pull request.${firstRound > 1 ? `${earlier}; this run starts at round ${firstRound}.` : ''}`
     : reviewed === 'fix-diff'
       ? coverage
-        ? `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
+        ? range.empty
+          ? `Round ${round - 1} changed no code; reviewed the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
+          : `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
         : `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
       : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
   // By kind (#93): what the verifier confirmed, correctness first; then what it could not confirm,
@@ -1286,10 +1288,15 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 // null the prompt carries no candidates block and none of its rules, so `coverage off` is the
 // reviewer alone under the same contract (#93): facts only, no accounting.
 function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
+  const noFixDiff = reviewed === 'fix-diff' && range.empty === true
   const diff = reviewed === 'pr'
     ? `the whole pull request: \`${GH} diff ${pr}\``
-    : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
-  const after = reviewed === 'pr' ? ` (${startSha})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
+    : noFixDiff
+      // A round the last one bought without changing code (#93): nothing to recheck, the pass's
+      // candidates are the round.
+      ? `none: round ${round - 1} changed no code, so there is no fix diff to recheck (\`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` is empty)`
+      : `only the fix diff: \`git diff ${range.from}..${range.to} -- ':/' ':(top,exclude)agent-os/specs'\` (the pathspec works from any directory in the repository and leaves out the round's spec folders, which are Redline's own record; do not review them)`
+  const after = reviewed === 'pr' ? ` (${startSha})` : noFixDiff ? ` after round ${round - 1}, which changed no code (HEAD ${range.to})` : ` after the ${source || `round ${round - 1}`} fixes (HEAD ${range.to})`
   const lines = [
     RUN_LINE,
     '',
@@ -1375,13 +1382,13 @@ function candidatesBlock(reviewed, range, candidates) {
   const head = reviewed === 'pr' ? startSha : range.to
   const lines = []
   if (candidates.length === 0) {
-    lines.push(`Candidates from the coverage pass: the pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all and returned no candidates. Run no discovery pass of your own over the pull request${reviewed === 'fix-diff' ? '; your recheck of the fix diff named above stays as your instructions say' : ''}. The scheduled-and-queued, Docs and Version checks in your instructions still apply. Return coverage as an empty list.`)
+    lines.push(`Candidates from the coverage pass: the pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all and returned no candidates. Run no discovery pass of your own over the pull request${reviewed === 'fix-diff' ? (range.empty ? '; there is no fix diff to recheck this round' : '; your recheck of the fix diff named above stays as your instructions say') : ''}. The scheduled-and-queued, Docs and Version checks in your instructions still apply. Return coverage as an empty list.`)
     return lines
   }
   lines.push(
     `Candidates from the coverage pass. The pass ran the code-review skill over the whole pull request at this round's head (${short(head)}) at ${coverageEffort()} with --max-findings all, and returned these ${candidates.length} candidates, as JSON with an index each:`,
     json(candidates.map((c, i) => ({ index: i + 1, ...c }))),
-    `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.' : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
+    `You verify these candidates; you run no discovery pass of your own over the pull request.${reviewed === 'fix-diff' ? (range.empty ? ' There is no fix diff to recheck this round.' : ' Your recheck of the fix diff named above stays as your instructions say, beside the candidates.') : ''} The scheduled-and-queued, Docs and Version checks in your instructions still apply, since the pass does not know them.`,
     'For each candidate you establish one thing, whether its claim is true, and you say so as one of three facts. Verified: you reproduced it, or traced it through the code to the result the candidate claims, and you cite the lines; it is a finding of this round with confidence confirmed. Refuted: you hold evidence against the claim the candidate makes; a refutation answers that claim, so evidence for a neighbouring claim does not refute it (a test that pins another behaviour of the same code), and neither does a comment or docblock that states intent. Could not confirm: the claim turns on something the repository cannot show (production data, an external service, timing between processes, a browser); a claim that reading the code or running a test can settle is verified or refuted, never this; it is a finding of this round with confidence unconfirmed, wouldConfirm saying in one line what would confirm it, and its description saying what you tried. What to do about a true claim is not yours to decide: no candidate is held back because it is small, because its fix would cost more than it is worth, because it needs conditions unlikely to occur, or because its cause is in code this pull request did not change. State those as facts in the finding instead: the conditions the failure needs; outsideDiff true and where the cause is, when it is in code the diff did not touch; and, for a guard the base branch had and this pull request stopped handling, the removed line. The shaper decides every finding you report.',
     'A candidate is new when it collapses into none of these: a finding you report in this round from another candidate or a rule check, a finding of an earlier round listed above with its outcome (fixed, declined, decided, deferred, accepted, dropped, left to the person, or still open), a finding on the carry-forward list, or a finding an issue or a teammate\'s comment already tracks in full (the part it does not track is judged on its own, below). Two outcomes reopen. A candidate that matches an earlier finding whose outcome is fixed, but that you reproduce or trace at this round\'s head, is new, since the fix did not fully land: report it as a finding of this round with the earlier id named in its description only (for example `R1-3 was fixed, but still reproduces here`), leave its knownAs empty, and account for it as verified. A candidate that matches an earlier finding declined because it could not be confirmed, and that you now confirm, is new in the same way, the earlier id named in its description. A candidate the fix did close no longer reproduces and is settled; a declined, deferred, accepted, dropped, left-to-the-person or still-open finding stays settled. A decided finding stays settled whatever its commits, since an applied decision is often a deliberate keep or mitigation: a candidate that still reproduces one is accounted for as settled, its ref naming the earlier id and saying it still reproduces (for example `R2-5 was decided, and this still reproduces it`), never as a finding. What you report as new, and as correctness, is what keeps the run going: never re-raise a settled finding as new, and never drop a candidate silently.',
     'For each candidate: collapse by cause, never by line or file (two of the spike\'s duplicate pairs shared no line and one shared no file), and two candidates are not one because one issue\'s title fits both; run the known-finding check, and when an open issue or a teammate\'s comment covers only part of a candidate, the tracked part is known and the remainder is judged as its own candidate, by every rule here: a remainder whose cause is in this pull request\'s diff is a finding unless another rule here puts it elsewhere, as it would put any candidate (a collapse or a refutation), and as a finding it has the issue named in its description and knownAs empty; reproduce a correctness candidate where it is cheap; anchor it on a line inside the diff when its cause is in the diff (the skill anchors at code the diff did not touch, which GitHub cannot take inline), and keep the candidate\'s own place when the cause is outside the diff, which the post moves into the review body; and give it category, severity, confidence, side and askRule as for any finding.',
@@ -3058,7 +3065,17 @@ async function revise(record, inScope, reviewedKind) {
   record.pushed = pushed.pushed
   keepReplyIds(record, pushed)
   const newHead = roundCommits.length ? roundCommits[roundCommits.length - 1].sha : null
-  return { handoff: false, newHead, commits: roundCommits }
+  // The done rule (#93): a round is bought by what it finds, not by what it commits. A new
+  // correctness item the shaper fixes (in full, or by a deferral's mitigation) or puts to the
+  // person buys the next round, whatever the person answered and whether or not a commit resulted;
+  // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
+  // and neither does any item that is not a correctness one. `fixed` is the items a commit names:
+  // the round's spec and standards commits are no fix diff.
+  const shaperOwn = Object.fromEntries(shaped.findings.map((s) => [s.id, s.disposition]))
+  const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
+  const bought = inScope.some((f) => f.category === 'correctness' && (['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
+  const fixed = inScope.filter((f) => outcomes[f.id].commits.length > 0).map((f) => f.id)
+  return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
 
 // Known limits in the plugin's README, where the teammate reading the handoff can open it.
@@ -3066,7 +3083,7 @@ function knownLimits() {
   return `[Known limits](${README_URL}#known-limits) in Redline's README`
 }
 
-function handoffComment(lastFixUnreviewed, prBody, threads) {
+function handoffComment(ending, prBody, threads) {
   const lines = ['Redline handoff', '']
   const reviews = rounds.length
   const last = rounds[reviews - 1]
@@ -3076,12 +3093,29 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
   const wholePr = rounds.some((record) => record.coverage)
     ? `The coverage pass reviewed the whole PR at the head of every round but the final nit pass; see ${knownLimits()}.`
     : `Only round ${firstRound} reviewed the whole PR; see ${knownLimits()}.`
-  if (lastFixUnreviewed) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`)
+  // The opening sentence, by how the run ended (#93). `ending.final` is a final nit pass that found
+  // correctness items: how many, and how many of them a commit fixed, since the shaper may decline
+  // one and no wording may call a declined item fixed. `ending.noRecheck` is a bought round that
+  // changed no code with the coverage pass off; `ending.notPicked` a review dial with nothing picked.
+  const end = ending && typeof ending === 'object' ? ending : {}
+  const final = end.final || null
+  const ran = `Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}`
+  if (final && final.fixed === final.found) {
+    lines.push(final.found === 1
+      ? `Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
+      : `Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
+  } else if (final && final.fixed === 0) {
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in the nit fixes; none was changed, and each is listed below. ${wholePr}`)
+  } else if (final) {
+    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness items in the nit fixes: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
   } else if (last && last.reviewed === 'final-nit-pass') {
     lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
+  } else if (end.noRecheck) {
+    lines.push(`${ran}; the last one changed no code, and with the coverage pass off there was nothing further to review.`)
+  } else if (end.notPicked) {
+    lines.push(`${ran}; none of its findings was picked to act on.`)
   } else {
-    lines.push(`Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}; the last one found no correctness bugs.`)
+    lines.push(`${ran}; the last one verified no new correctness item to fix or ask about.`)
   }
   if (threads) {
     lines.push('', threadsLine(threads))
@@ -3193,7 +3227,13 @@ function humanSummary(record, nitPass, threads) {
     ? 'No commits, so no final nit pass.'
     : nitPass.found === 0
       ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
-      : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
+      // What the pass found is counted, and only what a commit fixed is called fixed (#93): the
+      // round's shaper may decline one.
+      : nitPass.fixed === nitPass.found
+        ? `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness bug${nitPass.found === 1 ? '' : 's'} in the fixes, fixed in one more pass that was not re-reviewed.`
+        : nitPass.fixed === 0
+          ? `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness item${nitPass.found === 1 ? '' : 's'} in the fixes; none was changed, and each is answered in its thread.`
+          : `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness items in the fixes: ${nitPass.fixed} fixed in one more pass that was not re-reviewed; ${nitPass.found - nitPass.fixed} not changed, answered in ${nitPass.found - nitPass.fixed === 1 ? 'its thread' : 'their threads'}.`
   return `${pass.title} · review by ${pass.reviewer}: ${parts.join('; ')}. ${nit}${threads ? ` ${threadsLine(threads)}` : ''}`
 }
 
@@ -3546,13 +3586,14 @@ try {
       const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered }, active, known, source)
       const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
       rounds.push(roundRecord)
-      nitPass = { round, found: active.length }
+      nitPass = { round, found: active.length, fixed: 0 }
       if (active.length) {
         const fix = await revise(roundRecord, active, 'correctness')
         if (fix.handoff) {
           return handoffResult(roundRecord, fix)
         }
-        lastFixUnreviewed = true
+        nitPass.fixed = fix.fixed.length
+        lastFixUnreviewed = nitPass.fixed > 0
       }
     }
     const finished = await finish('human-summary', record, (prBody, threads) => humanSummary(record, nitPass, threads))
@@ -3660,7 +3701,7 @@ try {
       log(`round ${round}: ${personLabel} picked ${active.length} finding(s) to act on, ${record.dropped.length} dropped`)
       if (active.length === 0) {
         await replyStandalone(record)
-        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ notPicked: true }, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'No finding was selected to act on, so there was no revise pass.' })
       }
     }
@@ -3669,21 +3710,24 @@ try {
 
     if (reviewed === 'final-nit-pass') {
       if (correctness.length === 0) {
-        const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({}, prBody, threads))
         return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
       }
-      // One more fix pass, then stop regardless.
+      // One more pass over what it found, then stop regardless. The shaper decides each item, so the
+      // handoff counts what a commit fixed, and only a fix is flagged as not re-reviewed.
       const outcome = await revise(record, correctness, 'correctness')
       if (outcome.handoff) {
         return handoffResult(record, outcome)
       }
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(true, prBody, threads))
-      return result('done', { lastFixUnreviewed: true, handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
+      const final = { found: correctness.length, fixed: outcome.fixed.length }
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ final }, prBody, threads))
+      return result('done', { ...(final.fixed ? { lastFixUnreviewed: true } : {}), handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
-    if (correctness.length === 0 && nits.length === 0) {
+    // Nothing new to decide: the round verified nothing, or only what the scope declined.
+    if (active.length === 0) {
       await replyStandalone(record)
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment({}, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
@@ -3698,15 +3742,23 @@ try {
     if (outcome.handoff) {
       return handoffResult(record, outcome)
     }
-    if (!outcome.newHead) {
-      // Every finding was settled without a commit (accepted, declined): nothing to re-review.
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(false, prBody, threads))
-      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'The last revise pass made no commits, so there was no fix diff to re-review.' })
+    // What comes next (#93). A round that bought another gets a full round: the coverage pass over
+    // the whole PR at the new head, verify, and the recheck of the fix diff when a commit fixed
+    // something. A round that bought nothing ends: at the handoff when no fix was committed, after
+    // one final nit pass over the fixes when one was, which reads those fixes only and reports only
+    // correctness bugs they introduced, so nits never buy a round. With the coverage pass off there
+    // is no pass to rerun, so a bought round that changed no code ends the run too.
+    const fixedAny = outcome.fixed.length > 0
+    if (outcome.bought && (coverageOn || fixedAny)) {
+      finalPass = false
+    } else if (!fixedAny) {
+      const noRecheck = outcome.bought
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(noRecheck ? { noRecheck: true } : {}, prBody, threads))
+      return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: noRecheck ? 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' : 'The last revise pass made no commits, so there was no fix diff to re-review.' })
+    } else {
+      finalPass = true
     }
-    // A round with nits only ends in one final nit pass; under the correctness scope there are
-    // no nits, so a correctness-free re-review is simply done.
-    finalPass = correctness.length === 0
-    range = { from: range.to, to: outcome.newHead }
+    range = { from: range.to, to: outcome.newHead || range.to, ...(fixedAny ? {} : { empty: true }) }
     round += 1
   }
 } catch (error) {

@@ -52,6 +52,8 @@ Asked while building (2026-11-13), answered by @michaelfromtheoutfit:
 
 9. **A finding on one of Redline's own files is still an ask, with its own reason, `redline's own file`.** The shaper's rule 7 already sent such a finding to the person, since no Redline role may write those files; the brief's cases did not name it, and the workflow now refuses an ask for any reason outside the cases. It is no case of judgment: it is a change only a person can make, as a finding under a repository ask rule is. So a Redline round's allowed reasons are the five cases, a repository rule, and this one.
 
+10. **After a human-review pass, the final nit pass's line gives counts, and never says fixed for what was declined.** That pass's findings go to a Redline round's shaper, which can now decline, so the summary's one wording ("fixed in one more pass that was not re-reviewed") could be false. It now reads, for a mixed result, "2 correctness items in the fixes: 1 fixed in one more pass that was not re-reviewed; 1 not changed, answered in its thread", and for none fixed, "none was changed, and each is answered in its thread". `lastFixUnreviewed` is true only when that pass committed a fix. Nothing else in the human-review pass changed. The loop test has the mixed case.
+
 Deviations from the shaped plan, found while building:
 
 - **Task 3, this repository's section.** The setup script's three-way merge carried v4 into `.claude/commands/agent-os/shape-spec.md` with one conflict: the paragraph after the JSON block changed in the template and sits beside the hand-edited point 11. The section's side was kept and that paragraph edited by hand to the v4 wording. `tests/setup-test.sh` confirms the result: the unmarked section is read as v4 with no conflict, and a merge adds only the marker.
@@ -63,6 +65,9 @@ Deviations from the shaped plan, found while building:
 - **Task 4, a candidate kept as reported.** It is a `correctness` finding of `medium` severity, since the finder gives neither; its title is the candidate's summary on one line and its description the failure scenario.
 - **Task 4, the skill's review-only report.** It read `rounds[0].forThePerson`, which the result no longer carries, so its one line changed in this slice and not with the rest of the skill in Task 6.
 - **Task 4, the closing sentence of a review body.** "Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why": the plan's wording ("in each thread") read as a promise of a thread for every item, which an item in the review body does not have.
+
+- **Task 5, the handoff's opening sentence.** The same rule as decision 10 holds for a Redline run's own final nit pass: the sentence counts what the pass found and what a commit fixed, in three wordings (all fixed, none changed, some of each). The default sentence reads "the last one verified no new correctness item to fix or ask about". Two endings that had no sentence of their own got one, so the default is never said where it would be untrue: a review dial with nothing picked ("none of its findings was picked to act on"), and a bought round that changed no code with the coverage pass off.
+- **Task 5, the round after a round that changed no code.** It is a `fix-diff` round whose range carries `empty: true`: the prompt says there is no fix diff to recheck, the review body says the last round changed no code, and the coverage pass runs at the new head as on any round.
 
 Shaping defaults (recorded, not asked; each was listed in the plan the owner approved):
 
