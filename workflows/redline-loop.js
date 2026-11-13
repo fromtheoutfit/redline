@@ -1327,7 +1327,10 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
     '>>>',
   ]
   if (history.length) {
-    lines.push('', 'Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one):', json(history))
+    // With candidates, the header carries the decline-reopen exception (#94, R1-1), so it agrees
+    // with the candidates block; with coverage off it is as before.
+    const reopenDeclined = Array.isArray(candidates) ? ', except one declined because it could not be confirmed that you now confirm, which is new as the candidates block below says' : ''
+    lines.push('', `Findings from earlier rounds and what became of them (never re-raise a declined, deferred or decided one${reopenDeclined}):`, json(history))
   }
   // The PR's earlier Redline rounds, from an earlier run (#35): tracked ones are matched into
   // knownAs; undispositioned ones are re-verified and carried or resolved, never dropped. The

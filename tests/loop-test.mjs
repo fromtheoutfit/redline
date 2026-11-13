@@ -1397,6 +1397,11 @@ function samePrefix(name, first, second, n) {
   const handledOff = pick(run.calls, 're-review r3').prompt
   check('coverage: off, the fix-diff round has neither the handled list nor the sentence, as before', !handledOff.includes('already handled') && !handledOff.includes('match against them') && pick(run.calls, 'review r2').prompt.includes('"id": "R1-1"'), handledOff.slice(0, 2500))
   const handledOffR2 = pick(run.calls, 'review r2').prompt
+  // The decline-reopen exception reaches every wording of the never-raised rule (#94, R1-1): the
+  // agent file's sentence, and the history header of a round with candidates; with coverage off
+  // the header is as before.
+  check('coverage: the agent file says a declined finding is not raised again, except one declined for want of confirmation that the verifier now confirms', reviewerAgent.includes('is not raised again, except one declined because it could not be confirmed'))
+  check('coverage: the history header carries the decline-reopen exception on a covered round, and a coverage off round keeps the header as before', (handledR3 || '').includes('never re-raise a declined, deferred or decided one, except one declined because it could not be confirmed that you now confirm') && (handledOff || '').includes('never re-raise a declined, deferred or decided one):'), [(handledR3 || '').slice(0, 2500), (handledOff || '').slice(0, 2500)])
 
   // A decided finding stays settled whatever its commits (#80, R3-4): a candidate that still
   // reproduces one is accounted for as settled, naming its id and saying so, is shown in the
