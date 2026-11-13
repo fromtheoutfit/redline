@@ -2614,7 +2614,7 @@ function checkDispositions(pass, shaped) {
 // reshape, `known` is the round's calls so far: a call the round already decided may be left out
 // or kept beside a re-sorted finding, since the reshape returns only the calls still pending or
 // newly raised (#61, R1-2).
-function checkCalls(pass, shaped, known = []) {
+function checkCalls(shaped, known = []) {
   const decided = (id) => known.some((c) => c.id === id)
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
@@ -2858,7 +2858,7 @@ async function revise(record, inScope, reviewedKind) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
-  checkCalls(pass, shaped)
+  checkCalls(shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
   checkWhy(pass, shaped)
@@ -2976,7 +2976,7 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     checkDispositions(pass, shaped)
-    checkCalls(pass, shaped, calls)
+    checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
     checkWhy(pass, shaped, calls)
