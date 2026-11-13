@@ -275,6 +275,53 @@ run save "$REPO" 7 --run-id wf_10 --record "$REC/otherlabel.json" >/dev/null 2>&
 runj "check: an entry under another label adds nothing" '[(.ok|tostring), (.hand.commits|length|tostring), (.hand.paths|length|tostring)] | join("|")' "true|0|0" check "$REPO" 7
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
+# The script a relaunch runs (#81): only the plugin's own repository can see its workflow or agent
+# files change during a run. The record's scriptPath is the copy the harness persisted at launch
+# (the pin), or the live file itself when the launch went by the scriptPath fallback (no pin).
+echo "# run drift (#81)"
+mkdir -p "$REPO/workflows" "$REPO/agents"
+printf 'launch script\n' > "$REPO/workflows/redline-loop.js"
+printf 'reviewer v1\n' > "$REPO/agents/redline-reviewer.md"
+printf 'shaper v1\n' > "$REPO/agents/redline-shaper.md"
+"${G[@]}" add workflows agents >/dev/null
+"${G[@]}" commit -q -m "The plugin's own files"
+START="$("${G[@]}" rev-parse HEAD)"
+PIN="$REC/redline-loop-wf_11.js"
+cp "$REPO/workflows/redline-loop.js" "$PIN"
+printf '%s\n' '{"runId":"wf_11","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned.json"
+printf '%s\n' '{"runId":"wf_12","scriptPath":"'"$REPO"'/workflows/redline-loop.js","args":{"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/fallback.json"
+run save "$REPO" 7 --run-id wf_11 --record "$REC/pinned.json" >/dev/null 2>&1
+DRIFT='[(.self|tostring), .launch, .scriptPath, (.agents|join(",")), (.drift|tostring), .line] | join("|")'
+runj "drift: another plugin root is not the plugin's own repository" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC"
+runj "drift: no --plugin is not the plugin's own repository" "$DRIFT" "false|name|||null|" drift "$REPO" 7
+runj "drift: the plugin's own repository, nothing changed: by name" "$DRIFT" "true|name|||null|" drift "$REPO" 7 --plugin "$REPO"
+runx "drift: by name exits 0" 0 drift "$REPO" 7 --plugin "$REPO"
+runj "drift: names the workflow file" '.workflow' "workflows/redline-loop.js" drift "$REPO" 7 --plugin "$REPO"
+printf 'edited script\n' > "$REPO/workflows/redline-loop.js"
+"${G[@]}" commit -q -am "redline: R1-1 edit the loop"
+runj "drift: a changed workflow with a pinned copy relaunches from the copy" "$DRIFT" "true|scriptPath|$PIN||{\"workflow\":\"workflows/redline-loop.js\",\"pinned\":true,\"agents\":[]}|" drift "$REPO" 7 --plugin "$REPO"
+runx "drift: by scriptPath exits 0" 0 drift "$REPO" 7 --plugin "$REPO"
+printf 'reviewer v2\n' > "$REPO/agents/redline-reviewer.md"
+"${G[@]}" commit -q -am "redline: R1-2 edit the reviewer"
+printf 'shaper v2\n' >> "$REPO/agents/redline-shaper.md"
+SENTENCE='Agent files changed since this run launched (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): this run'"'"'s remaining rounds may run under them, while the workflow'"'"'s own prompts are the launch'"'"'s.'
+runj "drift: changed agent files are named, an uncommitted edit included, and the run goes on" '[.launch, (.agents|join(",")), .line] | join("|")' "scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|$SENTENCE" drift "$REPO" 7 --plugin "$REPO"
+runj "drift: the agent files ride in drift for the workflow" '.drift.agents | join(",")' "agents/redline-reviewer.md,agents/redline-shaper.md" drift "$REPO" 7 --plugin "$REPO"
+"${G[@]}" checkout -q -- agents/redline-shaper.md
+printf 'new role\n' > "$REPO/agents/redline-new.md"
+runj "drift: an untracked agent file counts" '.agents | join(",")' "agents/redline-new.md,agents/redline-reviewer.md" drift "$REPO" 7 --plugin "$REPO"
+rm "$REPO/agents/redline-new.md"
+run save "$REPO" 7 --run-id wf_12 --record "$REC/fallback.json" >/dev/null 2>&1
+runj "drift: a changed workflow whose launch ran the live file has no pin and is refused, naming the file" '[.launch, .scriptPath, (.drift.pinned|tostring), .line] | join("|")' "refuse||false|workflows/redline-loop.js changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline 7" drift "$REPO" 7 --plugin "$REPO"
+runx "drift: refused exits 1" 1 drift "$REPO" 7 --plugin "$REPO"
+"${G[@]}" checkout -q "$START" -- workflows/redline-loop.js
+runj "drift: a launch from the live file with the workflow as launched goes by name" '[.launch, .drift.workflow, (.drift.agents|join(","))] | join("|")' "name||agents/redline-reviewer.md" drift "$REPO" 7 --plugin "$REPO"
+"${G[@]}" reset -q --hard "$RUNHEAD"
+runx "drift: no marker exits 2" 2 drift "$REPO" 8 --plugin "$REPO"
+runj "drift: another repository needs no marker" '[(.self|tostring), .launch] | join("|")' "false|name" drift "$REPO" 8 --plugin "$REC"
+run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
+runx "drift: a marker whose args hold no start commit exits 2" 2 drift "$REPO" 7 --plugin "$REPO"
+
 echo "# run clear"
 runj "clear: removes the entry" '.cleared' "true" clear "$REPO" 7
 runj "clear: read is null after it" '.' "null" read "$REPO" 7

@@ -222,6 +222,28 @@ if (A.resume !== undefined) {
     resume[label] = { attempt: entry.attempt, error: entry.error, hand: { commits: hand.commits || [], paths: hand.paths || [] } }
   }
 }
+// The script a relaunch runs (#81). When Redline reviews its own repository, a round's commit can
+// change workflows/redline-loop.js or an agent file. The skill relaunches the launch's script (by
+// name while the file is as launched, from the copy the harness persisted once it differs) and
+// passes what changed as args.drift, from redline-prefs.sh run drift: {workflow, pinned, agents}.
+// It is read in two places only, both outside every replayed prompt: at startup, where a changed
+// workflow with no pinned copy (a launch by the scriptPath fallback ran the file itself) refuses
+// the relaunch, and at Finish, where the handoff comment says which agent files changed. Agent
+// files cannot be pinned: an agent type resolves only from the session's registry, so a copy
+// would run with no role and outside the guard.
+const drift = { workflow: '', pinned: true, agents: [] }
+if (A.drift !== undefined && A.drift !== null) {
+  const d = A.drift
+  if (typeof d !== 'object' || Array.isArray(d) || typeof d.workflow !== 'string' || typeof d.pinned !== 'boolean' || !Array.isArray(d.agents) || d.agents.some((p) => typeof p !== 'string' || p === '')) {
+    fail('args.drift must be {workflow, pinned, agents} as redline-prefs.sh run drift prints it; got ' + JSON.stringify(d))
+  }
+  drift.workflow = d.workflow
+  drift.pinned = d.pinned
+  drift.agents = d.agents.slice()
+}
+const AGENTS_CHANGED = drift.agents.length
+  ? `Agent files changed since this run launched (${drift.agents.map((p) => `\`${p}\``).join(', ')}): this run's remaining rounds may run under them, while the workflow's own prompts are the launch's.`
+  : ''
 const handCommits = new Set(Object.values(resume).flatMap((entry) => entry.hand.commits))
 const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.hand.paths))]
 const models = A.models && typeof A.models === 'object' ? A.models : {}
@@ -571,6 +593,13 @@ const FILE_OP_SCHEMA = {
   type: 'object',
   required: ['operation', 'files', 'error'],
   properties: { operation: str, files: strings, error: str },
+}
+
+// Finish's read of the highest posted round (#81), as redline-gh.sh last-round prints it.
+const LAST_ROUND_SCHEMA = {
+  type: 'object',
+  required: ['operation', 'round', 'error'],
+  properties: { operation: str, round: int, error: str },
 }
 
 // The spec check (#57): the spec folder's files and the Decisions heading, as the GitHub agent's
@@ -1818,6 +1847,16 @@ Set resolved and skipped from its JSON as printed. The script decides what it re
 Return only the JSON your instructions specify, with operation "resolve-threads".`
 }
 
+// Finish's first step (#81): the highest Redline round posted on the PR. Read-only, one script
+// call. It sits after every stopping point, so no prompt a relaunch replays depends on it.
+function lastRoundPrompt() {
+  return `${RUN_LINE}
+
+Operation: last-round. PR #${pr}. Read only. Run \`${GH} last-round ${pr}\` once and nothing else. Set round to the number it prints. If the script fails, set round to 0 and error to its stderr.
+
+Return only the JSON your instructions specify, with operation "last-round".`
+}
+
 function recordStatusPrompt(paths) {
   return `${RUN_LINE}
 
@@ -2004,6 +2043,9 @@ const deferredAll = []
 const decidedAll = []
 const commitsAll = []
 const warnings = []
+if (AGENTS_CHANGED) {
+  warnings.push(AGENTS_CHANGED)
+}
 let approvedPaths = []
 let baseline = null
 let baselineFailing = []
@@ -2073,7 +2115,7 @@ function result(status, extra) {
     warnings,
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged). handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -2944,6 +2986,9 @@ function handoffComment(lastFixUnreviewed, prBody, threads) {
     const file = prBody.file.startsWith(`${repoRoot}/`) ? prBody.file.slice(repoRoot.length + 1) : prBody.file
     lines.push('', `Redline replaced the PR description with the redraft in \`${file}\`; the previous one is in the description's edit history.`)
   }
+  if (AGENTS_CHANGED) {
+    lines.push('', AGENTS_CHANGED)
+  }
   if (teammate) {
     lines.push('', `@${teammate}, over to you for the human review.`)
   }
@@ -3071,6 +3116,25 @@ function capComment(open) {
 // summary comment only: no description, no review request (#36).
 async function finish(kind, record, compose) {
   phase('Finish')
+  // The round that ends a run is the highest one posted on the PR (#81). A run whose rounds
+  // re-ran (PR #80: a relaunch under an edited script) can come back clean at an earlier round
+  // while later ones are posted and open, so Finish reads the number before it posts anything
+  // and stops when it is above the round the run is finishing from. Nothing follows the stop:
+  // no PR description, no sweep, no comment, no review request, no record commit. A dry run
+  // posted nothing, so the number is lower and the run goes on.
+  const redlineRounds = rounds.filter((r) => !r.human)
+  if (redlineRounds.length) {
+    const finishing = redlineRounds[redlineRounds.length - 1].round
+    const last = await run('finish', lastRoundPrompt(), {
+      agentType: 'redline:redline-github', ...modelOpts('github'), label: 'last round', phase: 'Finish', schema: LAST_ROUND_SCHEMA,
+    })
+    if (last.error) {
+      throw stageError('finish', `reading the highest posted Redline round failed: ${last.error}`)
+    }
+    if (Number.isInteger(last.round) && last.round > finishing) {
+      throw Object.assign(stageError('finish', `the run was finishing from round ${finishing}, but the highest Redline round posted on PR #${pr} is ${last.round}, so round ${finishing} is a re-run of an earlier round; nothing was posted after this check. Start a fresh run: /redline:redline ${pr}`), { fresh: true })
+    }
+  }
   const names = { handoff: 'handoff.md', 'cap-hit': 'cap-hit.md', 'human-summary': `human-review-${record.round}-summary.md` }
   const file = `${record.specFolder}/redline/${names[kind]}`
   let prBody = { file: '', updated: false, backup: '', copy: '' }
@@ -3337,6 +3401,12 @@ function reviewedResult(record, active, known, files) {
 }
 
 try {
+  // A changed workflow file and no pinned copy (#81): the relaunch would rerun recorded rounds
+  // under the edited script, so it ends here, before any agent. The skill refuses the same state
+  // from redline-prefs.sh run drift without launching; this is the second layer.
+  if (drift.workflow && !drift.pinned) {
+    return result('error', { stage: 'relaunch', error: `${drift.workflow} changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline ${pr}`, detail: {}, resumeFrom: null })
+  }
   // /redline:redline-revise <pr> review <selector>: one revise pass over a teammate's review (#36).
   // The skill ingested the comments (redline-gh.sh human-review) and numbered them H<n>-k; the
   // reviewer owns every clear instruction, the author answers the rest, the fix diff gets one final
@@ -3539,7 +3609,7 @@ try {
   // The step a resume reruns from (#10): the agent label the error names, with the attempt the
   // relaunch would be. A gather error (the head moved, the PR is not open, the branch is wrong)
   // and an error with no agent behind it are not resumable: the next launch is a fresh run.
-  const resumable = error.stage && error.stage !== 'gather' && error.label
+  const resumable = error.stage && error.stage !== 'gather' && error.label && !error.fresh
   const resumeFrom = resumable ? { label: error.label, attempt: (resume[error.label] ? resume[error.label].attempt : 1) + 1 } : null
   return result('error', { stage: error.stage || 'workflow', error: error.message, detail: error.extra || {}, resumeFrom })
 }

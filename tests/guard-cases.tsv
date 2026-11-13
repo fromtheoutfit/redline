@@ -412,6 +412,8 @@ general-purpose	inert	Bash	PLUGIN/scripts/redline-gh.sh post-review 1 /tmp/r.jso
 -	inert	Bash	PLUGIN/scripts/redline-setup.sh settings REPO/
 -	inert	Bash	PLUGIN/scripts/redline-setup.sh command REPO/ redline
 -	allow	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/ 42
+# #81: run drift is one more of the skill's own calls: approved for the main session by script name, refused to a role as every prefs call is.
+-	allow	Bash	PLUGIN/scripts/redline-prefs.sh run drift REPO/ 42 --plugin PLUGIN/
 -	allow	Bash	git diff HEAD~1
 -	allow	Bash	git log -1
 -	allow	Bash	cd REPO/ && git status
@@ -480,6 +482,7 @@ redline:redline-resolve	deny	Edit	.claude/redline.local.json
 redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-prefs.sh save REPO/ --interrupt autopilot --revise opus --max-rounds 3 --scope all
 redline:redline-github	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
 redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-prefs.sh resolve REPO/
+redline:redline-github	deny	Bash	PLUGIN/scripts/redline-prefs.sh run drift REPO/ 42 --plugin PLUGIN/
 redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-gate.sh stamp REPO/.claude/commands/agent-os/shape-spec.md REPO/.claude/redline/checks.sh
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gate.sh check REPO/
 redline:redline-reviewer	allow	Bash	cat .claude/redline.local.json

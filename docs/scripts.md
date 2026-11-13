@@ -132,7 +132,7 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 
 ## `redline-prefs.sh`
 
-The saved launch settings and the run markers in `.claude/redline.local.json`. Only `/redline:redline` runs it; the guard refuses it to every role. `tests/prefs-test.sh` pins the merge rules and every `run check` refusal.
+The saved launch settings and the run markers in `.claude/redline.local.json`. Only `/redline:redline` runs it; the guard refuses it to every role. `tests/prefs-test.sh` pins the merge rules, every `run check` refusal and every `run drift` answer.
 
 ```text
 #
@@ -181,6 +181,22 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
 #       which the workflow excuses. Exit 0 ok, 1 refused.
+#   redline-prefs.sh run drift <repoRoot> <pr> [--plugin <dir>]
+#       Which script a relaunch runs, and which agent files changed since the run launched (#81),
+#       as {self, launch, scriptPath, workflow, agents, drift, line}. Only the plugin's own
+#       repository (the repository is --plugin's directory) can see its workflow or agent files
+#       change during a run; anywhere else self is false, launch is name and nothing is listed.
+#       The pin is the script path in the marker's record: the copy the harness persisted when the
+#       run was launched by name. launch is name while workflows/redline-loop.js equals the pin
+#       (relaunch as before), scriptPath when it differs (relaunch from the pin, given as
+#       scriptPath), and refuse when it differs from the launch commit (args.startSha) and the
+#       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
+#       pin; line then names the file and says to finish with a fresh run. agents lists every
+#       file under agents/ that differs from the launch commit, uncommitted and untracked ones
+#       included; the run goes on, and line is the sentence the skill says and the handoff comment
+#       repeats. drift is what the skill passes as args.drift ({workflow, pinned, agents}), null
+#       when nothing changed. Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's
+#       own repository only; anywhere else no marker is read).
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #

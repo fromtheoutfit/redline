@@ -45,6 +45,8 @@ const RAW_WJ = '\u2060'
 function mock(scenario) {
   const calls = []
   let reviewN = 0
+  // The highest round a post call put on GitHub, which is what last-round reads at Finish (#81).
+  let postedRound = 0
   let planN = 0
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
@@ -76,6 +78,7 @@ function mock(scenario) {
         // cannot anchor a comment. scenario.postError is the agent's error on a posted review (the
         // Losers League #778 shape), scenario.postReviewId its review id (default 1), and
         // scenario.postDrop the findings left out of both comments and movedToBody.
+        postedRound = Math.max(postedRound, Number(opts.label.slice(6)) || 0)
         const ids = [...new Set([...prompt.matchAll(/\*\*(R\d+-\d+)\*\*/g)].map((m) => m[1]))]
         const drop = scenario.postDrop || []
         const moved = (scenario.noInline ? ids : (scenario.moved || [])).filter((id) => !drop.includes(id))
@@ -111,6 +114,11 @@ function mock(scenario) {
         const skipped = scenario.threadsSkipped || {}
         const roots = ids.filter((id) => id < 200)
         return { operation: 'resolve-threads', resolved: roots.filter((id) => !skipped[id]).map((id) => ({ id, thread: `PRRT_${id}` })), skipped: roots.filter((id) => skipped[id]).map((id) => ({ id, reason: skipped[id] })), error: scenario.resolveError || '' }
+      }
+      // Finish's read of the highest posted round (#81): scenario.lastPosted, else the highest round
+      // a post call of this run posted; scenario.lastRoundError is the agent's error.
+      if (opts.label === 'last round') {
+        return { operation: 'last-round', round: scenario.lastPosted === undefined ? postedRound : scenario.lastPosted, error: scenario.lastRoundError || '' }
       }
       // scenario.updateError is the agent's error on an update that ran nothing (no pr-body.md).
       if (opts.label === 'PR description') {
@@ -227,10 +235,10 @@ const baseArgs = {
   models: { revise: { model: 'claude-opus-5-5' }, coverage: null }, baselineSeconds: 33,
 }
 
-async function go(name, args, scenario) {
+async function go(name, args, scenario, script = body) {
   const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
   const { agent, calls } = mock(s)
-  const fn = new Function('args', 'agent', 'parallel', 'phase', 'log', body)
+  const fn = new Function('args', 'agent', 'parallel', 'phase', 'log', script)
   const parallel = async (thunks) => Promise.all(thunks.map((t) => t().catch(() => null)))
   let res
   let thrown = null
@@ -373,7 +381,7 @@ function samePrefix(name, first, second, n) {
   check('review: the re-review sees the drops as settled', pick(second.calls, 're-review r2').prompt.includes('"outcome": "not acted on in this run: Naming is fine as it is. · decided by: @author"'), pick(second.calls, 're-review r2').prompt)
   check('review: round record lists the drops', JSON.stringify(second.res.rounds[0].dropped) === '[{"id":"R1-2","reason":"Naming is fine as it is."},{"id":"R1-3","reason":"Not selected for this run."}]', second.res.rounds[0].dropped)
   const none = await go('review: nothing selected', { ...reviewArgs, selected: { act: [], dropped: { 'R1-1': 'Known and accepted.' } } }, scenario)
-  check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|PR description|handoff comment|record files|record commit', labels(none.calls))
+  check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|last round|PR description|handoff comment|record files|record commit', labels(none.calls))
   const later = await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness', { needsDecision: true })], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
   check('review: a later round hands off its asks as guided does', later.res.status === 'handoff' && later.res.handoffKind === 'decisions' && later.res.handoffRound === 2, later.res.status)
 }
@@ -657,7 +665,7 @@ function samePrefix(name, first, second, n) {
   check('carry: the handoff says the earlier finding was carried and dropped', comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: carried forward as R2-1: not acted on in this run: Keep it. · decided by: @author'), comment(run.calls, 'handoff comment'))
 
   run = await go('carry: everything resolved', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'none', { comment_id: 11 }), prior('R1-2', 'not-changed', { comment_id: 12, reply: { id: 250, body: 'not changed in this round. x · decided by: redline' } })] }, { reviews: [[]], resolved: [[{ id: 'R1-1', why: 'Gone.' }, { id: 'R1-2', why: 'Gone too.' }]] })
-  check('carry: a first round with only resolved earlier findings replies and finishes without a revise pass', run.res.status === 'done' && labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
+  check('carry: a first round with only resolved earlier findings replies and finishes without a revise pass', run.res.status === 'done' && labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|last round|PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
   check('carry: the review body says no findings and lists the resolved', pick(run.calls, 'post r2').prompt.includes('No findings.\\n\\n### Resolved from earlier rounds\\n\\n- **R1-1** title R1-1: Gone.\\n- **R1-2** title R1-2: Gone too.'), pick(run.calls, 'post r2').prompt.slice(0, 900))
   check('carry: both earlier threads are swept, the second with its earlier reply', ((pick(run.calls, 'resolve threads') || {}).prompt || '').includes('resolve-threads 114 11 200 12 250 201'), (pick(run.calls, 'resolve threads') || {}).prompt)
 
@@ -686,7 +694,7 @@ function samePrefix(name, first, second, n) {
 
   run = await go('carry: carried and known by an issue', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'correctness', { carriedFrom: 'R1-2', knownAs: '#41' })]], postDrop: ['R2-1'] })
   check('carry: a carried finding known by an issue stays known, listed with its origin, and is not shaped', run.res.rounds[0].findings[0].knownAs === '#41' && JSON.stringify(run.res.rounds[0].carried) === '{"R1-2":"R2-1"}' && pick(run.calls, 'post r2').prompt.includes('### Already tracked\\n\\n- **R2-1** title R2-1: #41 · first reported as R1-2') && !pick(run.calls, 'shape r2'), [run.res.rounds[0], labels(run.calls)])
-  check('carry: its earlier thread is told it is carried and already tracked, with no revise pass', labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|PR description|handoff comment|record files|record commit' && replies(run.calls, 'push and reply r2').length === 1 && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; already tracked in #41 · decided by: redline' && replies(run.calls, 'push and reply r2')[0].route === 'thread' && replies(run.calls, 'push and reply r2')[0].comment_id === 12, [labels(run.calls), replies(run.calls, 'push and reply r2')])
+  check('carry: its earlier thread is told it is carried and already tracked, with no revise pass', labels(run.calls).join('|') === 'gather r2|review r2|post r2|push and reply r2|last round|PR description|handoff comment|record files|record commit' && replies(run.calls, 'push and reply r2').length === 1 && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; already tracked in #41 · decided by: redline' && replies(run.calls, 'push and reply r2')[0].route === 'thread' && replies(run.calls, 'push and reply r2')[0].comment_id === 12, [labels(run.calls), replies(run.calls, 'push and reply r2')])
   check('carry: that thread stays open as already tracked, and the handoff names the issue', run.res.threads.open.some((o) => o.id === 'R1-2' && o.reason === 'already tracked') && comment(run.calls, 'handoff comment').includes('Resolved 0 threads; 1 left open: R1-2 (already tracked).') && comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: carried forward as R2-1: already tracked in #41'), [run.res.threads, comment(run.calls, 'handoff comment')])
 
   // The same reply from revise()'s batch, the second call site (testing/tests), beside a fixed carry.
@@ -847,7 +855,7 @@ function samePrefix(name, first, second, n) {
   })
   const four = [h('H1-1'), h('H1-2', { threadId: 901, commentId: 901, description: 'Is this the right default?' }), h('H1-3', { threadId: 902, commentId: 902, description: 'Nice.' }), h('H1-4', { file: '', line: 0, threadId: 0, commentId: 0, description: 'The empty case needs a test somewhere.' })]
   const scenario = { reviews: [[]], ask: ['H1-2'], none: ['H1-3'], commitIds: [['H1-1', 'H1-2', 'H1-4']] }
-  const sequence = 'shape h1|spec status h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|summary comment|record files|record commit'
+  const sequence = 'shape h1|spec status h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|last round|summary comment|record files|record commit'
 
   const first = await go('human: an ask stops for the author', humanArgs(four), scenario)
   check('human: status handoff (decisions) after the shaper', first.res.status === 'handoff' && first.res.handoffKind === 'decisions' && labels(first.calls).join('|') === 'shape h1|spec status h1', [first.res.status, labels(first.calls)])
@@ -887,7 +895,7 @@ function samePrefix(name, first, second, n) {
   check('human: the snapshot names the human folder', pick(second.calls, 'snapshot h1').prompt.includes(`"${folder}/"`) && pick(second.calls, 'snapshot h1').prompt.includes('Operation: snapshot (human review 1).'))
 
   let run = await go('human: the nit pass finds a correctness bug', decided, { ...scenario, reviews: [[f('R3-1', 'correctness')]], commitIds: [['H1-1', 'H1-2', 'H1-4'], ['R3-1']] })
-  check('human: one more fix pass as round 3, not re-reviewed, then the summary', run.res.status === 'done' && run.res.lastFixUnreviewed === true && labels(run.calls).join('|') === 'shape h1|spec status h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|shape r3|spec status r3|plan approver r3|standards approver r3|snapshot r3|implement r3|check r3|push and reply r3|resolve threads|summary comment|record files|record commit', labels(run.calls))
+  check('human: one more fix pass as round 3, not re-reviewed, then the summary', run.res.status === 'done' && run.res.lastFixUnreviewed === true && labels(run.calls).join('|') === 'shape h1|spec status h1|resolve h1|plan approver h1|standards approver h1|snapshot h1|baseline|implement h1|check h1|push and reply h1|gather r3|final nit pass r3|post r3|shape r3|spec status r3|plan approver r3|standards approver r3|snapshot r3|implement r3|check r3|push and reply r3|last round|resolve threads|summary comment|record files|record commit', labels(run.calls))
   check('human: the summary names the bug and the sweep of the nit-pass thread', comment(run.calls, 'summary comment').endsWith('Final nit pass (Redline round 3): 1 correctness bug in the fixes, fixed in one more pass that was not re-reviewed. Resolved 1 thread; 0 left open.'), comment(run.calls, 'summary comment'))
   check('human: the sweep names only the nit-pass thread, never the teammate\'s', pick(run.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && !/ 90[0-9]\b/.test(pick(run.calls, 'resolve threads').prompt), pick(run.calls, 'resolve threads').prompt)
   check('human: the round-3 fix reply is a Redline round reply', replyFor(run.calls, 'push and reply r3', 'R3-1') === 'Redline round 3: fixed in 4bbbbbb (redline: R3-1 fix). · decided by: redline', replyFor(run.calls, 'push and reply r3', 'R3-1'))
@@ -1826,6 +1834,87 @@ function samePrefix(name, first, second, n) {
     const text = fs.readFileSync(path.join(here, '..', 'agents', `${name}.md`), 'utf8')
     check(`posted text: agents/${name}.md asks for an @ identifier in backticks`, text.includes('An identifier that begins with `@` (a decorator, a directive, a docblock tag) is always written in backticks, because a bare `@word` notifies a GitHub account.'), `agents/${name}.md`)
   }
+}
+
+// ---------------------------------------------------------------------------
+// 17. The script a relaunch runs, and the Finish rule (#81). When Redline reviews its own
+//     repository, a round can commit a change to the workflow file, and a relaunch that ran the
+//     edited script replayed nothing after the first changed prompt (PR #80). The skill now
+//     relaunches the launch's script; what reaches the workflow is args.drift, read only at
+//     startup (the refusal) and at Finish (the handoff sentence), and Finish opens by reading the
+//     highest posted round, so a run can never finish from a re-run earlier round.
+// ---------------------------------------------------------------------------
+{
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { needsDecision: true })], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const decided = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-12' } } }
+  const first = await go('pin: hand-off', baseArgs, scenario)
+  check('pin: the launch stops at the hand-off', first.res.status === 'handoff', first.res.status)
+
+  // A relaunch with a changed workflow file: one sentence of the review prompt edited, as a
+  // round's own commit would. The edit must land, or the check below proves nothing.
+  const needle = 'Operation: gather (round ${round}).'
+  const edited = body.replace(needle, 'Operation: gather for round ${round}.')
+  check('pin: the edited script differs from the launch\'s', body.includes(needle) && edited !== body)
+  const drifted = await go('pin: relaunch with the edited script', decided, scenario, edited)
+  const same = (a, b) => a && b && a.label === b.label && a.prompt === b.prompt && JSON.stringify(a.opts) === JSON.stringify(b.opts)
+  const firstDiff = first.calls.findIndex((c, i) => !same(c, drifted.calls[i]))
+  check('pin: the edited script changes a prompt before the stopping point, so the harness would rerun from it', firstDiff === 0 && first.calls[0].label === 'gather r1', [firstDiff, labels(drifted.calls).slice(0, 5)])
+  // The pinned relaunch: the launch's script, whatever the live file now holds.
+  const pinned = await go('pin: relaunch with the launch\'s script', decided, scenario, body)
+  samePrefix('pin', first.calls, pinned.calls, first.calls.length)
+  check('pin: the pinned relaunch finishes', pinned.res.status === 'done', [pinned.res.status, pinned.res.error])
+
+  // The scriptPath fallback: a launch that ran the live file has no pinned copy, so a relaunch
+  // after the file changed is refused before any agent runs, with a message naming the file.
+  const refused = await go('pin: no pinned copy and a changed workflow file', { ...decided, drift: { workflow: 'workflows/redline-loop.js', pinned: false, agents: [] } }, scenario)
+  check('pin: the relaunch is refused at stage relaunch', refused.res.status === 'error' && refused.res.stage === 'relaunch', [refused.res.status, refused.res.stage])
+  check('pin: the refusal names the file and says to finish with a fresh run', refused.res.error === 'workflows/redline-loop.js changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline 114', refused.res.error)
+  check('pin: no agent runs and the stop cannot be resumed', refused.calls.length === 0 && refused.res.resumeFrom === null, [labels(refused.calls), refused.res.resumeFrom])
+  // With a pinned copy the same change is not refused: the skill relaunched from the copy.
+  const kept = await go('pin: a pinned copy and a changed workflow file', { ...decided, drift: { workflow: 'workflows/redline-loop.js', pinned: true, agents: [] } }, scenario)
+  check('pin: a changed workflow with a pinned copy runs on', kept.res.status === 'done', [kept.res.status, kept.res.error])
+  check('pin: and every prompt equals the relaunch without drift', kept.calls.length === pinned.calls.length && kept.calls.every((c, i) => same(c, pinned.calls[i])), labels(kept.calls))
+
+  // Agent files cannot be pinned, so a changed one is reported: a warning in the result and the
+  // same sentence in the handoff comment. Nothing before Finish reads it.
+  const sentence = 'Agent files changed since this run launched (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): this run\'s remaining rounds may run under them, while the workflow\'s own prompts are the launch\'s.'
+  const agents = await go('pin: changed agent files', { ...decided, drift: { workflow: '', pinned: true, agents: ['agents/redline-reviewer.md', 'agents/redline-shaper.md'] } }, scenario)
+  check('pin: changed agent files do not stop the run', agents.res.status === 'done', [agents.res.status, agents.res.error])
+  check('pin: the result warns with the sentence', agents.res.warnings.includes(sentence), agents.res.warnings)
+  const withSentence = comment(agents.calls, 'handoff comment')
+  const without = comment(pinned.calls, 'handoff comment')
+  check('pin: the handoff comment carries the same sentence as its own paragraph', withSentence.includes(`\n\n${sentence}\n\n`), withSentence.slice(0, 600))
+  check('pin: and is otherwise the handoff comment of a run without drift', withSentence.replace(`${sentence}\n\n`, '') === without, withSentence.slice(0, 600))
+  const beforeFinish = agents.calls.findIndex((c) => c.label === 'handoff comment')
+  check('pin: every prompt before the handoff comment equals the run without drift', beforeFinish > 0 && agents.calls.slice(0, beforeFinish).every((c, i) => same(c, pinned.calls[i])), labels(agents.calls))
+  const empty = await go('pin: drift with nothing in it', { ...decided, drift: { workflow: '', pinned: true, agents: [] } }, scenario)
+  check('pin: an empty drift leaves every prompt and the warnings as they were', empty.calls.length === pinned.calls.length && empty.calls.every((c, i) => same(c, pinned.calls[i])) && JSON.stringify(empty.res.warnings) === JSON.stringify(pinned.res.warnings), empty.res.warnings)
+  for (const bad of ['yes', [], { workflow: 1, pinned: true, agents: [] }, { workflow: '', pinned: 'no', agents: [] }, { workflow: '', pinned: true, agents: [''] }, { workflow: '', pinned: true }]) {
+    const run = await go('pin: malformed drift', { ...decided, drift: bad }, scenario)
+    check(`pin: args.drift ${JSON.stringify(bad)} fails at startup`, run.thrown !== null && run.thrown.message.includes('args.drift') && run.calls.length === 0, run.thrown && run.thrown.message)
+  }
+
+  // The Finish rule: the round that ends a run is the highest one posted on the PR.
+  const finishLabels = (calls) => labels(calls).slice(labels(calls).indexOf('last round'))
+  check('finish: a normal finish reads the highest posted round first and goes on', finishLabels(pinned.calls).join('|') === 'last round|PR description|resolve threads|handoff comment|record files|record commit', finishLabels(pinned.calls))
+  const lastRound = pick(pinned.calls, 'last round')
+  check('finish: the read is the GitHub agent\'s, one read-only script call', lastRound.agentType === 'redline:redline-github' && lastRound.prompt.includes('Run `/p/scripts/redline-gh.sh last-round 114` once and nothing else') && lastRound.prompt.includes('Operation: last-round.'), lastRound.prompt)
+  check('finish: it is the only last-round read of the run, after the last round\'s replies', labels(pinned.calls).filter((l) => l === 'last round').length === 1 && labels(pinned.calls).indexOf('last round') > labels(pinned.calls).lastIndexOf('gather r2'), labels(pinned.calls))
+  const dry = await go('finish: dry run', { ...baseArgs, postToGitHub: false }, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
+  check('finish: a dry run posted nothing, so the read finds a lower round and the run goes on', dry.res.status === 'done' && finishLabels(dry.calls).join('|') === 'last round|handoff comment|record files|record commit', [dry.res.status, finishLabels(dry.calls)])
+  // A re-run earlier round: rounds 2 and 3 are on the PR, and a re-run round 1 comes back clean,
+  // which is how PR #80's third relaunch posted a false handoff.
+  const rerun = await go('finish: from a re-run earlier round', baseArgs, { reviews: [[]], lastPosted: 3 })
+  check('finish: the run stops with an error at Finish', rerun.res.status === 'error' && rerun.res.stage === 'finish', [rerun.res.status, rerun.res.stage])
+  check('finish: the error names the round, the highest posted round and the fresh run', rerun.res.error === 'the run was finishing from round 1, but the highest Redline round posted on PR #114 is 3, so round 1 is a re-run of an earlier round; nothing was posted after this check. Start a fresh run: /redline:redline 114', rerun.res.error)
+  check('finish: nothing follows the read: no PR description, no sweep, no handoff comment, no review request, no record commit', labels(rerun.calls).slice(-1)[0] === 'last round' && !labels(rerun.calls).some((l) => ['PR description', 'resolve threads', 'handoff comment', 'record files', 'record commit'].includes(l)) && !('reviewRequested' in rerun.res), labels(rerun.calls))
+  check('finish: the stop cannot be resumed', rerun.res.resumeFrom === null, rerun.res.resumeFrom)
+  // The cap-hit comment is a Finish too.
+  const capped = await go('finish: the cap from a re-run earlier round', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], lastPosted: 5 })
+  check('finish: a capped run from a lower round stops before the cap-hit comment', capped.res.status === 'error' && capped.res.stage === 'finish' && !labels(capped.calls).includes('cap-hit comment'), [capped.res.status, labels(capped.calls)])
+  // A read that failed is an error at its own label, which a resume reruns.
+  const unread = await go('finish: the read fails', baseArgs, { reviews: [[]], lastRoundError: 'gh: not logged in' })
+  check('finish: a failed read stops the run at the read, resumable there', unread.res.status === 'error' && unread.res.stage === 'finish' && unread.res.resumeFrom && unread.res.resumeFrom.label === 'last round' && unread.res.error.includes('gh: not logged in') && labels(unread.calls).slice(-1)[0] === 'last round', [unread.res.error, unread.res.resumeFrom])
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

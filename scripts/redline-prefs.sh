@@ -45,6 +45,22 @@
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
 #       which the workflow excuses. Exit 0 ok, 1 refused.
+#   redline-prefs.sh run drift <repoRoot> <pr> [--plugin <dir>]
+#       Which script a relaunch runs, and which agent files changed since the run launched (#81),
+#       as {self, launch, scriptPath, workflow, agents, drift, line}. Only the plugin's own
+#       repository (the repository is --plugin's directory) can see its workflow or agent files
+#       change during a run; anywhere else self is false, launch is name and nothing is listed.
+#       The pin is the script path in the marker's record: the copy the harness persisted when the
+#       run was launched by name. launch is name while workflows/redline-loop.js equals the pin
+#       (relaunch as before), scriptPath when it differs (relaunch from the pin, given as
+#       scriptPath), and refuse when it differs from the launch commit (args.startSha) and the
+#       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
+#       pin; line then names the file and says to finish with a fresh run. agents lists every
+#       file under agents/ that differs from the launch commit, uncommitted and untracked ones
+#       included; the run goes on, and line is the sentence the skill says and the handoff comment
+#       repeats. drift is what the skill passes as args.drift ({workflow, pinned, agents}), null
+#       when nothing changed. Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's
+#       own repository only; anywhere else no marker is read).
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #
@@ -66,7 +82,7 @@ cmd="$1"
 # ---------------------------------------------------------------------------
 
 run_usage() {
-    echo "usage: redline-prefs.sh run save|read|check|clear <repoRoot> <pr> [--run-id <id>] [--session <id>] [--record <file>] [--plugin <dir>]" >&2
+    echo "usage: redline-prefs.sh run save|read|check|drift|clear <repoRoot> <pr> [--run-id <id>] [--session <id>] [--record <file>] [--plugin <dir>]" >&2
     exit 2
 }
 
@@ -76,7 +92,7 @@ if [[ "$cmd" == "run" ]]; then
     [[ $# -ge 4 ]] || run_usage
     sub="$2" root="$3" pr="$4"
     shift 4
-    case "$sub" in save|read|check|clear) ;; *) run_usage ;; esac
+    case "$sub" in save|read|check|drift|clear) ;; *) run_usage ;; esac
     [[ -d "$root" ]] || { echo "redline-prefs: $root is not a directory" >&2; exit 2; }
     [[ "$pr" =~ ^[1-9][0-9]*$ ]] || { echo "redline-prefs: pr must be a positive integer; got '$pr'" >&2; exit 2; }
     runid="" session="${CLAUDE_CODE_SESSION_ID:-}" record="" plugin=""
@@ -167,6 +183,50 @@ if [[ "$cmd" == "run" ]]; then
                args: ($rec.args // {})}')"
         write_saved "$(jq -c --arg pr "$pr" --argjson e "$entry" '(. // {}) | .runs[$pr] = $e' <<<"$saved")"
         printf '%s\n' "$entry" | jq '.'
+        exit 0
+    fi
+
+    # drift (#81): which script a relaunch runs, and which agent files changed since launch.
+    if [[ "$sub" == "drift" ]]; then
+        wf="workflows/redline-loop.js"
+        if [[ -z "$plugin" || ! -d "$plugin" || "$(realdir "$plugin")" != "$(realdir "$root")" ]]; then
+            jq -n --arg wf "$wf" '{self: false, launch: "name", scriptPath: "", workflow: $wf, agents: [], drift: null, line: ""}'
+            exit 0
+        fi
+        [[ "$entry" != "null" ]] || { echo "redline-prefs: no stopped run is recorded for #$pr, so the script it launched with is unknown" >&2; exit 2; }
+        start="$(jq -r '.args.startSha // ""' <<<"$entry")"
+        if [[ -z "$start" ]] || ! git -C "$root" cat-file -e "$start^{commit}" 2>/dev/null; then
+            echo "redline-prefs: the run marker for #$pr holds no start commit this repository knows (args.startSha: '${start}')" >&2
+            exit 2
+        fi
+        # The pin: the script path the harness recorded for the run, unless it is the live file
+        # itself (a launch by the scriptPath fallback ran the file, so nothing was persisted).
+        mrecord="$(jq -r '.record // ""' <<<"$entry")"
+        recorded=""
+        [[ -n "$mrecord" && -f "$mrecord" ]] && recorded="$(jq -r '.scriptPath // ""' "$mrecord" 2>/dev/null || true)"
+        pin=""
+        if [[ -n "$recorded" && -f "$recorded" ]]; then
+            if [[ "$(realdir "$(dirname "$recorded")")/$(basename "$recorded")" != "$(realdir "$root")/$wf" ]]; then
+                pin="$recorded"
+            fi
+        fi
+        changed=false
+        if [[ -n "$pin" ]]; then
+            cmp -s "$pin" "$root/$wf" || changed=true
+        else
+            git -C "$root" diff --quiet "$start" -- "$wf" 2>/dev/null || changed=true
+        fi
+        agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | sort -u | jq -R . | jq -sc .)"
+        jq -n --arg wf "$wf" --arg pin "$pin" --argjson changed "$changed" --argjson agents "$agents" --arg pr "$pr" --arg q "'" '
+            (if $changed then (if $pin != "" then "scriptPath" else "refuse" end) else "name" end) as $launch
+            | {self: true, launch: $launch, scriptPath: (if $launch == "scriptPath" then $pin else "" end), workflow: $wf, agents: $agents,
+               drift: (if $changed or ($agents | length) > 0 then {workflow: (if $changed then $wf else "" end), pinned: ($pin != ""), agents: $agents} else null end),
+               line: (if $launch == "refuse"
+                      then "\($wf) changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline \($pr)"
+                      elif ($agents | length) > 0
+                      then "Agent files changed since this run launched (\($agents | map("`" + . + "`") | join(", "))): this run\($q)s remaining rounds may run under them, while the workflow\($q)s own prompts are the launch\($q)s."
+                      else "" end)}'
+        [[ "$changed" == true && -z "$pin" ]] && exit 1
         exit 0
     fi
 
