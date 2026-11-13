@@ -638,23 +638,27 @@ const SPEC_STATUS_SCHEMA = {
   properties: { operation: str, files: strings, headings: strings, error: str },
 }
 
-const JUDGMENT_CALL_SCHEMA = {
-  type: 'object',
-  required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
-  properties: {
-    id: str,
-    title: str,
-    story: str,
-    // The fixed reasons, plus one per repository ask rule (#49). A Redline round asks in the cases
-    // of ROUND_WHY only (#93), which checkCalls holds it to; a human review pass keeps HUMAN_WHY.
-    why_human: { type: 'string', enum: unique(ROUND_WHY.concat(HUMAN_WHY)).concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
-    options: {
-      type: 'array',
-      items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+// The pass's fixed reasons, plus one per repository ask rule (#49). A Redline round's enum is
+// ROUND_WHY (#93) and a human review pass's HUMAN_WHY, each with the rule reasons, so a value from
+// the other pass is refused by the shaper's structured output inside its own run, and checkCalls
+// stays the second layer (#94, R1-5, R1-12).
+function judgmentCallSchema(reasons) {
+  return {
+    type: 'object',
+    required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
+    properties: {
+      id: str,
+      title: str,
+      story: str,
+      why_human: { type: 'string', enum: reasons.concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
+      options: {
+        type: 'array',
+        items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+      },
+      recommendation: str,
+      dependsOn: strings,
     },
-    recommendation: str,
-    dependsOn: strings,
-  },
+  }
 }
 
 const DEFERRED_SCHEMA = {
@@ -662,48 +666,54 @@ const DEFERRED_SCHEMA = {
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str } },
 }
 
-const SHAPE_SCHEMA = {
-  type: 'object',
-  required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
-  properties: {
-    specFolder: str,
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        required: ['id', 'disposition', 'decidedBy', 'recommendation'],
-        properties: {
-          id: str,
-          // A Redline round sorts into fix, decline, defer or ask (#93). A human review pass sorts
-          // into fix, ask or none (a comment that asks for nothing); never defer or decline, since
-          // nothing a teammate asked for is deferred or declined by Redline on its own. The workflow
-          // refuses the other pass's values.
-          disposition: { type: 'string', enum: ['fix', 'decline', 'defer', 'ask', 'none'] },
-          // "redline" for a fix, a decline or a defer settled from the evidence; "pending" for an ask, which
-          // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
-          // fix a teammate's comment asked for, which the workflow maps to their login.
-          decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
-          // One sentence: the change planned for a fix, the mitigation for a defer, the
-          // recommended option for an ask, the decision restated for a decline. The plan dial shows
-          // it to the person.
-          recommendation: str,
-          // A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does
-          // not act, and where the finding belongs when it belongs somewhere. Required for a
-          // decline, which checkDispositions holds the shaper to.
-          reason: str,
-          // What the shaper's second look made of a finding the verifier could not confirm (#93).
-          secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
-          // The paths the finding's task would touch, and the repository ask rule the shaper
-          // judged it under (#49); forceAskRules reads both.
-          files: strings,
-          askRule: str,
+// The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
+// differs, so a Redline round's shaper is refused a human pass's reason in its own run, and the
+// other way about.
+function shapeSchema(reasons) {
+  return {
+    type: 'object',
+    required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
+    properties: {
+      specFolder: str,
+      findings: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['id', 'disposition', 'decidedBy', 'recommendation'],
+          properties: {
+            id: str,
+            // A Redline round sorts into fix, decline, defer or ask (#93). A human review pass sorts
+            // into fix, ask or none (a comment that asks for nothing); never defer or decline, since
+            // nothing a teammate asked for is deferred or declined by Redline on its own. The workflow
+            // refuses the other pass's values.
+            disposition: { type: 'string', enum: ['fix', 'decline', 'defer', 'ask', 'none'] },
+            // "redline" for a fix, a decline or a defer settled from the evidence; "pending" for an ask, which
+            // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
+            // fix a teammate's comment asked for, which the workflow maps to their login.
+            decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
+            // One sentence: the change planned for a fix, the mitigation for a defer, the
+            // recommended option for an ask, the decision restated for a decline. The plan dial shows
+            // it to the person.
+            recommendation: str,
+            // A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does
+            // not act, and where the finding belongs when it belongs somewhere. Required for a
+            // decline, which checkDispositions holds the shaper to.
+            reason: str,
+            // What the shaper's second look made of a finding the verifier could not confirm (#93).
+            secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
+            // The paths the finding's task would touch, and the repository ask rule the shaper
+            // judged it under (#49); forceAskRules reads both.
+            files: strings,
+            askRule: str,
+          },
         },
       },
+      deferred: DEFERRED_SCHEMA,
+      judgmentCalls: { type: 'array', items: judgmentCallSchema(reasons) },
     },
-    deferred: DEFERRED_SCHEMA,
-    judgmentCalls: { type: 'array', items: JUDGMENT_CALL_SCHEMA },
-  },
+  }
 }
+const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY), human: shapeSchema(HUMAN_WHY) }
 
 const RESOLVE_SCHEMA = {
   type: 'object',
@@ -2806,7 +2816,7 @@ async function revise(record, inScope, reviewedKind) {
 
   phase('Shape')
   let shaped = await run('shape', pass.human ? humanShapePrompt(pass, record, inScope) : shapePrompt(round, specFolder, reviewedKind, inScope, record.prBody), {
-    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+    agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
   })
   if (shaped.specFolder.replace(/\/+$/, '') !== specFolder) {
     warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${specFolder}`)
@@ -2930,7 +2940,7 @@ async function revise(record, inScope, reviewedKind) {
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
-      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
+      agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     checkDispositions(pass, shaped)
     checkCalls(pass, shaped, calls)

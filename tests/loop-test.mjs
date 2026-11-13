@@ -274,6 +274,12 @@ async function go(name, args, scenario, script = body) {
 
 const labels = (calls) => calls.map((c) => c.label)
 const pick = (calls, label) => calls.find((c) => c.label === label)
+// The why_human enum of a shaper call's schema, [] when the call or the path is absent (#94, R1-5).
+const whyEnum = (calls, label) => {
+  const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
+  const call = ((schema.properties || {}).judgmentCalls || {}).items || {}
+  return ((call.properties || {}).why_human || {}).enum || []
+}
 const comment = (calls, label) => {
   const p = pick(calls, label).prompt
   return p.slice(p.indexOf('```markdown\n') + 12, p.lastIndexOf('\n```'))
@@ -1051,6 +1057,10 @@ function samePrefix(name, first, second, n) {
   const calls = first.res.judgmentCalls
   check('rules: the synthesised call names the rule, quotes its reason and offers the person\'s options', calls[0].id === 'R1-2' && calls[0].why_human === 'repository rule craft-config' && calls[0].story === `Repository rule craft-config: ${reason}. d` && calls[0].options.map((o) => o.label).join('|') === 'Make the change by hand after the run|Accept, no change' && calls[0].recommendation === 'By hand: fix R1-2 this way.' && JSON.stringify(calls[0].forced) === `{"rule":"craft-config","reason":"${reason}","recommendation":"By hand: fix R1-2 this way."}`, calls[0])
   check('rules: the prose-tagged call names its rule', calls[1].id === 'R1-3' && calls[1].why_human === 'repository rule billing' && calls[1].forced.rule === 'billing', calls[1])
+  // The shaper's schema is built per pass (#94, R1-5, R1-12): a Redline round's why_human enum is
+  // the round's cases and the rule reasons, so a human pass's reason is refused in the shaper's run.
+  const roundEnum = whyEnum(first.calls, 'shape r1')
+  check('rules: a Redline round\'s shaper schema takes the round\'s reasons and the rule reasons, and none of a human pass\'s own', ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file', 'repository rule craft-config', 'repository rule billing'].every((w) => roundEnum.includes(w)) && ['unsure', 'new standard', 'disproportionate fix'].every((w) => !roundEnum.includes(w)), roundEnum)
   const post = pick(first.calls, 'post r1').prompt
   check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · left to @author under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · left to @author under rule billing\\n') && !post.includes('yours under rule') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
   check('rules: the inline comment says whose it is and why', post.includes(`This one is left to @author: repository rule craft-config (${reason}).`) && post.includes('This one is left to @author: repository rule billing (Billing changes are reviewed by finance).'), post)
