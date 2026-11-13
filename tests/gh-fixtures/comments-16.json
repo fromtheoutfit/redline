@@ -1,0 +1,158 @@
+[
+  {
+    "id": 1601,
+    "pull_request_review_id": 40,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "**R1-1** · correctness · high · confirmed\n\n**Export skips cancelled orders**\n\nThe query leaves cancelled orders out of the export.",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:00Z"
+  },
+  {
+    "id": 1602,
+    "pull_request_review_id": 40,
+    "user": {
+      "login": "author"
+    },
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-2** · correctness · medium · confirmed\n\n**Field handle renamed in project config**\n\nThe handle no longer matches the template.\n\nThis one is left to @author: repository rule craft-config (Craft project config is applied through the control panel).",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:01Z"
+  },
+  {
+    "id": 1603,
+    "pull_request_review_id": 40,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-3** · nit · low · confirmed\n\n**Rename the helper**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:02Z"
+  },
+  {
+    "id": 1605,
+    "pull_request_review_id": 40,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "**R1-5** · correctness · medium · unconfirmed\n\n**Two workers can send twice**\n\nThe job is not unique on the queue.\n\nCould not confirm. Would confirm it: two workers on one queue taking the same job.",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:04Z"
+  },
+  {
+    "id": 1611,
+    "pull_request_review_id": 41,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "Redline round 1: declined: the pull request's spec keeps cancelled orders out on purpose (decision 4 in its shape.md) · decided by: redline",
+    "in_reply_to_id": 1601,
+    "created_at": "2026-11-13T12:00:00Z"
+  },
+  {
+    "id": 1612,
+    "pull_request_review_id": 41,
+    "user": {
+      "login": "author"
+    },
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: left to @author under repository rule craft-config (Craft project config is applied through the control panel). No change made; @author makes it. · decided by: @author",
+    "in_reply_to_id": 1602,
+    "created_at": "2026-11-13T12:00:01Z"
+  },
+  {
+    "id": 1613,
+    "pull_request_review_id": 41,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: The team declined: this rename last sprint, so the name stays. No code change. · decided by: @author",
+    "in_reply_to_id": 1603,
+    "created_at": "2026-11-13T12:00:02Z"
+  },
+  {
+    "id": 1615,
+    "pull_request_review_id": 41,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "Redline round 1: declined: could not confirm: needs two workers on one queue · decided by: redline",
+    "in_reply_to_id": 1605,
+    "created_at": "2026-11-13T12:00:04Z"
+  },
+  {
+    "id": 1621,
+    "pull_request_review_id": 42,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/f.php",
+    "line": 1,
+    "side": "RIGHT",
+    "body": "**R2-1** · correctness · low · confirmed\n\n**Fresh one**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-14T10:00:00Z"
+  },
+  {
+    "id": 1623,
+    "pull_request_review_id": 42,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/g.php",
+    "line": 6,
+    "side": "RIGHT",
+    "body": "**R2-3** · correctness · low · confirmed\n\n**Queue name is hard-coded**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-14T10:00:02Z"
+  },
+  {
+    "id": 1633,
+    "pull_request_review_id": 43,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/g.php",
+    "line": 6,
+    "side": "RIGHT",
+    "body": "Redline round 2: left to @marcamos to pick the name at the human review. No code change. · decided by: @author",
+    "in_reply_to_id": 1623,
+    "created_at": "2026-11-14T12:00:02Z"
+  },
+  {
+    "id": 1631,
+    "pull_request_review_id": 43,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/f.php",
+    "line": 1,
+    "side": "RIGHT",
+    "body": "Redline round 2: left to the person running Redline under repository rule craft-config (Craft project config is applied through the control panel). No change made; the person makes it. · decided by: the person running Redline",
+    "in_reply_to_id": 1621,
+    "created_at": "2026-11-14T12:00:00Z"
+  }
+]

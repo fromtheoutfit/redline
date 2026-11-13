@@ -1,0 +1,38 @@
+[
+  {
+    "id": 40,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "Redline round 1\n\nReviewed the whole pull request.\n\nThe coverage pass over the whole pull request at 0a1b2c3 returned 7 candidates: 4 verified, 1 could not be confirmed, 1 refuted, 0 collapsed into items already reported or settled, 1 already tracked.\n\nFive items.\n\n### Correctness (2)\n\n- **R1-1** · correctness · high · confirmed · `app/a.php:5` · Export skips cancelled orders\n- **R1-2** · correctness · medium · confirmed · `config/project/project.yaml:3` · Field handle renamed in project config · left to @author under rule craft-config\n\n### Other items (2)\n\n- **R1-3** · nit · low · confirmed · `app/c.php:3` · Rename the helper\n- **R1-4** · nit · low · confirmed · `public/build/vendor.js:7` · Deep in a generated file\n\n### Could not confirm (1)\n\n- **R1-5** · correctness · medium · unconfirmed · `app/d.php:2` · Two workers can send twice\n  Would confirm it: two workers on one queue taking the same job.\n\n### Already tracked\n\n- **R1-6** Known thing: #41\n\nEach item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in each thread with what it decided and why.\n\n### Candidates set aside (1)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `config/export.php:7` · The chunk size cannot be configured · refuted: the claim is that the size is fixed; `config/export.php:7` reads it from the environment\n\n</details>\n\n### Not placed inline\n\n<!-- redline:R1-4 -->\n`public/build/vendor.js:7`\n\n**R1-4** · nit · low · confirmed\n\n**Deep in a generated file**",
+    "submitted_at": "2026-11-13T10:00:00Z"
+  },
+  {
+    "id": 41,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "",
+    "submitted_at": "2026-11-13T12:00:00Z"
+  },
+  {
+    "id": 42,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "Redline round 2\n\nReviewed the whole pull request. Round 1 is already on this PR; this run starts at round 2.\n\nOne item.\n\n### Correctness (1)\n\n- **R2-1** · correctness · low · confirmed · `app/f.php:1` · Fresh one · left to the person running Redline under rule craft-config\n- **R2-3** · correctness · low · confirmed · `app/g.php:6` · Queue name is hard-coded\n- **R2-9** · correctness · low · maybe · `app/h.php:1` · A line whose fourth field is not a word the reader knows\n\n### Declined under this run's scope (correctness only) (1)\n\n- R2-2 · `app/e.php:4` · Docblock disagrees\n\nEach item has an inline comment with the detail.",
+    "submitted_at": "2026-11-14T10:00:00Z"
+  },
+  {
+    "id": 43,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "",
+    "submitted_at": "2026-11-14T12:00:00Z"
+  }
+]
