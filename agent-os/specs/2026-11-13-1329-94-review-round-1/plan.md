@@ -538,3 +538,62 @@ and use `...scoped.map(scopedLine)` at both copies: `reviewBody` (line 943) and 
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #94 round 1 as built (#93)`
+
+---
+
+## As built
+
+**Commits**, one per task, in order:
+
+| Task | Finding | Commit |
+| --- | --- | --- |
+| 1 | spec folder | `1b0564e` redline: save review round 1 spec for PR #94 (#93) |
+| 2 | R1-1 | `ac592aa` |
+| 3 | R1-8 | `cd7f181` |
+| 4 | R1-10 | `36721b8` |
+| 5 | R1-12 (and R1-5) | `c5a2d90` |
+| 6 | R1-15 | `70c54cb` |
+| 7 | R1-20 | `4eaea03` |
+| 8 | R1-2 | `a3f86df` |
+| 9 | R1-3 | `a8c7f56` |
+| 10 | R1-4 | `6a8c63a` |
+| 11 | R1-5 | `d7b1b65` |
+| 12 | R1-6 | `39992e5` |
+| 13 | R1-9 | `6284634` |
+| 14 | R1-13 | `c4afcb8` |
+| 15 | R1-16 | `358343f` |
+| 16 | R1-17 | `89cef7a` |
+| 17 | R1-19 | `6cc00e0` |
+| 18 | standards retrospective | `89e5be7` redline: record the round 1 review lessons in the standards (#93) |
+
+No finding commit needed a formatter commit: the gate has no formatter.
+
+**Red run.** Every task's new or changed check was written first, all at once, and one gate run over that tree with no plugin change yet showed them red: loop `827 checks passed, 14 failed`, gh `132 passed, 1 failed`, every other check green. The failing checks, by task:
+
+- Task 2: `coverage: the agent file says a declined finding is not raised again, ...` and `coverage: the history header carries the decline-reopen exception on a covered round, ...` (the off half is the neighbour; the check fails as a whole on the covered half).
+- Task 3: `done: the final nit pass's scope stands over the facts-only paragraph, ...`.
+- Task 4: `scope: the findings file keeps what the scope declined under scoped, apart from its findings`; the neighbour `scope all: a run without the scope writes no scoped key in its findings file` was green.
+- Task 5: `rules: a Redline round's shaper schema takes the round's reasons and the rule reasons, and none of a human pass's own` (the enum held `unsure`).
+- Task 6: `layout: the handoff, every heading in order with its line, ...` and `layout: with no login the person running Redline stands in everywhere, ...`.
+- Task 7: `done: an asked nit, answered with no change, buys no round` and `done: the no-fix-diff prompt says the round committed no fix and never claims its diff is empty`.
+- Task 9: gh `author tail: a left to the author under rule tail is stripped from the title`; the neighbour `author tail: its left to the author reply is still left` was green.
+- Task 11: `human: a human pass's shaper schema keeps its own reasons and has none of a Redline round's` (the one union enum held `redline's own file` and `outside the pull request`).
+- Task 12: `scope: the closing sentence says the items declined under the scope have no inline comment and no reply, ...`.
+- Task 14: `ask: a rule-covered call whose reason is outside the cases is not refused, and is asked under the rule` (the run stopped at shape over `"unsure"`); `ask: outside the cases` stayed green.
+- Task 16: `layout: with no login the cap-hit comment opens its sentence with a capital`.
+- Task 17: `carry: the earlier thread of a carried finding the scope declined stays open as declined under the scope` (the reason was `not settled`).
+
+The tests were then taken back out and re-added task by task, each with its change, so each finding's commit holds its own check.
+
+**Green runs.** The gate ran green after Task 5 (loop 834), after Task 9 (loop 835, gh 133), after Task 14 (loop 838; Task 13's refactor left every check as it was) and after Task 17 (loop 841). Tasks 13 and 15, the refactors, changed no check's count or expectation.
+
+**Gate counts** (the run after Task 17, every check exit 0, `unexpected_files` empty): syntax 0, validate 0 (passed with warnings), guard `594 passed, 0 mismatched`, loop `841 checks passed, 0 failed`, prefs `121 passed`, gate `117 passed`, setup `470 passed`, gh `133 passed, 0 failed`, background `39 passed`. Loop 841 is 828 plus thirteen: twelve new `check()` calls and the run-record check of the new capped run in Task 16.
+
+**Standards retrospective.** The standards approver approved both items, applied as drafted in one commit (`89e5be7`) to `agent-os/standards/workflow/agents.md`, lines 9, 16 and 36; `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`. Neither edit carries part of a finding's fix, so the commit names no finding.
+
+**Deviations** (also under Decisions in `shape.md`, 23):
+
+- The red runs were one batched gate run before any change rather than one per task, and Task 11's red is that run, over the code before Task 5, rather than a temporary revert of Task 5's call sites.
+- Task 12's neighbour, and Task 4's, read the scope-all run of section 5 (`all`), not the guided run of section 1, which is out of scope there.
+- Task 9: the line added to the comment above `classify` sits inside the single-quoted jq program, so it is worded without an apostrophe ("the rule tail of a final nit pass").
+- Task 14: `checkWhy` runs after `forceAskRules`, which itself runs after `checkSpec`, so a refused reason now stops the round after the `spec status` call instead of before it. The error text and the resume label are unchanged. The comment on `judgmentCallSchema` (Task 5) names `checkWhy` as the second layer from Task 14's commit on.

@@ -58,6 +58,8 @@ Sorted:
     Decided by: redline
 22. **Run caution.** Tasks 2 and 3 change `agents/redline-reviewer.md`. The rest of this run's rounds run under the edit, and the skill names the file (README Known limits, "A self-review that edits an agent file runs its later rounds under the edit"). The edits only add exceptions the prompts already state, so a later round's reviewer reads the same rules more consistently. `workflows/redline-loop.js` changes in most tasks; a relaunch runs the script the run launched with (`agent-os/standards/workflow/replay.md`, the #81 bullet).
     Decided by: redline
+23. **As built: four deviations from the plan, none changing a disposition.** The red runs were one gate run with every task's checks before any change, then re-added task by task, so Task 11's red is that run over the code before Task 5. Task 4's and Task 12's neighbours read the scope-all run of section 5. Task 9's comment line inside the single-quoted jq program is worded without an apostrophe. Task 14's `checkWhy` runs after `forceAskRules`, so a refused reason stops the round after the `spec status` call, with the same error. `plan.md`, As built, has the detail.
+    Decided by: redline
 
 ### Proportionality (the correctness fixes)
 
