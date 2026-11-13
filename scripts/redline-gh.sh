@@ -346,7 +346,8 @@ case "$cmd" in
             # person a repository rule leaves a finding to is named by login since #93, or as "the
             # person running Redline" when the run had none; "the author" is the wording before it,
             # and a human review pass with no login writes it in the rule tail of a final nit pass
-            # too (#94, R1-3).
+            # too (#94, R1-3). A login may hold an underscore, as an Enterprise Managed User login
+            # does (#94, R2-1).
             def classify:
                 if startswith("fixed in ") then "fixed"
                 elif startswith("mitigated") then "deferred"
@@ -355,14 +356,14 @@ case "$cmd" in
                 elif startswith("not changed in this round.") then "not-changed"
                 elif startswith("carried forward as R") then "carried"
                 elif startswith("left to the author") then "left"
-                elif test("^left to (@[A-Za-z0-9-]+|the person running Redline) under repository rule ") then "left"
+                elif test("^left to (@[A-Za-z0-9_-]+|the person running Redline) under repository rule ") then "left"
                 elif startswith("resolved; first reported as ") then "fixed"
                 else "decided" end;
             ($comments[0]) as $all
             | ($issues[0]) as $issue_comments
             | [$reviews[0][] | select(redline_review) | . as $r | round_of as $n
                 | finding_lines[] | . as $f
-                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · (yours|left to (@[A-Za-z0-9-]+|the person running Redline|the author)) under rule [a-z][a-z0-9-]*)?$")) as $t
+                | ($f.tail | capture("^(?<title>.*?)(?<decision> · needs a decision)?(?<carried> · first reported as (?<from>R[0-9]+-[0-9]+))?(?<rule> · (yours|left to (@[A-Za-z0-9_-]+|the person running Redline|the author)) under rule [a-z][a-z0-9-]*)?$")) as $t
                 | ($all | map(select(.in_reply_to_id == null and ((.body // "") | startswith("**" + $f.id + "** · ")))) | first) as $root
                 | ($root.id // 0) as $cid
                 | (if $cid > 0
