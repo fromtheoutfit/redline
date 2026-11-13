@@ -1,0 +1,11 @@
+{
+  "round": 3,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "ff3f8d5787cbd62c5b50da6f90dad739a8b86c70",
+    "to": "8d78f36d5f952b0383fdf7aec301817d1cac414d"
+  },
+  "summary": "The round 2 fix changes wording only. In docs/running.md, the skill's spoken scriptPath line and README Known limits, the pinned relaunch's permission behaviour is now described as expected but not yet measured, both in bypass-permissions and in other modes. A new docs-gate standard bullet records the lesson. No code, test or script changed, and no workflow, test or script matches against the old sentence, so the diff adds no correctness bug.",
+  "findings": [],
+  "forThePerson": []
+}

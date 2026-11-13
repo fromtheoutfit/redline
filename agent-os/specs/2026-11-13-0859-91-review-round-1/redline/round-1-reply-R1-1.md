@@ -1,0 +1,1 @@
+Redline round 1: fixed in ab88ed0 (redline: R1-1 keep the agent list an error or stopped resume passes, so a resume never posts the handoff comment twice (#81)). · decided by: redline
