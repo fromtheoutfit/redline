@@ -169,10 +169,11 @@ function mock(scenario) {
       const human = prompt.includes('a revise pass whose findings are the review comments')
       // A reshape answers what the reshape prompt asks for (#61, R1-2), and only when scripted: the
       // ids whose call it leaves out (reshapeOmitCall), sorts fix with the call kept (reshapeFix),
-      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall).
+      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall), or
+      // declines (reshapeDecline).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
-      const disposition = (id) => (onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
+      const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
@@ -2198,6 +2199,12 @@ function samePrefix(name, first, second, n) {
   check('done: a final nit pass whose items were all declined says none was changed, and flags nothing as unreviewed', run.res.status === 'done' && !('lastFixUnreviewed' in run.res) && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness items in the nit fixes; none was changed, and each is listed below. ') && !comment(run.calls, 'handoff comment').split('\n')[2].includes('fixed'), comment(run.calls, 'handoff comment').slice(0, 400))
   run = await go('done: the final nit pass, both fixed', covArgs, nitThen({ commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
   check('done: a final nit pass whose two items were both fixed says so in the plural', run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('Redline ran 2 review rounds. The final nit pass found 2 correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. '), comment(run.calls, 'handoff comment').slice(0, 400))
+  // A correctness item put to the person buys the round even when a reshape re-sorts it to a
+  // decline afterwards: the call was asked (#94, R2-11). Coverage off, so the next round is a
+  // re-review of the fix diff rather than a final nit pass. The answer keeps the code as it is, so
+  // its task touches no file (acceptedCalls) and no commit has to name it.
+  run = await go('done: an answered ask a reshape declines still buys the round', { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-13' } } }, { reviews: [[f('R1-1', 'nit'), f('R1-2', 'correctness')], []], ask: ['R1-2'], acceptedCalls: ['R1-2'], planBounce: 1, reshapeDecline: ['R1-2'], reshapeOmitCall: ['R1-2'], commitIds: [['R1-1'], []] })
+  check('done: an answered correctness ask that a reshape re-sorts to a decline still buys the next round', labels(run.calls).includes('reshape r1 #1') && labels(run.calls).includes('re-review r2') && !labels(run.calls).includes('final nit pass r2'), labels(run.calls))
 
   // The same after a human-review pass: its summary gives the counts (decision 8's question).
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })

@@ -3138,9 +3138,11 @@ async function revise(record, inScope, reviewedKind) {
   // person buys the next round, whatever the person answered and whether or not a commit resulted;
   // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
   // and neither does any item that is not a correctness one. `fixed` is the items a commit names:
-  // the round's spec and standards commits are no fix diff.
+  // the round's spec and standards commits are no fix diff. A call stays in `calls` when a reshape
+  // re-sorts its finding, so an item put to the person buys the round whatever the reshape
+  // returned (#94, R2-11).
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
-  const bought = inScope.some((f) => f.category === 'correctness' && (['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
+  const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || ['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
   const fixed = inScope.filter((f) => outcomes[f.id].commits.length > 0).map((f) => f.id)
   return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
