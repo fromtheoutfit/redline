@@ -3655,8 +3655,10 @@ function handoffResult(record, outcome) {
     specFolder: record.specFolder,
     judgmentCalls,
     // What the shaper declined on its own in this round (#93), each with its reason: the skill
-    // lists them after the calls, and a typed line overrules one before the relaunch.
-    declined: (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline').map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() })),
+    // lists them after the calls, and a typed line overrules one before the relaunch. A decline the
+    // person already overruled is left out: the overrule is in the decisions the relaunch carries,
+    // and it is applied there (#94, R2-15).
+    declined: (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !(decisions[x.id] && decisions[x.id].disposition)).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() })),
     unresolved: outcome.unresolved || [],
     decisionsNeeded: outcome.pending.map((call) => call.id),
   })

@@ -2261,6 +2261,10 @@ function samePrefix(name, first, second, n) {
   // relaunch takes a typed overrule beside the answers.
   const stop = await go('layout: the hand-off', { ...covArgs, askRules: rules }, scenario)
   check('overrule: a decisions hand-off carries the round\'s declines with their reasons', stop.res.status === 'handoff' && stop.res.handoffKind === 'decisions' && JSON.stringify(stop.res.declined) === JSON.stringify([{ id: 'R1-3', title: 'title R1-3', reason: 'the spec keeps R1-3 as it is on purpose' }, { id: 'R1-6', title: 'title R1-6', reason: 'could not confirm: needs two workers on one queue' }, { id: 'R1-7', title: 'title R1-7', reason: 'the spec keeps R1-7 as it is on purpose' }]), stop.res.declined)
+  // A second stop in the same round (here an answer the resolve agent could not apply) does not
+  // list again a decline the person already overruled (#94, R2-15).
+  const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
+  check('overrule: a second decisions stop leaves out a decline the person already overruled', again.res.status === 'handoff' && again.res.handoffKind === 'decisions' && JSON.stringify((again.res.declined || []).map((d) => d.id)) === '["R1-3","R1-6"]', [again.res.status, again.res.handoffKind, again.res.declined])
   const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions }, scenario)
   samePrefix('overrule: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
   check('overrule: a typed overrule at the hand-off turns a decline into a fix decided by the person', run.res.status === 'done' && pick(run.calls, 'resolve r1').prompt.includes('Disposition overrides') && replyFor(run.calls, 'push and reply r1', 'R1-7') === 'Redline round 1: Fix it now; a third caller lands next week. Applied in 4bbbbbb (redline: R1-7 fix). · decided by: @author', [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-7')])
