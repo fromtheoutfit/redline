@@ -83,7 +83,7 @@ if (!Number.isInteger(firstRound) || firstRound < 1) {
 // as firstRound: the run's own carried-forward replies change the old threads, so nothing inside
 // the workflow may read them. A finding with no reply, or a "not changed" one, is carried into this
 // run's first round; the rest are tracked and never re-raised.
-const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
+const PRIOR_DISPOSITIONS = ['fixed', 'deferred', 'declined', 'decided', 'dropped', 'carried', 'left', 'none', 'not-changed']
 const CARRY = ['none', 'not-changed']
 const priorPosted = A.priorFindings === undefined ? [] : A.priorFindings
 if (!Array.isArray(priorPosted)) {
@@ -316,6 +316,20 @@ const CHECKS = `${repoRoot}/.claude/redline/checks.sh`
 const BACKGROUND = `${pluginRoot}/scripts/redline-background.sh`
 const README_URL = 'https://github.com/fromtheoutfit/redline/blob/main/README.md'
 const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, \`/redline:redline <pr> ...\`, \`/redline:redline-review <pr> ...\` or \`/redline:redline-revise <pr> ...\` or the short forms \`/redline <pr> ...\` and \`/redline-revise <pr> ...\`, or the word \`relaunch\` after a hand-off) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
+// A Redline round since #93: the shaper decides every finding, and the person is asked in the
+// cases below only, which ROUND_WHY names for the judgment call's why_human. The other roles of a
+// round never decide a pending call and never reopen a decision made. A human review pass keeps
+// NEVER_DECIDE and its own reasons, unchanged.
+// The outcomes that settle a finding's thread once its reply is posted: Finish resolves it. A
+// decline is one since #93; a dropped, left or not-changed finding stays open for the person.
+const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
+// The sixth, "redline's own file", is no case of judgment: no Redline role may write one of
+// Redline's own files in the repository under review, so a finding on one is the person's to
+// change by hand, as a finding under a repository ask rule is (the shaper's rule 7).
+const ROUND_WHY = ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', "redline's own file"]
+const HUMAN_WHY = ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix']
+const ASK_CASES = 'You decide every finding, and the person is asked in five cases only: the options differ in what the product does or what a user sees; the fix changes an assumption, the approach or the architecture the original spec agreed; the fix reaches outside what the pull request set out to do; two options are both defensible and neither is the clear pick; or the finding is still unconfirmed after your second look and its harm would be serious if it were true (security, privacy, data loss, money). A finding on a file of Redline\'s own is asked as well, as your instructions say. In every other case you take your own recommendation, a decision to decline included, and record it as decided by redline with its reason. Name the case, never a degree of confidence.'
+const NOT_YOURS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it. A decision already made, the shaper\'s own included (a fix, a decline with its reason, a deferral), is applied as recorded and never reopened.'
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
@@ -617,8 +631,9 @@ const JUDGMENT_CALL_SCHEMA = {
     id: str,
     title: str,
     story: str,
-    // The fixed reasons, plus one per repository ask rule (#49).
-    why_human: { type: 'string', enum: ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
+    // The fixed reasons, plus one per repository ask rule (#49). A Redline round asks in the cases
+    // of ROUND_WHY only (#93), which checkCalls holds it to; a human review pass keeps HUMAN_WHY.
+    why_human: { type: 'string', enum: unique(ROUND_WHY.concat(HUMAN_WHY)).concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
     options: {
       type: 'array',
       items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
@@ -645,17 +660,25 @@ const SHAPE_SCHEMA = {
         required: ['id', 'disposition', 'decidedBy', 'recommendation'],
         properties: {
           id: str,
-          // A Redline round sorts into fix, defer or ask. A human review pass sorts into fix, ask or
-          // none (a comment that asks for nothing); never defer, since nothing a teammate asked for
-          // is deferred by Redline on its own. The workflow refuses the other pass's values.
-          disposition: { type: 'string', enum: ['fix', 'defer', 'ask', 'none'] },
-          // "redline" for a fix or defer settled from the evidence; "pending" for an ask, which
+          // A Redline round sorts into fix, decline, defer or ask (#93). A human review pass sorts
+          // into fix, ask or none (a comment that asks for nothing); never defer or decline, since
+          // nothing a teammate asked for is deferred or declined by Redline on its own. The workflow
+          // refuses the other pass's values.
+          disposition: { type: 'string', enum: ['fix', 'decline', 'defer', 'ask', 'none'] },
+          // "redline" for a fix, a decline or a defer settled from the evidence; "pending" for an ask, which
           // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
           // fix a teammate's comment asked for, which the workflow maps to their login.
           decidedBy: { type: 'string', enum: ['redline', 'pending', 'reviewer'] },
           // One sentence: the change planned for a fix, the mitigation for a defer, the
-          // recommended option for an ask. The plan dial shows it to the person.
+          // recommended option for an ask, the decision restated for a decline. The plan dial shows
+          // it to the person.
           recommendation: str,
+          // A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does
+          // not act, and where the finding belongs when it belongs somewhere. Required for a
+          // decline, which checkDispositions holds the shaper to.
+          reason: str,
+          // What the shaper's second look made of a finding the verifier could not confirm (#93).
+          secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
           // The paths the finding's task would touch, and the repository ask rule the shaper
           // judged it under (#49); forceAskRules reads both.
           files: strings,
@@ -1207,6 +1230,10 @@ function replyBody(pass, outcome) {
       return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
     case 'decided':
       return `${pass.title}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+    case 'declined':
+      // Redline's own decision not to act (#93). redline-gh.sh prior-findings reads the opening
+      // "declined: " back as the disposition, so a later run never raises the finding again.
+      return `${pass.title}: declined: ${outcome.reason}${owner}`
     case 'left':
       return `${pass.title}: left to the author under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
     case 'dropped':
@@ -1523,9 +1550,9 @@ ${description}
 Findings for this round, as JSON:
 ${json(inScope)}
 
-Sort each finding into fix, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A finding with needsDecision true is a judgment call unless your investigation shows the question does not arise. A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Every decided entry under Decisions in shape.md (a fix, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
+Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task. Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix and defer or "pending" for ask, and recommendation in one sentence: the change planned for a fix, the mitigation for a defer, the option you recommend for an ask), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer, the option you recommend for an ask; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -1580,9 +1607,9 @@ ${json(adjustments)}
 The round's findings, as JSON:
 ${json(inScope)}
 
-Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. Decisions already recorded as decided in shape.md stay as they are. ${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.
+Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. Decisions already recorded as decided in shape.md stay as they are. ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', and reason for a decline'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -1614,13 +1641,13 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   if (overrides.length) {
     lines.push(
       '',
-      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task and add the finding under Deferred in shape.md with the full fix left open; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner:`,
+      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task and add the finding under Deferred in shape.md with the full fix left open; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner${pass.human ? '' : '; a finding the shaper declined is overruled the same way, its Decisions entry keeping the shaper\'s reason as the record of what the person saw'}:`,
       json(overrideDecisions),
     )
   }
   lines.push(
     '',
-    `${NEVER_DECIDE} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
+    `${pass.human ? NEVER_DECIDE : NOT_YOURS} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
     '',
     'Return only the JSON your instructions specify.',
   )
@@ -1647,7 +1674,7 @@ ${json({ findings: shaped.findings, deferred: shaped.deferred })}
 
 Decisions made outside the shaper (by the person, or by the autopilot taking the shaper's recommendation; decidedBy names which), already applied by the resolve agent (these are decided, not pending): ${Object.keys(roundDecisions).length ? json(roundDecisions) : 'none'}
 
-Check the plan per your instructions. ${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself. planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
+Check the plan per your instructions. ${pass.human ? `${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself.` : `${NOT_YOURS} A task that turns a still-pending decision into a change is a bounce. A declined finding has no task: its reason is in the dispositions above and under Decisions in shape.md, and a decline with no reason a teammate can read is a bounce. The person is asked in the cases your instructions list and no others, so an ask outside them is a bounce too.`} planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
 
 Return only the JSON your instructions specify.`
 }
@@ -1657,7 +1684,7 @@ function standardsPrompt(pass, specFolder) {
 
 You are the standards approver for ${pass.name}. Spec folder: ${abs(specFolder)}/. Read its shape.md section "Standards retrospective (proposed)" and decide each proposed edit per your instructions.
 
-${NEVER_DECIDE} A proposed edit that depends on a pending decision is returned under deferred.
+${pass.human ? NEVER_DECIDE : NOT_YOURS} A proposed edit that depends on a pending decision is returned under deferred.
 
 Return only the JSON your instructions specify.`
 }
@@ -1720,7 +1747,7 @@ ${gateLine(ctx, label)}
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(ctx.inScope)}
 
-Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : ''}), as JSON:
+Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a declined finding has no task and no commit'}), as JSON:
 ${json({ findings: ctx.shaped.findings, deferred: ctx.deferred })}
 
 Decisions made outside the shaper (already in the spec; decidedBy names the owner, the person or the autopilot): ${Object.keys(ctx.roundDecisions).length ? json(ctx.roundDecisions) : 'none'}
@@ -1733,7 +1760,7 @@ ${json(ctx.standards.approved.filter((edit) => !edit.alreadyCovered))}
 The standards commit's message names every finding whose fix one of these edits carries, as shape.md's plan for that finding says (for example \`redline: record the ${pass.name} ${pass.human ? '' : 'review '}lessons in the standards, finishing ${pass.idPrefix}-1 (#${issue})\`), so that finding's reply names both of its commits. An edit that is only a lesson names no finding.
 ${ctx.standards.approved.length === 0 || ctx.standards.noChanges ? 'Nothing approved: record "Standards retrospective: no changes" under Decisions in shape.md.' : ''}
 
-${NEVER_DECIDE} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
+${pass.human ? NEVER_DECIDE : NOT_YOURS} A Pending decision task is not implemented; a question that comes up while you build goes under blocked with the options. Never push.
 ${ctx.repair ? `\nThis is a repair pass. The checker's independent run of checks.sh failed after your last pass:\n${ctx.repair}\nFix the cause, commit Redline's way, and run the gate until it exits 0.\n` : ''}
 Return only the JSON your instructions specify.`
 }
@@ -1835,7 +1862,7 @@ function resolveThreadsPrompt(settled) {
 
 Operation: resolve-threads. PR #${pr}. postToGitHub: true. push: true.
 
-These findings are settled (fixed, deferred with the mitigation committed, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
+These findings are settled (fixed, deferred with the mitigation committed, declined by Redline with its reason posted, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
 ${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${all(s).join(', ')}`).join('\n')}
 
 Run this once, exactly as given, and nothing else:
@@ -2386,6 +2413,7 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
   const recommendations = Object.fromEntries(shaped.findings.map((f) => [f.id, (f.recommendation || '').trim()]))
+  const reasons = Object.fromEntries(shaped.findings.map((f) => [f.id, (f.reason || '').trim().replace(/\.$/, '')]))
   for (const f of inScope) {
     const named = commits.filter((c) => c.finding === f.id || mentions(c.message, f.id))
     const decision = roundDecisions[f.id]
@@ -2399,6 +2427,9 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
       outcomes[f.id] = { kind: 'deferred', commits: named, fullFix: deferredItem.fullFix, mitigation: deferredItem.mitigation, decidedBy: owner }
+    } else if (dispositions[f.id] === 'decline') {
+      // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
+      outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
     } else if (dispositions[f.id] === 'none') {
       outcomes[f.id] = { kind: 'none', why: recommendations[f.id] || 'The comment asks for no change.', commits: named, decidedBy: REDLINE }
     } else if (named.length) {
@@ -2419,6 +2450,8 @@ function describeOutcome(outcome) {
       return `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
     case 'decided':
       return `${decisionSentence(outcome)}${owner}`
+    case 'declined':
+      return `declined: ${outcome.reason}${owner}`
     case 'left':
       return `left to the author under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
     case 'dropped':
@@ -2430,10 +2463,27 @@ function describeOutcome(outcome) {
   }
 }
 
-// A human review pass sorts into fix, ask or none; a Redline round into fix, defer or ask. The
+// A human review pass sorts into fix, ask or none; a Redline round into fix, decline, defer or ask
+// (#93). The
 // shaper's JSON is checked here, so a value from the other kind of pass stops the run at shape
 // rather than reaching a plan.
 function checkDispositions(pass, shaped) {
+  // A decline (#93) is a Redline round's: it carries the reason a teammate reads and is Redline's own
+  // decision, never a pending one. A human review pass has none, as it has no defer.
+  const declined = shaped.findings.filter((f) => f.disposition === 'decline')
+  if (pass.human && declined.length) {
+    throw stageError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
+  }
+  const noReason = declined.filter((f) => typeof f.reason !== 'string' || f.reason.trim() === '').map((f) => f.id)
+  if (noReason.length) {
+    throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`)
+  }
+  for (const f of declined) {
+    if (f.decidedBy !== 'redline') {
+      warnings.push(`${pass.name}: the shaper marked the decline of ${f.id} as decided by ${f.decidedBy}; a decline is Redline's own`)
+      f.decidedBy = 'redline'
+    }
+  }
   const bad = pass.human
     ? shaped.findings.filter((f) => f.disposition === 'defer')
     : shaped.findings.filter((f) => f.disposition === 'none' || f.decidedBy === 'reviewer')
@@ -2460,8 +2510,17 @@ function checkDispositions(pass, shaped) {
 // for a finding a repository ask rule covers. On a reshape, `known` is the round's calls so far: a
 // call the round already decided may be left out or kept beside a re-sorted finding, since the
 // reshape returns only the calls still pending or newly raised (#61, R1-2).
-function checkCalls(shaped, known = []) {
+function checkCalls(pass, shaped, known = []) {
   const decided = (id) => known.some((c) => c.id === id)
+  // A Redline round asks in the cases of ROUND_WHY only, beside the repository ask rules (#93): a
+  // call for any other reason is one the shaper should have decided, so it stops here and never
+  // reaches the person. A human review pass keeps its own reasons.
+  if (!pass.human) {
+    const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
+    if (outside) {
+      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`)
+    }
+  }
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
     throw stageError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
@@ -2512,7 +2571,7 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
   }
 }
 
-// The forcing point (#49): after shaping, whatever fix, defer or ask the shaper returned, a finding
+// The forcing point (#49): after shaping, whatever fix, decline, defer or ask the shaper returned, a finding
 // a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
 // and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
 // finding becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper
@@ -2545,6 +2604,9 @@ function forceAskRules(record, pass, inScope, shaped) {
       warnings.push(`${pass.name}: the shaper sorted ${f.id} as ${s.disposition}; repository rule ${rule.id} makes it an ask for the person`)
     }
     const recommendation = (s.recommendation || '').trim().replace(/\.$/, '')
+    // What the shaper would have declined is still the person's under the rule (#93): the call
+    // says so and recommends no change, with the shaper's reason.
+    const declineReason = s.disposition === 'decline' ? (s.reason || '').trim().replace(/\.$/, '') : ''
     s.disposition = 'ask'
     s.decidedBy = 'pending'
     s.askRule = rule.id
@@ -2558,10 +2620,10 @@ function forceAskRules(record, pass, inScope, shaped) {
         story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
         why_human: why,
         options: [
-          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
+          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: declineReason ? `Redline would have declined it: ${declineReason}.` : recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
           { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
         ],
-        recommendation: recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        recommendation: declineReason ? `Accept, no change: ${declineReason}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
       shaped.judgmentCalls.push(call)
@@ -2686,7 +2748,7 @@ async function revise(record, inScope, reviewedKind) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
-  checkCalls(shaped)
+  checkCalls(pass, shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
   record.dispositions = shaped.findings
@@ -2803,7 +2865,7 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: SHAPE_SCHEMA,
     })
     checkDispositions(pass, shaped)
-    checkCalls(shaped, calls)
+    checkCalls(pass, shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
     record.dispositions = shaped.findings
@@ -3168,7 +3230,7 @@ async function finish(kind, record, compose) {
 }
 
 // The threads Redline opened in this run, each settled or not (#39). A finding with an inline
-// comment is a candidate; a body finding has no thread. Settled means fixed, deferred or decided
+// comment is a candidate; a body finding has no thread. Settled means fixed, deferred, declined or decided (SETTLED_KINDS)
 // and a reply posted, so Redline's comment and its reply are both in the list; the rest stay open
 // with a reason.
 // A human review pass's record holds the teammate's threads, which are never candidates.
@@ -3187,7 +3249,7 @@ function threadCandidates() {
         continue
       }
       const kind = kinds[f.id] || ''
-      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[f.id] > 0
+      const settled = SETTLED_KINDS.includes(kind) && replyIds[f.id] > 0
       const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[f.id] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
@@ -3206,7 +3268,7 @@ function threadCandidates() {
       }
       const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
-      const settled = ['fixed', 'deferred', 'decided'].includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
+      const settled = SETTLED_KINDS.includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
       const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }

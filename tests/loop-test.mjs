@@ -159,6 +159,12 @@ function mock(scenario) {
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
+      // scenario.decline (#93): the ids the shaper declines on its own, each with a reason
+      // (scenario.reason[id], or a default one); scenario.declineNoReason leaves the reason out,
+      // a shape-stage error. scenario.whyHuman[id] is a judgment call's why_human ('product
+      // decision' when absent), and scenario.secondLook[id] the shaper's second look at an item
+      // the verifier could not confirm.
+      const decline = scenario.decline || []
       // A human review pass (#36): a fix is the reviewer's (decidedBy "reviewer"), unless the
       // scenario scripts another owner (scenario.shaperOwner) to prove the workflow corrects it.
       const human = prompt.includes('a revise pass whose findings are the review comments')
@@ -167,7 +173,7 @@ function mock(scenario) {
       // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
-      const disposition = (id) => (onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : none.includes(id) ? 'none' : 'fix')
+      const disposition = (id) => (onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
@@ -177,12 +183,14 @@ function mock(scenario) {
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
           ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
+          ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
+          ...(scenario.secondLook && scenario.secondLook[id] ? { secondLook: scenario.secondLook[id] } : {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding.
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: scenario.mitigation || 'a guard clause', fullFix: 'a lock' })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
-        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
+        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
       }
     }
     if (t === 'redline:redline-resolve') {
@@ -302,7 +310,7 @@ function samePrefix(name, first, second, n) {
   check('guided: R1-1 reply is decided by redline', replyFor(second.calls, 'push and reply r1', 'R1-1').endsWith(' · decided by: redline'), replyFor(second.calls, 'push and reply r1', 'R1-1'))
   const handoff = comment(second.calls, 'handoff comment')
   check('guided: handoff comment lists every decision with its owner', handoff.includes('### Decisions\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n- **R1-2** title R1-2: The author keeps it because the board already shows it. · decided by: @author'), handoff)
-  check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
+  check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix, decline and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
   check('guided: result.decided carries owners', second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'R1-1=redline,R1-2=@author', second.res.decided)
 }
 
@@ -1936,6 +1944,95 @@ function samePrefix(name, first, second, n) {
   // A read that failed is an error at its own label, which a resume reruns.
   const unread = await go('finish: the read fails', baseArgs, { reviews: [[]], lastRoundError: 'gh: not logged in' })
   check('finish: a failed read stops the run at the read, resumable there', unread.res.status === 'error' && unread.res.stage === 'finish' && unread.res.resumeFrom && unread.res.resumeFrom.label === 'last round' && unread.res.error.includes('gh: not logged in') && labels(unread.calls).slice(-1)[0] === 'last round', [unread.res.error, unread.res.resumeFrom])
+}
+
+// ---------------------------------------------------------------------------
+// 18. The shaper decides (#93): a decline is a disposition of its own, with a reason, a reply and
+//     a settled thread and no commit; a decline without a reason, and an ask outside the cases,
+//     stop at shape; a human review pass still refuses both a decline and nothing else it took
+//     before; a finding a repository ask rule covers is put to the person even when the shaper
+//     would decline it; the plan dial shows a decline and can overrule it; an earlier run's
+//     decline is handled, never carried.
+// ---------------------------------------------------------------------------
+{
+  const shaperAgent = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
+  const template = fs.readFileSync(path.join(here, '..', 'templates', 'shape-spec-unattended.md'), 'utf8')
+  const section = fs.readFileSync(path.join(here, '..', '.claude', 'commands', 'agent-os', 'shape-spec.md'), 'utf8')
+  const why = 'the pull request\'s spec keeps the name on purpose (decision 4 in its shape.md)'
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'nit')], []], decline: ['R1-2', 'R1-3'], reason: { 'R1-2': why }, commitIds: [['R1-1']] }
+  let run = await go('decline: the shaper declines two on its own', baseArgs, scenario)
+  check('decline: a decline never stops a guided run, and nothing is resolved by a person', run.res.status === 'done' && !labels(run.calls).some((l) => l.startsWith('resolve r')), [run.res.status, labels(run.calls)])
+  check('decline: the reply gives the reason and the owner', replyFor(run.calls, 'push and reply r1', 'R1-2') === `Redline round 1: declined: ${why} · decided by: redline`, replyFor(run.calls, 'push and reply r1', 'R1-2'))
+  check('decline: the round records it as declined, and the fix beside it as fixed', run.res.rounds[0].outcomes['R1-2'] === `declined: ${why} · decided by: redline` && run.res.rounds[0].outcomes['R1-1'].startsWith('fixed in 1bbbbbb'), run.res.rounds[0].outcomes)
+  check('decline: the next review sees it as an outcome', pick(run.calls, 're-review r2').prompt.includes(`"outcome": "declined: ${why} · decided by: redline"`), pick(run.calls, 're-review r2').prompt.slice(0, 2500))
+  check('decline: the handoff carries its line with the reason and the owner', comment(run.calls, 'handoff comment').includes(`**R1-2** title R1-2: declined: ${why} · decided by: redline`), comment(run.calls, 'handoff comment'))
+  const sweep = pick(run.calls, 'resolve threads').prompt
+  check('decline: a declined thread is settled and swept with the fixed one', sweep.includes('- R1-1 (round 1): comments 100, ') && sweep.includes('- R1-2 (round 1): comments 101, ') && sweep.includes('- R1-3 (round 1): comments 102, ') && comment(run.calls, 'handoff comment').includes('Resolved 3 threads; 0 left open.'), sweep)
+  const shape = pick(run.calls, 'shape r1').prompt
+  check('decline: the shape prompt names the four dispositions and the ask cases, and no longer returns every judgment call', shape.includes('Sort each finding into fix, decline, defer or ask') && shape.includes('the person is asked in five cases only') && shape.includes('never a degree of confidence') && shape.includes('serious if it were true') && !shape.includes('Judgment calls are returned, never decided'), shape.slice(-2600))
+  const planPrompt = pick(run.calls, 'plan approver r1').prompt
+  check('decline: the plan approver sees the decline with its reason and is told it has no task', planPrompt.includes('"disposition": "decline"') && planPrompt.includes(`"reason": "${why.replace(/'/g, "'")}"`) && planPrompt.includes('A declined finding has no task') && !planPrompt.includes('Judgment calls are returned, never decided'), planPrompt.slice(-1600))
+  check('decline: the implementer is told a declined finding has no task', pick(run.calls, 'implement r1').prompt.includes('a declined finding has no task') && pick(run.calls, 'implement r1').prompt.includes('A decision that is still pending is the person\'s'), pick(run.calls, 'implement r1').prompt.slice(0, 1800))
+  for (const phrase of ['asked in five cases only', 'never a degree of confidence', 'could not confirm: needs', 'serious if it were true', 'one idea, smaller than the pull request', 'records as deliberate']) {
+    check(`decline: the shaper's file, the template and this repository's section all say "${phrase}"`, shaperAgent.includes(phrase) && template.includes(phrase) && section.includes(phrase), [shaperAgent.includes(phrase), template.includes(phrase), section.includes(phrase)])
+  }
+
+  run = await go('decline: no reason', baseArgs, { ...scenario, declineNoReason: ['R1-3'] })
+  check('decline: a decline with no reason stops at shape, resumable at the shaper', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper declined R1-3 with no reason; a decline carries the reason a teammate reads in the thread' && run.res.resumeFrom && run.res.resumeFrom.label === 'shape r1', [run.res.status, run.res.error, run.res.resumeFrom])
+
+  const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  run = await go('ask: outside the cases', baseArgs, { ...asked, whyHuman: { 'R1-1': 'unsure' } })
+  check('ask: a reason that is not one of the cases stops at shape, and the person is not asked', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper asked about R1-1 because of "unsure", which is not one of the cases the person is asked in on a Redline round (product decision, spec assumption, outside the pull request, no clear pick, unconfirmed, serious if true, redline\'s own file, or a repository rule)' && (run.res.judgmentCalls || []).length === 0, [run.res.status, run.res.error])
+  for (const reason of ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file']) {
+    run = await go(`ask: ${reason}`, baseArgs, { ...asked, whyHuman: { 'R1-1': reason } })
+    check(`ask: "${reason}" is a reason the person is asked for, and the run stops for them`, run.res.status === 'handoff' && run.res.handoffKind === 'decisions' && run.res.judgmentCalls[0].why_human === reason, [run.res.status, run.res.error])
+  }
+
+  // A human review pass is unchanged: it keeps its own reasons and its own wording, and it gains
+  // no decline.
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanArgs = (findings) => ({ ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings, commentIds: Object.fromEntries(findings.map((x) => [x.id, x.threadId])), posted: true } })
+  run = await go('human: the shaper declines', humanArgs([h('H1-1')]), { reviews: [], decline: ['H1-1'], commitIds: [[]] })
+  check('human: a decline stops the pass at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1', [run.res.status, run.res.error, labels(run.calls)])
+  run = await go('human: an ask for a reason of its own', humanArgs([h('H1-1')]), { reviews: [], ask: ['H1-1'], whyHuman: { 'H1-1': 'unsure' }, commitIds: [[]] })
+  check('human: a human pass still asks for its own reasons, in its own words', run.res.status === 'handoff' && run.res.judgmentCalls[0].why_human === 'unsure' && pick(run.calls, 'shape h1').prompt.includes('Judgment calls are returned, never decided') && pick(run.calls, 'shape h1').prompt.includes('Sort each finding into fix, ask or none; never defer'), [run.res.status, run.res.error])
+
+  // A repository ask rule still wins: the person is brought in even for what the shaper would decline.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruled = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], decline: ['R1-2'], reason: { 'R1-2': 'the handle is renamed on purpose' }, commitIds: [['R1-1']] }
+  run = await go('decline: under a repository rule', { ...baseArgs, askRules: rules }, ruled)
+  check('decline: a rule-covered decline is still put to the person, with a warning', run.res.status === 'handoff' && JSON.stringify(run.res.decisionsNeeded) === '["R1-2"]' && run.res.warnings.includes('round 1: the shaper sorted R1-2 as decline; repository rule craft-config makes it an ask for the person'), [run.res.status, run.res.warnings])
+  check('decline: its call says what Redline would have done and recommends no change', run.res.judgmentCalls[0].why_human === 'repository rule craft-config' && run.res.judgmentCalls[0].recommendation === 'Accept, no change: the handle is renamed on purpose.' && run.res.judgmentCalls[0].options[0].effect === 'Redline would have declined it: the handle is renamed on purpose.', run.res.judgmentCalls[0])
+
+  // Autopilot never stops: the ask is taken, the decline is Redline's own and stays so.
+  const mixed = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], commitIds: [['R1-1', 'R1-3']] }
+  run = await go('decline: autopilot', { ...baseArgs, interrupt: 'autopilot' }, mixed)
+  check('decline: autopilot goes through, and the decline is redline\'s, not the autopilot\'s', run.res.status === 'done' && replyFor(run.calls, 'push and reply r1', 'R1-2').endsWith(' · decided by: redline') && replyFor(run.calls, 'push and reply r1', 'R1-3').endsWith(' · decided by: redline (autopilot)'), [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-2')])
+
+  // The plan dial shows a decline with its reason, and the person can overrule it there.
+  const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], decline: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const planArgs = { ...baseArgs, interrupt: 'plan' }
+  const first = await go('decline: the plan dial shows it', planArgs, two)
+  check('decline: the plan list carries the decline, its reason and its owner', first.res.status === 'handoff' && first.res.handoffKind === 'plan' && first.res.plan[1].disposition === 'decline' && first.res.plan[1].reason === 'the spec keeps R1-2 as it is on purpose' && first.res.plan[1].decidedBy === 'redline', first.res.plan)
+  const overruled = { ...planArgs, approvedPlans: [1], decisions: { 'R1-2': { choice: 'fix', notes: 'The author wants the rename now, since a third caller lands next week.', date: '2026-11-13', disposition: 'fix' } } }
+  const second = await go('decline: overruled on the plan dial', overruled, two)
+  samePrefix('decline plan', first.calls, second.calls, 5)
+  const resolve = pick(second.calls, 'resolve r1').prompt
+  check('decline: the resolve agent gets the override and is told a decline can be changed', second.res.status === 'done' && resolve.includes('Disposition overrides') && resolve.includes('"disposition": "fix"') && resolve.includes('a finding the shaper declined') && resolve.includes('A decision that is still pending is the person\'s'), [second.res.status, resolve.slice(-1500)])
+  check('decline: an overruled decline is fixed, decided by the person', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author wants the rename now, since a third caller lands next week. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
+
+  // An earlier run's decline is a disposition: handled, never carried into the new run.
+  const priors = [prior('R1-1', 'declined', { comment_id: 11, reply: { id: 250, body: 'declined: the spec keeps it on purpose · decided by: redline' } })]
+  run = await go('decline: an earlier run declined one', { ...baseArgs, firstRound: 2, priorFindings: priors }, { reviews: [[]] })
+  const rp = run.calls.length ? pick(run.calls, 'review r2').prompt : ''
+  check('decline: an earlier decline is in the handled list with its reply, and nothing is carried', !run.thrown && run.res.status === 'done' && rp.includes('"disposition": "declined"') && rp.includes('"reply": "declined: the spec keeps it on purpose · decided by: redline"') && !rp.includes('with no disposition'), [run.thrown && run.thrown.message, rp.slice(0, 200)])
+  check('decline: the handoff says what the earlier round did with it', !run.thrown && comment(run.calls, 'handoff comment').includes('already handled in round 1: declined: the spec keeps it on purpose · decided by: redline'), run.thrown ? run.thrown.message : comment(run.calls, 'handoff comment'))
+  // A carried finding the new round declines: the earlier thread hears the decline and is swept
+  // with the new one, as a carried finding that was fixed is (the second place the settled kinds
+  // are read).
+  run = await go('decline: a carried finding is declined', { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-2', 'none', { comment_id: 12 })] }, { reviews: [[f('R2-1', 'nit', { carriedFrom: 'R1-2' })], []], decline: ['R2-1'], commitIds: [[]] })
+  const carriedSweep = labels(run.calls).includes('resolve threads') ? pick(run.calls, 'resolve threads').prompt : ''
+  check('decline: the earlier thread of a carried, declined finding hears it and is swept', run.res.status === 'done' && replyFor(run.calls, 'push and reply r2', 'R1-2') === 'Redline round 2: carried forward as R2-1; declined: the spec keeps R2-1 as it is on purpose · decided by: redline' && carriedSweep.includes('- R1-2 (round 1): comments 12, ') && carriedSweep.includes('- R2-1 (round 2): comments 100, ') && comment(run.calls, 'handoff comment').includes('Resolved 2 threads; 0 left open.'), [run.res.status, carriedSweep.slice(carriedSweep.indexOf('These findings')), comment(run.calls, 'handoff comment').slice(0, 300)])
 }
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

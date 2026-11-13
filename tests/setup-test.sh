@@ -21,7 +21,7 @@ TEMPLATE="$PLUGIN/scripts/checks-template.sh"
 TV="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}')"
 TN="${TV#v}"
 UT="$PLUGIN/templates/shape-spec-unattended.md"
-# The unattended section's version (v3 on 2026-11-02), read off the template's marker line; the
+# The unattended section's version (v4 on 2026-11-13, #93), read off the template's marker line; the
 # section cases are relative to it, never spelled (#15).
 UV="$(grep -m1 '^<!-- redline-unattended: v' "$UT" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
 UN="${UV#v}"
@@ -583,6 +583,7 @@ expect_json "v1 section, --merge: changed and written" '[.changed, .written] | j
 check "--merge: the hand edit survives" grep -q 'HAND EDIT kept' "$V1"
 check "--merge: v2's owner line arrived" grep -q 'Every decision names its owner' "$V1"
 check "--merge: v3's ask-rules sentence arrived" grep -q 'repository rule <id>' "$V1"
+check "--merge: v4's decline and its ask cases arrived (#93)" grep -q 'asked in five cases only' "$V1"
 check "--merge: the marker is the template's version" grep -q "^<!-- redline-unattended: $UV -->\$" "$V1"
 check "--merge: the fill-ins are the wanted ones" grep -q '(gate steps 1 to 5)' "$V1"
 [[ "$(grep -c '^## Unattended mode (Redline)$' "$V1")" == "1" ]] && ok "--merge: the heading once" || bad "--merge: the heading once" "$(grep -c '^## Unattended mode (Redline)$' "$V1")"
@@ -700,6 +701,7 @@ ubody_pin() {
         v1) echo "a408539181c8e3bc9719ad4b8544705158b0ce48a9cd69f25be3b2f3e6836421" ;;
         v2) echo "223a713c121ca604bdc5aba264485b3af64a5d49a0730d0ed9382ac94bacf9d4" ;;
         v3) echo "e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a" ;;
+        v4) echo "d88ad3f0ea4188a5a93a4b49e9c88634f81e314e45ce4f04aa8b995bd472586b" ;;
     esac
 }
 # ubody_sha <file>: the sha256 of the file's body, the lines after its first --- line.

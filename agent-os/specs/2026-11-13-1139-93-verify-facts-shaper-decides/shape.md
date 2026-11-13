@@ -48,6 +48,16 @@ Asked at shaping (2026-11-13, one at a time), answered by @michaelfromtheoutfit:
 7. **A decline is overruled through two doors that exist today:** a typed line at a stop the run already makes in that round, or a reply in the decline's thread followed by the human-review pass over the person's own login. Rider: the skill's closing summary lists what Redline declined on its own, each with its id and reason, after what it fixed, with one line on how to overrule one.
 8. **One pull request, a commit per slice.** The build stops at each boundary with the exact file list and one line on what the slice did and which harness went red then green. Anything that needs a decision is put as a question.
 
+Asked while building (2026-11-13), answered by @michaelfromtheoutfit:
+
+9. **A finding on one of Redline's own files is still an ask, with its own reason, `redline's own file`.** The shaper's rule 7 already sent such a finding to the person, since no Redline role may write those files; the brief's cases did not name it, and the workflow now refuses an ask for any reason outside the cases. It is no case of judgment: it is a change only a person can make, as a finding under a repository ask rule is. So a Redline round's allowed reasons are the five cases, a repository rule, and this one.
+
+Deviations from the shaped plan, found while building:
+
+- **Task 3, this repository's section.** The setup script's three-way merge carried v4 into `.claude/commands/agent-os/shape-spec.md` with one conflict: the paragraph after the JSON block changed in the template and sits beside the hand-edited point 11. The section's side was kept and that paragraph edited by hand to the v4 wording. `tests/setup-test.sh` confirms the result: the unmarked section is read as v4 with no conflict, and a merge adds only the marker.
+- **Task 3, the other roles' prompts.** "Judgment calls are returned, never decided" also stood in the resolve, plan approver, standards approver and implementer prompts. On a Redline round those now say that a pending decision is the person's and a decision already made, the shaper's own included, is applied as recorded. A human-review pass keeps the old sentence in every prompt.
+- **Task 3, the sweep.** The kinds that settle a thread were listed in two places; they are one constant now, and a carried finding the new round declines has its earlier thread resolved, which a second check pins.
+
 Shaping defaults (recorded, not asked; each was listed in the plan the owner approved):
 
 - A fix diff means a commit that names an item; the round's spec and standards commits are not one.
