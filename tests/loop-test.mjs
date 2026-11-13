@@ -2048,6 +2048,9 @@ function samePrefix(name, first, second, n) {
   check('human: a decline stops the pass at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1', [run.res.status, run.res.error, labels(run.calls)])
   run = await go('human: an ask for a reason of its own', humanArgs([h('H1-1')]), { reviews: [], ask: ['H1-1'], whyHuman: { 'H1-1': 'unsure' }, commitIds: [[]] })
   check('human: a human pass still asks for its own reasons, in its own words', run.res.status === 'handoff' && run.res.judgmentCalls[0].why_human === 'unsure' && pick(run.calls, 'shape h1').prompt.includes('Judgment calls are returned, never decided') && pick(run.calls, 'shape h1').prompt.includes('Sort each finding into fix, ask or none; never defer'), [run.res.status, run.res.error])
+  // Its schema is its own (#94, R1-5): HUMAN_WHY, and none of the Redline round's cases.
+  const humanEnum = whyEnum(run.calls, 'shape h1')
+  check('human: a human pass\'s shaper schema keeps its own reasons and has none of a Redline round\'s', ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].every((w) => humanEnum.includes(w)) && !humanEnum.includes('redline\'s own file') && !humanEnum.includes('outside the pull request'), humanEnum)
 
   // A repository ask rule still wins: the person is brought in even for what the shaper would decline.
   const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
