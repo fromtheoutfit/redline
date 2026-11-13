@@ -105,3 +105,47 @@ Shaping defaults (recorded, not asked; each was listed in the plan the owner app
 - process/internal-notes — evidence cited by name and number, never copied.
 - process/standards-retrospective — Task 8.
 - prompts/attribution — no model or vendor name in anything posted or written.
+
+## Standards retrospective
+
+Done mechanically (gate step 12): every decision above, every deviation found while building, and every check that went red and was fixed by learning something about the harness, each checked against `agent-os/standards/`.
+
+### Contradicted by this spec (the standard is now wrong)
+
+1. **`workflow/agents.md`, the "Judgment calls are returned, never decided" bullet.** Replaced:
+   > - The shaper decides, and a person is asked in named cases only (#93): the verifier states what is true and the shaper sorts every finding into `fix`, `decline` (with the reason a teammate reads), `defer` or `ask`. It returns an `ask`, with a story, options and a recommendation, in five cases (the options differ in what the product does or a user sees; the fix changes an assumption, the approach or the architecture the spec agreed; it reaches outside the pull request; two options are defensible with no clear pick; the finding is still unconfirmed after the shaper's second look and serious if true), beside a repository ask rule and a finding on one of Redline's own files. Everything else it decides, a decline included, as `decided by: redline` with its reason. The rule is cases, never a confidence figure, and the workflow checks it: a judgment call whose `why_human` is outside the round's list stops the run at `shape`. The person decides a call in their session, or autopilot takes the recommendation and says so, except for a finding a repository ask rule covers, which autopilot leaves to the person with the rule as its reason (#49). No other role decides a pending call or reopens a decision made
+2. **`workflow/agents.md`, the human-review-pass bullet.** "never `defer`: nothing a teammate asked for is deferred by Redline on its own" becomes "never `defer` and never `decline`: nothing a teammate asked for is deferred or declined by Redline on its own". Added at its end:
+   > The pass is unchanged by #93: its prompts keep "Judgment calls are returned, never decided", its lines say "the author", and a run that is a human review pass keeps that as its no-login fallback. The round its final nit pass runs as is a Redline round, whose shaper may decline, so the pass's summary counts what the nit pass found and what a commit fixed, and never says fixed of an item that was not
+3. **`workflow/agents.md`, the earlier-rounds bullet.** The dispositions a reply gives evidence of gain `declined` (a reply opening `declined: `, Redline's own decision) and `left`.
+4. **`workflow/agents.md`, the thread-sweep bullet.** "Settled is fixed, deferred or decided with the reply posted" becomes "Settled is fixed, deferred, declined or decided with the reply posted, one list (`SETTLED_KINDS`) read for the round's own threads and for the earlier threads it carried (#93)".
+5. **`workflow/agents.md`, the coverage-pass bullet (#79).** Rewritten for the facts-only verifier and the new done rule: six outcomes (`verified`, `unconfirmed`, `refuted`, `duplicate`, `settled`, `known`); no guards and no For the person, with a cause outside the diff, the conditions a failure needs and a removed guard stated as facts; the kinds, and that the kind keeps a run going; the done rule as the workflow's, read off the shaper's decisions (a round is bought by what it finds); the two reopenings; a decided finding that still reproduces accounted for as `settled`; a left-out candidate, and a left-out carried finding, kept as `unconfirmed`; the scope decline under `correctness only`. The #79 and #80 references it carries stay.
+6. **`workflow/agents.md`, the #85 verifier-rules bullet.** `finding` becomes `verified` in the accounting; "unless another rule puts it elsewhere" keeps only a collapse or a refutation; a candidate a refutation does not answer is verified or could not be confirmed, no longer For the person; a removed guard is a fact the finding states; the set-aside block lists every candidate that is not a finding of the round, after the closing sentence, with the summary `Refuted, collapsed or already tracked`; the fields that go through `postedText` lose For the person lines and gain the Would confirm line and the scope-declined lines.
+7. **`workflow/replay.md`, the dial bullet.** "keeps every prompt byte-identical to the run before the pass existed" is no longer true of `coverage off`:
+   > - A dial that turns a pass off leaves that pass's call and its block out of every prompt: `coverage off` reaches the workflow as `models.coverage` null, and the coverage call, the candidates block and its rules exist only when a pass ran. The loop test proves it per rule, each key phrase of the block being absent from a `coverage off` prompt (#79). Since #93 the off run follows the same model as the covered one, the reviewer finding and verifying alone, so its prompts are no longer those of the run before the pass existed
+8. **`process/docs-gate.md`, the done-rule bullet.** "a decided finding it still reproduces is listed under For the person" becomes "is shown in the set-aside block as settled (#93)".
+9. **`index.yml`, `workflow/agents`.** "judgment calls returned never decided, an owner on every decision" becomes "the verifier states facts and the shaper decides, a person asked in named cases only, an owner and a reason on every decision".
+
+### Missing (taught by this spec)
+
+10. **`workflow/agents.md`, the owner bullet**, added at its end:
+    > A decision Redline makes alone carries its reason beside its owner, in the thread and in the handoff, so the person can audit it and overrule it without a new stop: a typed line at a stop the run already makes in that round, or a reply in the thread and a human review pass over their own login (#93). A posted line names the person running Redline by login, never by role or as "you" (`left to @<login> under repository rule <id>`, `### Put to @<login>`), since on a teammate's pull request that person is not its author; with no login the words are "the person running Redline", and `redline-gh.sh prior-findings` reads the older wording too
+11. **`workflow/agents.md`, the workflow-checks-a-result bullet**, added: "a `decline` must carry its reason, and on a Redline round a judgment call's `why_human` must be one of the round's cases (#93)".
+12. **`testing/tests.md`, the key-phrase bullet**, added:
+    > A sentence every review prompt carries, with the pass or without it (the kinds; that the verifier states facts and decides nothing, #93), is pinned in the agent file and in both prompts. The loop test reads `agents/redline-shaper.md`, `templates/shape-spec-unattended.md` and this repository's section the same way: a rule all three state is one key phrase found in each
+13. **`testing/tests.md`, the gh-test bullet**, added: PR 16, the #93 forms (a `declined:` reply in a thread and in an issue comment; a reply that only mentions a decline; an `unconfirmed` line with its Would confirm line; a scope-declined line that is no finding; the rule's tail and reply naming the person by login and by the no-login fallback; a decided reply that opens `left to @<login>` without the rule's words; a line whose fourth word the reader does not know).
+14. **`testing/tests.md`, three new bullets** from checks that went red for a reason in the harness:
+    > - A check fails, it does not throw, when the run it reads took another path: a prompt or a body that may be absent is read as `''`, so a red run reports its count. A `TypeError` in one check hides every check after it (#93)
+    > - A rule about every posted body is pinned over every scenario, not in one: `go()` reads each run's prompts and one check at the end names the offenders (`no prompt of any scenario holds a For the person section`), so a later scenario cannot bring back what the rule removed (#93)
+    > - The post mock numbers inline comments in the order ids appear in the post prompt, the body first, so a change to the order a body lists findings renumbers them: an expected sweep line is read off the scenario's body order, never carried over from the layout before (#93)
+
+### Already covered, so no edit
+
+- The template bump, the frozen v3 and the pinned hash: `scripts/bash-conventions.md` (the template bullet) and `process/release.md`. The one conflict in this repository's own merge, a changed line beside its hand-written point 11, is the case that bullet already describes (a hunk whose lines do not line up stays one conflict); `docs/upgrading.md` now says what to do for v4.
+- The minor bump with the template change, the changelog left to the owner: `process/release.md`.
+- Evidence cited by name and number, never copied: `process/internal-notes.md`.
+- The Docs entries and the done-rule rewording across the README, `docs/`, the descriptions and the mission: `process/docs-gate.md`.
+- The claim about GitHub's rendering checked once through `gh api markdown` and recorded here: `testing/tests.md`.
+- No guard change: `scripts/guard.md` was read to confirm it (the GitHub agent's group passes every `redline-gh.sh` subcommand, and no subcommand was added).
+- Red before green on every slice, and a neighbour for each decision that must not change: `testing/tests.md`.
+
+No pattern was invented outside `agent-os/standards/` beyond the test patterns item 14 proposes.
