@@ -673,9 +673,9 @@ const DEFERRED_SCHEMA = {
 }
 
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
-// differs, so a Redline round's shaper is refused a human pass's reason in its own run, and the
-// other way about.
-function shapeSchema(reasons) {
+// and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
+// its own run, and the other way about.
+function shapeSchema(reasons, dispositions) {
   return {
     type: 'object',
     required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
@@ -690,9 +690,9 @@ function shapeSchema(reasons) {
             id: str,
             // A Redline round sorts into fix, decline, defer or ask (#93). A human review pass sorts
             // into fix, ask or none (a comment that asks for nothing); never defer or decline, since
-            // nothing a teammate asked for is deferred or declined by Redline on its own. The workflow
-            // refuses the other pass's values.
-            disposition: { type: 'string', enum: ['fix', 'decline', 'defer', 'ask', 'none'] },
+            // nothing a teammate asked for is deferred or declined by Redline on its own. The schema
+            // carries the pass's own values, and the workflow still refuses the other pass's (#94, R2-3).
+            disposition: { type: 'string', enum: dispositions },
             // "redline" for a fix, a decline or a defer settled from the evidence; "pending" for an ask, which
             // the workflow fills with the person's login or "redline (autopilot)"; "reviewer" for a
             // fix a teammate's comment asked for, which the workflow maps to their login.
@@ -719,7 +719,7 @@ function shapeSchema(reasons) {
     },
   }
 }
-const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY), human: shapeSchema(HUMAN_WHY) }
+const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {
   type: 'object',

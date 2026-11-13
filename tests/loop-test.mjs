@@ -281,6 +281,11 @@ const whyEnum = (calls, label) => {
   const call = ((schema.properties || {}).judgmentCalls || {}).items || {}
   return ((call.properties || {}).why_human || {}).enum || []
 }
+const dispositionEnum = (calls, label) => {
+  const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
+  const item = ((schema.properties || {}).findings || {}).items || {}
+  return ((item.properties || {}).disposition || {}).enum || []
+}
 const comment = (calls, label) => {
   const p = pick(calls, label).prompt
   return p.slice(p.indexOf('```markdown\n') + 12, p.lastIndexOf('\n```'))
@@ -1072,6 +1077,7 @@ function samePrefix(name, first, second, n) {
   // the round's cases and the rule reasons, so a human pass's reason is refused in the shaper's run.
   const roundEnum = whyEnum(first.calls, 'shape r1')
   check('rules: a Redline round\'s shaper schema takes the round\'s reasons and the rule reasons, and none of a human pass\'s own', ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file', 'repository rule craft-config', 'repository rule billing'].every((w) => roundEnum.includes(w)) && ['unsure', 'new standard', 'disproportionate fix'].every((w) => !roundEnum.includes(w)), roundEnum)
+  check('rules: a Redline round\'s shaper schema takes fix, decline, defer and ask, and no none', dispositionEnum(first.calls, 'shape r1').join('|') === 'fix|decline|defer|ask', dispositionEnum(first.calls, 'shape r1'))
   const post = pick(first.calls, 'post r1').prompt
   check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · left to @author under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · left to @author under rule billing\\n') && !post.includes('yours under rule') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
   check('rules: the inline comment says whose it is and why', post.includes(`This one is left to @author: repository rule craft-config (${reason}).`) && post.includes('This one is left to @author: repository rule billing (Billing changes are reviewed by finance).'), post)
@@ -2074,6 +2080,7 @@ function samePrefix(name, first, second, n) {
   // Its schema is its own (#94, R1-5): HUMAN_WHY, and none of the Redline round's cases.
   const humanEnum = whyEnum(run.calls, 'shape h1')
   check('human: a human pass\'s shaper schema keeps its own reasons and has none of a Redline round\'s', ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].every((w) => humanEnum.includes(w)) && !humanEnum.includes('redline\'s own file') && !humanEnum.includes('outside the pull request'), humanEnum)
+  check('human: a human pass\'s shaper schema takes fix, ask and none, and no decline or defer', dispositionEnum(run.calls, 'shape h1').join('|') === 'fix|ask|none', dispositionEnum(run.calls, 'shape h1'))
 
   // A repository ask rule still wins: the person is brought in even for what the shaper would decline.
   const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
