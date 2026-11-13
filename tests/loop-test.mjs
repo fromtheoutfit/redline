@@ -374,6 +374,11 @@ function samePrefix(name, first, second, n) {
   samePrefix('plan round 2', second.calls, third.calls, second.calls.length)
   check('plan: finishes after the final nit pass', third.res.status === 'done' && third.res.rounds.length === 3, [third.res.status, third.res.rounds.length])
   check('plan: handoff comment names the approvals', comment(third.calls, 'handoff comment').includes('- Round 1 (pr): 2 items: 1 put to @author, 1 overruled by @author; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 2 (fix-diff): 1 item: 1 fixed; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 3 (final-nit-pass): no new items; 0 commits;') && comment(third.calls, 'handoff comment').includes('### Overruled by @author (1)\n\n- **R1-1** title R1-1: The author accepts the current behaviour; the edge case cannot happen in production data. No code change. · decided by: @author'), comment(third.calls, 'handoff comment'))
+  // An accept that keeps a decline is the person's decision, put to them on the plan dial, and no
+  // overrule; an accept on a fix still is one (the check above) (#94, R2-10).
+  const keptDecline = await go('plan: an accept that keeps a decline', { ...round1, approvedPlans: [1, 2] }, { ...scenario, decline: ['R1-1'] })
+  const keptHandoff = comment(keptDecline.calls, 'handoff comment')
+  check('plan: an accept that keeps a decline is listed as put to the person, never as overruled', keptDecline.res.status === 'done' && keptHandoff.includes('- Round 1 (pr): 2 items: 2 put to @author;') && !keptHandoff.includes('### Overruled by') && (keptDecline.res.decided || []).some((d) => d.id === 'R1-1' && d.overruled === false && d.kind === 'decided'), [keptDecline.res.status, keptHandoff, keptDecline.res.decided])
   // plan with autopilot-style unanswered ask: approving without answering falls back to a decisions hand-off.
   const unanswered = await go('plan: approved without answering the ask', { ...planArgs, approvedPlans: [1] }, scenario)
   check('plan: an unanswered ask after approval is a decisions hand-off', unanswered.res.status === 'handoff' && unanswered.res.handoffKind === 'decisions', unanswered.res)

@@ -3107,10 +3107,16 @@ async function revise(record, inScope, reviewedKind) {
   const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
+  // The shaper's own disposition of each item, before any override: `overruled` and `bought` read
+  // it. An accept that keeps a decline changes nothing Redline does, so it is the person's decision
+  // on what the plan dial showed them, never an overrule: only a decline changed to fix or defer is
+  // overruled (skills/redline/SKILL.md, the plan dial; #94, R2-10).
+  const shaperOwn = Object.fromEntries(shaped.findings.map((s) => [s.id, s.disposition]))
+  const keptDecline = (id) => shaperOwn[id] === 'decline' && Boolean(roundDecisions[id]) && roundDecisions[id].disposition === 'accept'
   for (const f of inScope) {
     // `kind` is what became of the item, `reason` a decline's reason, and `overruled` a decision the
     // person made on an item that was not put to them: a disposition they changed at a stop (#93).
-    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && !calls.some((call) => call.id === f.id) })
+    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && !calls.some((call) => call.id === f.id) && !keptDecline(f.id) })
   }
 
   phase('Push and reply')
@@ -3133,7 +3139,6 @@ async function revise(record, inScope, reviewedKind) {
   // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
   // and neither does any item that is not a correctness one. `fixed` is the items a commit names:
   // the round's spec and standards commits are no fix diff.
-  const shaperOwn = Object.fromEntries(shaped.findings.map((s) => [s.id, s.disposition]))
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
   const bought = inScope.some((f) => f.category === 'correctness' && (['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
   const fixed = inScope.filter((f) => outcomes[f.id].commits.length > 0).map((f) => f.id)
