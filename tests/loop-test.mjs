@@ -412,6 +412,16 @@ function samePrefix(name, first, second, n) {
   // that is not bold (so prior-findings never reads it back), gets no inline comment and no shaper,
   // and the next review sees it as declined, so it is not raised again.
   const scopeBody = JSON.parse(pick(run.calls, 'post r1').prompt.slice(pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"'), pick(run.calls, 'post r1').prompt.indexOf('\n}\n', pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"')) + 2))
+  // The round's findings file, File 2 of the post prompt; {} when the prompt has none.
+  const findingsFile = (calls, label) => {
+    const p = (pick(calls, label) || { prompt: '' }).prompt
+    const at = p.indexOf('```json\n', p.indexOf('File 2:')) + 8
+    return p.includes('File 2:') ? JSON.parse(p.slice(at, p.indexOf('\n```', at))) : {}
+  }
+  // What the scope declined is the record's, under its own key (#94, R1-10): a revise of the
+  // round reads findings only, so it never shapes those items, as before #93.
+  const scopeFile = findingsFile(run.calls, 'post r1')
+  check('scope: the findings file keeps what the scope declined under scoped, apart from its findings', JSON.stringify((scopeFile.findings || []).map((x) => x.id)) === '["R1-1"]' && JSON.stringify((scopeFile.scoped || []).map((x) => x.id)) === '["R1-2"]', [scopeFile.findings, scopeFile.scoped])
   check('scope: a nit the verifier reports is declined by the scope and kept in the round', run.res.rounds[0].droppedNits === 0 && run.res.rounds[0].findings.length === 2 && run.res.rounds[0].outcomes['R1-2'] === 'declined: outside this run\'s scope (correctness only) · decided by: redline', run.res.rounds[0])
   check('scope: the review body lists it once under the scope, with no bold id and no inline comment', scopeBody.body.includes('### Correctness (1)\n\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · title R1-1\n\n### Declined under this run\'s scope (correctness only) (1)\n\n- R1-2 · `app/x.php:1` · title R1-2\n') && !scopeBody.body.includes('### Other items') && scopeBody.comments.length === 1 && scopeBody.comments[0].body.startsWith('**R1-1** · '), scopeBody)
   check('scope: the next review sees the scope decline as an outcome', pick(run.calls, 're-review r2').prompt.includes('"outcome": "declined: outside this run\'s scope (correctness only) · decided by: redline"'), pick(run.calls, 're-review r2').prompt.slice(0, 2500))
@@ -420,6 +430,7 @@ function samePrefix(name, first, second, n) {
   check('scope: reported in the result', run.res.scope === 'correctness')
   const all = await go('scope all (default) keeps the nit pass', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], [f('R2-1', 'nit')], []], commitIds: [['R1-1', 'R1-2'], ['R2-1']] })
   check('scope all: the final nit pass still runs', all.res.status === 'done' && labels(all.calls).includes('final nit pass r3'), labels(all.calls))
+  check('scope all: a run without the scope writes no scoped key in its findings file', !('scoped' in findingsFile(all.calls, 'post r1')) && (findingsFile(all.calls, 'post r1').findings || []).length === 2, findingsFile(all.calls, 'post r1'))
 }
 
 // ---------------------------------------------------------------------------

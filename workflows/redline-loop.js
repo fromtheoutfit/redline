@@ -2419,9 +2419,14 @@ async function post(round, reviewed, range, specFolder, reviewOut, active, known
       comments: active.map((f) => ({ path: f.file, line: f.line, side: f.side, body: commentBody(f) })),
     }),
   }
+  // What the correctness-only scope declined is the record's, under its own key (#94, R1-10):
+  // `/redline:redline-revise <pr> round <n>` reads `findings` only, so it never shapes those items,
+  // as before #93. The run's record keeps them among its findings, so a later round still
+  // collapses a repeat as settled.
+  const scopedOut = reviewOut.scoped || []
   const findingsFile = {
     path: `${specFolder}/redline/round-${round}-findings.json`,
-    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings, ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, list: reviewOut.coverageList } } : {}) }),
+    content: json({ round, reviewed, range, summary: reviewOut.summary, findings: reviewOut.findings.filter((f) => !scopedOut.includes(f)), ...(scopedOut.length ? { scoped: scopedOut } : {}), ...(reviewOut.coverage ? { coverage: { ...reviewOut.coverage, list: reviewOut.coverageList } } : {}) }),
   }
   const posted = await run('post', postPrompt(round, specFolder, reviewFile, findingsFile), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `post r${round}`, phase: 'Post', schema: POST_SCHEMA,
