@@ -69,6 +69,11 @@ Deviations from the shaped plan, found while building:
 - **Task 5, the handoff's opening sentence.** The same rule as decision 10 holds for a Redline run's own final nit pass: the sentence counts what the pass found and what a commit fixed, in three wordings (all fixed, none changed, some of each). The default sentence reads "the last one verified no new correctness item to fix or ask about". Two endings that had no sentence of their own got one, so the default is never said where it would be untrue: a review dial with nothing picked ("none of its findings was picked to act on"), and a bought round that changed no code with the coverage pass off.
 - **Task 5, the round after a round that changed no code.** It is a `fix-diff` round whose range carries `empty: true`: the prompt says there is no fix diff to recheck, the review body says the last round changed no code, and the coverage pass runs at the new head as on any round.
 
+- **Task 6, a decision's line.** In the handoff, and in what a later review reads as an earlier outcome, a person's or the autopilot's decision now says whether it was applied ("Applied in 2bbbbbb." or "No code change."), as its thread reply always did. A human-review pass's lines are as they were.
+- **Task 6, the human-review pass with no login.** The fallback for the person's name is "the person running Redline" on a Redline run. A run that is a human-review pass keeps "the author", in its replies and its summary, so nothing in that pass changes.
+- **Task 6, what the results carry.** A decisions hand-off carries `declined` (id, title, reason) for the round, which the skill lists after the calls. Every entry of `decided` carries `kind`, a decline's `reason`, and `overruled` (the person changed a disposition that was not put to them), which the skill's closing summary groups by.
+- **Task 6, the folded Fixed block as GitHub shows it.** Rendered once through `gh api markdown` (mode `gfm`) on 2026-11-13 with sample lines: the block is one folded `<details>` holding a list, the heading after it renders as a heading, and `@alex` inside the overrule line's code span is no mention.
+
 Shaping defaults (recorded, not asked; each was listed in the plan the owner approved):
 
 - A fix diff means a commit that names an item; the round's spec and standards commits are not one.

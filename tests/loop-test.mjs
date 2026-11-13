@@ -314,7 +314,7 @@ function samePrefix(name, first, second, n) {
   check('guided: R1-2 reply carries the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author keeps it because the board already shows it. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
   check('guided: R1-1 reply is decided by redline', replyFor(second.calls, 'push and reply r1', 'R1-1').endsWith(' · decided by: redline'), replyFor(second.calls, 'push and reply r1', 'R1-1'))
   const handoff = comment(second.calls, 'handoff comment')
-  check('guided: handoff comment lists every decision with its owner', handoff.includes('### Decisions\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n- **R1-2** title R1-2: The author keeps it because the board already shows it. · decided by: @author'), handoff)
+  check('guided: the handoff lists what was put to the person, then what was fixed, folded, each with its owner, and has no Decisions list', handoff.includes('### Put to @author (1)\n\n- **R1-2** title R1-2: The author keeps it because the board already shows it. Applied in 2bbbbbb. · decided by: @author\n\n### Fixed (1)\n\n<details>\n<summary>Each in its own commit</summary>\n\n- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline\n\n</details>') && !handoff.includes('### Decisions'), handoff)
   check('guided: shape prompt asks for decidedBy and recommendation', pick(second.calls, 'shape r1').prompt.includes('decidedBy "redline" for fix, decline and defer or "pending" for ask') && pick(second.calls, 'shape r1').prompt.includes('Decided by: redline'))
   check('guided: result.decided carries owners', second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'R1-1=redline,R1-2=@author', second.res.decided)
 }
@@ -330,7 +330,7 @@ function samePrefix(name, first, second, n) {
   const resolve = pick(run.calls, 'resolve r1').prompt
   check('autopilot: resolve prompt carries the autopilot decision', resolve.includes('"decidedBy": "redline (autopilot)"') && resolve.includes('"notes": "Autopilot took the shaper\'s recommendation: Keep it."') && resolve.includes('"choice": "Keep it"'), resolve)
   check('autopilot: R1-2 reply is labelled', replyFor(run.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: Autopilot took the shaper\'s recommendation: Keep it. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: redline (autopilot)', replyFor(run.calls, 'push and reply r1', 'R1-2'))
-  check('autopilot: handoff comment labels it', comment(run.calls, 'handoff comment').includes('- **R1-2** title R1-2: Autopilot took the shaper\'s recommendation: Keep it. · decided by: redline (autopilot)'), comment(run.calls, 'handoff comment'))
+  check('autopilot: handoff comment labels it', comment(run.calls, 'handoff comment').includes('### Asked, decided on autopilot (1)\n\n- **R1-2** title R1-2: Autopilot took the shaper\'s recommendation: Keep it. Applied in 2bbbbbb. · decided by: redline (autopilot)') && !comment(run.calls, 'handoff comment').includes('### Put to '), comment(run.calls, 'handoff comment'))
   check('autopilot: plan approver sees the decision as decided', pick(run.calls, 'plan approver r1').prompt.includes('"decidedBy": "redline (autopilot)"'))
   const stuck = await go('autopilot: resolve cannot apply the recommendation', { ...baseArgs, interrupt: 'autopilot' }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
   check('autopilot: an unresolved decision is an error, not a hand-off', stuck.res.status === 'error' && stuck.res.stage === 'resolve', stuck.res)
@@ -367,7 +367,7 @@ function samePrefix(name, first, second, n) {
   const third = await go('plan: both rounds approved', { ...round1, approvedPlans: [1, 2] }, scenario)
   samePrefix('plan round 2', second.calls, third.calls, second.calls.length)
   check('plan: finishes after the final nit pass', third.res.status === 'done' && third.res.rounds.length === 3, [third.res.status, third.res.rounds.length])
-  check('plan: handoff comment names the approvals', comment(third.calls, 'handoff comment').includes('- Round 1 (pr): 2 correctness, 0 nit; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 2 (fix-diff): 0 correctness, 1 nit; 1 commits; plan approved by @author;'), comment(third.calls, 'handoff comment'))
+  check('plan: handoff comment names the approvals', comment(third.calls, 'handoff comment').includes('- Round 1 (pr): 2 items: 1 put to @author, 1 overruled by @author; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 2 (fix-diff): 1 item: 1 fixed; 1 commits; plan approved by @author;') && comment(third.calls, 'handoff comment').includes('- Round 3 (final-nit-pass): no new items; 0 commits;') && comment(third.calls, 'handoff comment').includes('### Overruled by @author (1)\n\n- **R1-1** title R1-1: The author accepts the current behaviour; the edge case cannot happen in production data. No code change. · decided by: @author'), comment(third.calls, 'handoff comment'))
   // plan with autopilot-style unanswered ask: approving without answering falls back to a decisions hand-off.
   const unanswered = await go('plan: approved without answering the ask', { ...planArgs, approvedPlans: [1] }, scenario)
   check('plan: an unanswered ask after approval is a decisions hand-off', unanswered.res.status === 'handoff' && unanswered.res.handoffKind === 'decisions', unanswered.res)
@@ -390,7 +390,7 @@ function samePrefix(name, first, second, n) {
   check('review: shapes only the selected finding', shape.includes('"id": "R1-1"') && !shape.includes('"id": "R1-2"') && !shape.includes('"id": "R1-3"'))
   check('review: dropped findings get a reply with the reason and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: not acted on in this run. Naming is fine as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
   check('review: an unlisted finding is dropped with the default reason', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: not acted on in this run. Not selected for this run. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
-  check('review: the handoff comment lists the drops', comment(second.calls, 'handoff comment').includes('- **R1-2** title R1-2: not acted on in this run: Naming is fine as it is. · decided by: @author') && comment(second.calls, 'handoff comment').includes('2 not acted on (@author\'s pick)'), comment(second.calls, 'handoff comment'))
+  check('review: the handoff comment lists the drops', comment(second.calls, 'handoff comment').includes('### Not picked by @author (2)\n\n') && comment(second.calls, 'handoff comment').includes('- **R1-2** title R1-2: not acted on in this run: Naming is fine as it is. · decided by: @author') && comment(second.calls, 'handoff comment').includes('2 not picked by @author;'), comment(second.calls, 'handoff comment'))
   check('review: the re-review sees the drops as settled', pick(second.calls, 're-review r2').prompt.includes('"outcome": "not acted on in this run: Naming is fine as it is. · decided by: @author"'), pick(second.calls, 're-review r2').prompt)
   check('review: round record lists the drops', JSON.stringify(second.res.rounds[0].dropped) === '[{"id":"R1-2","reason":"Naming is fine as it is."},{"id":"R1-3","reason":"Not selected for this run."}]', second.res.rounds[0].dropped)
   const none = await go('review: nothing selected', { ...reviewArgs, selected: { act: [], dropped: { 'R1-1': 'Known and accepted.' } } }, scenario)
@@ -448,7 +448,7 @@ function samePrefix(name, first, second, n) {
   run = await go('bad scope word', { ...baseArgs, scope: 'nits' }, { reviews: [[]] })
   check('bad scope: refused', run.thrown && /args.scope must be/.test(run.thrown.message))
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
-  check('no login: the author stands in', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
+  check('no login: the person running Redline stands in, never the author', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the person running Redline') && !comment(run.calls, 'handoff comment').includes('the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
 }
 
 // ---------------------------------------------------------------------------
@@ -1041,8 +1041,8 @@ function samePrefix(name, first, second, n) {
   check('rules: the synthesised call names the rule, quotes its reason and offers the person\'s options', calls[0].id === 'R1-2' && calls[0].why_human === 'repository rule craft-config' && calls[0].story === `Repository rule craft-config: ${reason}. d` && calls[0].options.map((o) => o.label).join('|') === 'Make the change by hand after the run|Accept, no change' && calls[0].recommendation === 'By hand: fix R1-2 this way.' && JSON.stringify(calls[0].forced) === `{"rule":"craft-config","reason":"${reason}","recommendation":"By hand: fix R1-2 this way."}`, calls[0])
   check('rules: the prose-tagged call names its rule', calls[1].id === 'R1-3' && calls[1].why_human === 'repository rule billing' && calls[1].forced.rule === 'billing', calls[1])
   const post = pick(first.calls, 'post r1').prompt
-  check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · yours under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · yours under rule billing\\n') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
-  check('rules: the inline comment says whose it is and why', post.includes(`This one is yours to act on: repository rule craft-config (${reason}).`) && post.includes('This one is yours to act on: repository rule billing (Billing changes are reviewed by finance).'), post)
+  check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · left to @author under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · left to @author under rule billing\\n') && !post.includes('yours under rule') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
+  check('rules: the inline comment says whose it is and why', post.includes(`This one is left to @author: repository rule craft-config (${reason}).`) && post.includes('This one is left to @author: repository rule billing (Billing changes are reviewed by finance).'), post)
   check('rules: the reviewer, the shaper and the plan approver get the rule list', pick(first.calls, 'review r1').prompt.includes('Repository ask rules, as JSON: what a person is always brought in for') && pick(first.calls, 'review r1').prompt.includes('"id": "craft-config"') && pick(first.calls, 'shape r1').prompt.includes('askRule set to the id') && pick(first.calls, 'shape r1').prompt.includes('"prose": "the change alters what a customer is charged"'), pick(first.calls, 'shape r1').prompt.slice(0, 2500))
 
   const decided = { ...ruleArgs, decisions: { 'R1-2': { choice: 'Make the change by hand after the run', notes: 'The author renames the field through the control panel after the merge.', date: '2026-10-30' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
@@ -1052,38 +1052,38 @@ function samePrefix(name, first, second, n) {
   const resolve = pick(second.calls, 'resolve r1').prompt
   check('rules: the resolve prompt carries the rule on the decision and the left-to-the-person sentence', resolve.includes('"rule": "craft-config"') && resolve.includes('"rule": "billing"') && resolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers'), resolve)
   check('rules: the plan approver sees the rules and the asks', pick(second.calls, 'plan approver r1').prompt.includes('"id": "craft-config"') && pick(second.calls, 'plan approver r1').prompt.includes('"askRule": "craft-config"'), pick(second.calls, 'plan approver r1').prompt)
-  check('rules: the reply says left to the author, with the rule, its reason, the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author renames the field through the control panel after the merge. · decided by: @author`, replyFor(second.calls, 'push and reply r1', 'R1-2'))
-  check('rules: an accepted one is left too, in the person\'s words', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: left to the author under repository rule billing (Billing changes are reviewed by finance). The author leaves the charge as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
+  check('rules: the reply says left to the author, with the rule, its reason, the restatement and the owner', replyFor(second.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author renames the field through the control panel after the merge. · decided by: @author`, replyFor(second.calls, 'push and reply r1', 'R1-2'))
+  check('rules: an accepted one is left too, in the person\'s words', replyFor(second.calls, 'push and reply r1', 'R1-3') === 'Redline round 1: left to @author under repository rule billing (Billing changes are reviewed by finance). The author leaves the charge as it is. · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-3'))
   const handoff = comment(second.calls, 'handoff comment')
-  check('rules: the handoff lists both under their rules', handoff.includes(`### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author\n- **R1-3** title R1-3: rule billing (Billing changes are reviewed by finance); left to the author under repository rule billing: The author leaves the charge as it is. · decided by: @author`) && !handoff.includes('### Deferred'), handoff)
+  check('rules: the handoff lists both under their rules', handoff.includes(`### Left to @author (repository rules)\n\n- **R1-2** title R1-2: rule craft-config (${reason}); left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author\n- **R1-3** title R1-3: rule billing (Billing changes are reviewed by finance); left to @author under repository rule billing: The author leaves the charge as it is. · decided by: @author`) && !handoff.includes('Left to you') && !handoff.includes('### Deferred'), handoff)
   check('rules: their threads stay open, named with the rule; the fixed one is swept', pick(second.calls, 'resolve threads').prompt.includes('resolve-threads 114 100 200\n') && handoff.includes('\n\nResolved 1 thread; 2 left open: R1-2 (repository rule craft-config), R1-3 (repository rule billing).\n'), handoff)
   check('rules: the result names them', JSON.stringify(second.res.forced.map((x) => [x.id, x.rule, x.round])) === '[["R1-2","craft-config",1],["R1-3","billing",1]]' && second.res.rounds[0].forced['R1-2'].rule === 'craft-config' && second.res.deferred.length === 0, [second.res.forced, second.res.deferred])
-  check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
+  check('rules: the re-review sees them as left', pick(second.calls, 're-review r2').prompt.includes(`"outcome": "left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author"`), pick(second.calls, 're-review r2').prompt)
   // Posted text (#87): a Left to you line holds the finding's title and its owner; the title is
   // escaped and neutralised, the rule, the restatement and `decided by: @author` are as written.
   const titled = await go('rules: a title with a tag and an @', decided, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
-  check('posted text: a Left to you line escapes the title and posts the rule, the outcome and its owner as written', comment(titled.calls, 'handoff comment').includes(`- **R1-2** Field &lt;b> renamed @${WJ}config: rule craft-config (${reason}); left to the author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author`), comment(titled.calls, 'handoff comment'))
+  check('posted text: a Left to you line escapes the title and posts the rule, the outcome and its owner as written', comment(titled.calls, 'handoff comment').includes(`- **R1-2** Field &lt;b> renamed @${WJ}config: rule craft-config (${reason}); left to @author under repository rule craft-config: The author renames the field through the control panel after the merge. · decided by: @author`), comment(titled.calls, 'handoff comment'))
 
   const auto = await go('rules: autopilot', { ...ruleArgs, interrupt: 'autopilot' }, scenario)
   check('rules: autopilot never applies a forced finding and demands no commit', auto.res.status === 'done', [auto.res.status, auto.res.error])
   const autoResolve = pick(auto.calls, 'resolve r1').prompt
-  check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; the person makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
-  check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; the person makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
+  check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; @author makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
+  check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; @author makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
   const autoHandoff = comment(auto.calls, 'handoff comment')
-  check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to you under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to you (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
+  check('rules: autopilot lists it under Deferred with no mitigation and under Left to you', autoHandoff.includes('### Deferred (mitigated now, full fix left open)\n\n- **R1-2** title R1-2: left to @author under repository rule craft-config; open: By hand: fix R1-2 this way.\n- **R1-3** title R1-3: left to @author under repository rule billing; open: By hand: fix R1-3 this way.') && autoHandoff.includes('### Left to @author (repository rules)\n\n- **R1-2** title R1-2: rule craft-config'), autoHandoff)
   check('rules: the deferred list carries the rule and no mitigation', JSON.stringify(auto.res.deferred.map((d) => [d.id, d.rule, d.mitigation, d.fullFix])) === '[["R1-2","craft-config","none (repository rule craft-config)","By hand: fix R1-2 this way."],["R1-3","billing","none (repository rule billing)","By hand: fix R1-3 this way."]]', auto.res.deferred)
   // Posted text (#87): the Deferred line of a finding autopilot leaves under a rule makes its own
   // postedText call, beside the shipped branch section 16 pins, so it is pinned with a title the
   // function changes: a plain title reads the same with or without the call (#89, R3-2).
   const autoTitled = await go('rules: autopilot, a title with a tag and an @', { ...ruleArgs, interrupt: 'autopilot' }, { ...scenario, reviews: [[three[0], { ...three[1], title: 'Field <b> renamed @config' }, three[2]], []] })
-  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to you under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
+  check('posted text: a Deferred line a rule left to the person escapes and neutralises its title', comment(autoTitled.calls, 'handoff comment').includes(`### Deferred (mitigated now, full fix left open)\n\n- **R1-2** Field &lt;b> renamed @${WJ}config: left to @author under repository rule craft-config; open: By hand: fix R1-2 this way.\n`), comment(autoTitled.calls, 'handoff comment'))
 
   // The paths rule also catches a finding elsewhere whose task would write under it.
   const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
   check('rules: the shaper\'s files force the ask', viaFiles.res.status === 'handoff' && viaFiles.res.judgmentCalls[0].forced.rule === 'craft-config', viaFiles.res)
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
-  check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · yours under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
+  check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · left to @author under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
   const unknown = await go('rules: an unknown tag', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'nope' })], []], askRule: { 'R1-1': 'nope' }, commitIds: [['R1-1']] })
   check('rules: an unknown tag is cleared with a warning, by the reviewer and by the shaper', unknown.res.status === 'done' && unknown.res.warnings.includes('round 1: the reviewer tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; cleared') && unknown.res.warnings.includes('round 1: the shaper tagged R1-1 with ask rule "nope", which .claude/redline.json does not declare; ignored') && !pick(unknown.calls, 'post r1').prompt.includes('yours under rule'), unknown.res.warnings)
 
@@ -1101,7 +1101,7 @@ function samePrefix(name, first, second, n) {
   check('rules: the plan hand-off carries the rule on the entry and the call', planFirst.res.status === 'handoff' && planFirst.res.handoffKind === 'plan' && planFirst.res.plan[1].disposition === 'ask' && planFirst.res.plan[1].forced.rule === 'craft-config' && planFirst.res.plan[0].forced === null && planFirst.res.judgmentCalls[0].forced.rule === 'craft-config', planFirst.res.plan)
   const overridden = { ...ruleArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-2': { choice: 'fix', notes: 'The author wants it fixed anyway.', date: '2026-10-30', disposition: 'fix' }, 'R1-3': { choice: 'Accept, no change', notes: 'The author leaves the charge as it is.', date: '2026-10-30' } } }
   const planSecond = await go('rules: plan dial override to fix', overridden, scenario)
-  check('rules: an override to fix on a forced finding is refused with a warning and the finding stays the person\'s', planSecond.res.status === 'done' && planSecond.res.warnings.includes('round 1: R1-2 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && replyFor(planSecond.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to the author under repository rule craft-config (${reason}). The author wants it fixed anyway. · decided by: @author` && !pick(planSecond.calls, 'resolve r1').prompt.includes('Disposition overrides'), [planSecond.res.status, planSecond.res.warnings, replyFor(planSecond.calls, 'push and reply r1', 'R1-2')])
+  check('rules: an override to fix on a forced finding is refused with a warning and the finding stays the person\'s', planSecond.res.status === 'done' && planSecond.res.warnings.includes('round 1: R1-2 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && replyFor(planSecond.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author wants it fixed anyway. · decided by: @author` && !pick(planSecond.calls, 'resolve r1').prompt.includes('Disposition overrides'), [planSecond.res.status, planSecond.res.warnings, replyFor(planSecond.calls, 'push and reply r1', 'R1-2')])
 
   // A human review pass on autopilot: a comment under a paths rule is left to the author the same way.
   const folder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
@@ -1605,7 +1605,7 @@ function samePrefix(name, first, second, n) {
   check('coverage: no set-aside line opens with a finding id, so prior-findings never reads one back', db.includes('<details>') && !db.slice(db.indexOf('<details>'), db.indexOf('</details>')).split('\n').some((l) => l.startsWith('- **R')), db)
   const lastBlock = '### Candidates set aside in round 2 (2)\n\n<details>\n<summary>Refuted, collapsed or already tracked</summary>\n\n- `app/x.php:3` · the real one · settled: R1-1\n- `app/y.php:9` · a nit a browser would show · refuted: untouched code\n\n</details>'
   handoff = comment(run.calls, 'handoff comment')
-  check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('<details>') < handoff.indexOf('### Commits') && handoff.split('<details>').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
+  check('coverage: the handoff carries the last covered round\'s set-aside block, naming the round, before Commits; round 1\'s block is not repeated', handoff.includes(lastBlock) && handoff.indexOf('### Candidates set aside') < handoff.indexOf('### Commits') && handoff.split('### Candidates set aside').length === 2 && !handoff.includes('app/z.php:5') && !handoff.includes('app/u.php:4'), handoff)
   // What the result keeps of a covered round (#80, R1-5; #86, R2-2): the candidate count, the
   // counts by outcome and the accounting, each set-aside candidate's index, outcome and ref among
   // it, and no setAsideCandidates field and no candidate list. The set-aside entries, with their
@@ -1631,7 +1631,7 @@ function samePrefix(name, first, second, n) {
   // The handoff carries the last covered round's block, not the last round with one (#85,
   // decision 14; #86, R1-2): round 1 set candidate 2 aside, round 2 ran the pass and put both
   // candidates among its findings, so the handoff has no block.
-  check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('<details>'), comment(run.calls, 'handoff comment'))
+  check('coverage: the handoff carries the last covered round\'s block, not the last round with one, so a last covered round that set nothing aside leaves no block though an earlier round set one aside', body(run.calls, 'post r1').includes('<details>') && labels(run.calls).includes('coverage r2') && !body(run.calls, 'post r2').includes('<details>') && !comment(run.calls, 'handoff comment').includes('Candidates set aside'), comment(run.calls, 'handoff comment'))
 
   // The escaping of posted text (#87; the #85 follow-up spec): `&` then `<` are escaped and the word
   // joiner's reference `&#8288;` follows each `@` before an ASCII letter or digit (the #87 follow-up
@@ -1759,7 +1759,7 @@ function samePrefix(name, first, second, n) {
   check('coverage: a duplicate of a candidate that became a finding names the finding\'s id after the target\'s place and outcome', ib.includes('\n- `app/x.php:8` · the same cause, seen from the save · duplicate: 1 (candidate 1, `app/x.php:3`: verified R1-1)\n'), ib)
 
   // coverage off: no candidates, so no set-aside block anywhere.
-  check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('<details>'), body(offRules.calls, 'post r1'))
+  check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('Candidates set aside'), body(offRules.calls, 'post r1'))
 }
 
 // ---------------------------------------------------------------------------
@@ -1789,7 +1789,7 @@ function samePrefix(name, first, second, n) {
   ]
   let run = await go('posted text: the lines outside the block', { ...baseArgs, askRules: [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }], decisions: { 'R1-1': { choice: 'Make the change by hand after the run', notes: 'The author makes it by hand.', date: '2026-11-13' } } }, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], askRule: { 'R1-1': 'billing' }, mitigation: 'a <b> guard', commitIds: [['R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'] })
   const r1 = review(run.calls, 'post r1')
-  check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · ' + posted + ' · yours under rule billing\n'), r1.body)
+  check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · ' + posted + ' · left to @author under rule billing\n'), r1.body)
   check('posted text: the inline comment\'s title line is escaped the same way', r1.comments.some((c) => c.body.includes('\n\n**' + posted + '**\n\n')), r1.comments.map((c) => c.body))
   check('posted text: an Already tracked line reads its title and knownAs as one text', r1.body.includes('### Already tracked\n\n- **R1-2** one ` open: #41 `&lt;c>`'), r1.body)
   check('posted text: the summary is escaped and neutralised', r1.body.includes('\n\nUses @' + WJ + 'param and &lt;b>.\n\n'), r1.body)
@@ -1804,7 +1804,7 @@ function samePrefix(name, first, second, n) {
   const asked = { reviews: [[f('R1-1', 'correctness', { title: 'Asked <s> & @param' })], []], ask: ['R1-1'], commitIds: [['R1-1']] }
   run = await go('posted text: a decision line', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'The author keeps <s> as it is.', date: '2026-11-12' } } }, asked)
   handoff = comment(run.calls, 'handoff comment')
-  check('posted text: a Decisions line escapes the title and keeps the restatement and the owner as written', handoff.includes('### Decisions\n\n- **R1-1** Asked &lt;s> &amp; @' + WJ + 'param: The author keeps <s> as it is. · decided by: @author'), handoff)
+  check('posted text: a decision\'s line escapes the title and keeps the restatement and the owner as written', handoff.includes('### Put to @author (1)\n\n- **R1-1** Asked &lt;s> &amp; @' + WJ + 'param: The author keeps <s> as it is. Applied in 1bbbbbb. · decided by: @author'), handoff)
 
   // The round trip (#87, decision 7): a title prior-findings read back escaped is decoded at intake,
   // so the reviewer reads it as written and every line that posts it again escapes it once. R1-1
@@ -1830,7 +1830,7 @@ function samePrefix(name, first, second, n) {
   check('posted text: with Carried forward, Resolved and Already tracked the closing sentence ends the body, after Already tracked', r2.body.endsWith('### Already tracked\n\n- **R2-1** Old &lt;b> &amp; title: #41 @' + WJ + 'param · first reported as R1-2\n\n' + CLOSING), r2.body)
   handoff = comment(run.calls, 'handoff comment')
   check('posted text: Earlier rounds escapes each read-back title once, with the knownAs and the why, and posts an earlier reply as written', handoff.includes('### Earlier rounds\n\n- **R1-1** ' + posted + ': carried forward as R2-2: fixed in ') && handoff.includes('\n- **R1-2** Old &lt;b> &amp; title: carried forward as R2-1: already tracked in #41 @' + WJ + 'param\n') && handoff.includes('\n- **R1-3** Gone &lt;i> @' + WJ + 'csrf: resolved: The &lt;i> line @' + WJ + 'went away. · decided by: redline\n') && handoff.includes('\n- **R1-4** Escape &lt; by hand: already handled in round 1: not acted on in this run. Keep <b>. · decided by: @author'), handoff)
-  check('posted text: a carried finding\'s Decisions line escapes its read-back title once', handoff.includes('### Decisions\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
+  check('posted text: a carried finding\'s line under Fixed escapes its read-back title once', handoff.includes('<summary>Each in its own commit</summary>\n\n- **R2-2** ' + posted + ': fixed in '), handoff)
   // A `@&#8288;` readBack left in place has its `&` escaped when the title is posted again, so a
   // missing strip shows as `&amp;#8288;` beside the other double escapes. The raw joiner's clause,
   // dropped in #89, R1-1, could not fail; this one can (the #87 follow-up spec).
@@ -1907,16 +1907,18 @@ function samePrefix(name, first, second, n) {
   check('pin: a changed workflow with a pinned copy runs on', kept.res.status === 'done', [kept.res.status, kept.res.error])
   check('pin: and every prompt equals the relaunch without drift', kept.calls.length === pinned.calls.length && kept.calls.every((c, i) => same(c, pinned.calls[i])), labels(kept.calls))
 
-  // Agent files cannot be pinned, so a changed one is reported: a warning in the result and the
-  // same sentence in the handoff comment. Nothing before Finish reads it.
+  // Agent files cannot be pinned, so a changed one is reported: a warning in the result, which the
+  // skill shows while rounds are still ahead, and the same fact in the handoff comment, in the past
+  // tense, since the comment is posted after the last round (#93). Nothing before Finish reads it.
   const sentence = 'Agent files changed since this run launched (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): this run\'s remaining rounds may run under them, while the workflow\'s own prompts are the launch\'s.'
+  const past = 'Agent files changed during this run (`agents/redline-reviewer.md`, `agents/redline-shaper.md`): the rounds after the change may have run under them, while the workflow\'s own prompts were the launch\'s.'
   const agents = await go('pin: changed agent files', { ...decided, drift: { workflow: '', pinned: true, agents: ['agents/redline-reviewer.md', 'agents/redline-shaper.md'] } }, scenario)
   check('pin: changed agent files do not stop the run', agents.res.status === 'done', [agents.res.status, agents.res.error])
   check('pin: the result warns with the sentence', agents.res.warnings.includes(sentence), agents.res.warnings)
   const withSentence = comment(agents.calls, 'handoff comment')
   const without = comment(pinned.calls, 'handoff comment')
-  check('pin: the handoff comment carries the same sentence as its own paragraph', withSentence.includes(`\n\n${sentence}\n\n`), withSentence.slice(0, 600))
-  check('pin: and is otherwise the handoff comment of a run without drift', withSentence.replace(`${sentence}\n\n`, '') === without, withSentence.slice(0, 600))
+  check('pin: the handoff comment says the same in the past tense, as its own paragraph, and never as a forecast', withSentence.includes(`\n\n${past}\n\n`) && !withSentence.includes('remaining rounds may run'), withSentence.slice(0, 600))
+  check('pin: and is otherwise the handoff comment of a run without drift', withSentence.replace(`${past}\n\n`, '') === without, withSentence.slice(0, 600))
   const beforeFinish = agents.calls.findIndex((c) => c.label === 'handoff comment')
   check('pin: every prompt before the handoff comment equals the run without drift', beforeFinish > 0 && agents.calls.slice(0, beforeFinish).every((c, i) => same(c, pinned.calls[i])), labels(agents.calls))
   const empty = await go('pin: drift with nothing in it', { ...decided, drift: { workflow: '', pinned: true, agents: [] } }, scenario)
@@ -2150,6 +2152,120 @@ function samePrefix(name, first, second, n) {
   check('done: after a human-review pass, a final nit pass with one item fixed and one declined gives both counts', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes: 1 fixed in one more pass that was not re-reviewed; 1 not changed, answered in its thread.'), comment(run.calls, 'summary comment'))
   run = await go('done: a human pass, the nit pass finds two, both declined', humanArgs, { reviews: [two], decline: ['R3-1', 'R3-2'], commitIds: [['H1-1'], []] })
   check('done: after a human-review pass, a final nit pass whose items were all declined never says fixed', run.res.status === 'done' && run.res.lastFixUnreviewed === false && comment(run.calls, 'summary comment').includes('Final nit pass (Redline round 3): 2 correctness items in the fixes; none was changed, and each is answered in its thread.') && !comment(run.calls, 'summary comment').includes('fixed in one more pass'), comment(run.calls, 'summary comment'))
+}
+
+// ---------------------------------------------------------------------------
+// 20. The handoff and the overrule (#93): the handoff groups every item of the run by what became
+//     of it, the declines up top with one line on how to overrule one, the fixes folded; the
+//     person is named by login, never by role; a decline is overruled by a typed line at a stop the
+//     run already makes, with the round's declines in the hand-off result; the result says what
+//     kind each decision was, for the closing summary in the session.
+// ---------------------------------------------------------------------------
+{
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const one = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }]) + '\n```\n'
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const seven = [f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'nit'), f('R1-4', 'correctness'), f('R1-5', 'correctness', { file: 'config/project/project.yaml', line: 3 }), f('R1-6', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'two workers on one queue' }), f('R1-7', 'nit')]
+  const scenario = { reviews: [seven, []], ask: ['R1-2'], decline: ['R1-3', 'R1-6', 'R1-7'], reason: { 'R1-6': 'could not confirm: needs two workers on one queue' }, secondLook: { 'R1-6': 'unconfirmed' }, defer: ['R1-4'], commitIds: [['R1-1', 'R1-2', 'R1-4', 'R1-7']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }]] }
+  const decisions = {
+    'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-13' },
+    'R1-5': { choice: 'Make the change by hand after the run', notes: 'Done by hand after the merge.', date: '2026-11-13' },
+    'R1-7': { choice: 'fix', notes: 'Fix it now; a third caller lands next week.', date: '2026-11-13', disposition: 'fix' },
+  }
+
+  // Door 1: the hand-off the run already makes for its asks carries the round's declines, and the
+  // relaunch takes a typed overrule beside the answers.
+  const stop = await go('layout: the hand-off', { ...covArgs, askRules: rules }, scenario)
+  check('overrule: a decisions hand-off carries the round\'s declines with their reasons', stop.res.status === 'handoff' && stop.res.handoffKind === 'decisions' && JSON.stringify(stop.res.declined) === JSON.stringify([{ id: 'R1-3', title: 'title R1-3', reason: 'the spec keeps R1-3 as it is on purpose' }, { id: 'R1-6', title: 'title R1-6', reason: 'could not confirm: needs two workers on one queue' }, { id: 'R1-7', title: 'title R1-7', reason: 'the spec keeps R1-7 as it is on purpose' }]), stop.res.declined)
+  const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions }, scenario)
+  samePrefix('overrule: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
+  check('overrule: a typed overrule at the hand-off turns a decline into a fix decided by the person', run.res.status === 'done' && pick(run.calls, 'resolve r1').prompt.includes('Disposition overrides') && replyFor(run.calls, 'push and reply r1', 'R1-7') === 'Redline round 1: Fix it now; a third caller lands next week. Applied in 4bbbbbb (redline: R1-7 fix). · decided by: @author', [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-7')])
+  const handoff = comment(run.calls, 'handoff comment')
+  const folder = 'agent-os/specs/2026-10-20-1600-114-review-round-'
+  const expected = [
+    'Redline handoff',
+    '',
+    'Redline ran 2 review rounds; the last one verified no new correctness item to fix or ask about.',
+    '',
+    'Resolved 6 threads; 1 left open: R1-5 (repository rule craft-config).',
+    '',
+    '@sam, over to you for the human review.',
+    '',
+    '### Rounds',
+    '',
+    '- Round 1 (pr): 7 items: 1 fixed, 2 declined, 1 deferred, 1 put to @author, 1 overruled by @author, 1 left to @author; 4 commits; spec `' + folder + '1`',
+    '- Round 2 (fix-diff): no new items; 0 commits; spec `' + folder + '2`',
+    '',
+    '### Put to @author (1)',
+    '',
+    '- **R1-2** title R1-2: Kept as it is, on purpose. Applied in 2bbbbbb. · decided by: @author',
+    '',
+    '### Overruled by @author (1)',
+    '',
+    '- **R1-7** title R1-7: Fix it now; a third caller lands next week. Applied in 4bbbbbb. · decided by: @author',
+    '',
+    '### Declined by Redline (2)',
+    '',
+    'To overrule one, reply in its thread, then run `/redline-revise 114 review @author`.',
+    '',
+    '- **R1-3** title R1-3: declined: the spec keeps R1-3 as it is on purpose · decided by: redline',
+    '- **R1-6** title R1-6: declined: could not confirm: needs two workers on one queue · decided by: redline',
+    '',
+    '### Deferred (mitigated now, full fix left open)',
+    '',
+    '- **R1-4** title R1-4: shipped a guard clause; open: a lock',
+    '',
+    '### Left to @author (repository rules)',
+    '',
+    '- **R1-5** title R1-5: rule craft-config (Craft project config is applied through the control panel); left to @author under repository rule craft-config: Done by hand after the merge. · decided by: @author',
+    '',
+    '### Fixed (1)',
+    '',
+    '<details>',
+    '<summary>Each in its own commit</summary>',
+    '',
+    '- **R1-1** title R1-1: fixed in 1bbbbbb · decided by: redline',
+    '',
+    '</details>',
+    '',
+    '### Candidates set aside in round 2 (1)',
+    '',
+    '<details>',
+    '<summary>Refuted, collapsed or already tracked</summary>',
+    '',
+    '- `app/x.php:3` · the real one · settled: R1-1',
+    '',
+    '</details>',
+    '',
+    '### Commits',
+    '',
+    '- 1bbbbbb redline: R1-1 fix',
+    '- 2bbbbbb redline: R1-2 fix',
+    '- 3bbbbbb redline: R1-4 fix',
+    '- 4bbbbbb redline: R1-7 fix',
+  ].join('\n')
+  check('layout: the handoff, every heading in order with its line, is the layout the spec shows', handoff === expected, handoff)
+  check('layout: the person is named by login, never by role or as you', !/the author|Left to you|left to you|yours/.test(handoff) && !/yours under rule|yours to act on|the author/.test(pick(run.calls, 'post r1').prompt.slice(pick(run.calls, 'post r1').prompt.indexOf('{\n  "body"'))), handoff)
+  check('layout: the result says what kind each decision was, with a decline\'s reason, for the closing summary', run.res.decided.map((d) => `${d.id}:${d.kind}`).join(',') === 'R1-1:fixed,R1-2:decided,R1-4:deferred,R1-5:left,R1-3:declined,R1-6:declined,R1-7:decided' && run.res.decided.find((d) => d.id === 'R1-6').reason === 'could not confirm: needs two workers on one queue' && run.res.decided.find((d) => d.id === 'R1-7').overruled === true && run.res.decided.find((d) => d.id === 'R1-2').overruled === false, run.res.decided)
+
+  // With no login the fallback names nobody's role: headings, lines and the way to overrule.
+  const anon = await go('layout: no login', { ...covArgs, askRules: rules, login: '', decisions }, scenario)
+  const anonHandoff = comment(anon.calls, 'handoff comment')
+  check('layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login', anon.res.status === 'done' && anonHandoff.includes('### Put to the person running Redline (1)') && anonHandoff.includes('### Left to the person running Redline (repository rules)') && anonHandoff.includes('left to the person running Redline under repository rule craft-config') && anonHandoff.includes('To overrule one, reply in its thread, then run `/redline-revise 114 review @<your login>`.') && !anonHandoff.includes('the author'), anonHandoff)
+
+  // A human-review pass is unchanged, its no-login fallback included: "the author", as before.
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Is ${id} the right default?`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanNoLogin = await go('layout: a human-review pass with no login', { ...baseArgs, login: '', firstRound: 3, decisions: { 'H1-1': { choice: 'Keep it', notes: '', date: '2026-11-13' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } }, { reviews: [[]], ask: ['H1-1'], acceptedCalls: ['H1-1'], commitIds: [[]] })
+  check('layout: a human-review pass with no login still says the author, as it always did', humanNoLogin.res.status === 'done' && replyFor(humanNoLogin.calls, 'push and reply h1', 'H1-1').startsWith('Redline human review 1: The author chose: Keep it. No code change. · decided by: the author') && comment(humanNoLogin.calls, 'summary comment').includes('for the author'), [replyFor(humanNoLogin.calls, 'push and reply h1', 'H1-1'), comment(humanNoLogin.calls, 'summary comment')])
+
+  // Under correctness only, the handoff lists what the scope declined, once, with ids that are not bold.
+  const scoped = await go('layout: correctness only', { ...covArgs, scope: 'correctness' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { file: 'app/y.php', line: 9 })], [f('R2-1', 'nit', { file: 'app/z.php', line: 2 })]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  const scopedHandoff = comment(scoped.calls, 'handoff comment')
+  check('layout: under correctness only the handoff lists what the scope declined, after the declines and before the rest', scoped.res.status === 'done' && scopedHandoff.includes('### Declined under this run\'s scope (correctness only) (2)\n\n- R1-2 · `app/y.php:9` · title R1-2\n- R2-1 · `app/z.php:2` · title R2-1\n\n### Fixed (1)') && scopedHandoff.includes('- Round 1 (pr): 2 items: 1 fixed, 1 declined under the scope; 1 commits;') && scopedHandoff.includes('- Round 2 (fix-diff): 1 item: 1 declined under the scope; 0 commits;'), scopedHandoff)
+
+  // The cap-hit comment names the person by login too.
+  const capped = await go('layout: the cap-hit comment', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  check('layout: the cap-hit comment says who picks the open findings up, by login', capped.res.status === 'capped' && comment(capped.calls, 'cap-hit comment').includes('so it has not requested a review. @author will pick these up.') && !comment(capped.calls, 'cap-hit comment').includes('The author'), comment(capped.calls, 'cap-hit comment'))
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))

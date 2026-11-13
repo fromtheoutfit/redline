@@ -183,7 +183,11 @@ const scope = A.scope === 'correctness' ? 'correctness' : 'all'
 // redline-gh.sh login); the shaper's own, settled from evidence, to "redline"; a recommendation
 // taken on autopilot to "redline (autopilot)".
 const login = typeof A.login === 'string' ? A.login.trim().replace(/^@/, '') : ''
-const personLabel = login ? `@${login}` : 'the author'
+// The person running Redline, as every posted line names them (#93): by login, never by role, since
+// on a teammate's pull request the person running Redline is not its author. With no login the
+// fallback names no role either. A human-review pass is unchanged (#93, decision 8): a run that is
+// one keeps "the author" as its fallback, as it keeps that word in its own lines.
+const personLabel = login ? `@${login}` : A.revise && typeof A.revise === 'object' && A.revise.kind === 'human' ? 'the author' : 'the person running Redline'
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
@@ -243,6 +247,11 @@ if (A.drift !== undefined && A.drift !== null) {
 }
 const AGENTS_CHANGED = drift.agents.length
   ? `Agent files changed since this run launched (${drift.agents.map((p) => `\`${p}\``).join(', ')}): this run's remaining rounds may run under them, while the workflow's own prompts are the launch's.`
+  : ''
+// The same fact as the handoff comment states it (#93): the comment is posted after the last round,
+// so it says what happened, where the warning above, shown while rounds are ahead, says what may.
+const AGENTS_CHANGED_HANDOFF = drift.agents.length
+  ? `Agent files changed during this run (${drift.agents.map((p) => `\`${p}\``).join(', ')}): the rounds after the change may have run under them, while the workflow's own prompts were the launch's.`
   : ''
 const handCommits = new Set(Object.values(resume).flatMap((entry) => entry.hand.commits))
 const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.hand.paths))]
@@ -881,7 +890,7 @@ function findingLine(f) {
   // finding line to that reader.
   const carried = f.carriedFrom ? ` · first reported as ${f.carriedFrom}` : ''
   const rule = ruleOf(f)
-  const yours = rule ? ` · yours under rule ${rule.id}` : ''
+  const yours = rule ? ` · left to ${personLabel} under rule ${rule.id}` : ''
   const would = f.confidence === 'unconfirmed' ? `\n  Would confirm it: ${postedText(f.wouldConfirm || 'not stated')}` : ''
   return `- **${f.id}** · ${f.category} · ${f.severity} · ${f.confidence} · \`${f.file}:${f.line}\` · ${postedText(f.title)}${carried}${yours}${would}`
 }
@@ -1088,16 +1097,16 @@ function commentBody(f) {
   }
   const rule = ruleOf(f)
   if (rule) {
-    lines.push('', `This one is yours to act on: repository rule ${rule.id} (${rule.reason}).`)
+    lines.push('', `This one is left to ${personLabel}: repository rule ${rule.id} (${rule.reason}).`)
   }
   return lines.join('\n')
 }
 
 // A decision as it reaches GitHub: the session's one-sentence restatement (choice and reasoning),
 // never the person's chat. The choice label stands in only when a decision carries no notes.
-function decisionSentence(decision) {
+function decisionSentence(decision, human) {
   const notes = (decision.notes || '').trim()
-  return notes !== '' ? notes : `The author chose: ${decision.choice}.`
+  return notes !== '' ? notes : `${human ? 'The author' : personLabel} chose: ${decision.choice}.`
 }
 
 // Every decision names its owner, in the spec, in the thread and in the handoff comment.
@@ -1124,10 +1133,10 @@ function autopilotDecision(call) {
 
 // autopilot on a finding a repository ask rule covers (#49): nothing is applied; the finding is
 // left to the person, with the rule as the reason.
-function leftDecision(forced) {
+function leftDecision(forced, human) {
   return {
     choice: 'Left to the person',
-    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; the person makes it.`,
+    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; ${human ? 'the person' : personLabel} makes it.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
     rule: forced.rule,
@@ -1257,13 +1266,13 @@ function replyBody(pass, outcome) {
     case 'deferred':
       return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
     case 'decided':
-      return `${pass.title}: ${decisionSentence(outcome)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
     case 'declined':
       // Redline's own decision not to act (#93). redline-gh.sh prior-findings reads the opening
       // "declined: " back as the disposition, so a later run never raises the finding again.
       return `${pass.title}: declined: ${outcome.reason}${owner}`
     case 'left':
-      return `${pass.title}: left to the author under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
+      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
     case 'dropped':
       return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
     case 'none':
@@ -2471,7 +2480,7 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const left = (forced || {})[f.id]
     if (left) {
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
-      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision) : 'No change made; the person makes it.', commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
+      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
@@ -2490,7 +2499,9 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
   return outcomes
 }
 
-function describeOutcome(outcome) {
+// `human` is a human-review pass, which keeps its own wording: "the author", and a decision's
+// sentence alone. A Redline round names the person by login and says whether a decision was applied.
+function describeOutcome(outcome, human) {
   const owner = decidedBy(outcome.decidedBy)
   switch (outcome.kind) {
     case 'fixed':
@@ -2498,11 +2509,11 @@ function describeOutcome(outcome) {
     case 'deferred':
       return `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
     case 'decided':
-      return `${decisionSentence(outcome)}${owner}`
+      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${owner}`
     case 'declined':
       return `declined: ${outcome.reason}${owner}`
     case 'left':
-      return `left to the author under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
+      return `left to ${human ? 'the author' : personLabel} under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
     case 'none':
@@ -2698,7 +2709,7 @@ function droppedReplies(record) {
     outcomes[f.id] = outcome
     record.outcomes[f.id] = describeOutcome(outcome)
     record.outcomeKinds = Object.assign(record.outcomeKinds || {}, { [f.id]: 'dropped' })
-    decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason })
+    decidedAll.push({ id: f.id, round: record.round, title: f.title, outcome: describeOutcome(outcome), decidedBy: personLabel, choice: 'drop', notes: f.reason, kind: 'dropped', reason: '', overruled: false })
     return replyEntry(passOf(record), f, outcome, record.commentIds[f.id] || 0, record.reviewPosted)
   })
   return entries.concat(carriedReplies(passOf(record), record, dropped, outcomes))
@@ -2824,7 +2835,7 @@ async function revise(record, inScope, reviewedKind) {
       for (const call of open) {
         // A finding a repository ask rule covers is left to the person, never applied (#49).
         const forced = record.forced[call.id]
-        decisions[call.id] = forced ? leftDecision(forced) : autopilotDecision(call)
+        decisions[call.id] = forced ? leftDecision(forced, pass.human) : autopilotDecision(call)
         log(`${pass.name}: autopilot ${forced ? `left ${call.id} to the person (repository rule ${forced.rule})` : `decided ${call.id} (${decisions[call.id].choice})`}`)
       }
       return false
@@ -2832,7 +2843,7 @@ async function revise(record, inScope, reviewedKind) {
     return true
   }
   if (settle(calls.filter((call) => !decisions[call.id]))) {
-    return { handoff: true, kind: 'decisions', pending: calls.filter((call) => !decisions[call.id]), calls }
+    return { handoff: true, kind: 'decisions', pending: calls.filter((call) => !decisions[call.id]), calls, shaped }
   }
 
   // A decision on a finding that was not a judgment call is a disposition override from the plan
@@ -2866,7 +2877,7 @@ async function revise(record, inScope, reviewedKind) {
       if (interrupt === 'autopilot') {
         throw stageError('resolve', `autopilot could not apply the shaper's recommendation for ${ids.join(', ')}`, { unresolved: out.unresolved })
       }
-      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved }
+      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved, shaped }
     }
     deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
     return out
@@ -2922,7 +2933,7 @@ async function revise(record, inScope, reviewedKind) {
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
     if (settle(raised.filter((call) => !decisions[call.id]))) {
-      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls }
+      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped }
     }
     deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id)))
     if (raised.length) {
@@ -3045,10 +3056,12 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
-  record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome)])))
+  record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
   for (const f of inScope) {
-    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id]), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '' })
+    // `kind` is what became of the item, `reason` a decline's reason, and `overruled` a decision the
+    // person made on an item that was not put to them: a disposition they changed at a stop (#93).
+    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && !calls.some((call) => call.id === f.id) })
   }
 
   phase('Push and reply')
@@ -3124,38 +3137,87 @@ function handoffComment(ending, prBody, threads) {
     const file = prBody.file.startsWith(`${repoRoot}/`) ? prBody.file.slice(repoRoot.length + 1) : prBody.file
     lines.push('', `Redline replaced the PR description with the redraft in \`${file}\`; the previous one is in the description's edit history.`)
   }
-  if (AGENTS_CHANGED) {
-    lines.push('', AGENTS_CHANGED)
+  if (AGENTS_CHANGED_HANDOFF) {
+    lines.push('', AGENTS_CHANGED_HANDOFF)
   }
   if (teammate) {
     lines.push('', `@${teammate}, over to you for the human review.`)
   }
+  // Every item of the run, by what became of it (#93): what was put to the person and what they
+  // overruled first, then what Redline declined on its own, with how to overrule one, since that
+  // is what a reader audits; then what was deferred, left under a rule, not picked or not changed;
+  // the fixes last and folded, since each is a commit below. The single Decisions list is gone.
+  const of = (test) => decidedAll.filter(test)
+  const asked = of((d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT)
+  const auto = of((d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT)
+  const overruled = of((d) => d.kind === 'decided' && d.overruled)
+  const declined = of((d) => d.kind === 'declined')
+  const notPicked = of((d) => d.kind === 'dropped')
+  const notChanged = of((d) => d.kind === 'not-changed')
+  const fixed = of((d) => d.kind === 'fixed')
+  const scoped = rounds.flatMap((record) => record.scoped || [])
   lines.push('', '### Rounds', '')
   for (const record of rounds) {
-    const correctness = record.findings.filter((f) => !f.knownAs && f.category === 'correctness').length
-    const nits = record.findings.filter((f) => !f.knownAs && f.category === 'nit').length
+    const mine = decidedAll.filter((d) => d.round === record.round)
+    const count = (test) => mine.filter(test).length
+    const parts = [
+      [count((d) => d.kind === 'fixed'), 'fixed'],
+      [count((d) => d.kind === 'declined'), 'declined'],
+      [count((d) => d.kind === 'deferred'), 'deferred'],
+      [count((d) => d.kind === 'decided' && !d.overruled && d.decidedBy !== AUTOPILOT), `put to ${personLabel}`],
+      [count((d) => d.kind === 'decided' && !d.overruled && d.decidedBy === AUTOPILOT), 'decided on autopilot'],
+      [count((d) => d.kind === 'decided' && d.overruled), `overruled by ${personLabel}`],
+      [count((d) => d.kind === 'left'), `left to ${personLabel}`],
+      [count((d) => d.kind === 'dropped'), `not picked by ${personLabel}`],
+      [count((d) => d.kind === 'not-changed'), 'not changed'],
+      [(record.scoped || []).length, 'declined under the scope'],
+    ].filter(([n]) => n > 0)
+    const items = parts.reduce((sum, [n]) => sum + n, 0)
     const approved = approvedPlans.includes(record.round) ? `; plan approved by ${personLabel}` : ''
-    const picked = record.dropped ? `; ${record.dropped.length} not acted on (${personLabel}'s pick)` : ''
-    lines.push(`- Round ${record.round} (${record.reviewed}): ${correctness} correctness, ${nits} nit; ${(record.commits || []).length} commits${approved}${picked}; spec \`${record.specFolder}\``)
-  }
-  const earlier = earlierRoundsLines()
-  if (earlier.length) {
-    lines.push('', '### Earlier rounds', '', ...earlier)
+    lines.push(`- Round ${record.round} (${record.reviewed}): ${items ? `${items} item${items === 1 ? '' : 's'}: ${parts.map(([n, what]) => `${n} ${what}`).join(', ')}` : 'no new items'}; ${(record.commits || []).length} commits${approved}; spec \`${record.specFolder}\``)
   }
   // A finding's title is the verifier's and goes through postedText; the outcome after it is the
   // workflow's, the shaper's or the person's, and is posted as written, so its `decided by: @login`
-  // still names the owner (#87, decision 2). Left to you does the same below.
-  if (decidedAll.length) {
-    lines.push('', '### Decisions', '', ...decidedAll.map((d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`))
+  // still names the owner (#87, decision 2). The lists below all do the same.
+  const line = (d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`
+  if (asked.length) {
+    lines.push('', `### Put to ${personLabel} (${asked.length})`, '', ...asked.map(line))
+  }
+  if (auto.length) {
+    lines.push('', `### Asked, decided on autopilot (${auto.length})`, '', ...auto.map(line))
+  }
+  if (overruled.length) {
+    lines.push('', `### Overruled by ${personLabel} (${overruled.length})`, '', ...overruled.map(line))
+  }
+  if (declined.length) {
+    lines.push('', `### Declined by Redline (${declined.length})`, '', `To overrule one, reply in its thread, then run \`/redline-revise ${pr} review ${login ? `@${login}` : '@<your login>'}\`.`, '', ...declined.map(line))
+  }
+  // What the workflow declined under a correctness-only scope: ids that are not bold, as in the
+  // review bodies, so no reader takes a line for a finding with a disposition.
+  if (scoped.length) {
+    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map((f) => `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`))
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${postedText(d.title)}: left to you under repository rule ${d.rule}; open: ${d.fullFix}`
+      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under repository rule ${d.rule}; open: ${d.fullFix}`
       : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
   }
   const left = leftToYou()
   if (left.length) {
-    lines.push('', '### Left to you (repository rules)', '', ...left)
+    lines.push('', `### Left to ${personLabel} (repository rules)`, '', ...left)
+  }
+  if (notPicked.length) {
+    lines.push('', `### Not picked by ${personLabel} (${notPicked.length})`, '', ...notPicked.map(line))
+  }
+  if (notChanged.length) {
+    lines.push('', `### Not changed (${notChanged.length})`, '', ...notChanged.map(line))
+  }
+  if (fixed.length) {
+    lines.push('', `### Fixed (${fixed.length})`, '', '<details>', '<summary>Each in its own commit</summary>', '', ...fixed.map(line), '', '</details>')
+  }
+  const earlier = earlierRoundsLines()
+  if (earlier.length) {
+    lines.push('', '### Earlier rounds', '', ...earlier)
   }
   // The set-aside block of the last round that ran the coverage pass, named (#85): the round whose
   // verifier ended the run, the one before a final nit pass. Earlier rounds' blocks stay in their
@@ -3180,7 +3242,7 @@ function leftToYou() {
   for (const record of rounds) {
     for (const [id, forced] of Object.entries(record.forced || {})) {
       const f = record.findings.find((x) => x.id === id)
-      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to the author under repository rule ${forced.rule}`
+      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to ${personLabel} under repository rule ${forced.rule}`
       lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
     }
   }
@@ -3241,7 +3303,7 @@ function capComment(open) {
   return [
     'Redline stopped at the round cap',
     '',
-    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. The author will pick these up.`,
+    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabel} will pick these up.`,
     '',
     '### Still open',
     '',
@@ -3519,6 +3581,9 @@ function handoffResult(record, outcome) {
     handoffRound: record.round,
     specFolder: record.specFolder,
     judgmentCalls,
+    // What the shaper declined on its own in this round (#93), each with its reason: the skill
+    // lists them after the calls, and a typed line overrules one before the relaunch.
+    declined: (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline').map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() })),
     unresolved: outcome.unresolved || [],
     decisionsNeeded: outcome.pending.map((call) => call.id),
   })
