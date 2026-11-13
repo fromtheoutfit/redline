@@ -643,8 +643,8 @@ const SPEC_STATUS_SCHEMA = {
 
 // The pass's fixed reasons, plus one per repository ask rule (#49). A Redline round's enum is
 // ROUND_WHY (#93) and a human review pass's HUMAN_WHY, each with the rule reasons, so a value from
-// the other pass is refused by the shaper's structured output inside its own run, and checkCalls
-// stays the second layer (#94, R1-5, R1-12).
+// the other pass is refused by the shaper's structured output inside its own run, and checkWhy
+// stays the second layer (#94, R1-5, R1-12, R1-13).
 function judgmentCallSchema(reasons) {
   return {
     type: 'object',
@@ -2589,20 +2589,12 @@ function checkDispositions(pass, shaped) {
 // Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
 // shaper's rule 10 says; the script pins it, so a call can never stand in for a finding the shaper
 // did not write as an ask. Runs before forceAskRules, which adds the one call the workflow writes,
-// for a finding a repository ask rule covers. On a reshape, `known` is the round's calls so far: a
-// call the round already decided may be left out or kept beside a re-sorted finding, since the
-// reshape returns only the calls still pending or newly raised (#61, R1-2).
+// for a finding a repository ask rule covers; the reason a call gives is checkWhy's, after it. On a
+// reshape, `known` is the round's calls so far: a call the round already decided may be left out
+// or kept beside a re-sorted finding, since the reshape returns only the calls still pending or
+// newly raised (#61, R1-2).
 function checkCalls(pass, shaped, known = []) {
   const decided = (id) => known.some((c) => c.id === id)
-  // A Redline round asks in the cases of ROUND_WHY only, beside the repository ask rules (#93): a
-  // call for any other reason is one the shaper should have decided, so it stops here and never
-  // reaches the person. A human review pass keeps its own reasons.
-  if (!pass.human) {
-    const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
-    if (outside) {
-      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`)
-    }
-  }
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
     throw stageError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
@@ -2614,6 +2606,21 @@ function checkCalls(pass, shaped, known = []) {
     const f = shaped.findings.find((x) => x.id === call.id)
     if (!f || f.disposition !== 'ask') {
       throw stageError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
+    }
+  }
+}
+
+// A Redline round asks in the cases of ROUND_WHY only, beside the repository ask rules (#93): a
+// call for any other reason is one the shaper should have decided, so it stops here and never
+// reaches the person. A human review pass keeps its own reasons. Runs after forceAskRules, which
+// gives a call a repository rule covers the rule's reason, so that call is judged by the reason it
+// will be asked with (#94, R1-13). `known` is checkCalls's: the round's calls so far on a reshape.
+function checkWhy(pass, shaped, known = []) {
+  const decided = (id) => known.some((c) => c.id === id)
+  if (!pass.human) {
+    const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
+    if (outside) {
+      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`)
     }
   }
 }
@@ -2833,6 +2840,7 @@ async function revise(record, inScope, reviewedKind) {
   checkCalls(pass, shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
+  checkWhy(pass, shaped)
   record.dispositions = shaped.findings
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
@@ -2950,6 +2958,7 @@ async function revise(record, inScope, reviewedKind) {
     checkCalls(pass, shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
+    checkWhy(pass, shaped, calls)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
