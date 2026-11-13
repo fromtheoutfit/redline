@@ -3341,7 +3341,7 @@ function capComment(open) {
   return [
     'Redline stopped at the round cap',
     '',
-    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabel} will pick these up.`,
+    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabel.charAt(0).toUpperCase()}${personLabel.slice(1)} will pick these up.`,
     '',
     '### Still open',
     '',

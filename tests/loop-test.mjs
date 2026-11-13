@@ -2305,6 +2305,9 @@ function samePrefix(name, first, second, n) {
   // The cap-hit comment names the person by login too.
   const capped = await go('layout: the cap-hit comment', { ...covArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
   check('layout: the cap-hit comment says who picks the open findings up, by login', capped.res.status === 'capped' && comment(capped.calls, 'cap-hit comment').includes('so it has not requested a review. @author will pick these up.') && !comment(capped.calls, 'cap-hit comment').includes('The author'), comment(capped.calls, 'cap-hit comment'))
+  // With no login the fallback opens the sentence, so it is capitalised (#94, R1-17).
+  const cappedAnon = await go('layout: the cap-hit comment with no login', { ...covArgs, maxRounds: 1, login: '' }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
+  check('layout: with no login the cap-hit comment opens its sentence with a capital', cappedAnon.res.status === 'capped' && comment(cappedAnon.calls, 'cap-hit comment').includes('so it has not requested a review. The person running Redline will pick these up.'), comment(cappedAnon.calls, 'cap-hit comment'))
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
