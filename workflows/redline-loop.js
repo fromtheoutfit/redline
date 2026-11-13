@@ -343,7 +343,10 @@ const ASK_CASES = 'You decide every finding, and the person is asked in five cas
 const NOT_YOURS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it. A decision already made, the shaper\'s own included (a fix, a decline with its reason, a deferral), is applied as recorded and never reopened.'
 // The verifier since #93: it states what is true, and the kind of each finding, which now keeps a
 // run going. Every review prompt carries both, with the coverage pass or without it.
-const KINDS = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc. State the kind with care: a correctness finding the run acts on buys another round.'
+const KIND_RULES = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc.'
+const KINDS = `${KIND_RULES} State the kind with care: a correctness finding the run acts on buys another round.`
+// A final nit pass buys no round: what it finds gets one more revise pass and the run ends (#94, R2-2).
+const KINDS_FINAL = `${KIND_RULES} State the kind with care: in this final nit pass a correctness finding the run acts on gets one more revise pass, and then the run ends.`
 const FACTS_ONLY = 'You establish what is true; you do not decide what to do about it. Report every finding you verified, whatever its size, whatever its fix would cost and wherever its cause lies, with confidence confirmed (reproduced, or traced through the code to the result, with the lines cited). Report one you could not confirm with confidence unconfirmed and, in wouldConfirm, one line on what would confirm it. Whether to fix it, decline it or put it to the person is the shaper\'s decision, never yours.'
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 // The rule a role after the shaper follows about decisions: a human review pass keeps NEVER_DECIDE;
@@ -1386,7 +1389,7 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   } else if (scope === 'correctness') {
     lines.push('', 'Scope: correctness only. Run no nit checks of your own: no naming, clarity, docblock or test-tightness pass, and no Docs or Version nit. Spend that time on reproducing the correctness candidates you have. A nit a candidate raises is still verified and reported as one, since you state what is true; the run declines it under the scope, in one list, with no thread.')
   }
-  lines.push('', KINDS, '', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
+  lines.push('', reviewed === 'final-nit-pass' ? KINDS_FINAL : KINDS, '', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
 }
 
