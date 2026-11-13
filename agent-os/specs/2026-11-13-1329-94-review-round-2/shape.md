@@ -49,6 +49,8 @@ Sorted:
     Decided by: redline
 17. **Run caution.** Task 8 changes `agents/redline-reviewer.md`. The rest of this run's rounds run under the edit, and the skill names the file (README Known limits, "A self-review that edits an agent file runs its later rounds under the edit"). The edit only adds a parenthetical for the final nit pass, which that pass's prompt already states after Task 8. `workflows/redline-loop.js` changes in most tasks; a relaunch runs the script the run launched with (`agent-os/standards/workflow/replay.md`, the #81 bullet).
     Decided by: redline
+18. **Built: Task 6's scenario marks the answered call as no change.** As planned, the R2-11 scenario stopped at `check r1` before and after the fix (`no commit names R1-2`), because the resolve mock gives an answered call a task with a file. The scenario adds `acceptedCalls: ['R1-2']`, since "Keep it" changes no code. The check and its red and green results are as the plan gives them (`plan.md`, As built).
+    Decided by: redline
 
 ### Proportionality (the correctness findings)
 

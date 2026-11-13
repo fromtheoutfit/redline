@@ -587,3 +587,36 @@ It fails before the change (R1-7 is listed). The check above it, the first stop 
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #94 round 2 as built (#93)`
+
+---
+
+## As built
+
+Built on `refactor/93-...` from `e788107`, one commit per task, every file staged by name.
+
+| Task | Finding | Commit | Red run (failing checks) | Green run |
+|---|---|---|---|---|
+| 1 | spec | `4bb2695` | n/a | n/a |
+| 2 | R2-1 | `18f4675` | gh `133 passed, 2 failed`: `underscore login: the rule tail of a login with an underscore is stripped from the title` (got the title with ` · left to @octo_acme under rule craft-config`), `underscore login: its left to @login reply is left` (got `decided`) | gh `135 passed, 0 failed` |
+| 3 | R2-5 | `127ad81` | loop `841 checks passed, 1 failed`: `coverage: a ref with a note after the id counts as that finding and mints nothing` (findings `R1-1`, `R1-2`) | loop `843 checks passed, 0 failed` |
+| 4 | R2-6 | `f97b63e` | loop `844 checks passed, 1 failed`: `coverage: a candidate with no file is minted at (no file), line 0, and its body line has a place`; the gh case `no file: ...` passed at once, as planned (gh `136 passed`) | loop `845 checks passed, 0 failed`, gh `136 passed, 0 failed` |
+| 5 | R2-10 | `018da64` | loop `846 checks passed, 1 failed`: `plan: an accept that keeps a decline is listed as put to the person, never as overruled` | loop `847 checks passed, 0 failed` |
+| 6 | R2-11 | `5bcc795` | loop `848 checks passed, 1 failed`: `done: an answered correctness ask that a reshape re-sorts to a decline still buys the next round` (labels end in `final nit pass r2`) | loop `849 checks passed, 0 failed` |
+| 7 | R2-12 (defer) | `bc70286` | loop `852 checks passed, 1 failed`: `done: a commit that mentions a declined item does not count it fixed in the final nit pass sentence`; the neighbour (`a final nit pass deferral's mitigation commit is still flagged as unreviewed`) green | loop `853 checks passed, 0 failed` |
+| 8 | R2-2 | `4cf63df` | loop `853 checks passed, 1 failed`: `done: the final nit pass is told a correctness finding gets one more revise pass and then the run ends, ...` | loop `854 checks passed, 0 failed` |
+| 9 | R2-3 | `4351d10` | loop `854 checks passed, 2 failed`: `rules: a Redline round's shaper schema takes fix, decline, defer and ask, and no none`, `human: a human pass's shaper schema takes fix, ask and none, and no decline or defer` (both one enum of five) | loop `856 checks passed, 0 failed` |
+| 10 | R2-7 | `d4c1fc3` | loop `856 checks passed, 1 failed`: `resume: the relaunch note says a decline overruled at a decisions stop carries its disposition` | loop `857 checks passed, 0 failed` |
+| 11 | R2-8 | `df4ad98` | refactor: green before (857) | loop `857 checks passed, 0 failed`; `grep -c "checkCalls(pass"` prints `0` |
+| 12 | R2-9 | `5b4c8f7` | loop `857 checks passed, 2 failed`: `ask: a refused reason names the shaper as the step to resume, not the spec check` (`spec status r1`), `ask: a refused reason on a reshape names that reshape as the step to resume` (`spec status r1 #1`) | loop `859 checks passed, 0 failed` |
+| 13 | R2-13 | `af97c4e` | refactor: green before (859) | loop `859 checks passed, 0 failed`; the `d.overruled` grep prints `1` |
+| 14 | R2-14 | `e02fec3` | loop `856 checks passed, 3 failed`: the guided handoff, the posted-text Fixed line and the layout checks | loop `859 checks passed, 0 failed`; `Each in its own commit` greps `0` in all three files |
+| 15 | R2-15 | `540db37` | loop `859 checks passed, 1 failed`: `overrule: a second decisions stop leaves out a decline the person already overruled` (R1-7 listed) | loop `860 checks passed, 0 failed` |
+| 16 | standards | `a5bc2ba` | n/a | `git diff HEAD~1 -- agent-os/standards/ \| grep -c "^[-+]#"` prints `0` |
+
+- **Proofs.** Task 2: `grep -c "A-Za-z0-9_-" scripts/redline-gh.sh` prints `2`, and the old pattern greps `0`. Task 8: `grep -c "after which the run ends" agents/redline-reviewer.md` prints `1`.
+- **Gate counts** (the final run, recorded in the gate's JSON): loop `860 checks passed, 0 failed` (841 + the thirteen new checks + six run-record checks from the new runs); gh `136 passed, 0 failed`; guard `594 passed, 0 mismatched`; prefs, gate, setup and background at their counts before the round. Every check exits 0, and `git.unexpected_files` and `git.uncommitted` are empty.
+- **Standards retrospective.** All six approved items applied as drafted in `shape.md`, in `a5bc2ba`: items 1 to 5 in `agent-os/standards/workflow/agents.md`, item 6 in `agent-os/standards/testing/tests.md`. None carries part of a finding's fix, so the commit names no finding.
+- **Correction to round 1's As built.** Round 1's Task 14 (R1-13) moved `checkWhy` after the `spec status` call, and its As built said the error text and the resume label were unchanged. The text was unchanged, but the label changed: `stageError` fell back to `lastLabel`, which then named `spec status r<n>`, so a resume replayed the refused shaper. This round's Task 12 passes the shaper's label, and the two new `resumeFrom` checks pin it.
+- **Deviation, Task 6.** The planned scenario stopped at `check r1` before and after the change (`no commit names R1-2`): the resolve mock gives every answered call a task with a file, so the gate needed a commit naming R1-2. The scenario adds `acceptedCalls: ['R1-2']`, since the answer "Keep it" changes no code, and a comment saying so. The check is as planned. Red and green then matched the plan (`final nit pass r2` before, `re-review r2` after). Recorded in `shape.md`, Decision 18.
+- **Placement, Task 7.** The R2-12 comment sits as its own paragraph right above the done-rule lines, after Task 6's R2-11 sentence, instead of inside the sentence it replaces. The wording is as planned.
+- **Order, Task 5.** The change was written before the red run, so the `overruled` condition was taken out, the red run seen, and the condition put back before the green run.
