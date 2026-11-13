@@ -149,3 +149,41 @@ No harness reads these three files (`shape.md`, Unattended answer 5), so the pro
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #91 round 2 as built (#81)`
+
+## As built
+
+Built as planned, with no deviation, so `shape.md` gains no Decision.
+
+**Commits.**
+
+- Task 1: `f0bf0e3` `redline: save review round 2 spec for PR #91 (#81)`. The four spec files only; nothing under `redline/`.
+- Task 2: `7da0f89` `redline: R2-1 say the pinned relaunch prompt is expected and not measured yet, in the docs and the skill line (#81)`.
+- Task 3, retrospective: `3936725` `redline: record the round 2 review lessons in the standards (#81)`.
+- Task 3, this section: `redline: record PR #91 round 2 as built (#81)`.
+
+**Task 2, proof.** Each of the three clauses was replaced with Edit, exactly as drafted. The greps:
+
+- `the relaunch runs with no prompt` in `docs/running.md`: `0`.
+- `there is no prompt;` in `skills/redline/SKILL.md`: `0`.
+- `asks once per relaunch`: `docs/running.md:0`, `skills/redline/SKILL.md:0`.
+- `neither has been measured yet`: `docs/running.md:1`, `skills/redline/SKILL.md:1`.
+- `only the headless denial below was (#81)` in `docs/running.md`: `1`.
+- `asks exactly once outside bypass-permissions (#81)` in `README.md`: `0`. `runs with no prompt in bypass-permissions and asks exactly once in any other mode (#81)`: `1`.
+- `git diff --stat HEAD~1 HEAD`: `3 files changed, 3 insertions(+), 3 deletions(-)`. `git diff --name-only HEAD~1 HEAD`: `README.md`, `docs/running.md`, `skills/redline/SKILL.md`.
+- `git diff --stat 1c96b8c HEAD -- workflows/ agents/` printed nothing.
+
+**Gate counts** (steps 1 to 9). The first run exited 0. `syntax`, `validate` and every harness exited 0, each at the count the plan expected:
+
+- guard `594 passed, 0 mismatched`;
+- loop `725 checks passed, 0 failed`;
+- prefs `121 passed, 0 failed`;
+- gate `117 passed, 0 failed`;
+- setup `468 passed, 0 failed`;
+- gh `121 passed, 0 failed`;
+- background `39 passed, 0 failed`.
+
+The git block listed no `unexpected_files` and no `uncommitted` entry.
+
+**Docs (step 10).** As Task 2's Docs entry says, all in `7da0f89`. **Version (step 11).** `0.2.4` in both manifests, unchanged.
+
+**Standards retrospective (step 12).** The standards approver approved item 1, applied as drafted in `3936725`: `agent-os/standards/process/docs-gate.md`, a bullet added after line 17. `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`.
