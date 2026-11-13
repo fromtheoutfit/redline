@@ -1534,7 +1534,14 @@ function accountCoverage(round, out, candidates) {
     }
     const ref = typeof entry.ref === 'string' ? entry.ref.trim() : String(entry.ref === undefined || entry.ref === null ? '' : entry.ref)
     if (LISTED_ELSEWHERE.includes(entry.outcome)) {
-      const finding = byId.get(ref)
+      // The ref is the finding's id alone, as the accounting sentence asks; a note after the id is
+      // read past, by its leading id, with a warning, so it never mints a second finding for a
+      // candidate already reported (#94, R2-5). A leading token that names no finding is a bad ref.
+      const id = (/^(R\d+-\d+)(?![\w-])/.exec(ref) || [])[1] || ref
+      const finding = byId.get(id)
+      if (finding && id !== ref) {
+        warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome} with ref ${JSON.stringify(ref)}; read as ${id}, the finding its leading id names`)
+      }
       if (!finding) {
         warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome} with ref ${JSON.stringify(ref)}, which is not a finding of this round; kept as an unconfirmed finding as reported`)
         told.add(index)
@@ -1548,7 +1555,7 @@ function accountCoverage(round, out, candidates) {
       if (own !== entry.outcome) {
         warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome}, but ${finding.id} is ${finding.confidence}; counted as ${own}`)
       }
-      seen.set(index, { index, outcome: own, ref })
+      seen.set(index, { index, outcome: own, ref: id })
       continue
     }
     seen.set(index, { index, outcome: entry.outcome, ref })
