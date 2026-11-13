@@ -2636,12 +2636,14 @@ function checkCalls(shaped, known = []) {
 // reaches the person. A human review pass keeps its own reasons. Runs after forceAskRules, which
 // gives a call a repository rule covers the rule's reason, so that call is judged by the reason it
 // will be asked with (#94, R1-13). `known` is checkCalls's: the round's calls so far on a reshape.
-function checkWhy(pass, shaped, known = []) {
+// It runs after the `spec status` call, so it names the shaper's label itself; `lastLabel` would
+// name the spec check, and a resume would replay the refused output (#94, R2-9).
+function checkWhy(pass, shaped, known, shaperLabel) {
   const decided = (id) => known.some((c) => c.id === id)
   if (!pass.human) {
     const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
     if (outside) {
-      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`)
+      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`, {}, shaperLabel)
     }
   }
 }
@@ -2861,7 +2863,7 @@ async function revise(record, inScope, reviewedKind) {
   checkCalls(shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
-  checkWhy(pass, shaped)
+  checkWhy(pass, shaped, [], `shape ${pass.tag}`)
   record.dispositions = shaped.findings
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
@@ -2979,7 +2981,7 @@ async function revise(record, inScope, reviewedKind) {
     checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
-    checkWhy(pass, shaped, calls)
+    checkWhy(pass, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.

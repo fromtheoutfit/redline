@@ -2061,6 +2061,10 @@ function samePrefix(name, first, second, n) {
   const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
   run = await go('ask: outside the cases', baseArgs, { ...asked, whyHuman: { 'R1-1': 'unsure' } })
   check('ask: a reason that is not one of the cases stops at shape, and the person is not asked', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper asked about R1-1 because of "unsure", which is not one of the cases the person is asked in on a Redline round (product decision, spec assumption, outside the pull request, no clear pick, unconfirmed, serious if true, redline\'s own file, or a repository rule)' && (run.res.judgmentCalls || []).length === 0, [run.res.status, run.res.error])
+  check('ask: a refused reason names the shaper as the step to resume, not the spec check', JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'shape r1', attempt: 2 }), run.res.resumeFrom)
+  // On a reshape the error names that reshape (#94, R2-9).
+  run = await go('ask: outside the cases on a reshape', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, reshapeAsk: ['R1-1'], whyHuman: { 'R1-1': 'unsure' }, commitIds: [['R1-1']] })
+  check('ask: a refused reason on a reshape names that reshape as the step to resume', run.res.status === 'error' && run.res.stage === 'shape' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [run.res.status, run.res.error, run.res.resumeFrom])
   // A call a repository rule covers is judged by the reason the rule gives it, so the shaper's own
   // reason, outside the cases, never stops the round (#94, R1-13).
   run = await go('ask: outside the cases, under a repository rule', { ...baseArgs, askRules: [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }] }, { ...asked, reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })], []], whyHuman: { 'R1-1': 'unsure' } })
