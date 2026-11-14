@@ -2210,6 +2210,10 @@ function result(status, extra) {
       specFolder: record.specFolder,
       range: record.range,
       findings: record.findings.map(compactFinding),
+      // What the correctness-only scope declined in this round (#93). Those items stay in findings,
+      // as the round's record keeps them, and are listed here apart so the skill's summaries can
+      // name them (#94, R3-8).
+      scoped: (record.scoped || []).map(compactFinding),
       droppedNits: record.droppedNits || 0,
       post: record.post,
       dispositions: record.dispositions || null,
