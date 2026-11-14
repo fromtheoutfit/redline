@@ -340,7 +340,12 @@ const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
 const ROUND_WHY = ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', "redline's own file"]
 const HUMAN_WHY = ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix']
 const ASK_CASES = 'You decide every finding, and the person is asked in five cases only: the options differ in what the product does or what a user sees; the fix changes an assumption, the approach or the architecture the original spec agreed; the fix reaches outside what the pull request set out to do; two options are both defensible and neither is the clear pick; or the finding is still unconfirmed after your second look and its harm would be serious if it were true (security, privacy, data loss, money). A finding on a file of Redline\'s own is asked as well, as your instructions say. In every other case you take your own recommendation, a decision to decline included, and record it as decided by redline with its reason. Name the case, never a degree of confidence.'
-const NOT_YOURS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it. A decision already made, the shaper\'s own included (a fix, a decline with its reason, a deferral), is applied as recorded and never reopened.'
+const PENDING_IS_THEIRS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it.'
+const NOT_YOURS = `${PENDING_IS_THEIRS} A decision already made, the shaper's own included (a fix, a decline with its reason, a deferral), is applied as recorded and never reopened.`
+// The resolve agent applies the person's decisions, and a disposition override is one: it
+// replaces the shaper's own, a decline included (the #93 spec, decision 7), so its rule never
+// says that a shaper's decision is never reopened (#94, R4-4).
+const RESOLVE_RULE = `${PENDING_IS_THEIRS} A disposition override is the person's decision and replaces the shaper's, a decline included. Every other decision already made, the shaper's own included, is applied as recorded.`
 // The verifier since #93: it states what is true, and the kind of each finding, which now keeps a
 // run going. Every review prompt carries both, with the coverage pass or without it.
 const KIND_RULES = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc.'
@@ -351,6 +356,8 @@ const FACTS_ONLY = 'You establish what is true; you do not decide what to do abo
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 // The rule a role after the shaper follows about decisions: a human review pass keeps NEVER_DECIDE;
 // a Redline round's roles apply what was decided and leave what is pending (#93; #94, R1-9).
+// It serves the standards approver and the implementer; the resolve agent and the plan approver
+// have rules of their own (#94, R4-4, R4-5).
 const decideRule = (pass) => (pass.human ? NEVER_DECIDE : NOT_YOURS)
 
 const specFolderFor = (round) => `agent-os/specs/${stamp}-${pr}-review-round-${round}`
@@ -1745,7 +1752,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   }
   lines.push(
     '',
-    `${decideRule(pass)} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
+    `${pass.human ? NEVER_DECIDE : RESOLVE_RULE} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
     '',
     'Return only the JSON your instructions specify.',
   )

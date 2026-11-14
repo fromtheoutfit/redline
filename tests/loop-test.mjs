@@ -2126,6 +2126,10 @@ function samePrefix(name, first, second, n) {
   samePrefix('decline plan', first.calls, second.calls, 5)
   const resolve = pick(second.calls, 'resolve r1').prompt
   check('decline: the resolve agent gets the override and is told a decline can be changed', second.res.status === 'done' && resolve.includes('Disposition overrides') && resolve.includes('"disposition": "fix"') && resolve.includes('a finding the shaper declined') && resolve.includes('A decision that is still pending is the person\'s'), [second.res.status, resolve.slice(-1500)])
+  // The resolve agent's rule says an override replaces the shaper's decision, a decline included,
+  // and never that a shaper's decision is never reopened; the implementer keeps that sentence
+  // (#94, R4-4).
+  check('decline: the resolve rule says an override replaces the shaper\'s decision, and the implementer keeps never reopened', resolve.includes('A disposition override is the person\'s decision and replaces the shaper\'s, a decline included.') && !resolve.includes('never reopened') && (pick(second.calls, 'implement r1') || { prompt: '' }).prompt.includes('is applied as recorded and never reopened.'), resolve.slice(-900))
   check('decline: an overruled decline is fixed, decided by the person', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author wants the rename now, since a third caller lands next week. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
 
   // An earlier run's decline is a disposition: handled, never carried into the new run.
