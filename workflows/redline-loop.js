@@ -248,13 +248,16 @@ if (A.drift !== undefined && A.drift !== null) {
   drift.pinned = d.pinned
   drift.agents = d.agents.slice()
 }
+// The changed agent files as both sentences below name them, built once so the two never name
+// different files (#94, R5-1).
+const agentList = drift.agents.map((p) => `\`${p}\``).join(', ')
 const AGENTS_CHANGED = drift.agents.length
-  ? `Agent files changed since this run launched (${drift.agents.map((p) => `\`${p}\``).join(', ')}): this run's remaining rounds may run under them, while the workflow's own prompts are the launch's.`
+  ? `Agent files changed since this run launched (${agentList}): this run's remaining rounds may run under them, while the workflow's own prompts are the launch's.`
   : ''
 // The same fact as the handoff comment states it (#93): the comment is posted after the last round,
 // so it says what happened, where the warning above, shown while rounds are ahead, says what may.
 const AGENTS_CHANGED_HANDOFF = drift.agents.length
-  ? `Agent files changed during this run (${drift.agents.map((p) => `\`${p}\``).join(', ')}): the rounds after the change may have run under them, while the workflow's own prompts were the launch's.`
+  ? `Agent files changed during this run (${agentList}): the rounds after the change may have run under them, while the workflow's own prompts were the launch's.`
   : ''
 const handCommits = new Set(Object.values(resume).flatMap((entry) => entry.hand.commits))
 const handPaths = [...new Set(Object.values(resume).flatMap((entry) => entry.hand.paths))]
