@@ -2282,6 +2282,16 @@ function samePrefix(name, first, second, n) {
   // list again a decline the person already overruled (#94, R2-15).
   const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
   check('overrule: a second decisions stop leaves out a decline the person already overruled', again.res.status === 'handoff' && again.res.handoffKind === 'decisions' && JSON.stringify((again.res.declined || []).map((d) => d.id)) === '["R1-3","R1-6"]', [again.res.status, again.res.handoffKind, again.res.declined])
+  // A stop after a plan approver of the round has run (a reshape's) lists no declines and names
+  // them for the after-run door, since the round's first resolve, which applies an overrule, ran
+  // before it; the relaunch then replays to the stop and the answer reaches the reshape's resolve
+  // (#94, R3-7).
+  const late = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-2'], planBounce: 1, reshapeAsk: ['R1-1'], commitIds: [['R1-1']] }
+  const lateStop = await go('overrule: a reshape stop', baseArgs, late)
+  check('overrule: a reshape\'s decisions stop lists no declines and names them for after the run', lateStop.res.status === 'handoff' && lateStop.res.handoffKind === 'decisions' && JSON.stringify(lateStop.res.decisionsNeeded) === '["R1-1"]' && JSON.stringify(lateStop.res.declined) === '[]' && JSON.stringify(lateStop.res.declinedAfterRun) === '["R1-2"]', [lateStop.res.status, lateStop.res.handoffKind, lateStop.res.decisionsNeeded, lateStop.res.declined, lateStop.res.declinedAfterRun])
+  const lateRun = await go('overrule: a reshape stop answered', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept as it is after the reshape.', date: '2026-11-14' } } }, late)
+  samePrefix('overrule: the relaunch from a reshape stop', lateStop.calls, lateRun.calls, lateStop.calls.length)
+  check('overrule: the answer typed at a reshape stop reaches the reshape\'s resolve, and the first resolve does not run', Boolean(pick(lateRun.calls, 'resolve r1 #1')) && pick(lateRun.calls, 'resolve r1 #1').prompt.includes('Kept as it is after the reshape.') && !pick(lateRun.calls, 'resolve r1'), labels(lateRun.calls))
   const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions }, scenario)
   samePrefix('overrule: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
   check('overrule: a typed overrule at the hand-off turns a decline into a fix decided by the person', run.res.status === 'done' && pick(run.calls, 'resolve r1').prompt.includes('Disposition overrides') && replyFor(run.calls, 'push and reply r1', 'R1-7') === 'Redline round 1: Fix it now; a third caller lands next week. Applied in 4bbbbbb (redline: R1-7 fix). · decided by: @author', [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-7')])

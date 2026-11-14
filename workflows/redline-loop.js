@@ -2942,7 +2942,7 @@ async function revise(record, inScope, reviewedKind) {
       if (interrupt === 'autopilot') {
         throw stageError('resolve', `autopilot could not apply the shaper's recommendation for ${ids.join(', ')}`, { unresolved: out.unresolved })
       }
-      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved, shaped }
+      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved, shaped, afterApproval: suffix !== '' }
     }
     deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
     return out
@@ -2999,7 +2999,7 @@ async function revise(record, inScope, reviewedKind) {
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
     if (settle(raised.filter((call) => !decisions[call.id]))) {
-      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped }
+      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped, afterApproval: true }
     }
     deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id)))
     if (raised.length) {
@@ -3661,6 +3661,7 @@ function handoffResult(record, outcome) {
     })
   }
   log(`round ${record.round}: ${outcome.pending.length} judgment call(s) for the person; the run ends here and resumes on relaunch`)
+  const roundDeclines = (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !(decisions[x.id] && decisions[x.id].disposition)).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() }))
   return result('handoff', {
     handoffKind: 'decisions',
     handoffRound: record.round,
@@ -3670,7 +3671,13 @@ function handoffResult(record, outcome) {
     // lists them after the calls, and a typed line overrules one before the relaunch. A decline the
     // person already overruled is left out: the overrule is in the decisions the relaunch carries,
     // and it is applied there (#94, R2-15).
-    declined: (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !(decisions[x.id] && decisions[x.id].disposition)).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() })),
+    // At a stop a plan approver of the round has run before (a reshape's, or its resolve's), an
+    // overrule would be applied at the round's first resolve, which ran before the stop, so the
+    // relaunch would change earlier prompts and could lose the answer to the new call. Such a
+    // stop lists no declines, and declinedAfterRun names them for the after-run door: a reply in
+    // the thread and the human review pass (#94, R3-7).
+    declined: outcome.afterApproval ? [] : roundDeclines,
+    declinedAfterRun: outcome.afterApproval ? roundDeclines.map((x) => x.id) : [],
     unresolved: outcome.unresolved || [],
     decisionsNeeded: outcome.pending.map((call) => call.id),
   })
