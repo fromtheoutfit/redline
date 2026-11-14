@@ -479,3 +479,26 @@ or a typed line at a stop the run already makes before the round's plan approver
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #94 round 3 as built (#93)`
+
+## As built
+
+Built on `refactor/93-...` from `dae81d4`, one commit per task, every file staged by name.
+
+| Task | Finding | Commit | Red run (failing checks) | Green run |
+|---|---|---|---|---|
+| 1 | spec | `fdb73fd` | n/a | n/a |
+| 2 | R3-2 | `c3a484a` | loop `860 checks passed, 1 failed`: `posted text: the inline comment's Would confirm line goes through the same function as the body line` (the comment ended `a <b> & c note from @param`) | loop `861 checks passed, 1 failed`, the one failure being Task 3's new check |
+| 3 | R3-3 | `b251c8c` | loop `861 checks passed, 1 failed`: `coverage: the agent file says the decline reopen needs a coverage candidate, and that with no candidates a decline stays settled` | loop `863 checks passed, 1 failed`, the one failure being Task 4's new check |
+| 4 | R3-4 | `f66e716` | loop `863 checks passed, 1 failed`: `coverage: a left-out candidate with no summary and no scenario is minted with a title and a description that say so` | loop `864 checks passed, 0 failed` |
+| 5 | R3-1 | `2607cbd` | no test (no harness reads `docs/upgrading.md`) | n/a |
+| 6 | R3-6 | `a5f85a0` | loop `862 checks passed, 2 failed`: `layout: the handoff, every heading in order with its line, is the layout the spec shows`, `layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login` | loop `864 checks passed, 1 failed`, the one failure being Task 7's new check |
+| 7 | R3-8 | `9a30fcc` | loop `864 checks passed, 1 failed`: `scope: the result lists each round's scope-declined items under scoped, and findings keeps them` (`scoped` absent) | loop `865 checks passed, 0 failed` |
+| 8 | R3-7 (decided: Narrow the door) | `b7e71f2` | loop `868 checks passed, 1 failed`: `overrule: a reshape's decisions stop lists no declines and names them for after the run` (`declined` held R1-2, `declinedAfterRun` absent); the relaunch's `samePrefix` and `the answer typed at a reshape stop reaches the reshape's resolve` green, as planned | loop `869 checks passed, 0 failed` |
+| 9 | standards | `70b5db5` | n/a | `git diff HEAD~1 -- agent-os/standards/ \| grep -c "^[-+]#"` prints `0` |
+
+- **Proofs.** Task 2 `1`; Task 3 `1`, `1`, `1`; Task 4 `2`; Task 5 `1`; Task 7 `1`, `1`; Task 8 `2`, `4`, `1`, `1`, all as planned. Task 6: see the deviation below.
+- **Gate counts** (the final run, recorded in the gate's JSON): loop `869 checks passed, 0 failed` (860 + the six new checks + one `samePrefix` + two run-record checks, from Task 4's run and Task 8's answered relaunch); gh `136 passed, 0 failed`; guard `594 passed, 0 mismatched`; prefs `121`, gate `117`, setup `470`, background `39`, as before the round. Every check exits 0, and `git.unexpected_files` and `git.uncommitted` are empty.
+- **R3-7.** Put to the person as a spec assumption and decided by @michaelfromtheoutfit on 2026-11-14 as Narrow the door (`shape.md`, Decision 8). Built as Task 8 planned: `resolveWith`'s hand-off carries `afterApproval: suffix !== ''`, the reshape's hand-off `afterApproval: true`, and `handoffResult` passes `declined: []` with `declinedAfterRun` naming the round's declines at such a stop. The first shape's stop and the first resolve's unresolved stop keep their lists (the two neighbour checks stayed green).
+- **Standards retrospective.** All six approved edits applied as drafted, in `70b5db5`: five in `agent-os/standards/workflow/agents.md` (lines 11, 16, 17 and 38, and the new bullet after 17), one in `agent-os/standards/workflow/replay.md` (line 6). None carries part of a finding's fix, so the commit names no finding.
+- **Deviation, Task 6 proof.** The plan's greps, `then run ./redline-revise` and `then run ./redline:redline-revise`, allow one character between `run ` and `/`, but the template literal holds an escaped backtick (two characters), so both print `0` whatever the line says. With two dots they print `0` and `1`, which is the proof the plan meant. The change is as planned.
+- **Order, Tasks 2, 3 and 6.** Each was committed after its proof and before its green gate run, and its green run is the next task's red run, in which that task's check passed and only the next task's new check failed. Tasks 4, 7 and 8 saw their green run before the commit.

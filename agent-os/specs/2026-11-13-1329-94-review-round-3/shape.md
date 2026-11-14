@@ -40,6 +40,8 @@ Sorted:
    Decided by: redline
 10. **Run caution.** Task 3 changes `agents/redline-reviewer.md`, and the rest of this run's rounds run under the edit. The skill names the file (README Known limits, "A self-review that edits an agent file runs its later rounds under the edit"). The edit only states the condition the prompt already applies. Task 7 changes `skills/redline/SKILL.md`'s summaries, which this run's own closing summary may or may not read, depending on whether the session reloads the skill. `workflows/redline-loop.js` changes in four tasks. Since R3-7 was decided (Decision 8), Task 8 changes it too, five tasks in all, and changes `skills/redline/SKILL.md`'s declines paragraph, which a later stop of this run reads only if the session reloads the skill. A relaunch runs the script the run launched with (`agent-os/standards/workflow/replay.md:19`).
     Decided by: redline
+11. **As built: Task 6's proof greps.** The plan's two greps allow one character before the command's slash, where the source holds an escaped backtick (two), so both print `0`. The proof was run with two dots instead (`0` and `1`); the change itself is as planned. Recorded under As built in `plan.md`.
+    Decided by: redline
 
 ### Proportionality (the correctness findings)
 
