@@ -1440,6 +1440,9 @@ function samePrefix(name, first, second, n) {
   // agent file's sentence, and the history header of a round with candidates; with coverage off
   // the header is as before.
   check('coverage: the agent file says a declined finding is not raised again, except one declined for want of confirmation that the verifier now confirms', reviewerAgent.includes('is not raised again, except one declined because it could not be confirmed'))
+  // The reopen needs a coverage candidate; with none, a declined finding stays settled, as the
+  // prompt's history header says under coverage off (#94, R3-3).
+  check('coverage: the agent file says the decline reopen needs a coverage candidate, and that with no candidates a decline stays settled', reviewerAgent.includes('that you now confirm from a coverage candidate') && reviewerAgent.includes('With no candidates (a round launched with `coverage off`, or a final nit pass) there is no such exception'))
   check('coverage: the history header carries the decline-reopen exception on a covered round, and a coverage off round keeps the header as before', (handledR3 || '').includes('never re-raise a declined, deferred or decided one, except one declined because it could not be confirmed that you now confirm') && (handledOff || '').includes('never re-raise a declined, deferred or decided one):'), [(handledR3 || '').slice(0, 2500), (handledOff || '').slice(0, 2500)])
 
   // A decided finding stays settled whatever its commits (#80, R3-4): a candidate that still
