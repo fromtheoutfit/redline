@@ -2136,6 +2136,11 @@ function samePrefix(name, first, second, n) {
   // (#94, R4-4).
   check('decline: the resolve rule says an override replaces the shaper\'s decision, and the implementer keeps never reopened', resolve.includes('A disposition override is the person\'s decision and replaces the shaper\'s, a decline included.') && !resolve.includes('never reopened') && (pick(second.calls, 'implement r1') || { prompt: '' }).prompt.includes('is applied as recorded and never reopened.'), resolve.slice(-900))
   check('decline: an overruled decline is fixed, decided by the person', replyFor(second.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: The author wants the rename now, since a third caller lands next week. Applied in 2bbbbbb (redline: R1-2 fix). · decided by: @author', replyFor(second.calls, 'push and reply r1', 'R1-2'))
+  // A defer the reshape re-sorts to decline is posted as declined and never listed under Deferred;
+  // the deferred entry the reshape left beside it is dropped with a warning, and the implementer is
+  // not given it (#94, R4-9). The mock's reshape keeps the entry for a scenario's defer ids.
+  const deferResorted = await go('decline: a reshape re-sorts a defer to decline', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-4', 'nit')], []], defer: ['R1-4'], planBounce: 1, reshapeDecline: ['R1-4'], commitIds: [['R1-1']] })
+  check('decline: a defer re-sorted to decline is posted as declined, never listed under Deferred, and its stray entry is dropped with a warning', deferResorted.res.status === 'done' && (replyFor(deferResorted.calls, 'push and reply r1', 'R1-4') || '').startsWith('Redline round 1: declined: ') && !comment(deferResorted.calls, 'handoff comment').includes('### Deferred') && deferResorted.res.deferred.length === 0 && !(pick(deferResorted.calls, 'implement r1') || { prompt: '' }).prompt.includes('"mitigation": "a guard clause"') && deferResorted.res.warnings.some((w) => w.includes('R1-4') && w.includes('as deferred, but its disposition is not defer')), [deferResorted.res.status, deferResorted.res.deferred, deferResorted.res.warnings])
 
   // An earlier run's decline is a disposition: handled, never carried into the new run.
   const priors = [prior('R1-1', 'declined', { comment_id: 11, reply: { id: 250, body: 'declined: the spec keeps it on purpose · decided by: redline' } })]

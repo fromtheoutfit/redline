@@ -2633,6 +2633,15 @@ function checkDispositions(pass, shaped) {
       }
     }
   }
+  // A deferred entry stands beside a finding the shaper deferred, and nothing else: one beside a
+  // decline or a fix would be listed under Deferred as shipped with no mitigation planned, so it
+  // is dropped with a warning (#94, R4-9).
+  const deferredIds = new Set(shaped.findings.filter((f) => f.disposition === 'defer').map((f) => f.id))
+  const stray = (shaped.deferred || []).filter((d) => !deferredIds.has(d.id))
+  if (stray.length) {
+    warnings.push(`${pass.name}: the shaper listed ${stray.map((d) => d.id).join(', ')} as deferred, but its disposition is not defer; the entry is dropped`)
+    shaped.deferred = shaped.deferred.filter((d) => deferredIds.has(d.id))
+  }
 }
 
 // Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
@@ -3023,7 +3032,10 @@ async function revise(record, inScope, reviewedKind) {
     if (settle(raised.filter((call) => !decisions[call.id]))) {
       return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped, afterApproval: true }
     }
-    deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id)))
+    // An earlier entry stays only while its finding is still deferred or a decision stands on it:
+    // a defer the reshape re-sorted is no deferral any more (#94, R4-9).
+    const stillDeferred = (id) => Boolean(roundDecisions[id]) || shaped.findings.some((s) => s.id === id && s.disposition === 'defer')
+    deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id) && stillDeferred(item.id)))
     if (raised.length) {
       calls = calls.concat(raised)
       phase('Resolve')
@@ -3128,7 +3140,12 @@ async function revise(record, inScope, reviewedKind) {
     })
   commitsAll.push(...roundCommits)
   record.commits = roundCommits
-  for (const item of deferred) {
+
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
+  // Only an item that ended deferred, or decided with a mitigation the resolve agent planned, is
+  // listed under Deferred, so a decline or a fix beside a leftover entry is never called shipped
+  // (#94, R4-9).
+  for (const item of deferred.filter((d) => outcomes[d.id] && ['deferred', 'decided'].includes(outcomes[d.id].kind))) {
     const f = inScope.find((finding) => finding.id === item.id)
     deferredAll.push({ ...item, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[item.id] || 0 })
   }
@@ -3142,8 +3159,6 @@ async function revise(record, inScope, reviewedKind) {
     const f = inScope.find((finding) => finding.id === id)
     deferredAll.push({ id, mitigation: `none (repository rule ${forced.rule})`, fullFix: forced.recommendation, rule: forced.rule, reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
   }
-
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
   // The shaper's own disposition of each item, before any override: `overruled` and `bought` read
