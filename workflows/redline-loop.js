@@ -1522,6 +1522,10 @@ const MINTED_WOULD_CONFIRM = 'The verifier gave no account of this candidate; ch
 // body line back only with text before the colon, so `:0` would leave it neither carried nor
 // settled. The post script moves its comment into the review body, as it does any path in no hunk.
 const NO_FILE = '(no file)'
+// A candidate the finder gave neither a summary nor a failure scenario is still kept, since
+// nothing is dropped (#93): its title and description say what it lacks, so its body line and
+// its inline comment are never empty (#94, R3-4).
+const MINTED_NO_CLAIM = 'The coverage pass gave this candidate no summary and no failure scenario; check the code at its place.'
 function accountCoverage(round, out, candidates) {
   const byId = new Map(out.findings.map((f) => [f.id, f]))
   const seen = new Map()
@@ -1579,9 +1583,11 @@ function accountCoverage(round, out, candidates) {
     if (!told.has(index)) {
       warnings.push(`round ${round}: the reviewer did not account for coverage candidate ${index} (${c.file || NO_FILE}:${c.line}); kept as ${id}, an unconfirmed finding, as reported`)
     }
+    const summary = String(c.summary || '').replace(/\s+/g, ' ').trim()
+    const scenario = String(c.failure_scenario || '').trim()
     out.findings.push({
       id, file: c.file || NO_FILE, line: c.line, side: 'RIGHT', category: 'correctness', severity: 'medium', confidence: 'unconfirmed',
-      title: String(c.summary || '').replace(/\s+/g, ' ').trim(), description: String(c.failure_scenario || '').trim(), proposedFix: '',
+      title: summary || scenario.replace(/\s+/g, ' ') || `coverage candidate ${index} (no summary given)`, description: scenario || summary || MINTED_NO_CLAIM, proposedFix: '',
       wouldConfirm: MINTED_WOULD_CONFIRM, outsideDiff: false, knownAs: '', carriedFrom: '', askRule: '',
     })
     seen.set(index, { index, outcome: 'unconfirmed', ref: id })

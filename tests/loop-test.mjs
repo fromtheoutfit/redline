@@ -1498,6 +1498,12 @@ function samePrefix(name, first, second, n) {
   const noPlace = fenced([{ summary: 'no place', failure_scenario: 'f' }])
   run = await go('coverage: a candidate with no file', covArgs, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-2'], secondLook: { 'R1-2': 'unconfirmed' }, commitIds: [['R1-1']], coverage: [noPlace, noPlace], coverageOut: [[], [{ index: 1, outcome: 'settled', ref: 'R1-2' }]] })
   check('coverage: a candidate with no file is minted at (no file), line 0, and its body line has a place', body(run.calls, 'post r1').includes('· unconfirmed · `(no file):0` · no place') && !body(run.calls, 'post r1').includes('`:0`'), body(run.calls, 'post r1'))
+  // A left-out candidate with neither a summary nor a scenario is kept with a title and a
+  // description that say so, never an empty line or an empty bold title (#94, R3-4).
+  const noClaim = fenced([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }, { file: 'app/x.php', line: 4 }])
+  run = await go('coverage: a candidate with no claim', covArgs, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-2'], secondLook: { 'R1-2': 'unconfirmed' }, commitIds: [['R1-1']], coverage: [noClaim, noClaim], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'settled', ref: 'R1-2' }]] })
+  const ncPrompt = (pick(run.calls, 'post r1') || { prompt: '' }).prompt
+  check('coverage: a left-out candidate with no summary and no scenario is minted with a title and a description that say so', ncPrompt !== '' && body(run.calls, 'post r1').includes('· unconfirmed · `app/x.php:4` · coverage candidate 2 (no summary given)') && ncPrompt.includes('The coverage pass gave this candidate no summary and no failure scenario; check the code at its place.') && !ncPrompt.includes('****'), body(run.calls, 'post r1'))
 
   // A candidate is counted where the round puts it (#80, R1-4): under correctness only a nit the
   // verifier reported from a candidate is verified, and declined by the scope in its own list (#93);
