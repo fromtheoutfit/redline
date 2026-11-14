@@ -2961,6 +2961,10 @@ async function revise(record, inScope, reviewedKind) {
   const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !known.some((call) => call.id === f.id))
   let overrides = overridesFor(calls)
   let roundDecisions = {}
+  // A disposition the person changed away from defer (to fix or accept) leaves no deferral behind:
+  // the shaper's entry would be listed under Deferred as shipped and handed to the plan approver
+  // and the implementer (#94, R5-9).
+  const awayFromDefer = (id) => Boolean(roundDecisions[id] && roundDecisions[id].disposition && roundDecisions[id].disposition !== 'defer')
   let deferred = shaped.deferred.slice()
   let resolved = null
   const resolveWith = async (newCalls, newOverrides, suffix) => {
@@ -2979,6 +2983,7 @@ async function revise(record, inScope, reviewedKind) {
       }
       roundDecisions[id] = decision
     }
+    deferred = deferred.filter((d) => !awayFromDefer(d.id))
     const out = await run('resolve', resolvePrompt(pass, specFolder, newCalls, roundDecisions, newOverrides), {
       agentType: 'redline:redline-resolve', ...modelOpts('revise'), label: `resolve ${pass.tag}${suffix}`, phase: 'Resolve', schema: RESOLVE_SCHEMA,
     })
@@ -2995,7 +3000,11 @@ async function revise(record, inScope, reviewedKind) {
       }
       return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), overridesUnresolved: out.unresolved.filter((item) => stuck.includes(item.id)), calls, unresolved: out.unresolved, shaped, afterApproval: suffix !== '' }
     }
-    deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
+    // The resolve agent's entry for a decision it planned replaces an earlier one for the same id,
+    // in place, so a deferral the person restated with their own mitigation is the one planned and
+    // posted (#94, R5-9). A finding a repository ask rule covers keeps none (#49).
+    const fresh = out.deferred.filter((item) => !record.forced[item.id])
+    deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
   if (calls.length || overrides.length) {
@@ -3053,9 +3062,10 @@ async function revise(record, inScope, reviewedKind) {
       return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped, afterApproval: true }
     }
     // An earlier entry stays only while its finding is still deferred or a decision stands on it:
-    // a defer the reshape re-sorted is no deferral any more (#94, R4-9).
+    // a defer the reshape re-sorted is no deferral any more (#94, R4-9). An entry for a finding the
+    // person changed away from defer is dropped, whichever list holds it (#94, R5-9).
     const stillDeferred = (id) => Boolean(roundDecisions[id]) || shaped.findings.some((s) => s.id === id && s.disposition === 'defer')
-    deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id) && stillDeferred(item.id)))
+    deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
     if (raised.length) {
       calls = calls.concat(raised)
       phase('Resolve')
