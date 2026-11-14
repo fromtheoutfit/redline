@@ -2631,10 +2631,6 @@ function checkDispositions(pass, shaped) {
   if (pass.human && declined.length) {
     throw stageError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
   }
-  const noReason = declined.filter((f) => typeof f.reason !== 'string' || f.reason.trim() === '').map((f) => f.id)
-  if (noReason.length) {
-    throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`)
-  }
   for (const f of declined) {
     if (f.decidedBy !== 'redline') {
       warnings.push(`${pass.name}: the shaper marked the decline of ${f.id} as decided by ${f.decidedBy}; a decline is Redline's own`)
@@ -2711,6 +2707,17 @@ function checkWhy(pass, shaped, known, shaperLabel) {
   }
 }
 
+// A decline carries the reason a teammate reads in the thread (#93). Runs after forceAskRules, as
+// checkWhy does, so a decline a repository rule turns into an ask, which needs no reason, never
+// stops the round (#94, R1-13, R5-6); it runs after the `spec status` call, so it names the
+// shaper's label itself (#94, R2-9).
+function checkDeclineReasons(shaped, shaperLabel) {
+  const noReason = shaped.findings.filter((f) => f.disposition === 'decline' && (typeof f.reason !== 'string' || f.reason.trim() === '')).map((f) => f.id)
+  if (noReason.length) {
+    throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`, {}, shaperLabel)
+  }
+}
+
 // The spec check (#57): the shaper's JSON can be valid while the folder behind it is not (PR #54
 // round 2: a halted shaper returned every finding as an ask with no shape.md, and the person was
 // handed eight placeholder calls). The GitHub agent's read-only spec-status operation lists the
@@ -2780,8 +2787,11 @@ function forceAskRules(record, pass, inScope, shaped) {
     }
     const recommendation = (s.recommendation || '').trim().replace(/\.$/, '')
     // What the shaper would have declined is still the person's under the rule (#93): the call
-    // says so and recommends no change, with the shaper's reason.
-    const declineReason = s.disposition === 'decline' ? (s.reason || '').trim().replace(/\.$/, '') : ''
+    // says so and recommends no change, with the shaper's reason when it gave one; a decline with
+    // none reaches here, since the reason check runs after this function (#94, R5-6).
+    const wasDecline = s.disposition === 'decline'
+    const declineReason = wasDecline ? (s.reason || '').trim().replace(/\.$/, '') : ''
+    const wouldDecline = wasDecline ? `Redline would have declined it${declineReason ? `: ${declineReason}` : ''}.` : ''
     s.disposition = 'ask'
     s.decidedBy = 'pending'
     s.askRule = rule.id
@@ -2795,10 +2805,10 @@ function forceAskRules(record, pass, inScope, shaped) {
         story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
         why_human: why,
         options: [
-          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: declineReason ? `Redline would have declined it: ${declineReason}.` : recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.' },
+          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: wouldDecline || (recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.') },
           { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
         ],
-        recommendation: declineReason ? `Accept, no change: ${declineReason}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        recommendation: wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
       shaped.judgmentCalls.push(call)
@@ -2926,6 +2936,7 @@ async function revise(record, inScope, reviewedKind) {
   checkCalls(shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
+  checkDeclineReasons(shaped, `shape ${pass.tag}`)
   checkWhy(pass, shaped, [], `shape ${pass.tag}`)
   record.dispositions = shaped.findings
 
@@ -3059,6 +3070,7 @@ async function revise(record, inScope, reviewedKind) {
     checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
+    checkDeclineReasons(shaped, `reshape ${pass.tag} #${adjustment + 1}`)
     checkWhy(pass, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`)
     record.dispositions = shaped.findings
     // A call the reshape raised that this round has not seen: autopilot decides it, the other

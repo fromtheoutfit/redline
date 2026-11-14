@@ -2149,6 +2149,12 @@ function samePrefix(name, first, second, n) {
   run = await go('decline: under a repository rule', { ...baseArgs, askRules: rules }, ruled)
   check('decline: a rule-covered decline is still put to the person, with a warning', run.res.status === 'handoff' && JSON.stringify(run.res.decisionsNeeded) === '["R1-2"]' && run.res.warnings.includes('round 1: the shaper sorted R1-2 as decline; repository rule craft-config makes it an ask for the person'), [run.res.status, run.res.warnings])
   check('decline: its call says what Redline would have done and recommends no change', run.res.judgmentCalls[0].why_human === 'repository rule craft-config' && run.res.judgmentCalls[0].recommendation === 'Accept, no change: the handle is renamed on purpose.' && run.res.judgmentCalls[0].options[0].effect === 'Redline would have declined it: the handle is renamed on purpose.', run.res.judgmentCalls[0])
+  // A rule-covered decline with no reason is put to the person under the rule, recommending no
+  // change, never stopped for its missing reason: the reason check runs after forceAskRules, as
+  // checkWhy does (#94, R5-6).
+  run = await go('decline: no reason, under a repository rule', { ...baseArgs, askRules: rules }, { ...ruled, declineNoReason: ['R1-2'] })
+  const noReasonCall = (run.res.judgmentCalls || [])[0] || { options: [{}] }
+  check('decline: a rule-covered decline with no reason is put to the person under the rule, recommending no change', run.res.status === 'handoff' && JSON.stringify(run.res.decisionsNeeded) === '["R1-2"]' && noReasonCall.why_human === 'repository rule craft-config' && noReasonCall.recommendation === 'Accept, no change.' && noReasonCall.options[0].effect === 'Redline would have declined it.', [run.res.status, run.res.error, run.res.judgmentCalls])
 
   // Autopilot never stops: the ask is taken, the decline is Redline's own and stays so.
   const mixed = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], commitIds: [['R1-1', 'R1-3']] }
