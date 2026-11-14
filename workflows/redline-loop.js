@@ -1112,9 +1112,11 @@ function commentBody(f) {
     lines.push('', `Proposed fix: ${f.proposedFix.trim()}`)
   }
   // The facts the verifier states beside its description (#93): what would confirm a claim it
-  // could not confirm, and a cause in code the pull request did not change.
+  // could not confirm, and a cause in code the pull request did not change. The Would confirm text
+  // is one of the verifier's short fields, so it goes through postedText here as on the body line
+  // (#94, R3-2).
   if (f.confidence === 'unconfirmed') {
-    lines.push('', `Could not confirm. Would confirm it: ${(f.wouldConfirm || 'not stated').trim()}`)
+    lines.push('', `Could not confirm. Would confirm it: ${postedText((f.wouldConfirm || 'not stated').trim())}`)
   }
   if (f.outsideDiff) {
     lines.push('', 'The cause is in code this pull request did not change.')

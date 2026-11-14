@@ -1767,6 +1767,11 @@ function samePrefix(name, first, second, n) {
   // that dropped it would show, and holds no raw joiner (the #87 follow-up spec, decision 2).
   check('posted text: the post prompt and the handoff prompt carry @&#8288; and no raw U+2060', ['post r1', 'handoff comment'].every((label) => pick(run.calls, label).prompt.includes('@' + WJ + 'param') && !pick(run.calls, label).prompt.includes(RAW_WJ)), ['post r1', 'handoff comment'].map((label) => pick(run.calls, label).prompt.includes(RAW_WJ)))
   check('posted text: a Would confirm line goes through the same function', eb.includes('### Could not confirm (1)\n\n- **R1-1** · nit · low · unconfirmed · `app/x.php:1` · title R1-1\n  Would confirm it: a &lt;b> &amp; c note from @' + WJ + 'param\n'), eb)
+  // The inline comment's Would confirm line goes through postedText too (#94, R3-2).
+  const wcPrompt = (pick(run.calls, 'post r1') || { prompt: '' }).prompt
+  const wcAt = wcPrompt.indexOf('{\n  "body"')
+  const wcComments = wcAt < 0 ? [] : JSON.parse(wcPrompt.slice(wcAt, wcPrompt.indexOf('\n}\n', wcAt) + 2)).comments || []
+  check('posted text: the inline comment\'s Would confirm line goes through the same function as the body line', wcComments.some((c) => c.body.startsWith('**R1-1** · ') && c.body.includes('Could not confirm. Would confirm it: a &lt;b> &amp; c note from @' + WJ + 'param')) && !wcComments.some((c) => c.body.includes('note from @param')), wcComments)
 
   // A duplicate's target, by the form of its ref (the #85 follow-up spec's shaping default "A
   // duplicate's target"; #86, R4-2): `index N` in lower case and `candidate N` in upper case each

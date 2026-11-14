@@ -200,7 +200,7 @@ The GitHub agent posts through `redline-gh.sh` ([scripts.md](scripts.md)), and f
 - **What is escaped and neutralised (#87).** The finder's and the verifier's free text goes through one function where the workflow posts it:
   - a finding's title: on its line in the review body and the cap comment, in its inline comment, and on every handoff line that names it (each list by outcome, Deferred, Left to the person, Earlier rounds);
   - the review's summary;
-  - the line saying what would confirm a finding the verifier could not confirm, in the review body;
+  - the line saying what would confirm a finding the verifier could not confirm, in the review body and in its inline comment;
   - a scope-declined line's title;
   - Already tracked lines (title and `knownAs`);
   - Resolved from earlier rounds (title and why);
