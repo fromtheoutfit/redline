@@ -38,6 +38,8 @@ Sorted:
     Decided by: redline
 12. **Run caution.** Every task changes `workflows/redline-loop.js`, and a relaunch of this run runs the script the run launched with (`agent-os/standards/workflow/replay.md:20`), so this run's later rounds keep the launch's checks. No agent file and no skill changes this round, so the handoff's changed-agent-files sentence does not fire for it.
     Decided by: redline
+13. **As built: two deviations from the plan's process, none from its code.** Task 8's test and change were written before a gate run, so its red run was not observed on its own; the old code's throw at shape (the reasonless-decline check in `checkDispositions`, before `forceAskRules`) is the red the plan traces, and the check went green on the next run. Task 8's proof `grep -c 'checkDeclineReasons(shaped' workflows/redline-loop.js` prints `3`, not `2`: the function's own signature, `function checkDeclineReasons(shaped, shaperLabel)`, matches too, beside the two call sites the plan names. Details are in `plan.md`, "As built".
+    Decided by: redline
 
 ### Proportionality (the correctness findings)
 

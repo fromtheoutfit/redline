@@ -696,3 +696,33 @@ No check is added: behaviour is unchanged, since a final nit pass follows at lea
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #94 round 5 as built (#93)`
+
+## As built
+
+Every gate run below is `.claude/redline/checks.sh` with this folder's `redline/snapshot.json`. Each task's red run is the gate run after its test was added; its green run is the next one, which was also the following task's red run where one followed. Each task was committed before that next run, and no green run needed a follow-up commit.
+
+| Task | Finding | Commit | Red (the failing loop check) | Green |
+| --- | --- | --- | --- | --- |
+| 1 | spec | `bbb9750` | | |
+| 2 | R5-3 | `34304c1` | `coverage: a ref with a note after a renamed id counts as the renamed finding and mints nothing`; ids read `["R1-1","R1-2"]`, candidate 1 accounted `unconfirmed:R1-2` (881 passed, 1 failed) | 885 passed |
+| 3 | R5-5 | `e30d12d` | `coverage: an id returned twice is renamed the second time with a warning, and a ref to it stays with the first`; ids read `["R1-1","R1-1"]` (885 passed, 1 failed) | 889 passed |
+| 4 | R5-9 | `8a62b10` | `defer: a deferral the person changes to fix on the plan dial is never listed under Deferred nor given to the implementer, with or without a reshape` and `defer: a deferral restated on the plan dial lists the resolve agent's mitigation, not the shaper's`; both runs kept R1-4's `a guard clause` (889 passed, 2 failed) | 892 passed |
+| 5 | R5-1 | `0bf57bd` | refactor, no new check | 892 passed, its neighbours green |
+| 6 | R5-2 | `904b77f` | `coverage: a bad first entry stands, a later one for its index is ignored, and the candidate is minted as the warning says`; ids read `["R1-1"]`, candidate 2 accounted `refuted` (892 passed, 1 failed) | 893 passed |
+| 7 | R5-4 | `8cc1069` | `resume: the relaunch note says a restated override replaces the one the resolve agent could not apply` (893 passed, 1 failed) | 897 passed |
+| 8 | R5-6 | `0554b46` | not observed on its own run (see Deviations) | 897 passed |
+| 9 | R5-7 | `56a52af` | `decline: a decline marked decided by reviewer stops at shape as a fix does, and one marked pending is rewritten with a warning`; the reviewer-owned run read `done` (897 passed, 1 failed) | 898 passed |
+| 10 | R5-8 | `73ceccf` | `decline: a rule-covered decline on autopilot is listed as what Redline would have declined, with no open change`; the line read `... craft-config; open: Accept, no change: the handle is renamed on purpose.` (898 passed, 1 failed) | 899 passed, gate green |
+| 11 | R5-10 | `4161207` | refactor, no new check | 899 passed, gate green |
+| 12 | retrospective | `35e62dc` | | |
+
+Every task's Proof greps printed the counts the task names, except Task 8's second grep (see Deviations).
+
+**Gate counts** (the green run after Task 11 and the retrospective): loop `899 checks passed, 0 failed` (881 before, plus the nine new checks and nine run-record checks `go()` adds for the new runs), guard `594 passed, 0 mismatched`, prefs `121`, gate `117`, setup `470`, gh `136`, background `39`; syntax and validate exit 0. The guard and the other harnesses kept their counts. `git.unexpected_files` and `git.uncommitted` were empty.
+
+**Standards retrospective:** the standards approver approved items 1 to 5 of `shape.md`'s proposal, applied as drafted in `35e62dc`: `agent-os/standards/workflow/agents.md` (items 1, 2, 3, 4) and `agent-os/standards/workflow/replay.md` (item 5). `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`. The commit names no finding: every edit is a lesson, and no finding's fix was sent through the retrospective.
+
+**Deviations** (`shape.md`, Decision 13):
+
+- Task 8: its test and its change were written before a gate run, so its red run was not observed on its own. The red is the one the plan traces: before the change, `checkDispositions` threw `the shaper declined R1-2 with no reason` at shape, before `forceAskRules`. The check passed on the next run, together with Task 7's.
+- Task 8's Proof: `grep -c 'checkDeclineReasons(shaped' workflows/redline-loop.js` prints `3`, not `2`, since the function's signature, `function checkDeclineReasons(shaped, shaperLabel)`, matches too; the two call sites are the ones the plan names (shape and reshape). The other two greps printed `1` and `1`.
