@@ -2293,6 +2293,11 @@ function samePrefix(name, first, second, n) {
   const late = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-2'], planBounce: 1, reshapeAsk: ['R1-1'], commitIds: [['R1-1']] }
   const lateStop = await go('overrule: a reshape stop', baseArgs, late)
   check('overrule: a reshape\'s decisions stop lists no declines and names them for after the run', lateStop.res.status === 'handoff' && lateStop.res.handoffKind === 'decisions' && JSON.stringify(lateStop.res.decisionsNeeded) === '["R1-1"]' && JSON.stringify(lateStop.res.declined) === '[]' && JSON.stringify(lateStop.res.declinedAfterRun) === '["R1-2"]', [lateStop.res.status, lateStop.res.handoffKind, lateStop.res.decisionsNeeded, lateStop.res.declined, lateStop.res.declinedAfterRun])
+  // The plan approver checks the shaper's own dispositions and sends one back, and the reshape
+  // decides again a decision of its own that an adjustment names (#94, R4-5).
+  const lateApprover = (pick(lateStop.calls, 'plan approver r1') || { prompt: '' }).prompt
+  const lateReshape = (pick(lateStop.calls, 'reshape r1 #1') || { prompt: '' }).prompt
+  check('overrule: the plan approver is told it checks the shaper\'s dispositions, and the reshape decides one an adjustment names again', lateApprover.includes('a bounce sends one back to the shaper to decide again') && !lateApprover.includes('never reopened') && lateReshape.includes('except one of your own (Decided by: redline) that an adjustment names, which you decide again') && lateReshape.includes('a decision the person made, or the autopilot applied, stays as it is'), [lateApprover.slice(-1400), lateReshape.slice(-1200)])
   const lateRun = await go('overrule: a reshape stop answered', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept as it is after the reshape.', date: '2026-11-14' } } }, late)
   samePrefix('overrule: the relaunch from a reshape stop', lateStop.calls, lateRun.calls, lateStop.calls.length)
   check('overrule: the answer typed at a reshape stop reaches the reshape\'s resolve, and the first resolve does not run', Boolean(pick(lateRun.calls, 'resolve r1 #1')) && pick(lateRun.calls, 'resolve r1 #1').prompt.includes('Kept as it is after the reshape.') && !pick(lateRun.calls, 'resolve r1'), labels(lateRun.calls))

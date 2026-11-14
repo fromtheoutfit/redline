@@ -346,6 +346,10 @@ const NOT_YOURS = `${PENDING_IS_THEIRS} A decision already made, the shaper's ow
 // replaces the shaper's own, a decline included (the #93 spec, decision 7), so its rule never
 // says that a shaper's decision is never reopened (#94, R4-4).
 const RESOLVE_RULE = `${PENDING_IS_THEIRS} A disposition override is the person's decision and replaces the shaper's, a decline included. Every other decision already made, the shaper's own included, is applied as recorded.`
+// The plan approver checks the shaper's own dispositions (agents/redline-plan-approver.md,
+// points 2 and 6), so its rule applies the person's decisions as recorded and sends a
+// disposition it bounces back to the shaper, whose reshape decides it again (#94, R4-5).
+const APPROVER_RULE = `${PENDING_IS_THEIRS} A decision made outside the shaper (by the person, or by the autopilot taking the shaper's recommendation) is applied as recorded. The shaper's own dispositions (a fix, a decline with its reason, a deferral) are what you check, as your instructions say, and a bounce sends one back to the shaper to decide again.`
 // The verifier since #93: it states what is true, and the kind of each finding, which now keeps a
 // run going. Every review prompt carries both, with the coverage pass or without it.
 const KIND_RULES = 'A finding\'s kind: correctness is wrong behaviour reachable in practice, a security hole, a privacy leak, data loss, a broken contract, or a promise this pull request makes (in its title, its description or its spec) that the code does not keep. Everything else is nit: naming, clarity, a docblock, a small refactor, a test gap, a cost, a doc.'
@@ -1712,7 +1716,7 @@ ${json(adjustments)}
 The round's findings, as JSON:
 ${json(inScope)}
 
-Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. Decisions already recorded as decided in shape.md stay as they are. ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
+Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
 
 Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', and reason for a decline'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
@@ -1779,7 +1783,7 @@ ${json({ findings: shaped.findings, deferred: shaped.deferred })}
 
 Decisions made outside the shaper (by the person, or by the autopilot taking the shaper's recommendation; decidedBy names which), already applied by the resolve agent (these are decided, not pending): ${Object.keys(roundDecisions).length ? json(roundDecisions) : 'none'}
 
-Check the plan per your instructions. ${pass.human ? `${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself.` : `${NOT_YOURS} A task that turns a still-pending decision into a change is a bounce. A declined finding has no task: its reason is in the dispositions above and under Decisions in shape.md, and a decline with no reason a teammate can read is a bounce. The person is asked in the cases your instructions list and no others, so an ask outside them is a bounce too.`} planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
+Check the plan per your instructions. ${pass.human ? `${NEVER_DECIDE} A task that turns a still-pending decision into a change is a bounce, and you never decide one yourself.` : `${APPROVER_RULE} A task that turns a still-pending decision into a change is a bounce. A declined finding has no task: its reason is in the dispositions above and under Decisions in shape.md, and a decline with no reason a teammate can read is a bounce. The person is asked in the cases your instructions list and no others, so an ask outside them is a bounce too.`} planPaths must list every path the tasks create or change (directories end in /), including the spec folder ${specFolder}/; it becomes the allowed-path list the checker enforces.
 
 Return only the JSON your instructions specify.`
 }
