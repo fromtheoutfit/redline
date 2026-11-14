@@ -2314,16 +2314,21 @@ async function review(round, reviewed, range, facts, source) {
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
   // Each rename is recorded, old id to new, so the coverage refs naming it follow (#80, R2-3); the
-  // first finding with an old id keeps it.
+  // first finding with an old id keeps it. A renamed id is numbered after the highest id of the
+  // round's form in use, as reconcilePrior and accountCoverage number theirs, so it never takes an
+  // id another finding already has (#94, R4-6).
+  const idForm = new RegExp(`^R${round}-\\d+$`)
+  let nextId = Math.max(0, ...out.findings.filter((f) => idForm.test(f.id)).map((f) => Number(f.id.split('-')[1]) || 0))
   const renamed = new Map()
-  out.findings.forEach((f, index) => {
-    if (!new RegExp(`^R${round}-\\d+$`).test(f.id)) {
-      warnings.push(`round ${round}: reviewer returned id ${JSON.stringify(f.id)}; renamed R${round}-${index + 1}`)
+  out.findings.forEach((f) => {
+    if (!idForm.test(f.id)) {
+      const newId = `R${round}-${++nextId}`
+      warnings.push(`round ${round}: reviewer returned id ${JSON.stringify(f.id)}; renamed ${newId}`)
       const oldId = typeof f.id === 'string' ? f.id.trim() : f.id
       if (!renamed.has(oldId)) {
-        renamed.set(oldId, `R${round}-${index + 1}`)
+        renamed.set(oldId, newId)
       }
-      f.id = `R${round}-${index + 1}`
+      f.id = newId
     }
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
     // The facts beside the claim (#93). Whether to ask is the shaper's question, so a needsDecision
