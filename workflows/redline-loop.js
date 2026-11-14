@@ -2373,7 +2373,10 @@ async function review(round, reviewed, range, facts, source) {
   if (candidates) {
     // A finding or duplicate entry naming an id the rename above changed names that finding by its
     // new id, a finding of this round, so the R1-4 rule for a ref naming no finding does not apply
-    // to it (#80, R2-3).
+    // to it (#80, R2-3). A verified or unconfirmed ref with a note after a renamed id follows the
+    // rename too: its leading token is renamed and the note kept, so accountCoverage reads it by its
+    // leading id with a warning, as it reads any ref with a note (#94, R2-5, R5-3). A duplicate's
+    // ref may open with another candidate's index, so only its whole ref is renamed.
     for (const entry of out.coverage) {
       if (!LISTED_ELSEWHERE.includes(entry.outcome) && entry.outcome !== 'duplicate') {
         continue
@@ -2381,6 +2384,11 @@ async function review(round, reviewed, range, facts, source) {
       const ref = typeof entry.ref === 'string' ? entry.ref.trim() : entry.ref
       if (renamed.has(ref)) {
         entry.ref = renamed.get(ref)
+        continue
+      }
+      const token = LISTED_ELSEWHERE.includes(entry.outcome) && typeof ref === 'string' ? (/^[^\s:,;()]+/.exec(ref) || [''])[0] : ''
+      if (token && renamed.has(token)) {
+        entry.ref = `${renamed.get(token)}${ref.slice(token.length)}`
       }
     }
     const counts = accountCoverage(round, out, candidates)
