@@ -2323,6 +2323,10 @@ async function review(round, reviewed, range, facts, source) {
   const idForm = new RegExp(`^R${round}-\\d+$`)
   let nextId = Math.max(0, ...out.findings.filter((f) => idForm.test(f.id)).map((f) => Number(f.id.split('-')[1]) || 0))
   const renamed = new Map()
+  // An id of the round's form another finding already has is renamed the same way, with a warning,
+  // so no two findings share an id; a ref naming it stays with the first finding, which keeps it,
+  // so the rename map does not record it (#94, R5-5).
+  const taken = new Set()
   out.findings.forEach((f) => {
     if (!idForm.test(f.id)) {
       const newId = `R${round}-${++nextId}`
@@ -2332,7 +2336,12 @@ async function review(round, reviewed, range, facts, source) {
         renamed.set(oldId, newId)
       }
       f.id = newId
+    } else if (taken.has(f.id)) {
+      const newId = `R${round}-${++nextId}`
+      warnings.push(`round ${round}: reviewer returned id ${JSON.stringify(f.id)} again; renamed ${newId}`)
+      f.id = newId
     }
+    taken.add(f.id)
     f.carriedFrom = typeof f.carriedFrom === 'string' ? f.carriedFrom.trim() : ''
     // The facts beside the claim (#93). Whether to ask is the shaper's question, so a needsDecision
     // a reviewer still returns is dropped; what would confirm an unconfirmed finding is kept, and
