@@ -42,6 +42,8 @@ Sorted:
     Decided by: redline
 14. **Run caution.** Task 9 changes `agents/redline-plan-approver.md`, and the rest of this run's rounds may run under the edit (README Known limits, "A self-review that edits an agent file runs its later rounds under the edit"); the edit only adds a bounce the prompt already implies. Task 5 changes `skills/redline/SKILL.md`'s decisions stop, which a later stop of this run reads only if the session reloads the skill. `workflows/redline-loop.js` changes in all nine tasks; a relaunch runs the script the run launched with (`agent-os/standards/workflow/replay.md:19`).
     Decided by: redline
+15. **As built, Task 8's check placement.** The new run `human: only the spec folder committed` and its check go after the neighbour `human: the push prompt does not push`, which reads `run` from `human: nothing to commit`: placed right after `human: the summary says so`, as the plan said, the new run replaced `run` first and that neighbour failed. The check and the change are as planned. `plan.md`, As built.
+    Decided by: redline
 
 ### Proportionality (the correctness findings)
 

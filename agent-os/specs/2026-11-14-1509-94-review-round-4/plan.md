@@ -605,3 +605,35 @@ Neighbours, green before and after: `layout: a human-review pass with no login s
    A deviation from this plan is also recorded under Decisions in `shape.md`. This lands in the round's last commit.
 
 **Commit:** `redline: record PR #94 round 4 as built (#93)`
+
+---
+
+## As built
+
+Every gate run below is `.claude/redline/checks.sh` with this folder's `redline/snapshot.json`. Each task's red run is the gate run after its test was added; its green run is the next one, which was also the following task's red run where one followed.
+
+| Task | Finding | Commit | Red (the failing loop check) | Green |
+| --- | --- | --- | --- | --- |
+| 1 | spec | `6b37b61` | | |
+| 2 | R4-4 | `5b2e654` | `decline: the resolve rule says an override replaces the shaper's decision, and the implementer keeps never reopened` (869 passed, 1 failed) | 870 passed |
+| 3 | R4-5 | `f5ba33c` | `overrule: the plan approver is told it checks the shaper's dispositions, and the reshape decides one an adjustment names again` (870 passed, 1 failed) | 872 passed |
+| 4 | R4-6 | `7297810` | `coverage: a renamed id takes the next free number, and a ref to the id it would have taken stays with its own finding`; ids read `["R1-1","R1-3","R1-3"]` (872 passed, 1 failed) | 873 passed |
+| 5 | R4-8 | `af0a244` | `overrule: an override the resolve agent cannot apply is handed back with its why and is a decision needed`; `decisionsNeeded` `[]`, `overridesUnresolved` absent (873 passed, 1 failed) | 874 passed, gate green |
+| 6 | R4-9 | `6386727` | `decline: a defer re-sorted to decline is posted as declined, never listed under Deferred, and its stray entry is dropped with a warning`; `deferred` held R1-4's guard clause (875 passed, 1 failed) | 876 passed, gate green |
+| 7 | R4-11 | `13dca22` | `layout: the handoff, every heading in order with its line, is the layout the spec shows` and `layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login` (874 passed, 2 failed) | 876 passed, gate green |
+| 8 | R4-12 | `79efa91` | `human: the summary says so`, `rules: the human summary says so`, `rules: the human summary says the comment asked for nothing`, and the new `human: a pass that committed only its spec folder runs no final nit pass, and the summary says no fix was committed` (it ran `gather r3` and `final nit pass r3`) | 878 passed, gate green |
+| 9 | R4-2 | `4fd4b36` | `rules: the ask-rules block says never fixed, declined or deferred, and a decline a prose rule covers is a bounce` (878 passed, 1 failed) | 879 passed, gate green |
+| 10 | R4-3 | `edf9ecf` | `layout: with no login a decision with no notes starts its sentence with a capital`; the reply read `Redline round 1: the person running Redline chose: Keep it. ...` (880 passed, 1 failed) | 881 passed, gate green |
+| 11 | retrospective | `2c36d78` | | |
+
+Every task's Proof greps printed the counts the task names.
+
+**Gate counts** (the green run after Task 10): loop `881 checks passed, 0 failed` (869 before, plus eight new checks and four run-record checks for the new runs of Tasks 4, 6, 8 and 10), guard `594 passed, 0 mismatched`, prefs `121`, gate `117`, setup `470`, gh `136`, background `39`; syntax and validate exit 0. The guard and the other harnesses kept their counts.
+
+**Standards retrospective:** the standards approver approved items 1 to 7 of `shape.md`'s proposal, applied as drafted in `2c36d78`: `agent-os/standards/workflow/agents.md` (items 1, 2, 3, 4, 6, 7) and `agent-os/standards/workflow/replay.md` (item 5). `git diff HEAD~1 -- agent-os/standards/ | grep -c "^[-+]#"` printed `0`. The commit names no finding: every edit is a lesson, and no finding's fix was sent through the retrospective.
+
+**Deviations:**
+
+- Task 8: the new run `human: only the spec folder committed` sits after the neighbour check `human: the push prompt does not push`, not right after `human: the summary says so` as the plan placed it. That neighbour reads `run` from `human: nothing to commit`; placed as planned, the new run replaced `run` before it and the neighbour failed (the new run has a commit, so its push prompt pushes). `shape.md`, Decision 15.
+- Task 4: the rename comment keeps its first two lines and appends the plan's new sentence, which is the plan's comment text.
+- Task 9 changes `rulesBlock` only, as planned; the code comment at `workflows/redline-loop.js:114` ("never fixed or deferred by Redline") still names fix and defer only. It is a comment, not a prompt, and the plan's Proof counts one site, so it was left for a later change.
