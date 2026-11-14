@@ -2818,7 +2818,9 @@ function forceAskRules(record, pass, inScope, shaped) {
     } else {
       call.why_human = why
     }
-    record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation }
+    // A decline the rule overrides is recorded with what Redline would have done, for the
+    // autopilot's Deferred entry, which has no change left open (#94, R5-8).
+    record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}) }
   }
 }
 
@@ -3208,7 +3210,7 @@ async function revise(record, inScope, reviewedKind) {
       continue
     }
     const f = inScope.find((finding) => finding.id === id)
-    deferredAll.push({ id, mitigation: `none (repository rule ${forced.rule})`, fullFix: forced.recommendation, rule: forced.rule, reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
+    deferredAll.push({ id, mitigation: `none (repository rule ${forced.rule})`, fullFix: forced.declined || forced.recommendation, ...(forced.declined ? { declined: true } : {}), rule: forced.rule, reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
   }
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
@@ -3369,7 +3371,7 @@ function handoffComment(ending, prBody, threads) {
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under repository rule ${d.rule}; open: ${d.fullFix}`
+      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under repository rule ${d.rule}; ${d.declined ? '' : 'open: '}${d.fullFix}`
       : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
   }
   const left = leftToYou()

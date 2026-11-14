@@ -2164,6 +2164,11 @@ function samePrefix(name, first, second, n) {
   run = await go('decline: no reason, under a repository rule', { ...baseArgs, askRules: rules }, { ...ruled, declineNoReason: ['R1-2'] })
   const noReasonCall = (run.res.judgmentCalls || [])[0] || { options: [{}] }
   check('decline: a rule-covered decline with no reason is put to the person under the rule, recommending no change', run.res.status === 'handoff' && JSON.stringify(run.res.decisionsNeeded) === '["R1-2"]' && noReasonCall.why_human === 'repository rule craft-config' && noReasonCall.recommendation === 'Accept, no change.' && noReasonCall.options[0].effect === 'Redline would have declined it.', [run.res.status, run.res.error, run.res.judgmentCalls])
+  // On autopilot a rule-covered finding the shaper declined is listed under Deferred with what
+  // Redline would have done, never as a change left open (#94, R5-8).
+  run = await go('decline: under a repository rule, on autopilot', { ...baseArgs, askRules: rules, interrupt: 'autopilot' }, ruled)
+  const ruledHandoff = comment(run.calls, 'handoff comment') || ''
+  check('decline: a rule-covered decline on autopilot is listed as what Redline would have declined, with no open change', run.res.status === 'done' && ruledHandoff.includes('- **R1-2** title R1-2: left to @author under repository rule craft-config; Redline would have declined it: the handle is renamed on purpose.') && !ruledHandoff.includes('open: Accept, no change') && ((run.res.deferred || []).find((d) => d.id === 'R1-2') || {}).fullFix === 'Redline would have declined it: the handle is renamed on purpose.', [run.res.status, ruledHandoff, run.res.deferred])
 
   // Autopilot never stops: the ask is taken, the decline is Redline's own and stays so.
   const mixed = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], commitIds: [['R1-1', 'R1-3']] }
