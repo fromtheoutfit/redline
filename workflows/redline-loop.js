@@ -188,6 +188,9 @@ const login = typeof A.login === 'string' ? A.login.trim().replace(/^@/, '') : '
 // fallback names no role either. A human-review pass is unchanged (#93, decision 8): a run that is
 // one keeps "the author" as its fallback, as it keeps that word in its own lines.
 const personLabel = login ? `@${login}` : A.revise && typeof A.revise === 'object' && A.revise.kind === 'human' ? 'the author' : 'the person running Redline'
+// The label where it starts a sentence: a login as it is, the no-login words with a capital
+// (#94, R1-17, R4-3).
+const personLabelStart = personLabel.charAt(0).toUpperCase() + personLabel.slice(1)
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
@@ -1143,7 +1146,7 @@ function commentBody(f) {
 // never the person's chat. The choice label stands in only when a decision carries no notes.
 function decisionSentence(decision, human) {
   const notes = (decision.notes || '').trim()
-  return notes !== '' ? notes : `${human ? 'The author' : personLabel} chose: ${decision.choice}.`
+  return notes !== '' ? notes : `${human ? 'The author' : personLabelStart} chose: ${decision.choice}.`
 }
 
 // Every decision names its owner, in the spec, in the thread and in the handoff comment.
@@ -3422,7 +3425,7 @@ function capComment(open) {
   return [
     'Redline stopped at the round cap',
     '',
-    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabel.charAt(0).toUpperCase()}${personLabel.slice(1)} will pick these up.`,
+    `Redline reached its cap of ${maxRounds} revise round${maxRounds === 1 ? '' : 's'} with correctness findings still open in the latest review, so it has not requested a review. ${personLabelStart} will pick these up.`,
     '',
     '### Still open',
     '',
