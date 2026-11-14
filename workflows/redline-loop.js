@@ -1553,7 +1553,10 @@ function accountCoverage(round, out, candidates) {
       warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${JSON.stringify(entry.index)}, which is not an index of this round's ${candidates.length} candidates; ignored`)
       continue
     }
-    if (seen.has(index)) {
+    // A bad first entry (an outcome the schema does not name, or a ref naming no finding) is the
+    // entry that stands too: its index is in `told`, so a later entry is ignored and the candidate
+    // is minted as the first warning said (#94, R5-2).
+    if (seen.has(index) || told.has(index)) {
       warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} twice; the first entry stands`)
       continue
     }
