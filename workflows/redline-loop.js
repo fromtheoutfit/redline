@@ -2955,10 +2955,16 @@ async function revise(record, inScope, reviewedKind) {
     })
     if (out.unresolved.length) {
       const ids = out.unresolved.map((item) => item.id)
+      // An override is the person's line, not a call, so one the resolve agent could not apply is
+      // handed back on its own, with the agent's why, for the person to restate: otherwise the stop
+      // has nothing to ask and every relaunch replays the same refusal (#94, R4-8).
+      const stuck = newOverrides.filter((f) => ids.includes(f.id)).map((f) => f.id)
       if (interrupt === 'autopilot') {
-        throw stageError('resolve', `autopilot could not apply the shaper's recommendation for ${ids.join(', ')}`, { unresolved: out.unresolved })
+        const recommended = ids.filter((id) => !stuck.includes(id))
+        const what = [recommended.length ? `the shaper's recommendation for ${recommended.join(', ')}` : '', stuck.length ? `the person's disposition override for ${stuck.join(', ')}` : ''].filter(Boolean).join(' or ')
+        throw stageError('resolve', `autopilot could not apply ${what}`, { unresolved: out.unresolved })
       }
-      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), calls, unresolved: out.unresolved, shaped, afterApproval: suffix !== '' }
+      return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), overridesUnresolved: out.unresolved.filter((item) => stuck.includes(item.id)), calls, unresolved: out.unresolved, shaped, afterApproval: suffix !== '' }
     }
     deferred = deferred.concat(out.deferred.filter((item) => !deferred.some((d) => d.id === item.id) && !record.forced[item.id]))
     return out
@@ -3695,7 +3701,11 @@ function handoffResult(record, outcome) {
     declined: outcome.afterApproval ? [] : roundDeclines,
     declinedAfterRun: outcome.afterApproval ? roundDeclines.map((x) => x.id) : [],
     unresolved: outcome.unresolved || [],
-    decisionsNeeded: outcome.pending.map((call) => call.id),
+    // A disposition the person changed that the resolve agent could not turn into a task, with
+    // the line as recorded and the agent's why: the skill asks the person to restate it, so its
+    // id is a decision the stop needs (#94, R4-8).
+    overridesUnresolved: (outcome.overridesUnresolved || []).map((item) => ({ id: item.id, title: findingOf(item.id).title || '', disposition: (decisions[item.id] || {}).disposition || '', notes: (decisions[item.id] || {}).notes || '', why: (item.why || '').trim() })),
+    decisionsNeeded: outcome.pending.map((call) => call.id).concat((outcome.overridesUnresolved || []).map((item) => item.id)),
   })
 }
 

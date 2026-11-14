@@ -2291,6 +2291,10 @@ function samePrefix(name, first, second, n) {
   // list again a decline the person already overruled (#94, R2-15).
   const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
   check('overrule: a second decisions stop leaves out a decline the person already overruled', again.res.status === 'handoff' && again.res.handoffKind === 'decisions' && JSON.stringify((again.res.declined || []).map((d) => d.id)) === '["R1-3","R1-6"]', [again.res.status, again.res.handoffKind, again.res.declined])
+  // An override the resolve agent cannot apply is handed back with its line and its why, and is a
+  // decision the stop needs, so the stop has something to ask (#94, R4-8).
+  const stuckOverride = await go('overrule: an override the resolve cannot apply', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-7', why: 'the notes do not say what to fix' }] })
+  check('overrule: an override the resolve agent cannot apply is handed back with its why and is a decision needed', stuckOverride.res.status === 'handoff' && stuckOverride.res.handoffKind === 'decisions' && JSON.stringify(stuckOverride.res.decisionsNeeded) === '["R1-7"]' && JSON.stringify(stuckOverride.res.overridesUnresolved) === JSON.stringify([{ id: 'R1-7', title: 'title R1-7', disposition: 'fix', notes: 'Fix it now; a third caller lands next week.', why: 'the notes do not say what to fix' }]), [stuckOverride.res.status, stuckOverride.res.decisionsNeeded, stuckOverride.res.overridesUnresolved])
   // A stop after a plan approver of the round has run (a reshape's) lists no declines and names
   // them for the after-run door, since the round's first resolve, which applies an overrule, ran
   // before it; the relaunch then replays to the stop and the answer reaches the reshape's resolve
