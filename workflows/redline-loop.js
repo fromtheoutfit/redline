@@ -3405,7 +3405,7 @@ function humanSummary(record, nitPass, threads) {
     parts.push(`${andList(rest)} not changed`)
   }
   const nit = !nitPass
-    ? 'No commits, so no final nit pass.'
+    ? 'No fix was committed, so no final nit pass.'
     : nitPass.found === 0
       ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
       // What the pass found is counted, and only what a commit fixed is called fixed (#93): the
@@ -3764,7 +3764,9 @@ try {
     }
     let nitPass = null
     let lastFixUnreviewed = false
-    if (outcome.newHead) {
+    // The final nit pass reads the fixes, so it runs when the pass committed one, as the main loop
+    // gates on fixedAny; the spec folder's own commit is no fix diff (#94, R4-12).
+    if (outcome.fixed.length > 0) {
       // The final nit pass over the human fixes, as a Redline round: the next unposted number.
       const round = firstRound
       const range = { from: startSha, to: outcome.newHead }
