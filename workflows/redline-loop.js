@@ -2631,12 +2631,9 @@ function checkDispositions(pass, shaped) {
   if (pass.human && declined.length) {
     throw stageError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
   }
-  for (const f of declined) {
-    if (f.decidedBy !== 'redline') {
-      warnings.push(`${pass.name}: the shaper marked the decline of ${f.id} as decided by ${f.decidedBy}; a decline is Redline's own`)
-      f.decidedBy = 'redline'
-    }
-  }
+  // The other pass's values are read as the shaper wrote them, before the loop below rewrites a
+  // decline's owner, so a decline marked reviewer stops here as a fix marked reviewer does (#94,
+  // R5-7).
   const bad = pass.human
     ? shaped.findings.filter((f) => f.disposition === 'defer')
     : shaped.findings.filter((f) => f.disposition === 'none' || f.decidedBy === 'reviewer')
@@ -2645,6 +2642,12 @@ function checkDispositions(pass, shaped) {
     throw stageError('shape', pass.human
       ? `the shaper deferred ${ids}; in a human review pass a comment is fix, ask or none, never defer, since nothing a teammate asked for is deferred by Redline on its own`
       : `the shaper sorted ${ids} with a human review pass's values (none, or decidedBy reviewer) in a Redline round`)
+  }
+  for (const f of declined) {
+    if (f.decidedBy !== 'redline') {
+      warnings.push(`${pass.name}: the shaper marked the decline of ${f.id} as decided by ${f.decidedBy}; a decline is Redline's own`)
+      f.decidedBy = 'redline'
+    }
   }
   // A fix in a human pass is the teammate's instruction, whatever the shaper wrote as its owner.
   if (pass.human) {

@@ -174,7 +174,9 @@ function mock(scenario) {
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
-      const owner = (id) => (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
+      // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
+      // workflow's check of it.
+      const owner = (id) => (scenario.ownerOf && scenario.ownerOf[id]) || (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
         // scenario.files and scenario.askRule (#49) add the paths a finding's task touches and the
@@ -2113,6 +2115,13 @@ function samePrefix(name, first, second, n) {
 
   run = await go('decline: no reason', baseArgs, { ...scenario, declineNoReason: ['R1-3'] })
   check('decline: a decline with no reason stops at shape, resumable at the shaper', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error === 'the shaper declined R1-3 with no reason; a decline carries the reason a teammate reads in the thread' && run.res.resumeFrom && run.res.resumeFrom.label === 'shape r1', [run.res.status, run.res.error, run.res.resumeFrom])
+  // In a Redline round decidedBy reviewer is a human review pass's value whatever the disposition,
+  // so a decline that carries it stops at shape as a fix does; a decline with another wrong owner
+  // is still rewritten to redline with a warning (#94, R5-7).
+  run = await go('decline: decided by reviewer', baseArgs, { ...scenario, ownerOf: { 'R1-3': 'reviewer' } })
+  const reviewerOwned = [run.res.status, run.res.stage, run.res.error, (run.res.resumeFrom || {}).label].join('|')
+  run = await go('decline: decided by pending', baseArgs, { ...scenario, ownerOf: { 'R1-3': 'pending' } })
+  check('decline: a decline marked decided by reviewer stops at shape as a fix does, and one marked pending is rewritten with a warning', reviewerOwned === 'error|shape|the shaper sorted R1-3 with a human review pass\'s values (none, or decidedBy reviewer) in a Redline round|shape r1' && run.res.status === 'done' && (run.res.warnings || []).includes('round 1: the shaper marked the decline of R1-3 as decided by pending; a decline is Redline\'s own') && (replyFor(run.calls, 'push and reply r1', 'R1-3') || '').endsWith(' · decided by: redline'), [reviewerOwned, run.res.status, run.res.warnings])
 
   const asked = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
   run = await go('ask: outside the cases', baseArgs, { ...asked, whyHuman: { 'R1-1': 'unsure' } })
