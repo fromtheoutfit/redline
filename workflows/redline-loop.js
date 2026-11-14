@@ -3281,14 +3281,14 @@ function handoffComment(ending, prBody, threads) {
   const ran = `Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}`
   if (final && final.fixed === final.found) {
     lines.push(final.found === 1
-      ? `Redline ran ${reviews} review rounds. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
-      : `Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
+      ? `${ran}. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
+      : `${ran}. The final nit pass found ${final.found} correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
   } else if (final && final.fixed === 0) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in the nit fixes; none was changed, and each is listed below. ${wholePr}`)
+    lines.push(`${ran}. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in the nit fixes; none was changed, and each is listed below. ${wholePr}`)
   } else if (final) {
-    lines.push(`Redline ran ${reviews} review rounds. The final nit pass found ${final.found} correctness items in the nit fixes: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
+    lines.push(`${ran}. The final nit pass found ${final.found} correctness items in the nit fixes: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
   } else if (last && last.reviewed === 'final-nit-pass') {
-    lines.push(`Redline ran ${reviews} review rounds. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
+    lines.push(`${ran}. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
   } else if (end.noRecheck) {
     lines.push(`${ran}; the last one changed no code, and with the coverage pass off there was nothing further to review.`)
   } else if (end.notPicked) {
