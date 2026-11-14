@@ -1,0 +1,1 @@
+Redline round 1: fixed in 6a8c63a (redline: R1-4 drop needsDecision from the skill's reviewed fields and list declined as tracked (#93)). · decided by: redline

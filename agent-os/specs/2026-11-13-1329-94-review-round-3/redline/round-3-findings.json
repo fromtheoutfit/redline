@@ -1,0 +1,283 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "e788107240e036bda40872260e06451bee958e81",
+    "to": "dae81d4b5a4fd7720d4163bf7785c38bdd3ced92"
+  },
+  "summary": "The round 2 fixes land as described. A ref read past by its leading id, the `(no file)` place, per-pass dispositions in the schema, the shaper's label on checkWhy, the kept-decline test, `bought` reading the round's calls, the shared group tests and the R2-15 filter each do what their decision says, and the fix diff introduced no bug of its own. The most serious finding sits next to R2-15: a decline overruled at a decisions stop that a reshape raised is applied at the first resolve, so the relaunch reruns prompts that come before that stop and can drop the person's answer. The rest are places where the new model's text or output is not yet consistent: the coverage-off decline reopen, wouldConfirm escaped in only one of its two posts, the alias in the overrule line, scope declines in the result, and a minted finding with an empty claim. The repository has no scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "workflows/redline-loop.js",
+      "line": 911,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "An older install's prior-findings cannot read the 0.3.0 finding line, and nothing says so",
+      "description": "`findingLine` (lines 909-911) now writes `unconfirmed` as the confidence word and ` · left to @<login> under rule <id>` as the rule tail. The base's `prior-findings` (`git show origin/main:scripts/redline-gh.sh`, line 334) matches only `confirmed|likely|unsure`, and its title capture (line 349) knows only ` · yours under rule`; its `classify` (lines 336-344) reads `left to the author` as left and anything else as decided. So a teammate on a 0.2.x install who runs Redline on a pull request that 0.3.0 rounds reviewed gets no line for any unconfirmed finding: such findings are neither carried nor tracked, and a decline of one can be raised again as new. A rule-covered finding keeps the `left to @x under rule y` tail in its title, and its `left to @x under repository rule` reply reads as decided. The new reader (`scripts/redline-gh.sh:343`) reads both old and new forms; only the old reader is affected. Conditions: two Redline versions on the same pull request. The cause is the format change in this pull request; the code that fails is an older release, which this pull request cannot change. `docs/upgrading.md` says nothing about it.",
+      "proposedFix": "State it in `docs/upgrading.md` (a pull request a 0.3.0 run reviewed is continued with 0.3.0 or later, since an older `prior-findings` skips unconfirmed findings and keeps the new rule tail in titles), or in the CHANGELOG entry at release.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "workflows/redline-loop.js",
+      "line": 1117,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "wouldConfirm is posted raw in the inline comment, so a bare @-word in it notifies an account",
+      "description": "#88 tracks free text that can mention accounts (inline comment descriptions, proposed fixes, replies) and newlines in posted text that can forge a line; the newline half of this candidate is that issue's. Not in it: `wouldConfirm`, a verifier field this pull request adds. In the review body `findingLine` passes it through `postedText` (line 910), which neutralises `@` and `<`, but `commentBody` posts it raw: `Could not confirm. Would confirm it: ${(f.wouldConfirm || 'not stated').trim()}` (line 1117), while the title in the same comment is neutralised (line 1106). `agent-os/standards/workflow/agents.md:17` says the workflow neutralises the verifier's short fields itself and posts only a description, a reply, a mitigation or a commit subject as written; `wouldConfirm` is a one-line short field. So a verifier that writes `@word` unbackticked in wouldConfirm notifies that account from the inline comment, though the same text is safe in the body. Conditions: an unconfirmed finding whose wouldConfirm holds a bare `@` identifier. R1-11 (a decline reason in the handoff) was declined as belonging to #88, but that is shaper text in another post; this is a verifier short field that the same pull request already escapes on one of its two paths.",
+      "proposedFix": "Pass wouldConfirm through `postedText` in `commentBody` as `findingLine` does: `Could not confirm. Would confirm it: ${postedText((f.wouldConfirm || 'not stated').trim())}`, with a loop check that a wouldConfirm holding `@someone` is posted as `@&#8288;someone` in the inline comment.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1356,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "With coverage off the prompt forbids the decline reopen that the agent file and README state without condition",
+      "description": "R1-1 was fixed (ac592aa) by keeping the history header unchanged under `coverage off` on purpose (lines 1354-1357; the handled-list header at 1371 too), since the reopen is the candidates block's rule (round 1 `shape.md` decision 1, `agent-os/standards/workflow/replay.md`). The same fix made the reopen unconditional elsewhere: `agents/redline-reviewer.md:22` (\"... is not raised again, except one declined because it could not be confirmed that you now confirm\"), `README.md:103` (\"a later round raises as new once its verifier confirms it\") and `docs/running.md:45`. So a coverage-off fix-diff reviewer gets both instructions: the prompt says \"never re-raise a declined, deferred or decided one\" and its agent file says to treat a newly confirmed decline-for-want-of-confirmation as new. If it follows the prompt, the README's promise is not kept and a confirmed bug stays settled. If it follows the agent file, it re-raises the decline as a new correctness finding, which buys a round the prompt meant to withhold. Two readings: (a) the reopen should hold under coverage off as well, so the prompt headers are wrong; (b) it should not, as the replay standard and the R1-1 decision say, so the agent file line 22, README line 103 and running.md line 45 need \"with the coverage pass on\".",
+      "proposedFix": "Under reading (b): add \"on a round with candidates\" (or \"with the coverage pass on\") to `agents/redline-reviewer.md:22`, `README.md:103` and `docs/running.md:45`, and have the loop test pin the qualifier in the agent file. Under reading (a): drop the `Array.isArray(candidates)` gate on `reopenDeclined` (line 1356) for the decline half.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "workflows/redline-loop.js",
+      "line": 1582,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A left-out candidate with no summary or scenario is minted as a correctness finding with an empty title and description",
+      "description": "`coverageCandidates` (lines 1473-1483) rejects an array only when no entry has a summary or failure_scenario. Once one entry has one, every other object entry is kept, with `summary: ''` and `failure_scenario: ''` when it has neither. If the verifier leaves such a candidate's index out (or gives a bad ref), `accountCoverage` mints it (lines 1580-1584) with `title: String(c.summary || '')...` and `description: String(c.failure_scenario || '').trim()`, both empty, as `correctness`/`medium`/`unconfirmed`. The body line then ends `` `x.php:4` · `` with no title (`findingLine`, line 911), and the inline comment is a bold empty `****` title over a blank description (`commentBody`, lines 1106 and 1110). The shaper gets a correctness finding with no claim to check, which it must fix, decline or ask about, and a fix or an ask buys a round. Conditions: the skill returns an object entry with neither field beside a well-formed one, and the verifier does not account for that index.",
+      "proposedFix": "Fill an empty minted title and description from what the candidate has, e.g. `title: summary || failure_scenario || `coverage candidate ${index} (no summary given)``, and drop object entries with neither field in `coverageCandidates` with a warning (or keep them with that placeholder), with a loop check for `[{summary:'a',...},{file:'x.php',line:4}]` and index 2 left out.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-5",
+      "file": "workflows/redline-loop.js",
+      "line": 2866,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "checkWhy runs after the spec-status agent call, so a refused reason first costs that call",
+      "description": "In `revise`, `checkSpec` (which runs the `spec status` GitHub agent, lines 2658-2661) runs at line 2864 before `forceAskRules` (2865) and `checkWhy` (2866), and the same order holds for the reshape (2982-2984). `forceAskRules` (2694 onward) reads only `record`, `pass`, `inScope` and `shaped`, not the spec status, so it and `checkWhy` could run first. In the current order a reason `checkWhy` refuses costs one agent call before the stop, and the R2-9 fix had to pass the shaper's label to `checkWhy` explicitly (lines 2639-2641), since `lastLabel` would name the spec check. The shaper's schema already refuses a reason outside ROUND_WHY and the rule reasons (`judgmentCallSchema`, line 659), so `checkWhy`'s throw is reached only when that structured output is not enforced. It is a cost and an ordering point, not wrong behaviour.",
+      "proposedFix": "Run `forceAskRules` and `checkWhy` before `checkSpec` at both sites (2863-2866, 2981-2984), keep the explicit shaper label, and check that the loop test's replay prefixes still hold.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3263,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The handoff's overrule line always names the /redline-revise alias, which a repository may not have",
+      "description": "The Declined by Redline heading's overrule line (line 3263) always says to run `/redline-revise <pr> review @<login>`. That alias is optional: `/redline:setup` step 12 asks before writing it, records no answer when the person says no, and leaves a person's own command of that name in place (`skills/setup/SKILL.md:24`, `:152`). The skill's closing summary allows for this (`skills/redline/SKILL.md:240`: \"the namespaced `/redline:redline-revise` where the repository has no alias\"), but the comment posted on GitHub does not. In a repository with no alias, a teammate who follows the posted line runs a command that does not exist. Where `/redline-revise` is the person's own command, it runs something other than Redline.",
+      "proposedFix": "Name the namespaced command in the posted line, `/redline:redline-revise <pr> review @<login>` (it works whether or not the alias exists), or add \"(or `/redline:redline-revise` where the repository has no alias)\" as the skill does. Update the pinned line in `tests/loop-test.mjs:2297` and the matching docs sentence.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-7",
+      "file": "workflows/redline-loop.js",
+      "line": 3661,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A decline overruled at a reshape's decisions stop changes prompts before that stop, so the relaunch does not replay to it",
+      "description": "`handoffResult` offers the round's declines for overrule at every decisions stop (line 3661), including one a reshape raised (line 2990) or a reshape's resolve left unresolved (lines 2933, 2996-2998). The overrule only takes effect through `overridesFor(calls)`, which is computed once, before the approve loop (lines 2904-2905), and through `effectiveDispositions()` in the first plan approver's prompt (lines 2946-2958). Both of these ran before that stop. Trace: shape r1 returns R1-5 as a decline and no calls, so `resolve r1` never runs. `plan approver r1` bounces, and `reshape r1 #1` raises a call on R1-2, so the run stops with `declined: [R1-5]`. The person answers R1-2 and types `R1-5: fix. ...`. On relaunch, shape r1 replays. Then `overrides` holds R1-5, so `resolve r1` runs for the first time, and `plan approver r1` gets a prompt in which R1-5 is now `fix`, so it reruns instead of replaying (line 211: the changed agent and every one after it rerun). If it approves this time, the loop breaks with no reshape. R1-2 is not in the first shape's `calls` and its decision carries no `disposition`, so no resolve ever receives the person's answer, and R1-2 keeps the first shaper's disposition with nothing said. If it bounces again, the reshape gets new adjustments and may not raise R1-2 again. This breaks `agent-os/standards/workflow/replay.md:6`: decisions enter only after the prompt they answer. When the first shape had calls, `resolve r1` reruns instead, with the same effect. R2-15 (fixed in 540db37) covered only re-listing a decline already overruled. The decline overrule at a decisions stop is this pull request's (#93), and the loop test pins it only at the first shape's stop (`tests/loop-test.mjs:2261-2270`). Conditions: a guided or plan run whose plan approver bounces once, with a reshape that raises a call (or a reshape resolve that leaves one unresolved), while the round holds a decline.",
+      "proposedFix": "Offer declines for overrule only at a stop where no resolve or approver of the round has run yet: the first shape's stop (line 2899) and the plan dial (line 2877). At a reshape-raised or resolve-unresolved stop, pass `declined: []`, and say in the skill that such a decline is overruled on GitHub after the run. The alternative is to apply an overrule typed at a later stop in the next `resolveWith` after that stop, never in the first one. Regression check: plan approver r1 bounces, reshape r1 #1 raises R1-2 while R1-5 is declined; relaunch with R1-2 answered (and R1-5 overruled, if still offered); `samePrefix` holds up to the stop and `resolve r1 #1`'s prompt carries R1-2's answer.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-8",
+      "file": "workflows/redline-loop.js",
+      "line": 3817,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "result().rounds[].findings carries scope-declined items, which the skill's summaries count or leave out unmarked",
+      "description": "R1-10 was fixed for the findings file (`post()` writes scope-declined items under `scoped`, line 2464), but the same cause still shows in the workflow's result. The round record keeps `findings: considered` (line 3817), and `considered` holds the scoped items (line 3805). `result()` returns `rounds[].findings: record.findings.map(compactFinding)` (line 2204) with no `scoped` field. The base dropped such nits before the record (`git show origin/main:workflows/redline-loop.js`, lines 3514-3516). The result does mark them, but only through `rounds[].outcomes`, which holds `SCOPE_DECLINED` (line 335) for each; so the candidate's \"nothing marking them\" is not exact. The skill's review-only summary reads \"how many findings by category\" (`skills/redline/SKILL.md:170`) and not outcomes, so under `review only` + `correctness only` it reports \"2 correctness, 1 nit\" while the posted review lists the nit under Declined under this run's scope. The `done` summary is built from `decided` (`SKILL.md:240`), which never holds scope-declined items, so they are not mentioned at all. The PR description says the closing summary lists what Redline declined, each with its reason. A scope decline is posted as `decided by: redline`, so that sentence can be read as covering it (a promise unkept), or as covering only the shaper's declines (an information gap).",
+      "proposedFix": "Return the round's scoped items apart in `result()` (e.g. `scoped: (record.scoped || []).map(compactFinding)`, and `findings` without them), and have the skill's review-only and done summaries name them in one line (\"N declined under the scope (correctness only)\").",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "dae81d4b5a4fd7720d4163bf7785c38bdd3ced92",
+    "candidates": 10,
+    "counts": {
+      "verified": 8,
+      "unconfirmed": 0,
+      "refuted": 1,
+      "duplicate": 0,
+      "settled": 1,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R3-7"
+      },
+      {
+        "index": 2,
+        "outcome": "settled",
+        "ref": "R2-12 was deferred (mitigated in bc70286 by leaving out declined and none only), and this still reproduces it: `fixed` (line 3154) counts any item whose `commits` merely mention its id (outcomesFor, line 2519), here a decided one. Same cause, full fix left open under R2-12's Deferred entry."
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R3-3"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R3-8"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R3-1"
+      },
+      {
+        "index": 6,
+        "outcome": "refuted",
+        "ref": "Claim: under README's definition, a coverage-off run that ends after a round that asked about a correctness item and changed no code counts as a clean run. README.md:100 defines a clean run as one whose last round found no new correctness item Redline fixed or asked about, so that run is not clean by its own definition. The handoff opens it with its own sentence ('the last one changed no code, and with the coverage pass off there was nothing further to review', workflows/redline-loop.js:3190-3191), never the clean-run sentence at 3195."
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R3-4"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R3-6"
+      },
+      {
+        "index": 9,
+        "outcome": "verified",
+        "ref": "R3-2"
+      },
+      {
+        "index": 10,
+        "outcome": "verified",
+        "ref": "R3-5"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3661,
+        "summary": "A decisions stop raised by a reshape (or by a later resolve's unresolved items) offers the round's declines for overrule, but the overrule only takes effect in the first `resolve` call and changes the first plan approver's prompt, both of which ran before that stop, so the relaunch does not replay back to it.",
+        "failure_scenario": "Guided run. shape r1 returns R1-5 as decline and no calls, so `resolve r1` never runs. `plan approver r1` bounces, and `reshape r1 #1` raises a call on R1-2. The run stops with `declined: [R1-5]`. The person answers R1-2 and types `R1-5: fix. …`. On relaunch, `overridesFor(calls)` (line 2905, computed once before the approve loop) now holds R1-5. So `resolve r1` runs for the first time, and `plan approver r1` gets a new prompt (`effectiveDispositions` now says fix), so it reruns instead of replaying. If it approves this time, there is no reshape: R1-2's answer is never passed to any resolve and is silently dropped (R1-2 keeps the first shaper's disposition). This breaks the rule in agent-os/standards/workflow/replay.md that decisions enter only after the prompt they answer. R2-15 covered only declines that were already overruled."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 3154,
+        "summary": "Remainder of R2-12: `fixed` still counts a `decided` item whose only commits merely mention its id (an ask answered 'accept, no change', or a decline kept with accept). `describeOutcome` now also writes ' Applied in <sha>.' for such an item in the handoff (line 2555).",
+        "failure_scenario": "A final nit pass finds R3-1 and R3-2. R3-2 is put to the person, who answers 'Keep it'. The commit for R3-1 is 'redline: R3-1 guard the loop; R3-2 stays as is'. `fixed` = [R3-1, R3-2], so the handoff opens 'they were fixed in one more pass, which was not re-reviewed' and sets `lastFixUnreviewed`. R3-2's handoff line reads 'Keep it… Applied in 1abc234.' although no code was changed for it. In a nits-only round, the same mention alone sets `fixedAny` and starts a final nit pass. R2-12 excluded only declined and none."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1356,
+        "summary": "Remainder of R1-1: with coverage off, the history header (and the handled-list header at line 1371) still says never re-raise a declined finding. The reviewer's agent file (agents/redline-reviewer.md:22) and README Known limits state the reopen of a decline for want of confirmation with no condition, so a coverage-off reviewer gets two opposite instructions.",
+        "failure_scenario": "Coverage-off run. Round 1 declines R1-4 with 'could not confirm: needs two workers on one queue'. Round 2's fix-diff review traces and confirms it. The prompt says 'never re-raise a declined, deferred or decided one', while the agent file says to report it as new. If the reviewer follows the prompt, a confirmed bug stays settled and the run ends with it unfixed, contrary to README's statement that a later round raises it as new once confirmed."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 2204,
+        "summary": "`result().rounds[].findings` now includes the scope-declined items (`record.findings` is `considered`, which holds them) with nothing marking them. `scoped` is not in the result, so the skill cannot tell them apart.",
+        "failure_scenario": "`review only` + `correctness only`, and the verifier reports 2 correctness items and 1 nit. The skill's review-only summary ('how many findings by category') reads rounds[0].findings and reports '2 correctness, 1 nit'. The posted review lists the nit under 'Declined under this run's scope'. The `done` summary, built from `decided`, never mentions scope-declined items at all."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 911,
+        "summary": "The finding line now writes `unconfirmed` as its confidence and a ` · left to @login under rule` tail. An older install's `prior-findings` regex (confirmed|likely|unsure, ` · yours under rule`) cannot read either, so an older reader of a 0.3.0 PR skips every unconfirmed finding without saying so.",
+        "failure_scenario": "A teammate on 0.2.4 runs `/redline <pr>` on a PR that 0.3.0 rounds reviewed. Every line under 'Could not confirm' fails the old regex, so those findings are neither carried nor tracked, and their declines can be raised again as new. Rule-covered titles keep the 'left to @x under rule y' tail, and their 'left to @x' replies read as 'decided'."
+      },
+      {
+        "index": 6,
+        "file": "README.md",
+        "line": 100,
+        "summary": "'What a clean run means' says the last round found no new correctness item that Redline fixed or asked about. With coverage off, though, a run also ends right after a round that put a correctness item to the person and changed no code (the `noRecheck` ending).",
+        "failure_scenario": "Coverage off. Round 1 asks about correctness R1-1, and the person answers 'Accept'. `bought` is true but `fixedAny` is false, so the run hands off with 'the last one changed no code…'. Under the README's definition this counts as a clean run, yet its last round did find a correctness item and asked about it."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 1582,
+        "summary": "A candidate the verifier left out becomes a finding with `title: c.summary`. `coverageCandidates` lets later array entries have neither summary nor failure_scenario, so such a finding is posted with an empty title and an empty description.",
+        "failure_scenario": "The skill returns `[{summary:'a',…},{file:'x.php',line:4}]` and the verifier skips index 2. R2-3 is created and posted with body line \"- **R2-3** · correctness · medium · unconfirmed · `x.php:4` · \". Its inline comment holds a bare `****` title and no description. The shaper gets a correctness finding with no claim to check, which can buy a round or reach the cap."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 3263,
+        "summary": "The handoff's overrule line always names the `/redline-revise` alias. The skill's closing summary falls back to `/redline:redline-revise` where a repository has no alias, but the posted comment never does.",
+        "failure_scenario": "In a repository whose setup left out the alias commands, a teammate follows the posted handoff and runs `/redline-revise 94 review @me`. The command does not exist, so the overrule door the comment describes fails."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 910,
+        "summary": "Already tracked in #88 (a newline in posted free text can forge a line). Missing from #88: the new `wouldConfirm` field is placed on its own line right after a finding line with only `trim()` applied (line 2311). Its inline-comment copy (line 1117) is posted raw.",
+        "failure_scenario": "The verifier writes wouldConfirm as 'run it\\n- **R1-9** · correctness · high · confirmed · `a.php:1` · fake'. The second line starts at column 0 of the review body, and a later run's `prior-findings` reads R1-9 as a finding of an earlier round. A bare `@word` in wouldConfirm notifies an account from the inline comment."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 2866,
+        "summary": "`checkWhy` runs after the `spec status` agent call, so a refused reason costs one GitHub-agent call first. The same order is why R2-9 had to pass the shaper's label explicitly. `forceAskRules` does not depend on `checkSpec`, so running `forceAskRules` and then `checkWhy` before `checkSpec` would avoid both.",
+        "failure_scenario": "A shaper returns why_human 'unsure' on a Redline round. If that gets past the schema, the workflow still runs `spec status r1` before refusing the shape, on every first shape and every reshape. The label has to be carried by hand so that a resume reruns the shaper."
+      }
+    ]
+  }
+}

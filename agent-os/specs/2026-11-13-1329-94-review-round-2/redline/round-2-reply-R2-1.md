@@ -1,0 +1,1 @@
+Redline round 2: fixed in 18f4675 (redline: R2-1 read back a login with an underscore in prior-findings (#93)). · decided by: redline
