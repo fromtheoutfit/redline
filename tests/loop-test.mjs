@@ -1193,6 +1193,9 @@ function samePrefix(name, first, second, n) {
   check('resume: the relaunch finishes', second.res.status === 'done' && second.res.resumeFrom === undefined, [second.res.status, second.res.error])
   check('resume: the relaunch note names the field', first.res.relaunch.how.includes('error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.'), first.res.relaunch.how)
   check('resume: the relaunch note says a decline overruled at a decisions stop carries its disposition', first.res.relaunch.how.includes('handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop).'), first.res.relaunch.how)
+  // An override the resolve agent could not apply is restated, and the restatement replaces it in
+  // the relaunch's decisions (#94, R5-4).
+  check('resume: the relaunch note says a restated override replaces the one the resolve agent could not apply', first.res.relaunch.how.includes('For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply.'), first.res.relaunch.how)
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
