@@ -3,7 +3,7 @@
 A relaunch replays every agent before the stopping point from cache, so every prompt before that point is byte-identical between the first launch and the relaunch.
 
 - Nothing before a stopping point reads the clock: the launch timestamp is `args.launchedAt`, the spec folder name is derived from it, and `Date.now()` and `new Date()` do not appear in `workflows/redline-loop.js`
-- Decisions, approved plans and selected findings enter the workflow only after the prompt they answer (`args.decisions` after shaping, `args.approvedPlans` for the plan dial, `args.selected` for the review dial); a prompt before that point never mentions them
+- Decisions, approved plans and selected findings enter the workflow only after the prompt they answer (`args.decisions` after shaping, `args.approvedPlans` for the plan dial, `args.selected` for the review dial); a prompt before that point never mentions them; and a stop takes only a decision whose prompt comes after it, so a decline overrule, which the round's first resolve applies, is taken only at a stop no plan approver of the round has run before (#94, R3-7)
 - A plan approval is keyed by the pass, not by a bare round number: `passOf(record).planKey` is a Redline round's number, or `h<n>` for a human review pass, since a human pass and its final nit pass can carry the same number (#38, R1-5)
 - The skill relaunches with byte-identical `args` plus only what the stop asked for, and `resumeFromRunId` set to the run id it recorded at launch. A run the harness stopped is relaunched the same way with nothing added
 - A prompt names its inputs by path (`<specFolder>/redline/round-1-findings.json`), not by content, wherever the content can change between launches
