@@ -1935,7 +1935,7 @@ When the wait exits 0, 1 or 2, its output and exit code are the gate's: return t
 // anything, so it is one foreground command whatever the gate's length. The guard already lets
 // the checker run checks.sh with any flag; the checker reads no file itself.
 function verdictCommand(flag, snapshot) {
-  return `${CHECKS} --verdict${flag ? ` ${flag}` : ''} ${snapshot}`
+  return checkerCommand(flag ? `--verdict ${flag}` : '--verdict', snapshot, false)
 }
 
 // attempt is the resume attempt of the check this verdict follows, 0 on a first run: a relaunch
