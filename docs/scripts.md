@@ -487,19 +487,28 @@ What every repository's `checks.sh` is generated from, by `redline-setup.sh chec
 #   checks.sh <snapshot.json>              full run: commands + git block
 #   checks.sh --baseline [snapshot.json]   commands only, git block is null
 #   checks.sh --git-only <snapshot.json>   git block only, checks is []
+#   checks.sh --verdict [--baseline | --git-only] [snapshot.json]
+#                                          no run: the verdict of the run kept for this commit
 #
 # Environment:
 #   REDLINE_OCTANE=1   set by the workflow when the approved plan touches app/Providers/,
 #                      bootstrap/ or config/octane.php; run a long-lived-process suite
 #                      here if the repository has one, else ignore it
+#   TMPDIR             a run keeps its full result under it, in redline-checks/; a --verdict
+#                      call must see the same one
 #
-# Snapshot: {"pr", "start_sha", "base_ref", "files": [...], "plan_paths": [...]}.
+# Snapshot: {"pr", "start_sha", "round_sha", "base_ref", "files": [...], "plan_paths": [...]}.
 # Allowed changes are files + plan_paths + agent-os/specs/ + agent-os/standards/ +
-# ALWAYS_ALLOWED; anything else that changed since start_sha is unexpected.
+# ALWAYS_ALLOWED; anything else that changed since start_sha is unexpected. git.commits lists
+# round_sha..HEAD, the round's own commits, or start_sha..HEAD when the snapshot has no round_sha.
 #
 # Exit 0 when every non-recorded check passed and git.unexpected_files and
-# git.uncommitted are both empty, else 1. Usage errors exit 2. See the Redline
-# README for the output contract.
+# git.uncommitted are both empty, else 1. Usage errors exit 2, and so does a --verdict with no
+# kept result for this commit, mode and snapshot. See the Redline README for the output contract.
+#
+# stdout is sized for the workflow and stays small whatever the pull request's size or the run's
+# length. The full result is kept in a file outside the working tree, named under "kept" in the
+# result; the comments in the script give the sizes and the file's place.
 #
 # The last line of this header is the gate stamp: a hash of the gate's backticked text, written
 # by <plugin>/scripts/redline-gate.sh stamp. A launch recomputes it from the gate and refuses to
@@ -508,7 +517,7 @@ What every repository's `checks.sh` is generated from, by `redline-setup.sh chec
 # <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 # The line above the stamp names the template version this file was made from; a launch warns
 # when the plugin's template is newer.
-# redline-template: checks-template.sh v2
+# redline-template: checks-template.sh v3
 # redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 ```
 
