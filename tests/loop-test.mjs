@@ -226,7 +226,8 @@ function mock(scenario) {
       return { approved: [], rejected: [], deferred: [], noChanges: true }
     }
     if (t === 'redline:redline-implementer') {
-      return { commits: [], checks: { ok: true, runs: 1 }, deviations: [], blocked: [] }
+      // scenario.implementerCommits (#94, R6-5): the commits the implementer reports, by default none.
+      return { commits: scenario.implementerCommits ? scenario.implementerCommits.slice() : [], checks: { ok: true, runs: 1 }, deviations: [], blocked: [] }
     }
     if (t === 'redline:redline-checker') {
       // scenario.checker(label, out) replaces the result of one call (#9: a stray error, a failing
@@ -883,6 +884,19 @@ function samePrefix(name, first, second, n) {
   check('round_sha: each round records its own commits, oldest first', roundShas(run) === `${SHA(1)}+${SHA(2)} | ${SHA(3)} | `, roundShas(run))
   run = await go('round_sha: a checks.sh from before template v3', baseArgs, { ...two, oldChecks: true })
   check('round_sha: an older checks.sh lists every commit since the start, and each round still records only its own', run.res.status === 'done' && roundShas(run) === `${SHA(1)}+${SHA(2)} | ${SHA(3)} | `, [brief(run), roundShas(run)])
+  // A reply and the handoff quote a commit's whole subject (#94, R6-5). A checks.sh of template v3
+  // cuts a subject over 100 characters for what the workflow matches, so the workflow quotes the
+  // first line of the message the implementer reported for that commit when it opens with the part
+  // the cut kept; a commit the implementer did not report, or one whose report does not open so,
+  // is quoted as the git block gave it, and the round records git's own text either way.
+  const whole = 'redline: R1-1 keep the whole subject of a long commit in the reply and in the handoff list of commits (#93)'
+  const cutSubject = 'redline: R1-1 keep the whole subject of a long commit in the reply and in the handoff list of...'
+  const longCut = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [[cutSubject]] }
+  const quoted = await go('subject: the implementer reported the whole subject', baseArgs, { ...longCut, implementerCommits: [{ sha: SHA(1), finding: 'R1-1', message: whole }] })
+  check('subject: the reply and the handoff quote the whole subject, and the round records git\'s cut one', quoted.res.status === 'done' && replyFor(quoted.calls, 'push and reply r1', 'R1-1').includes(`fixed in 1bbbbbb (${whole})`) && comment(quoted.calls, 'handoff comment').includes(`- 1bbbbbb ${whole}`) && quoted.res.rounds[0].commits[0].message === cutSubject, [brief(quoted), replyFor(quoted.calls, 'push and reply r1', 'R1-1')])
+  const unreported = await go('subject: the implementer reported no commit', baseArgs, longCut)
+  const otherText = await go('subject: the implementer reported another subject', baseArgs, { ...longCut, implementerCommits: [{ sha: SHA(1), finding: 'R1-1', message: 'redline: R1-1 a different subject that is long enough to pass the cut of one hundred characters in all (#93)' }] })
+  check('subject: with no report, or one that does not open with the cut\'s kept part, the cut subject is quoted', [unreported, otherText].every((r) => r.res.status === 'done' && replyFor(r.calls, 'push and reply r1', 'R1-1').includes(`fixed in 1bbbbbb (${cutSubject})`) && comment(r.calls, 'handoff comment').includes(`- 1bbbbbb ${cutSubject}`)), [unreported, otherText].map((r) => replyFor(r.calls, 'push and reply r1', 'R1-1')))
 
   // A resumed attempt of round 2: check r2 failed after the first attempt's commit, the repair
   // committed again and recheck r2 failed, the person fixed the cause and the run resumed there.

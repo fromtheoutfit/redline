@@ -1309,11 +1309,22 @@ function withAnswers(pass, findings, entries) {
   })
 }
 
+// What a reply and the handoff quote for a commit (#94, R6-5): its subject as written. A checks.sh
+// of template v3 cuts a subject over 100 characters for what the workflow matches (#68), so when
+// git's subject was cut, the first line of the message the implementer reported for that commit
+// is quoted, taken only when it opens with the part the cut kept. message stays git's, and every
+// match on a commit reads git's text.
+function shownSubject(message, claimed) {
+  const whole = claimed && typeof claimed.message === 'string' ? claimed.message.split('\n')[0].trim() : ''
+  const kept = (message || '').lastIndexOf('...')
+  return whole.length > 100 && kept > 0 && whole.startsWith(message.slice(0, kept)) ? whole : message
+}
+
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
 // the plan sent part of the fix through the retrospective.
 function replyBody(pass, outcome) {
   const local = push ? '' : ' Committed locally; not pushed.'
-  const commits = andList(outcome.commits.map((c) => `${short(c.sha)} (${c.message})`))
+  const commits = andList(outcome.commits.map((c) => `${short(c.sha)} (${c.subject || c.message})`))
   const owner = decidedBy(outcome.decidedBy)
   switch (outcome.kind) {
     case 'fixed':
@@ -3255,7 +3266,7 @@ async function revise(record, inScope, reviewedKind) {
     .reverse()
     .map((c) => {
       const claimed = implemented.commits.find((ic) => ic.sha.length >= 7 && (c.sha.startsWith(ic.sha) || ic.sha.startsWith(c.sha)))
-      return { sha: c.sha, message: c.message, finding: claimed ? claimed.finding : '', round }
+      return { sha: c.sha, message: c.message, subject: shownSubject(c.message, claimed), finding: claimed ? claimed.finding : '', round }
     })
   commitsAll.push(...roundCommits)
   record.commits = roundCommits
@@ -3465,7 +3476,7 @@ function handoffComment(ending, prBody, threads) {
     lines.push('', ...setAsideBlock(lastCovered.setAsideCandidates, lastCovered.round))
   }
   if (commitsAll.length) {
-    lines.push('', '### Commits', '', ...commitsAll.map((c) => `- ${short(c.sha)} ${c.message}`))
+    lines.push('', '### Commits', '', ...commitsAll.map((c) => `- ${short(c.sha)} ${c.subject || c.message}`))
   }
   if (!push) {
     lines.push('', 'The commits are local only; push was off for this run.')
