@@ -4154,8 +4154,11 @@ try {
       log(`round ${round}: ${personLabel} picked ${active.length} finding(s) to act on, ${record.dropped.length} dropped`)
       if (active.length === 0) {
         await replyStandalone(record)
-        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ notPicked: true }, prBody, threads))
-        return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: 'No finding was selected to act on, so there was no revise pass.' })
+        // "None was picked" only when findings were dropped: a round with nothing to pick has the
+        // generic ending, as before #93 (#94, R8-7).
+        const notPicked = record.dropped.length > 0
+        const finished = await finish('handoff', record, (prBody, threads) => handoffComment({ notPicked }, prBody, threads))
+        return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: notPicked ? 'No finding was selected to act on, so there was no revise pass.' : 'The round had no finding to pick, so there was no revise pass.' })
       }
     }
     const correctness = active.filter((f) => f.category === 'correctness')

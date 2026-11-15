@@ -440,7 +440,13 @@ function samePrefix(name, first, second, n) {
   check('review: round record lists the drops', JSON.stringify(second.res.rounds[0].dropped) === '[{"id":"R1-2","reason":"Naming is fine as it is."},{"id":"R1-3","reason":"Not selected for this run."}]', second.res.rounds[0].dropped)
   const none = await go('review: nothing selected', { ...reviewArgs, selected: { act: [], dropped: { 'R1-1': 'Known and accepted.' } } }, scenario)
   check('review: nothing selected replies and finishes without a revise pass', none.res.status === 'done' && labels(none.calls).join('|') === 'gather r1|review r1|post r1|push and reply r1|last round|PR description|handoff comment|record files|record commit', labels(none.calls))
-  const later = await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
+  // A round with no finding to pick is not one whose findings were all dropped (#94, R8-7): the
+  // handoff opens with the generic ending and the note says there was nothing to pick, while a round
+  // whose findings were all dropped still says none was picked.
+  const nothingToPick = await go('review: a round with no finding to pick', { ...reviewArgs, selected: { act: [], dropped: {} } }, { reviews: [[]] })
+  const nothingHandoff = comment(nothingToPick.calls, 'handoff comment') || ''
+  check('review: a round with no finding to pick opens the handoff with the generic ending, and one whose findings were all dropped says none was picked', nothingToPick.res.status === 'done' && nothingHandoff.includes('Redline ran 1 review round; the last one verified no new correctness item to fix or ask about.') && !nothingHandoff.includes('none of its findings was picked') && nothingToPick.res.note === 'The round had no finding to pick, so there was no revise pass.' && (comment(none.calls, 'handoff comment') || '').includes('Redline ran 1 review round; none of its findings was picked to act on.') && none.res.note === 'No finding was selected to act on, so there was no revise pass.', [nothingToPick.res.status, nothingToPick.res.note, nothingHandoff])
+  const later =await go('review: round 2 is guided', { ...reviewArgs, selected: { act: ['R1-1'], dropped: {} } }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']] })
   check('review: a later round hands off its asks as guided does', later.res.status === 'handoff' && later.res.handoffKind === 'decisions' && later.res.handoffRound === 2, later.res.status)
 }
 
