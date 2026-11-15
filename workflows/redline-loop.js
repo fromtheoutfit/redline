@@ -2277,7 +2277,9 @@ function result(status, extra) {
       reviewed: record.reviewed,
       specFolder: record.specFolder,
       range: record.range,
-      findings: record.findings.map(compactFinding),
+      // What would confirm an unconfirmed finding rides with it, so the skill's review-only summary
+      // can say it (#94, R7-3); compactFinding stays as history() uses it in the reviewer's prompt.
+      findings: record.findings.map((f) => ({ ...compactFinding(f), ...(f.confidence === 'unconfirmed' ? { wouldConfirm: f.wouldConfirm || 'not stated' } : {}) })),
       // What the correctness-only scope declined in this round (#93). Those items stay in findings,
       // as the round's record keeps them, and are listed here apart so the skill's summaries can
       // name them (#94, R3-8).
