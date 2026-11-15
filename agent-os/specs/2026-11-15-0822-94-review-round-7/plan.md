@@ -567,3 +567,27 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 11. **Version.** Stays 0.3.0: the pull request already carries the minor bump; nothing this round changes what a setup rerun writes, and no template marker moves.
 12. **Standards retrospective.** Apply only the edits the standards approver approves from `shape.md`, `## Standards retrospective (proposed)`, in their own commit after the finding commits: `redline: record the round 7 review lessons in the standards (#93)`. When none is approved, record "Standards retrospective: no changes" under Decisions in `shape.md`.
 13. **Spec folder.** `plan.md` gains an As built section with each task's commit and its red and green counts, and any deviation is recorded under Decisions in `shape.md`, in a final `redline:` commit.
+
+---
+
+## As built
+
+Commits, in order, on top of `8739d8b`:
+
+- Task 1: `569f459` redline: save review round 7 spec for PR #94 (#93)
+- Task 2: `76b8161` redline: R7-10 decline a nit the final nit pass reports under its scope, never drop it (#93). Red: loop `946 checks passed, 2 failed`, the two new checks (no `scoped` for the nit pass round in either run). Green: `948 checks passed, 0 failed`. No existing check went red. `grep -c 'NIT_PASS_DECLINED' workflows/redline-loop.js` prints `3`; `grep -c 'droppedNits' workflows/redline-loop.js` prints `1`.
+- Task 3: `fdea23d` redline: R7-1 name the handoff's outcome lines in Decided by (#93). `grep -c 'Decisions list' docs/running.md` prints `0`.
+- Task 4: `ccc37d0` redline: R7-3 carry wouldConfirm in the result for the review-only summary (#93). Red: loop `948 checks passed, 1 failed`, R1-2 with no `wouldConfirm`. Green: `949 checks passed, 0 failed`. `grep -c 'wouldConfirm: f.wouldConfirm' workflows/redline-loop.js` prints `1`.
+- Task 5: `b47889e` redline: R7-4 state the scope and the ask-rule outcomes as they now are (#93). Text only; Task 6's red run shows the loop unchanged by it. `grep -c 'never looks for nits' workflows/redline-loop.js skills/redline/SKILL.md` prints `0` for each file.
+- Task 6: `a697cd6` redline: R7-5 read the shaper's second look and warn on a miss (#93). Red: loop `950 checks passed, 1 failed`, neither warning written. Green: `951 checks passed, 0 failed`. `grep -c 'checkSecondLook(pass, shaped, inScope)' workflows/redline-loop.js` prints `3`.
+- Task 7: `162824d` redline: R7-6 know a cut subject by its marker, since macOS awk counts bytes (#93). Red: loop `952 checks passed, 1 failed`, the reply quoting `wideCut`. Green: `953 checks passed, 0 failed`. `grep -c 'whole.length > 100' workflows/redline-loop.js` prints `0`.
+- Task 8: `b718b68` redline: R7-7 keep a decided rule-covered call's forced entry through a reshape (#93). Red: loop `954 checks passed, 1 failed`, the handoff listing `open: By hand: ask R1-2 this way.` Green: `955 checks passed, 0 failed`. `grep -c 'decisions\[f.id\] && record.forced\[f.id\]' workflows/redline-loop.js` prints `1`.
+- Task 9: `ecbda3b` redline: R7-8 record the verdict call's structural override as a warning (#93). Red: loop `956 checks passed, 1 failed`, no `round 1 verdict:` warning. Green: `957 checks passed, 0 failed`. `grep -c 'readVerdict.warning' workflows/redline-loop.js` prints `2`.
+- Task 10: `22c72ec` redline: R7-9 read every implement attempt's reported commits for the quoted subject (#93). Red: loop `958 checks passed, 1 failed`, the reply quoting `cutSubject`. Green: `959 checks passed, 0 failed`. `grep -c 'reported.find(' workflows/redline-loop.js` prints `1`.
+- Standards retrospective: `1b2db07` redline: record the round 7 review lessons in the standards (#93). The five approved edits (`workflow/agents.md` lines 37 and 39 and a new bullet after 39, `scripts/bash-conventions.md` line 45, `scripts/guard.md` line 9), as worded. Each is a lesson that carries no part of a finding's fix, so the message names no finding.
+
+The gate (Task 11), the last run before this commit, at `1b2db07`: `ok: true`, no failing check, `git.unexpected_files` and `git.uncommitted` empty. Loop `959 checks passed, 0 failed`; guard `596 passed, 0 mismatched`; prefs `121`; gate `117`; setup `506`; gh `136`; background `39`.
+
+Deviations:
+
+- Loop reads 959, not the 961 the plan expected. The plan's count says "ten `check()` calls" but its own breakdown (Task 2 two, Tasks 4, 6, 7, 8, 9 and 10 one each) is eight; eight checks plus the seven run-record checks on 944 is 959, which is what every task's green run shows step by step. No check was dropped and no existing expectation changed (`shape.md`, Decision 11).

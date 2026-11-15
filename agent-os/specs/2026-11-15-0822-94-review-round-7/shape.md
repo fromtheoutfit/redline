@@ -54,6 +54,8 @@ The round's ten findings, nothing more. One is correctness (R7-10); nine are nit
    Decided by: redline
 10. **R7-9: fix.** Confirmed by reading: `implemented` is reassigned on each attempt (3229), the repair prompt asks only for its own commits, and the `claimed` lookup (3268) reads `implemented.commits`, the last attempt's, while the git block lists every commit since `round_sha`. Change: every attempt's reported commits are kept and the lookup reads them all. `finding` for such a commit is filled from the same lookup, which `outcomesFor`'s fallback (2615) already covered. Plan Task 10.
     Decided by: redline
+11. **As built: the loop count is 959, not 961.** The plan's expected count added ten new `check()` calls, but the tasks add eight (Task 2 two; Tasks 4, 6, 7, 8, 9 and 10 one each). With the seven run-record checks, 944 becomes 959, as each task's green run shows. No check of the plan was left out and no existing check changed, so this is the plan's arithmetic, recorded as a deviation and not a change of scope.
+    Decided by: redline
 
 ### Proportionality
 
