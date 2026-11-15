@@ -53,7 +53,7 @@ In order (the `cmd` strings are what runs, through `bash -c`):
     "changed_count": 9,
     "unexpected_files": ["changed files not covered by the allowed list"],
     "uncommitted": ["paths that differ from HEAD or are untracked, outside agent-os/specs/"],
-    "commits": [{"sha": "...", "message": "subject line, cut at 100 characters"}],
+    "commits": [{"sha": "...", "message": "subject line, cut at 100 characters (bytes where awk counts bytes)"}],
     "commits_count": 31,
     "diff_lines": 212,
     "formatter_touched_count": 0
@@ -72,7 +72,7 @@ The result is sized for what the workflow reads, so the Bash tool shows it inlin
 - `changed_count` counts every path that differs between `start_sha` and the working tree, committed or not, untracked included. `unexpected_files`, the ones the allowed list does not cover, is printed whole, since it fails a round.
 - `uncommitted` is the working tree against HEAD (modified, added, deleted and untracked), leaving out `agent-os/specs/`, where the round's reply files and snapshot sit uncommitted by design. The checks ran against that tree and the push would omit it, so a full or git-only run fails on it; the workflow's judge reads it too. It is printed whole.
 - `commits` lists `round_sha..HEAD` in `git log` order, newest first: the commits made since the newest one an earlier round of the run listed, which are the round's own. With no `round_sha` in the snapshot it lists `start_sha..HEAD`. `commits_count` counts `start_sha..HEAD` either way.
-- A commit's `message` is its subject line. A subject over 100 characters is cut at the last space at or before 100 and ends `...`, so a cut never splits a finding id into another one (`R5-10` into `R5-1`). The workflow looks for the round's finding ids in these subjects, and a commit may name one late (`... lessons in the standards, finishing R1-1 and R1-4`), so every id in the part cut off follows the `...`: both forms, `R<round>-<n>` and `H<n>-<k>`.
+- A commit's `message` is its subject line. A subject over 100 characters is cut at the last space at or before 100 and ends `...`, counted in bytes where `awk` counts bytes, as macOS's does, so a subject with non-ASCII characters can be cut under 100 characters; so a cut never splits a finding id into another one (`R5-10` into `R5-1`). The workflow looks for the round's finding ids in these subjects, and a commit may name one late (`... lessons in the standards, finishing R1-1 and R1-4`), so every id in the part cut off follows the `...`: both forms, `R<round>-<n>` and `H<n>-<k>`.
 - `diff_lines` is insertions plus deletions versus `start_sha`, plus the line count of untracked files.
 - `formatter_touched_count` counts the files the formatter changed that the allowed list does not cover; such a file is also in `unexpected_files`.
 - `git` is `null` in `--baseline` mode. `checks` is `[]` in `--git-only` mode, and `formatter_touched_count` is `null` there because the formatter did not run.

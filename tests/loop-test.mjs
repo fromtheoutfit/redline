@@ -904,6 +904,13 @@ function samePrefix(name, first, second, n) {
   const unreported = await go('subject: the implementer reported no commit', baseArgs, longCut)
   const otherText = await go('subject: the implementer reported another subject', baseArgs, { ...longCut, implementerCommits: [{ sha: SHA(1), finding: 'R1-1', message: 'redline: R1-1 a different subject that is long enough to pass the cut of one hundred characters in all (#93)' }] })
   check('subject: with no report, or one that does not open with the cut\'s kept part, the cut subject is quoted', [unreported, otherText].every((r) => r.res.status === 'done' && replyFor(r.calls, 'push and reply r1', 'R1-1').includes(`fixed in 1bbbbbb (${cutSubject})`) && comment(r.calls, 'handoff comment').includes(`- 1bbbbbb ${cutSubject}`)), [unreported, otherText].map((r) => replyFor(r.calls, 'push and reply r1', 'R1-1')))
+  // A subject under 100 characters but over 100 bytes is cut by macOS's awk, which counts bytes,
+  // and is still quoted whole (#94, R7-6): the workflow knows the cut by its marker, not its length.
+  const dash = String.fromCharCode(0x2014)
+  const wideWhole = `redline: R1-1 quote the whole subject when awk counts bytes ${dash} a dash ${dash} is three ${dash} of them (#93)`
+  const wideCut = `redline: R1-1 quote the whole subject when awk counts bytes ${dash} a dash ${dash} is three ${dash} of them...`
+  const wide = await go('subject: a subject cut in bytes', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [[wideCut]], implementerCommits: [{ sha: SHA(1), finding: 'R1-1', message: wideWhole }] })
+  check('subject: a subject under 100 characters that awk cut in bytes is quoted whole', wide.res.status === 'done' && wideWhole.length < 100 && replyFor(wide.calls, 'push and reply r1', 'R1-1').includes(`fixed in 1bbbbbb (${wideWhole})`) && comment(wide.calls, 'handoff comment').includes(`- 1bbbbbb ${wideWhole}`), [brief(wide), replyFor(wide.calls, 'push and reply r1', 'R1-1')])
 
   // A resumed attempt of round 2: check r2 failed after the first attempt's commit, the repair
   // committed again and recheck r2 failed, the person fixed the cause and the run resumed there.

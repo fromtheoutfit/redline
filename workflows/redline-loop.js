@@ -1318,14 +1318,15 @@ function withAnswers(pass, findings, entries) {
 }
 
 // What a reply and the handoff quote for a commit (#94, R6-5): its subject as written. A checks.sh
-// of template v3 cuts a subject over 100 characters for what the workflow matches (#68), so when
-// git's subject was cut, the first line of the message the implementer reported for that commit
-// is quoted, taken only when it opens with the part the cut kept. message stays git's, and every
-// match on a commit reads git's text.
+// of template v3 cuts a long subject for what the workflow matches (#68), so when git's subject was
+// cut, the first line of the message the implementer reported for that commit is quoted, taken only
+// when it is longer than the part the cut kept and opens with it. The cut is known by its "..."
+// marker, never by the length: macOS's awk counts bytes, so a subject under 100 characters can be
+// cut (#94, R7-6). message stays git's, and every match on a commit reads git's text.
 function shownSubject(message, claimed) {
   const whole = claimed && typeof claimed.message === 'string' ? claimed.message.split('\n')[0].trim() : ''
   const kept = (message || '').lastIndexOf('...')
-  return whole.length > 100 && kept > 0 && whole.startsWith(message.slice(0, kept)) ? whole : message
+  return kept > 0 && whole.length > kept && whole.startsWith(message.slice(0, kept)) ? whole : message
 }
 
 // Every commit that carries part of a finding's fix: its own commit, and the standards commit when
