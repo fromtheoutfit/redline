@@ -3264,6 +3264,9 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   let implemented = null
+  // Every attempt's reported commits (#94, R7-9): a repair is a fresh implementer call that reports
+  // only its own, and the round's commits include the attempt's before it.
+  const reported = []
   let checked = null
   let verdict = null
   const checkFlag = checkerMode === 'git-only' ? '--git-only' : ''
@@ -3277,6 +3280,7 @@ async function revise(record, inScope, reviewedKind) {
     if (implemented.blocked.length) {
       throw stageError('implement', `the implementer is blocked in ${pass.name}`, { blocked: implemented.blocked })
     }
+    reported.push(...implemented.commits)
     phase('Check')
     const checkLabel = `${attempt ? 'recheck' : 'check'} ${pass.tag}`
     checked = await checker(checkFlag, snapshotPath, octane, checkLabel, pass.name)
@@ -3310,7 +3314,7 @@ async function revise(record, inScope, reviewedKind) {
     .filter((c) => !known.has(c.sha))
     .reverse()
     .map((c) => {
-      const claimed = implemented.commits.find((ic) => ic.sha.length >= 7 && (c.sha.startsWith(ic.sha) || ic.sha.startsWith(c.sha)))
+      const claimed = reported.find((ic) => ic.sha.length >= 7 && (c.sha.startsWith(ic.sha) || ic.sha.startsWith(c.sha)))
       return { sha: c.sha, message: c.message, subject: shownSubject(c.message, claimed), finding: claimed ? claimed.finding : '', round }
     })
   commitsAll.push(...roundCommits)

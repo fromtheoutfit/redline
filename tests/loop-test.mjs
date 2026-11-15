@@ -226,8 +226,10 @@ function mock(scenario) {
       return { approved: [], rejected: [], deferred: [], noChanges: true }
     }
     if (t === 'redline:redline-implementer') {
-      // scenario.implementerCommits (#94, R6-5): the commits the implementer reports, by default none.
-      return { commits: scenario.implementerCommits ? scenario.implementerCommits.slice() : [], checks: { ok: true, runs: 1 }, deviations: [], blocked: [] }
+      // scenario.implementerCommits (#94, R6-5): the commits the implementer reports, by default none;
+      // scenario.repairCommits (#94, R7-9): what a repair pass reports, by default none.
+      const reported = typeof opts.label === 'string' && opts.label.startsWith('repair') ? scenario.repairCommits : scenario.implementerCommits
+      return { commits: reported ? reported.slice() : [], checks: { ok: true, runs: 1 }, deviations: [], blocked: [] }
     }
     if (t === 'redline:redline-checker') {
       // scenario.checker(label, out) replaces the result of one call (#9: a stray error, a failing
@@ -926,6 +928,10 @@ function samePrefix(name, first, second, n) {
   const wip = { sha: SHA(8), message: 'wip from the first attempt' }
   const third = await go('round_sha: the failed attempt left a commit without the prefix', resumeArgs, { ...three, checker: (label, out) => (label === 'check r2' ? failing(out) : label === 'recheck r2' ? { ...out, exit: 1, result: { ...out.result, git: { ...out.result.git, commits: out.result.git.commits.concat([wip]) } } } : null) })
   check('round_sha: and they are checked: one without the redline: prefix still fails the resumed round', third.res.status === 'error' && third.res.stage === 'check' && third.res.error.includes(`commits without the redline: prefix: ${SHA(8).slice(0, 7)}`), brief(third))
+  // After a repair pass a commit the first attempt made is quoted whole too (#94, R7-9): the
+  // workflow reads every attempt's report, not the last one's.
+  const afterRepair = await go('subject: a long subject from the attempt before a repair', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [[cutSubject], ['redline: R1-1 the repair']], implementerCommits: [{ sha: SHA(1), finding: 'R1-1', message: whole }], repairCommits: [{ sha: SHA(2), finding: 'R1-1', message: 'redline: R1-1 the repair' }], checker: (label, out) => (label === 'check r1' ? failing(out) : null) })
+  check('subject: after a repair pass the first attempt\'s commit is quoted whole in the reply and the handoff', afterRepair.res.status === 'done' && labels(afterRepair.calls).includes('repair r1') && replyFor(afterRepair.calls, 'push and reply r1', 'R1-1').includes(`1bbbbbb (${whole})`) && comment(afterRepair.calls, 'handoff comment').includes(`- 1bbbbbb ${whole}`), [brief(afterRepair), replyFor(afterRepair.calls, 'push and reply r1', 'R1-1')])
 
   // The verdict.
   const spilled = { exit: 0, status: 'result_unreadable', reason: 'spilled', result: null, error: 'Output too large; saved to /tmp/out.txt' }
