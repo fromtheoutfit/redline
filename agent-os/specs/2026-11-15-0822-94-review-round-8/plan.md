@@ -544,3 +544,24 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 - `agent-os/standards/workflow/agents.md` (step 12, only the approved edits)
 - `agent-os/specs/2026-11-15-0822-94-review-round-8/plan.md` (step 13)
 - `agent-os/specs/2026-11-15-0822-94-review-round-8/shape.md` (step 13)
+
+## As built
+
+Counts are the loop harness's, read off a gate run that failed (the gate's JSON keeps a passing check's exit code and not its output, so a green count is the next red run's total, or the total the plan's arithmetic gives where no red run followed).
+
+- **Task 1**, `7676965`: the spec folder.
+- **Task 2 (R8-2)**, `4479902`. Red: the five new and changed checks failed, after a first run that did not load (below). First run with the change: `959 checks passed, 1 failed`, the failure `coverage: a skill result that quotes a marker is still the list`, a first-round settled ref the plan's trace missed (deviation 2 in `shape.md`). Green: 963.
+- **Task 3 (R8-4)**, `076b150`. Red: the new run ended in an error (autopilot decided R1-2 with the shaper's recommendation and the implement stage found no commit naming it), so the harness stopped with a `TypeError` when `comment()` found no handoff comment, rather than with two failed checks (deviation 3). Green: 966.
+- **Task 4 (R8-6)**, `d9339f3`. Red: `966 checks passed, 1 failed`, `declinedAfterRun` was `["R1-2"]`. Green: 967.
+- **Task 5 (R8-1)**, `459f1a1`: refactor, gate green, loop count unchanged (967). Proofs: `0` and `2`.
+- **Task 6 (R8-3)**, `896fb77`: refactor, gate green, loop count unchanged (967). Proofs: `3` and `0`.
+- **Task 7 (R8-5)**, `61068ba`. Red: `968 checks passed, 1 failed`, the run ended `done`. Green: 968 (the new run stops at shape, so it adds no run-record check).
+- **Task 8 (R8-7)**, `68398c0`. Red: `969 checks passed, 1 failed`, the handoff said none was picked. Green: 970, as the plan expected.
+- **Standards retrospective**, `d97c26d`: the six approved edits to `agent-os/standards/workflow/agents.md` (lines 9, 10, 37, 38, 39 and 42). No finding's fix runs through them, so the message names none.
+- Every proof grep printed the count its task gives.
+
+Deviations, each recorded under Decisions in `shape.md`:
+
+1. Task 2's new scenario reassigns `nb = body(run.calls, 'post r1')` instead of declaring `const nb`: the same block already declares `let nb` (`tests/loop-test.mjs:1717` at `754aa67`), so the plan's `const` stopped the harness from loading.
+2. Task 2's trace missed three first-round runs that account candidate 1 with `settledAll`, whose ref `R1-1` names no finding in a first round: `coverage: defaults from reviewerFirstRound`, `coverage: a skill result that quotes a marker` and `coverage: the verifier rules` (lines 1642, 1745 and 1795 at `754aa67`). They now use `refutedAll`, which refutes both candidates, so each run ends as it did before.
+3. Task 3's red run stopped with an error and not with two failed checks.
