@@ -1591,6 +1591,15 @@ const NO_FILE = '(no file)'
 // nothing is dropped (#93): its title and description say what it lacks, so its body line and
 // its inline comment are never empty (#94, R3-4).
 const MINTED_NO_CLAIM = 'The coverage pass gave this candidate no summary and no failure scenario; check the code at its place.'
+// The id of `ids` a coverage ref opens with: the longest one the ref starts with that is followed
+// by the end of the ref or by anything but a word character or a dash, so `R1-1. note`, `R1-1/x`
+// and `R1-1: note` open with R1-1 and `R1-1-x` opens with no id; '' when it opens with none.
+// accountCoverage reads a ref's finding by it, and the rename in review() reads the old id a ref
+// opens with by it, so the two never read one ref two ways (#94, R2-5, R5-3, R9-5).
+function leadingId(ref, ids) {
+  return [...ids].filter((id) => typeof id === 'string' && id !== '' && ref.startsWith(id) && !/^[\w-]/.test(ref.slice(id.length))).sort((a, b) => b.length - a.length)[0] || ''
+}
+
 function accountCoverage(round, out, candidates) {
   const byId = new Map(out.findings.map((f) => [f.id, f]))
   const seen = new Map()
@@ -1618,7 +1627,7 @@ function accountCoverage(round, out, candidates) {
       // The ref is the finding's id alone, as the accounting sentence asks; a note after the id is
       // read past, by its leading id, with a warning, so it never mints a second finding for a
       // candidate already reported (#94, R2-5). A leading token that names no finding is a bad ref.
-      const id = (/^(R\d+-\d+)(?![\w-])/.exec(ref) || [])[1] || ref
+      const id = leadingId(ref, byId.keys()) || ref
       const finding = byId.get(id)
       if (finding && id !== ref) {
         warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${index} as ${entry.outcome} with ref ${JSON.stringify(ref)}; read as ${id}, the finding its leading id names`)
@@ -2496,10 +2505,13 @@ async function review(round, reviewed, range, facts, source) {
   if (candidates) {
     // A finding or duplicate entry naming an id the rename above changed names that finding by its
     // new id, a finding of this round, so the R1-4 rule for a ref naming no finding does not apply
-    // to it (#80, R2-3). A verified or unconfirmed ref with a note after a renamed id follows the
-    // rename too: its leading token is renamed and the note kept, so accountCoverage reads it by its
-    // leading id with a warning, as it reads any ref with a note (#94, R2-5, R5-3). A duplicate's
-    // ref may open with another candidate's index, so only its whole ref is renamed.
+    // to it (#80, R2-3). A ref with a note after a renamed id follows the rename too: the old id it
+    // opens with, read by leadingId as accountCoverage reads it, is renamed and the note kept, so
+    // accountCoverage reads it by its leading id with a warning, as it reads any ref with a note
+    // (#94, R2-5, R5-3, R9-5). A duplicate's ref that opens with a candidate's index is left as it
+    // is, unless the reviewer gave a finding that index as its id, which the whole ref's rename has
+    // always followed. A settled ref names an earlier finding, which the rename never touches, so
+    // it keeps its id.
     for (const entry of out.coverage) {
       if (!LISTED_ELSEWHERE.includes(entry.outcome) && entry.outcome !== 'duplicate') {
         continue
@@ -2509,9 +2521,9 @@ async function review(round, reviewed, range, facts, source) {
         entry.ref = renamed.get(ref)
         continue
       }
-      const token = LISTED_ELSEWHERE.includes(entry.outcome) && typeof ref === 'string' ? (/^[^\s:,;()]+/.exec(ref) || [''])[0] : ''
-      if (token && renamed.has(token)) {
-        entry.ref = `${renamed.get(token)}${ref.slice(token.length)}`
+      const old = typeof ref === 'string' ? leadingId(ref, renamed.keys()) : ''
+      if (old) {
+        entry.ref = `${renamed.get(old)}${ref.slice(old.length)}`
       }
     }
     const counts = accountCoverage(round, out, candidates)
