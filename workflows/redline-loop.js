@@ -2959,8 +2959,18 @@ async function checker(flag, snapshot, octane, label, prefix) {
   if (read.out.status !== 'result_unreadable' || read.out.reason !== 'spilled') {
     return read.out
   }
-  const asked = await run('check', verdictPrompt(flag, snapshot, resume[label] ? resume[label].attempt : 0), { ...opts, label: `${label} verdict` })
-  lastLabel = label
+  // The verdict is asked on the check's behalf, so the check's label is handed back whatever the
+  // call does, its own stop included: run() builds that stop from the verdict's label, and a
+  // resume must run the gate again (#68; #94, R6-10).
+  let asked
+  try {
+    asked = await run('check', verdictPrompt(flag, snapshot, resume[label] ? resume[label].attempt : 0), { ...opts, label: `${label} verdict` })
+  } catch (error) {
+    error.label = label
+    throw error
+  } finally {
+    lastLabel = label
+  }
   const verdict = readStructure(asked).out
   if (verdict.status === 'read' && gateShaped(verdict.result)) {
     warnings.push(`${prefix}: checks.sh's result was too large for the Bash tool to show, so the workflow read the verdict checks.sh kept for that run (checks.sh --verdict), which carries no check's output`)

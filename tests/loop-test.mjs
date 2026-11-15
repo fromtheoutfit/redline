@@ -50,6 +50,12 @@ function mock(scenario) {
   let planN = 0
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
+    // scenario.nothing (#94, R6-10): the labels whose call returns nothing, as an agent that was
+    // skipped, stalled on every attempt or died on an API error does. No per-agent override can
+    // return null: the mock falls back to its default result.
+    if ((scenario.nothing || []).includes(opts.label)) {
+      return null
+    }
     const t = opts.agentType
     // The coverage pass (#79): a call with no agent type and the label `coverage r<n>`, answered
     // with scenario.coverage[n-1] as the agent's final text (a string; by default a fenced empty
@@ -918,6 +924,10 @@ function samePrefix(name, first, second, n) {
   check('verdict: with no kept result the run stops at check as before, both causes named, no repair', run.res.status === 'error' && run.res.stage === 'check' && !repaired(run) && !pick(run.calls, 'push and reply r1') && run.res.error.includes('exceeded the Bash tool\'s inline limit') && run.res.error.includes('checks.sh --verdict exited 2: checks.sh: the kept result here is for commit abc, and HEAD is now def; run the gate again') && run.res.error.includes('the checker said: Output too large'), brief(run))
   check('verdict: the stop resumes from the check, never from the verdict', JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'check r1', attempt: 2 }), run.res.resumeFrom)
   check('verdict: the record keeps the spilled result and what the verdict said', ((run.res.detail || {}).checker || {}).status === 'result_unreadable' && run.res.detail.checker.reason === 'spilled' && String(run.res.detail.checker.verdictError).startsWith('checks.sh --verdict exited 2') && run.res.rounds[0].check.pass === false, run.res.detail)
+  // A verdict call that returns nothing stops the run under the check's label, never the
+  // verdict's, so a resume runs the gate again (#94, R6-10).
+  const silent = await go('verdict: the verdict call returns nothing', baseArgs, { ...base, checker: onSpill(() => null), nothing: ['check r1 verdict'] })
+  check('verdict: a verdict call that returns nothing stops at check, resumable from the check, never from the verdict', silent.res.status === 'error' && silent.res.stage === 'check' && silent.res.error.includes('check r1 verdict returned nothing') && JSON.stringify(silent.res.resumeFrom) === JSON.stringify({ label: 'check r1', attempt: 2 }), [brief(silent), silent.res.resumeFrom])
   const again = await go('verdict: the relaunch reruns the check and asks again', { ...baseArgs, resume: { 'check r1': { attempt: 2, error: run.res.error, hand: { commits: [], paths: [] } } } }, { ...base, checker: onSpill(() => null) })
   check('verdict: on a resumed check the verdict prompt carries the attempt, so it is asked again and never replayed', again.res.status === 'done' && promptOf(again, 'check r1 verdict') !== pick(run.calls, 'check r1 verdict').prompt && promptOf(again, 'check r1 verdict').includes('This follows resume attempt 2 of the check.') && lastLine(again, 'check r1 verdict') === `/r/.claude/redline/checks.sh --verdict ${snap}`, [brief(again), promptOf(again, 'check r1 verdict')])
   const unread = { exit: 0, status: 'result_unreadable', reason: 'spilled', result: null, error: 'Output too large again' }
