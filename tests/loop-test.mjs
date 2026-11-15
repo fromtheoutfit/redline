@@ -478,6 +478,13 @@ function samePrefix(name, first, second, n) {
   check('scope all: a run without the scope writes no scoped key in its findings file', !('scoped' in findingsFile(all.calls, 'post r1')) && (findingsFile(all.calls, 'post r1').findings || []).length === 2, findingsFile(all.calls, 'post r1'))
   // The closing sentence says the scope-declined items get neither a comment nor a reply (#94, R1-6).
   check('scope: the closing sentence says the items declined under the scope have no inline comment and no reply, and a run without the scope says nothing of them', scopeBody.body.includes(`${CLOSING} The items declined under this run's scope have no inline comment and no reply.`) && !(pick(all.calls, 'post r1') || { prompt: '' }).prompt.includes('declined under this run\'s scope have no inline comment'), scopeBody.body)
+  // A final nit pass reports correctness only, and a nit its reviewer reports anyway is declined
+  // by the workflow under the pass's scope, never dropped (#94, R7-10): kept in the round with its
+  // outcome, listed once in the round's review body and in the handoff, with no thread, never shaped.
+  const nitPassNit = await go('scope: a nit the final nit pass reports anyway', baseArgs, { reviews: [[f('R1-1', 'nit')], [f('R2-1', 'nit')]], commitIds: [['R1-1']] })
+  const nitPassPost = (pick(nitPassNit.calls, 'post r2') || { prompt: '' }).prompt
+  const nitPassHandoff = comment(nitPassNit.calls, 'handoff comment') || ''
+  check('scope: a nit the final nit pass reports is declined under the pass\'s scope, kept in the round, listed in its review body and the handoff, never shaped', nitPassNit.res.status === 'done' && JSON.stringify((nitPassNit.res.rounds[1].scoped || []).map((x) => x.id)) === '["R2-1"]' && (nitPassNit.res.rounds[1].outcomes || {})['R2-1'] === 'declined: outside the final nit pass\'s scope (correctness only) · decided by: redline' && nitPassPost.includes('### Declined under the final nit pass\'s scope (correctness only) (1)\\n\\n- R2-1 · `app/x.php:1` · title R2-1') && nitPassHandoff.includes('### Declined under the final nit pass\'s scope (correctness only) (1)\n\n- R2-1 · `app/x.php:1` · title R2-1') && !labels(nitPassNit.calls).includes('shape r2'), [nitPassNit.res.status, labels(nitPassNit.calls), nitPassHandoff])
 }
 
 // ---------------------------------------------------------------------------
@@ -1079,6 +1086,9 @@ function samePrefix(name, first, second, n) {
   check('human: the summary file sits in the human folder', pick(second.calls, 'summary comment').prompt.includes(`/r/${folder}/redline/human-review-1-summary.md`) && second.res.humanReview.summaryFile === `${folder}/redline/human-review-1-summary.md`)
   check('human: the record commit covers both folders', pick(second.calls, 'record files').prompt.includes(`-- ${folder}/redline/ agent-os/specs/2026-10-20-1600-114-review-round-3/redline/ agent-os/specs/x/redline/snapshot-start.json`), pick(second.calls, 'record files').prompt)
   check('human: the result records the pass and the owners', second.res.rounds[0].reviewed === 'human-review' && second.res.rounds[0].human.reviewIds[0] === 7 && second.res.rounds[1].reviewed === 'final-nit-pass' && second.res.decided.map((d) => `${d.id}=${d.decidedBy}`).join(',') === 'H1-1=@marcamos,H1-2=@author,H1-3=redline,H1-4=@marcamos', [second.res.rounds.map((r) => r.reviewed), second.res.decided])
+  // The human pass's final nit pass declines a nit its reviewer reports the same way (#94, R7-10).
+  const humanNit = await go('human: the final nit pass reports a nit anyway', decided, { ...scenario, reviews: [[f('R3-1', 'nit')]] })
+  check('human: a nit the final nit pass reports is declined under the pass\'s scope and listed in its review body, never shaped', humanNit.res.status === 'done' && JSON.stringify((humanNit.res.rounds[1].scoped || []).map((x) => x.id)) === '["R3-1"]' && (pick(humanNit.calls, 'post r3') || { prompt: '' }).prompt.includes('### Declined under the final nit pass\'s scope (correctness only) (1)\\n\\n- R3-1 · `app/x.php:1` · title R3-1') && !labels(humanNit.calls).includes('shape r3'), [humanNit.res.status, labels(humanNit.calls)])
   check('human: the snapshot names the human folder', pick(second.calls, 'snapshot h1').prompt.includes(`"${folder}/"`) && pick(second.calls, 'snapshot h1').prompt.includes('Operation: snapshot (human review 1).'))
 
   let run = await go('human: the nit pass finds a correctness bug', decided, { ...scenario, reviews: [[f('R3-1', 'correctness')]], commitIds: [['H1-1', 'H1-2', 'H1-4'], ['R3-1']] })

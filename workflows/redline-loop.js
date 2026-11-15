@@ -339,6 +339,11 @@ const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operat
 // decline is one since #93; a dropped, left or not-changed finding stays open for the person.
 // What became of a finding the workflow declined under a correctness-only scope (#93).
 const SCOPE_DECLINED = `declined: outside this run's scope (correctness only) · decided by: redline`
+// What became of a nit a final nit pass's reviewer reported though the pass reports correctness
+// only (#94, R7-10): the workflow declines it under the pass's scope, never drops it.
+const NIT_PASS_DECLINED = `declined: outside the final nit pass's scope (correctness only) · decided by: redline`
+// The scope a workflow decline names: the final nit pass's in that pass, else the run's.
+const scopeName = (reviewed) => (reviewed === 'final-nit-pass' ? 'the final nit pass\'s scope' : 'this run\'s scope')
 const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
 // The sixth, "redline's own file", is no case of judgment: no Redline role may write one of
 // Redline's own files in the repository under review, so a finding on one is the person's to
@@ -991,8 +996,9 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   // Under correctness only, what is not a correctness item is declined by the workflow with the
   // scope as its reason (#93): one list, an id that is not bold, so redline-gh.sh prior-findings
   // never reads a line back and a later run without the scope sees these fresh; no inline comment.
+  // A final nit pass declines a nit its reviewer reports the same way, under its own scope (#94, R7-10).
   if (scoped.length) {
-    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
+    lines.push('', `### Declined under ${scopeName(reviewed)} (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   // Earlier rounds' findings with no disposition, re-verified and carried into this round (#35).
   if (carried.length) {
@@ -1010,7 +1016,7 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
   // 9). No reader in redline-gh.sh depends on where it sits.
   // What the scope declined has neither, so the sentence says so when the body lists any (#94, R1-6).
   if (active.length) {
-    lines.push('', `Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why.${scoped.length ? ' The items declined under this run\'s scope have no inline comment and no reply.' : ''}`)
+    lines.push('', `Each item has an inline comment with the detail or, where GitHub could not anchor it, sits under Not placed inline below. Redline replies in the item's thread, or in a PR comment that opens with its marker, with what it decided and why.${scoped.length ? ` The items declined under ${scopeName(reviewed)} have no inline comment and no reply.` : ''}`)
   }
   const setAside = review.setAsideCandidates || []
   if (setAside.length) {
@@ -2276,6 +2282,8 @@ function result(status, extra) {
       // as the round's record keeps them, and are listed here apart so the skill's summaries can
       // name them (#94, R3-8).
       scoped: (record.scoped || []).map(compactFinding),
+      // Nothing a final nit pass reports is dropped since #94, R7-10, so this reads 0; the key
+      // is kept for readers of the result.
       droppedNits: record.droppedNits || 0,
       post: record.post,
       dispositions: record.dispositions || null,
@@ -3442,9 +3450,10 @@ function handoffComment(ending, prBody, threads) {
     lines.push('', `### Declined by Redline (${declined.length})`, '', `To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run \`/redline:redline-revise ${pr} review @<login>\` with the login of whoever replied${login ? `, such as \`review @${login}\`` : ''}.`, '', ...declined.map(line))
   }
   // What the workflow declined under a correctness-only scope: ids that are not bold, as in the
-  // review bodies, so no reader takes a line for a finding with a disposition.
+  // review bodies, so no reader takes a line for a finding with a disposition. On any other run
+  // only a final nit pass declines one (#94, R7-10).
   if (scoped.length) {
-    lines.push('', `### Declined under this run's scope (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
+    lines.push('', `### Declined under ${scopeName(scope === 'correctness' ? 'pr' : 'final-nit-pass')} (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
@@ -3908,15 +3917,17 @@ try {
       }
       phase('Re-review')
       const reviewOut = await review(round, 'final-nit-pass', range, facts, source)
-      const considered = reviewOut.findings.filter((f) => f.category === 'correctness')
-      const droppedNits = reviewOut.findings.length - considered.length
+      // A nit the reviewer reports though the pass reports correctness only is declined under the
+      // pass's scope, as in a Redline run's final nit pass, never dropped (#94, R7-10).
+      const considered = reviewOut.findings
       const known = considered.filter((f) => f.knownAs)
-      const active = considered.filter((f) => !f.knownAs)
-      log(`round ${round} (final nit pass over ${source}): ${active.length} correctness, ${known.length} already tracked, ${droppedNits} nit(s) dropped`)
+      const scoped = considered.filter((f) => !f.knownAs && f.category !== 'correctness')
+      const active = considered.filter((f) => !f.knownAs && !scoped.includes(f))
+      log(`round ${round} (final nit pass over ${source}): ${active.length} correctness, ${known.length} already tracked, ${scoped.length} nit(s) declined under the final nit pass's scope`)
       phase('Post')
       const roundFolder = specFolderFor(round)
-      const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered }, active, known, source)
-      const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, droppedNits, post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+      const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered, scoped }, active, known, source)
+      const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, scoped, outcomes: Object.fromEntries(scoped.map((f) => [f.id, NIT_PASS_DECLINED])), post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
       rounds.push(roundRecord)
       nitPass = { round, found: active.length, fixed: 0 }
       if (active.length) {
@@ -3981,23 +3992,17 @@ try {
 
     phase(round === firstRound ? 'Review' : 'Re-review')
     const reviewOut = await review(round, reviewed, range, facts)
-    let considered = reviewOut.findings
-    let droppedNits = 0
-    if (reviewed === 'final-nit-pass') {
-      considered = reviewOut.findings.filter((f) => f.category === 'correctness')
-      droppedNits = reviewOut.findings.length - considered.length
-      if (droppedNits) {
-        log(`round ${round}: dropped ${droppedNits} nit(s) the reviewer reported; the final nit pass reports correctness only`)
-      }
-    }
+    const considered = reviewOut.findings
     const known = considered.filter((f) => f.knownAs)
     // Under correctness only, a verified item that is not a correctness one is declined by the
     // workflow with the scope as its reason (#93): it stays a finding of the round, so a later
     // round collapses a repeat as settled, but it is never posted inline, shaped or replied to.
-    const scoped = scope === 'correctness' && reviewed !== 'final-nit-pass' ? considered.filter((f) => !f.knownAs && f.category !== 'correctness') : []
+    // A final nit pass reports correctness only, so a nit its reviewer reports anyway is declined
+    // the same way, under the pass's scope, never dropped (#94, R7-10).
+    const scoped = scope === 'correctness' || reviewed === 'final-nit-pass' ? considered.filter((f) => !f.knownAs && f.category !== 'correctness') : []
     let active = considered.filter((f) => !f.knownAs && !scoped.includes(f))
     if (scoped.length) {
-      log(`round ${round}: ${scoped.length} item(s) declined under the scope (correctness only): ${scoped.map((f) => f.id).join(', ')}`)
+      log(`round ${round}: ${scoped.length} item(s) declined under ${scopeName(reviewed)} (correctness only): ${scoped.map((f) => f.id).join(', ')}`)
     }
     const coverageNote = reviewOut.coverage
       ? `, coverage ${reviewOut.coverage.candidates} candidates: ${reviewOut.coverage.counts.verified} verified, ${reviewOut.coverage.counts.unconfirmed} unconfirmed, ${reviewOut.coverage.counts.refuted} refuted, ${reviewOut.coverage.counts.duplicate + reviewOut.coverage.counts.settled} collapsed, ${reviewOut.coverage.counts.known} tracked`
@@ -4006,7 +4011,7 @@ try {
 
     phase('Post')
     const { posted, commentIds, files } = await post(round, reviewed, range, specFolder, { ...reviewOut, findings: considered, scoped }, active, known)
-    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, droppedNits, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], scoped, outcomes: Object.fromEntries(scoped.map((f) => [f.id, SCOPE_DECLINED])), coverage: reviewOut.coverage || null, setAsideCandidates: reviewOut.setAsideCandidates || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
+    const record = { round, reviewed, specFolder, range: round === firstRound ? null : range, findings: considered, carried: reviewOut.carried || {}, resolvedPrior: reviewOut.resolved || [], scoped, outcomes: Object.fromEntries(scoped.map((f) => [f.id, reviewed === 'final-nit-pass' ? NIT_PASS_DECLINED : SCOPE_DECLINED])), coverage: reviewOut.coverage || null, setAsideCandidates: reviewOut.setAsideCandidates || [], post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
     rounds.push(record)
 
     if (reviewOnly) {
