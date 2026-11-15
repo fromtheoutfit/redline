@@ -86,6 +86,9 @@ function mock(scenario) {
         return { operation: 'post-review', dryRun: false, posted: true, skipped: '', review: { id: scenario.postReviewId === undefined ? 1 : scenario.postReviewId, html_url: '', comments: inline.map((id, i) => ({ finding: id, id: 100 + i })), movedToBody: moved }, files: [], error: scenario.postError || '' }
       }
       if (opts.label.startsWith('snapshot')) {
+        // The round's snapshot names the commit the round starts from (#68); the checker mock below
+        // lists its commits from there, as a checks.sh of template v3 does.
+        scenario.roundSha = JSON.parse(prompt.slice(prompt.indexOf('{'), prompt.lastIndexOf('}') + 1)).round_sha || ''
         return { operation: 'snapshot', files: [], error: '' }
       }
       // The spec check (#57): the folder's four files and the Decisions heading, as the two git grep
@@ -223,11 +226,23 @@ function mock(scenario) {
       // scenario.checker(label, out) replaces the result of one call (#9: a stray error, a failing
       // gate, an unreadable result); nothing returned keeps the default.
       let out
-      if (opts.label === 'baseline') {
+      if (opts.label.endsWith(' verdict')) {
+        // checks.sh --verdict (#68): what the gate run before it kept, marked verdict and without
+        // any check's output. It runs nothing, so it adds no commit.
+        const gate = scenario.lastGate
+        out = { ...gate, result: { ...gate.result, verdict: true, checks: gate.result.checks.map(({ truncated, stdout, stderr, ...rest }) => rest) } }
+      } else if (opts.label === 'baseline') {
         out = { exit: 0, status: 'read', reason: '', result: { mode: 'baseline', ok: true, checks: [{ name: 'check', exit: 0, recorded: false }], git: null }, error: '' }
+        scenario.lastGate = out
       } else {
         scenario.allCommits.push(...(scenario.commitIds.shift() || []))
-        out = { exit: 0, status: 'read', reason: '', result: { mode: 'full', ok: true, checks: [{ name: 'check', exit: 0, recorded: false }], git: { unexpected_files: [], uncommitted: [], commits: scenario.allCommits.map((id, i) => ({ sha: SHA(i + 1), message: id.startsWith('redline:') ? id : `redline: ${id} fix` })).reverse(), diff_lines: 3 } }, error: '' }
+        // A checks.sh of template v3 lists the commits after the snapshot's round_sha and counts
+        // every commit since the start (#68); scenario.oldChecks is one from before it, which lists
+        // them all and gives no count.
+        const all = scenario.allCommits.map((id, i) => ({ sha: SHA(i + 1), message: id.startsWith('redline:') ? id : `redline: ${id} fix` }))
+        const from = scenario.oldChecks ? 0 : scenario.allCommits.findIndex((id, i) => SHA(i + 1) === scenario.roundSha) + 1
+        out = { exit: 0, status: 'read', reason: '', result: { mode: 'full', ok: true, checks: [{ name: 'check', exit: 0, recorded: false }], git: { unexpected_files: [], uncommitted: [], commits: all.slice(from).reverse(), ...(scenario.oldChecks ? {} : { commits_count: all.length }), diff_lines: 3 } }, error: '' }
+        scenario.lastGate = out
       }
       return (scenario.checker && scenario.checker(opts.label, out)) || out
     }
@@ -789,8 +804,12 @@ function samePrefix(name, first, second, n) {
   check('checker: text on a round whose only failure was failing at baseline is a warning, no repair', run.res.status === 'done' && !repaired(run) && !!pick(run.calls, 'push and reply r1') && run.res.warnings.includes('round 1: the checker reported "checks.sh exited 1" on a round that passes') && run.res.warnings.includes('round 1: guard still failing, as at baseline'), [run.res.status, labels(run.calls), run.res.warnings])
   run = await go('checker: new failure with text', baseArgs, { ...base, checker: (label, out) => (full(label) ? { ...failingCheck(out), error: 'checks.sh exited 1' } : null) })
   check('checker: a new failure with text fails on the check, the text added, after one repair pass', run.res.status === 'error' && run.res.stage === 'check' && labels(run.calls).filter((l) => l === 'repair r1').length === 1 && run.res.error.includes('failing checks: guard') && run.res.error.includes('checker error: checks.sh exited 1') && run.res.error.includes('after one repair pass'), brief(run))
-  run = await go('checker: result unreadable (spilled)', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? unreadable('spilled', null, 'Output too large; saved to /tmp/out.txt') : null) })
-  check('unreadable: stops at check with the cause and the fix, no repair', stopped(run) && run.res.error.includes('exceeded the Bash tool\'s inline limit') && run.res.error.includes('emit_checks in /p/scripts/checks-template.sh') && run.res.error.includes('the checker said: Output too large'), [brief(run), labels(run.calls)])
+  // A spilled result is asked for again as checks.sh --verdict (#68; the cases are in the next
+  // section). Here the verdict gives nothing, as from a checks.sh made before template v3, so the
+  // run stops as it always did.
+  const noVerdict = { exit: 2, status: 'read', reason: '', result: null, error: 'checks.sh: unknown flag --verdict' }
+  run = await go('checker: result unreadable (spilled)', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? unreadable('spilled', null, 'Output too large; saved to /tmp/out.txt') : label === 'check r1 verdict' ? noVerdict : null) })
+  check('unreadable: stops at check with the cause and the fix, no repair', stopped(run) && run.res.error.includes('exceeded the Bash tool\'s inline limit') && run.res.error.includes('checks.sh --verdict exited 2: checks.sh: unknown flag --verdict') && run.res.error.includes('run /redline:setup') && run.res.error.includes('/p/scripts/checks-template.sh') && run.res.error.includes('the checker said: Output too large'), [brief(run), labels(run.calls)])
   check('unreadable: the record keeps what the checker returned', kept(run).status === 'result_unreadable' && kept(run).reason === 'spilled' && roundCheck(run).pass === false, [run.res.detail, roundCheck(run)])
   const command = pick(run.calls, 'check r1').prompt.split('\n').pop()
   check('unreadable: the command line is the prompt\'s last line', command === '/r/.claude/redline/checks.sh /r/agent-os/specs/2026-10-20-1600-114-review-round-1/redline/snapshot.json', command)
@@ -807,12 +826,13 @@ function samePrefix(name, first, second, n) {
   check('override: a baseline with git null the checker called no_git_block is read, with a warning, and the run goes on', run.res.status === 'done' && !!pick(run.calls, 'implement r1') && !repaired(run) && run.res.warnings.includes(`baseline: ${overrode('no_git_block')}`), [brief(run), labels(run.calls), run.res.warnings])
   run = await go('checker: not_json with a complete result', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'not_json' } : null) })
   check('override: not_json on a complete result is read, with a warning, no repair', run.res.status === 'done' && !repaired(run) && run.res.warnings.includes(`round 1: ${overrode('not_json')}`), [brief(run), run.res.warnings])
-  run = await go('checker: spilled with a complete result', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'spilled' } : null) })
+  run = await go('checker: spilled with a complete result', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'spilled' } : label === 'check r1 verdict' ? noVerdict : null) })
   check('override: a run-level reason stops even with a complete result, no warning', stopped(run) && run.res.error.includes('exceeded the Bash tool\'s inline limit') && !run.res.warnings.some((w) => w.includes('overrode')), [brief(run), run.res.warnings])
+  check('override: the result that came with a spilled status is never read; the verdict is asked for', labels(run.calls).includes('check r1 verdict'), labels(run.calls))
   run = await go('checker: full pass git null read as no_git_block', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? { ...out, status: 'result_unreadable', reason: 'no_git_block', result: { ...out.result, git: null } } : null) })
   check('override: a full pass with git null is read, then stops on the missing block', stopped(run) && run.res.error.includes('the checker result has no git block') && run.res.warnings.includes(`round 1: ${overrode('no_git_block')}`), [brief(run), run.res.warnings])
   check('override: the stop record keeps the copy the workflow read, the checker\'s reason only in the warning', kept(run).status === 'read' && kept(run).reason === '' && (kept(run).result || {}).git === null && Array.isArray((kept(run).result || {}).checks), [kept(run), run.res.warnings])
-  run = await go('checker: baseline unreadable', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? unreadable('spilled', null, '') : null) })
+  run = await go('checker: baseline unreadable', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? unreadable('spilled', null, '') : label === 'baseline verdict' ? noVerdict : null) })
   check('unreadable: a baseline the checker cannot read stops before implement', stopped(run) && !pick(run.calls, 'implement r1') && run.res.error.startsWith('baseline: the checker could not read') && kept(run).status === 'result_unreadable', [brief(run), labels(run.calls)])
   run = await go('checker: exit 2', baseArgs, { ...base, checker: (label) => (label === 'check r1' ? { exit: 2, status: 'read', reason: '', result: null, error: 'checks.sh: no snapshot' } : null) })
   check('stop: a usage error stops with the script\'s message, no repair', stopped(run) && run.res.error.includes('checks.sh exited 2 (usage error)') && run.res.error.includes('the checker said: checks.sh: no snapshot') && run.res.error.includes(`run ${command} by hand`) && roundCheck(run).pass === false, brief(run))
@@ -827,6 +847,90 @@ function samePrefix(name, first, second, n) {
   check('stop: a result with no git block stops, no repair', stopped(run) && run.res.error.includes('the checker result has no git block') && run.res.error.includes(`run ${command} by hand`), brief(run))
   run = await go('checker: baseline with no result', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? { exit: 1, status: 'read', reason: '', result: null, error: 'killed' } : null) })
   check('stop: a baseline with no result stops instead of passing silently', stopped(run) && !pick(run.calls, 'implement r1') && run.res.error.startsWith('baseline: the checker returned no result; the checker said: killed'), [brief(run), labels(run.calls)])
+}
+
+// ---------------------------------------------------------------------------
+// 9a. The gate's result is sized for the workflow (#68). The round snapshot names the commit the
+//     round starts from (round_sha), so checks.sh lists the round's own commits; it is the same on a
+//     resumed attempt of the round, so what a failed attempt committed is still listed and checked.
+//     A result the Bash tool could not show (spilled) is asked for again as checks.sh --verdict,
+//     which runs nothing: a passing verdict lets the round go on, a failing one is repaired, and no
+//     verdict stops the run as before, resumable from the check.
+// ---------------------------------------------------------------------------
+{
+  const base = { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] }
+  const snap = '/r/agent-os/specs/2026-10-20-1600-114-review-round-1/redline/snapshot.json'
+  const snapshotOf = (run, label) => {
+    const p = pick(run.calls, label).prompt
+    return JSON.parse(p.slice(p.indexOf('{'), p.lastIndexOf('}') + 1))
+  }
+  const promptOf = (run, label) => (pick(run.calls, label) || { prompt: "" }).prompt
+  const lastLine = (run, label) => promptOf(run, label).split("\n").pop()
+  const roundShas = (run) => run.res.rounds.map((r) => r.commits.map((c) => c.sha).join('+')).join(' | ')
+  const brief = (run) => [run.res.status, run.res.stage, run.res.error]
+
+  const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1', 'R1-2'], ['R2-1']] }
+  let run = await go('round_sha: two rounds', baseArgs, two)
+  check('round_sha: the first round starts from the run\'s start commit', run.res.status === 'done' && snapshotOf(run, 'snapshot r1').round_sha === baseArgs.startSha, [brief(run), snapshotOf(run, 'snapshot r1')])
+  check('round_sha: the second round starts from the newest commit the first round listed', snapshotOf(run, 'snapshot r2').round_sha === SHA(2), snapshotOf(run, 'snapshot r2'))
+  check('round_sha: the key sits beside start_sha in the snapshot', Object.keys(snapshotOf(run, 'snapshot r2')).join() === 'pr,start_sha,round_sha,base_ref,files,plan_paths', Object.keys(snapshotOf(run, 'snapshot r2')))
+  check('round_sha: each round records its own commits, oldest first', roundShas(run) === `${SHA(1)}+${SHA(2)} | ${SHA(3)} | `, roundShas(run))
+  run = await go('round_sha: a checks.sh from before template v3', baseArgs, { ...two, oldChecks: true })
+  check('round_sha: an older checks.sh lists every commit since the start, and each round still records only its own', run.res.status === 'done' && roundShas(run) === `${SHA(1)}+${SHA(2)} | ${SHA(3)} | `, [brief(run), roundShas(run)])
+
+  // A resumed attempt of round 2: check r2 failed after the first attempt's commit, the repair
+  // committed again and recheck r2 failed, the person fixed the cause and the run resumed there.
+  const failing = (out) => ({ ...out, exit: 1, result: { ...out.result, ok: false, checks: [{ name: 'check', cmd: 'c', exit: 1, recorded: false, truncated: false, stdout: 'boom', stderr: '' }] } })
+  const three = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1'], ['R2-1'], ['redline: R2-1 the repair']] }
+  const first = await go('round_sha: error at recheck r2', baseArgs, { ...three, checker: (label, out) => (label === 'check r2' || label === 'recheck r2' ? failing(out) : null) })
+  check('round_sha: the stop names recheck r2', first.res.status === 'error' && JSON.stringify(first.res.resumeFrom) === JSON.stringify({ label: 'recheck r2', attempt: 2 }), [brief(first), first.res.resumeFrom])
+  const resumeArgs = { ...baseArgs, resume: { 'recheck r2': { attempt: 2, error: first.res.error, hand: { commits: [], paths: [] } } } }
+  const second = await go('round_sha: the resumed attempt', resumeArgs, { ...three, checker: (label, out) => (label === 'check r2' ? failing(out) : null) })
+  samePrefix('round_sha: the resumed attempt', first.calls, second.calls, first.calls.findIndex((c) => c.label === 'recheck r2'))
+  check('round_sha: a resumed attempt of the round keeps the round\'s starting commit', snapshotOf(first, 'snapshot r2').round_sha === SHA(1) && snapshotOf(second, 'snapshot r2').round_sha === SHA(1), [snapshotOf(first, 'snapshot r2').round_sha, snapshotOf(second, 'snapshot r2').round_sha])
+  check('round_sha: the commits the failed attempt made are listed in the resumed round', second.res.status === 'done' && roundShas(second) === `${SHA(1)} | ${SHA(2)}+${SHA(3)} | `, [brief(second), roundShas(second)])
+  const wip = { sha: SHA(8), message: 'wip from the first attempt' }
+  const third = await go('round_sha: the failed attempt left a commit without the prefix', resumeArgs, { ...three, checker: (label, out) => (label === 'check r2' ? failing(out) : label === 'recheck r2' ? { ...out, exit: 1, result: { ...out.result, git: { ...out.result.git, commits: out.result.git.commits.concat([wip]) } } } : null) })
+  check('round_sha: and they are checked: one without the redline: prefix still fails the resumed round', third.res.status === 'error' && third.res.stage === 'check' && third.res.error.includes(`commits without the redline: prefix: ${SHA(8).slice(0, 7)}`), brief(third))
+
+  // The verdict.
+  const spilled = { exit: 0, status: 'result_unreadable', reason: 'spilled', result: null, error: 'Output too large; saved to /tmp/out.txt' }
+  const onSpill = (verdictOf) => (label, out) => (label === 'check r1' ? spilled : label === 'check r1 verdict' ? verdictOf(out) : null)
+  const repaired = (r) => labels(r.calls).some((l) => l.startsWith('repair'))
+  const warning = 'checks.sh\'s result was too large for the Bash tool to show, so the workflow read the verdict checks.sh kept for that run (checks.sh --verdict), which carries no check\'s output'
+  run = await go('verdict: spilled, the kept verdict passes', baseArgs, { ...base, checker: onSpill(() => null) })
+  const asked = pick(run.calls, 'check r1 verdict')
+  check('verdict: a spilled result whose kept verdict passes goes on to push and reply, with no repair', run.res.status === 'done' && !!asked && !repaired(run) && !!pick(run.calls, 'push and reply r1') && run.res.rounds[0].check.pass === true, [brief(run), labels(run.calls)])
+  check('verdict: the verdict is the next call after the check, by the checker, under the check\'s label', !!asked && labels(run.calls).indexOf('check r1 verdict') === labels(run.calls).indexOf('check r1') + 1 && asked.agentType === 'redline:redline-checker' && asked.opts.phase === 'Check', labels(run.calls))
+  check('verdict: its command is checks.sh --verdict with the round\'s snapshot, the prompt\'s last line', !!asked && asked.prompt.split('\n').pop() === `/r/.claude/redline/checks.sh --verdict ${snap}`, asked && asked.prompt.split('\n').pop())
+  check('verdict: the prompt says the gate has run and that this command runs no check', !!asked && asked.prompt.includes('The gate has run, and the tool could not show its result.') && asked.prompt.includes('it runs no check and prints the verdict checks.sh kept for that run') && asked.prompt.includes('A usage error (exit 2) is status read with result null, never result_unreadable.') && !asked.prompt.includes('resume attempt'), asked && asked.prompt)
+  check('verdict: one warning names the spill and the verdict', run.res.warnings.filter((w) => w.includes('--verdict')).join('|') === `round 1: ${warning}`, run.res.warnings)
+  check('verdict: the round records the commits the verdict listed', roundShas(run) === `${SHA(1)} | `, roundShas(run))
+  const failed = (out) => ({ ...out, exit: 1, result: { ...out.result, ok: false, checks: [{ name: 'guard', cmd: 'tests/guard-test.sh', exit: 1, recorded: false }] } })
+  run = await go('verdict: spilled, the kept verdict fails', baseArgs, { ...base, checker: onSpill(failed) })
+  const repair = pick(run.calls, 'repair r1')
+  check('verdict: a failing verdict sends one repair pass, and the recheck passes', run.res.status === 'done' && !!repair && labels(run.calls).filter((l) => l.startsWith('repair')).length === 1, [brief(run), labels(run.calls)])
+  check('verdict: the repair prompt names the failing checks and says their output was not relayed', !!repair && repair.prompt.includes('failing checks: guard') && repair.prompt.includes('--- guard (exit 1): tests/guard-test.sh') && repair.prompt.includes('The gate\'s result was too large for the checker to relay, so no output of the failing checks is quoted here: run the gate and read it.'), repair && repair.prompt.slice(-900))
+  run = await go('checker: a failing check read in full', baseArgs, { ...base, checker: (label, out) => (label === 'check r1' ? failing(out) : null) })
+  check('verdict: a result read in full carries no such sentence', !!pick(run.calls, 'repair r1') && !pick(run.calls, 'repair r1').prompt.includes('too large for the checker to relay') && !labels(run.calls).includes('check r1 verdict'), labels(run.calls))
+  const stale = { exit: 2, status: 'read', reason: '', result: null, error: 'checks.sh: the kept result here is for commit abc, and HEAD is now def; run the gate again' }
+  run = await go('verdict: spilled, no kept result for this commit', baseArgs, { ...base, checker: onSpill(() => stale) })
+  check('verdict: with no kept result the run stops at check as before, both causes named, no repair', run.res.status === 'error' && run.res.stage === 'check' && !repaired(run) && !pick(run.calls, 'push and reply r1') && run.res.error.includes('exceeded the Bash tool\'s inline limit') && run.res.error.includes('checks.sh --verdict exited 2: checks.sh: the kept result here is for commit abc, and HEAD is now def; run the gate again') && run.res.error.includes('the checker said: Output too large'), brief(run))
+  check('verdict: the stop resumes from the check, never from the verdict', JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'check r1', attempt: 2 }), run.res.resumeFrom)
+  check('verdict: the record keeps the spilled result and what the verdict said', ((run.res.detail || {}).checker || {}).status === 'result_unreadable' && run.res.detail.checker.reason === 'spilled' && String(run.res.detail.checker.verdictError).startsWith('checks.sh --verdict exited 2') && run.res.rounds[0].check.pass === false, run.res.detail)
+  const again = await go('verdict: the relaunch reruns the check and asks again', { ...baseArgs, resume: { 'check r1': { attempt: 2, error: run.res.error, hand: { commits: [], paths: [] } } } }, { ...base, checker: onSpill(() => null) })
+  check('verdict: on a resumed check the verdict prompt carries the attempt, so it is asked again and never replayed', again.res.status === 'done' && promptOf(again, 'check r1 verdict') !== pick(run.calls, 'check r1 verdict').prompt && promptOf(again, 'check r1 verdict').includes('This follows resume attempt 2 of the check.') && lastLine(again, 'check r1 verdict') === `/r/.claude/redline/checks.sh --verdict ${snap}`, [brief(again), promptOf(again, 'check r1 verdict')])
+  const unread = { exit: 0, status: 'result_unreadable', reason: 'spilled', result: null, error: 'Output too large again' }
+  run = await go('verdict: the verdict spilled too', baseArgs, { ...base, checker: onSpill(() => unread) })
+  check('verdict: a verdict the checker could not read either stops the run, saying so', run.res.status === 'error' && run.res.stage === 'check' && run.res.error.includes('checks.sh --verdict could not be read either (spilled)') && labels(run.calls).filter((l) => l.endsWith(' verdict')).length === 1, brief(run))
+  run = await go('verdict: the baseline spilled', baseArgs, { ...base, checker: (label) => (label === 'baseline' ? spilled : null) })
+  check('verdict: a spilled baseline is read from its verdict, asked with --baseline', run.res.status === 'done' && !!pick(run.calls, 'baseline verdict') && lastLine(run, 'baseline verdict') === '/r/.claude/redline/checks.sh --verdict --baseline /r/agent-os/specs/x/redline/snapshot-start.json' && run.res.warnings.includes(`baseline: ${warning}`), [brief(run), labels(run.calls), run.res.warnings])
+  run = await go('verdict: a long gate', { ...baseArgs, baselineSeconds: 732 }, { ...base, checker: onSpill(() => null) })
+  check('verdict: after a background gate the verdict is still one foreground checks.sh call', run.res.status === 'done' && pick(run.calls, 'check r1').prompt.includes('redline-background.sh start') && !promptOf(run, 'check r1 verdict').includes('redline-background.sh') && lastLine(run, 'check r1 verdict') === `/r/.claude/redline/checks.sh --verdict ${snap}`, [brief(run), promptOf(run, 'check r1 verdict')])
+  run = await go('verdict: git-only', { ...baseArgs, checker: 'git-only' }, { ...base, checker: onSpill(() => null) })
+  check('verdict: a git-only check asks for the git-only verdict', run.res.status === 'done' && lastLine(run, 'check r1 verdict') === `/r/.claude/redline/checks.sh --verdict --git-only ${snap}`, [brief(run), lastLine(run, 'check r1 verdict')])
+  const schema = pick(run.calls, 'check r1').opts.schema.properties.result.properties
+  check('schema: the checker\'s result carries the v3 keys and still takes a v2 result', ['verdict', 'kept'].every((k) => k in schema) && 'truncated' in schema.checks.items.properties && ['round_sha', 'allowed_count', 'changed_count', 'commits_count', 'formatter_touched_count', 'allowed', 'changed_files', 'formatter_touched_outside_pr'].every((k) => k in schema.git.properties) && (pick(run.calls, 'check r1 verdict') || { opts: {} }).opts.schema === pick(run.calls, 'check r1').opts.schema, [Object.keys(schema), Object.keys(schema.git.properties)])
 }
 
 // ---------------------------------------------------------------------------
@@ -1201,7 +1305,9 @@ function samePrefix(name, first, second, n) {
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
-  const later = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], ['R2-1']], checker: onlyFirst.checker }
+  // The mock hands out one commit list per checker call, so recheck r1 takes the empty one and
+  // round 2's commit is made in round 2: since #68 a round's check lists only that round's commits.
+  const later = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], ask: ['R2-1'], commitIds: [['R1-1'], [], ['R2-1']], checker: onlyFirst.checker }
   const stop = await go('resume: a hand-off after the resume', resumeArgs, later)
   check('resume: the hand-off stops after shape r2', stop.res.status === 'handoff' && stop.res.handoffRound === 2, [stop.res.status, stop.res.handoffRound])
   const third = await go('resume: relaunch after the hand-off keeps the line', { ...resumeArgs, decisions: { 'R2-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-01' } } }, later)
@@ -1239,7 +1345,7 @@ function samePrefix(name, first, second, n) {
     }
     return null
   }
-  const withNit = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], ['R2-1']], checker: handPatch }
+  const withNit = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'nit')], []], commitIds: [['R1-1'], [], ['R2-1']], checker: handPatch }
   const handArgs = { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [handSha], paths: ['.claude/redline/checks.json'] } } } }
   const hand = await go('resume: a hand commit is excused', handArgs, withNit)
   check('resume: the excused round passes and the run finishes', hand.res.status === 'done' && !labels(hand.calls).some((l) => l.startsWith('repair r1 #')), [hand.res.status, hand.res.error, labels(hand.calls)])

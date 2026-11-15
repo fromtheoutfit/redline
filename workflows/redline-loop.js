@@ -821,29 +821,41 @@ const CHECKER_SCHEMA = {
     status: { type: 'string', enum: ['read', 'result_unreadable'] },
     reason: { type: 'string', enum: ['', 'spilled', 'not_json', 'no_git_block', 'backgrounded', 'no_result'] },
     error: str,
+    // The gate's JSON as a checks.sh of template v3 prints it (#68): a passing check is its name,
+    // exit and recorded; a failing one adds cmd, truncated and its output; the git block counts
+    // the allowed and changed files and lists the round's own commits; kept names the file the
+    // full result is in, and verdict marks the answer of checks.sh --verdict. The last three git
+    // keys are what a checks.sh from before v3 prints in place of the counts, and are still taken.
     result: {
       type: ['object', 'null'],
       properties: {
         mode: str,
         ok: bool,
+        verdict: bool,
+        kept: str,
         checks: {
           type: 'array',
           items: {
             type: 'object',
             required: ['name', 'exit', 'recorded'],
-            properties: { name: str, cmd: str, exit: int, recorded: bool, stdout: str, stderr: str },
+            properties: { name: str, cmd: str, exit: int, recorded: bool, truncated: bool, stdout: str, stderr: str },
           },
         },
         git: {
           type: ['object', 'null'],
           properties: {
             start_sha: str,
-            allowed: strings,
-            changed_files: strings,
+            round_sha: str,
+            allowed_count: int,
+            changed_count: int,
             unexpected_files: strings,
             uncommitted: strings,
             commits: { type: 'array', items: { type: 'object', properties: { sha: str, message: str } } },
+            commits_count: int,
             diff_lines: int,
+            formatter_touched_count: { type: ['integer', 'null'] },
+            allowed: strings,
+            changed_files: strings,
             formatter_touched_outside_pr: { type: ['array', 'null'], items: str },
           },
         },
@@ -1907,6 +1919,25 @@ Each wait returns within four minutes. Exit 3 means the gate is still running: r
 When the wait exits 0, 1 or 2, its output and exit code are the gate's: return them as your instructions say for the gate's command line (a usage error, exit 2, is status read with result null, never result_unreadable; output that is not one complete JSON object with a git key is result_unreadable with the reason). When it exits 4 (the gate ran past its limit) or 5 (the run ended without a result), return status result_unreadable with reason no_result and the wait's line under error. If the start command is refused or fails to start, return status result_unreadable with reason no_result and what the tool said under error.`
 }
 
+// The verdict of a gate run whose result the Bash tool could not show (#68): checks.sh keeps every
+// run's result in a file outside the tree, and --verdict prints its smallest form without running
+// anything, so it is one foreground command whatever the gate's length. The guard already lets
+// the checker run checks.sh with any flag; the checker reads no file itself.
+function verdictCommand(flag, snapshot) {
+  return `${CHECKS} --verdict${flag ? ` ${flag}` : ''} ${snapshot}`
+}
+
+// attempt is the resume attempt of the check this verdict follows, 0 on a first run: a relaunch
+// that reruns the check must ask for the verdict again, never replay the one the earlier attempt
+// was given, so its prompt differs.
+function verdictPrompt(flag, snapshot, attempt) {
+  return `${RUN_LINE}
+
+The gate has run, and the tool could not show its result. Run this command line with Bash, exactly as given, once: it runs no check and prints the verdict checks.sh kept for that run. Return its JSON as your instructions say. A usage error (exit 2) is status read with result null, never result_unreadable.${attempt ? ` This follows resume attempt ${attempt} of the check.` : ''}
+
+${verdictCommand(flag, snapshot)}`
+}
+
 function pushReplyPrompt(pass, specFolder, replies, doPush) {
   const step1 = doPush
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
@@ -2096,7 +2127,7 @@ function stopReason(out, command, needGit) {
   }
   if (out.status === 'result_unreadable') {
     const cause = {
-      spilled: `checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read; cap it, see emit_checks in ${pluginRoot}/scripts/checks-template.sh`,
+      spilled: `checks.sh output exceeded the Bash tool's inline limit and was saved to a file the checker may not read, and ${out.verdictError || 'no verdict was asked for'}. A checks.sh made from a template before v3 has no --verdict and no bound on its result: run /redline:setup to regenerate it (the sizes are in the comment above the caps in ${pluginRoot}/scripts/checks-template.sh)`,
       not_json: `checks.sh printed something that is not one JSON object${byHand}`,
       no_git_block: `the JSON checks.sh printed has no git block, so the output was cut or the script is broken${byHand}`,
       backgrounded: `the gate took longer than the Bash tool allows in the foreground; the checker must background it (recorded baseline: ${baselineSeconds === null ? 'none' : `${baselineSeconds} s`}). Record the gate's current time in baseline.seconds in ${repoRoot}/.claude/redline/checks.json (the baseline step of /redline:setup does it); over ${FOREGROUND_MAX_S} s the checker runs the gate in the background`,
@@ -2910,15 +2941,33 @@ function keepReplyIds(record, pushed) {
 }
 
 // prefix is what the warnings beside the call use: 'baseline', or the pass's name.
+// A result the Bash tool could not show (spilled) is asked for once more as checks.sh --verdict
+// (#68), so a gate that passed is not stopped by the size of what it printed. The verdict is the
+// script's own, read from the result it kept for that run: it carries every check's exit and the
+// git block, and no check's output. A verdict that reads as a gate result replaces the spilled
+// one, with a warning; anything else (a checks.sh from before template v3, HEAD moved since the
+// run, a verdict the tool could not show either) leaves the spilled result, with what the verdict
+// call said under verdictError, and the run stops as it did. Either way a stop after this names
+// the check's label, never the verdict's: a resume must run the gate again.
 async function checker(flag, snapshot, octane, label, prefix) {
-  const out = await run('check', checkerPrompt(flag, snapshot, octane, label), {
-    agentType: 'redline:redline-checker', ...modelOpts('checker'), label, phase: 'Check', schema: CHECKER_SCHEMA, stallMs: checkerStallMs,
-  })
+  const opts = { agentType: 'redline:redline-checker', ...modelOpts('checker'), phase: 'Check', schema: CHECKER_SCHEMA, stallMs: checkerStallMs }
+  const out = await run('check', checkerPrompt(flag, snapshot, octane, label), { ...opts, label })
   const read = readStructure(out)
   if (read.warning) {
     warnings.push(`${prefix}: ${read.warning}`)
   }
-  return read.out
+  if (read.out.status !== 'result_unreadable' || read.out.reason !== 'spilled') {
+    return read.out
+  }
+  const asked = await run('check', verdictPrompt(flag, snapshot, resume[label] ? resume[label].attempt : 0), { ...opts, label: `${label} verdict` })
+  lastLabel = label
+  const verdict = readStructure(asked).out
+  if (verdict.status === 'read' && gateShaped(verdict.result)) {
+    warnings.push(`${prefix}: checks.sh's result was too large for the Bash tool to show, so the workflow read the verdict checks.sh kept for that run (checks.sh --verdict), which carries no check's output`)
+    return { ...verdict, viaVerdict: true }
+  }
+  const said = verdict.error ? `: ${verdict.error.slice(0, 300)}` : ''
+  return { ...read.out, verdictError: verdict.status === 'read' ? `checks.sh --verdict exited ${verdict.exit}${said}` : `checks.sh --verdict could not be read either (${verdict.reason})${said}` }
 }
 
 // One revise pass for a round: Shape, hand-off, Resolve, Approve, Implement, Check, Push and reply.
@@ -3106,7 +3155,13 @@ async function revise(record, inScope, reviewedKind) {
   const planPaths = plan.planPaths.map((path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path))
   approvedPaths = unique(approvedPaths.concat(planPaths, [`${specFolder}/`]))
   const snapshotPath = abs(`${specFolder}/redline/snapshot.json`)
-  const snapshot = { pr, start_sha: startSha, base_ref: baseRef, files: prFiles, plan_paths: approvedPaths }
+  // round_sha is the commit this round starts from (#68): the newest one an earlier round's check
+  // listed, or the run's start. checks.sh lists the commits after it, the round's own, so the
+  // gate's result does not grow with the run. A round's commits join commitsAll only once its check
+  // has passed, so a resumed attempt of the round writes the same round_sha, and what the failed
+  // attempt committed is still listed and checked.
+  const roundSha = commitsAll.length ? commitsAll[commitsAll.length - 1].sha : startSha
+  const snapshot = { pr, start_sha: startSha, round_sha: roundSha, base_ref: baseRef, files: prFiles, plan_paths: approvedPaths }
   const written = await run('snapshot', snapshotPrompt(pass, snapshotPath, json(snapshot)), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `snapshot ${pass.tag}`, phase: 'Approve', schema: FILE_OP_SCHEMA,
   })
@@ -3172,7 +3227,8 @@ async function revise(record, inScope, reviewedKind) {
     if (verdict.pass) {
       break
     }
-    ctx.repair = `${verdict.reasons.join('\n')}\n${failingExcerpt(checked)}`
+    // A result read from checks.sh --verdict carries no check's output (#68), and the repair pass says so.
+    ctx.repair = `${verdict.reasons.join('\n')}\n${failingExcerpt(checked)}${checked.viaVerdict ? '\nThe gate\'s result was too large for the checker to relay, so no output of the failing checks is quoted here: run the gate and read it.' : ''}`
   }
   record.check = { pass: verdict.pass, stop: null, reasons: verdict.reasons, preExisting: verdict.preExisting, diffLines: verdict.diffLines }
   if (!verdict.pass) {
