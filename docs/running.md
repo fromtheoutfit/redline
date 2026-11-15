@@ -162,7 +162,7 @@ The handoff comment lists every decision of the run, the ones Redline made alone
 
 ## Decided by
 
-Every decision is posted with its owner. Each Decision in a round's `shape.md`, each reply in a finding's thread, and each line of the handoff comment's Decisions list ends with one of:
+Every decision is posted with its owner. Each Decision in a round's `shape.md`, each reply in a finding's thread, and each item line the handoff comment lists under an outcome heading (Put to, Asked and decided on autopilot, Overruled by, Declined by Redline, Left to, Not picked, Not changed and Fixed; see "The handoff comment" above) ends with one of:
 
 - `decided by: redline`: the shaper settled it from the evidence (a fix, a decline with its reason, a defer, an answer the PR description or the code already gave);
 - `decided by: @<login>`: a person decided it at a hand-off (the login `redline-gh.sh login` prints), with their reasoning restated in one sentence. What they typed is a pick from the shaper's options or one line `<id>: <choice>. <reason>`, and the relaunch is the typed word `relaunch`; the restatement is what is recorded and posted, never the typed text;
