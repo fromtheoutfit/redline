@@ -3020,7 +3020,12 @@ async function checker(flag, snapshot, octane, label, prefix) {
   } finally {
     lastLabel = label
   }
-  const verdict = readStructure(asked).out
+  // A structural misread of the verdict is overridden as the check call's is, and says so (#94, R7-8).
+  const readVerdict = readStructure(asked)
+  if (readVerdict.warning) {
+    warnings.push(`${prefix} verdict: ${readVerdict.warning}`)
+  }
+  const verdict = readVerdict.out
   if (verdict.status === 'read' && gateShaped(verdict.result)) {
     warnings.push(`${prefix}: checks.sh's result was too large for the Bash tool to show, so the workflow read the verdict checks.sh kept for that run (checks.sh --verdict), which carries no check's output`)
     return { ...verdict, viaVerdict: true }
