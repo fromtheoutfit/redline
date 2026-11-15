@@ -500,7 +500,13 @@ brun() {
 bgit() { git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "${@:2}"; }
 # rootkey <dir>: the key a repository's kept result is filed under.
 rootkey() { printf '%s' "$(cd "$1" && pwd -P)" | git hash-object --stdin; }
-keptfiles() { ls "$TMPDIR/redline-checks" 2>/dev/null | grep -c "^$(rootkey "$1")-"; }
+# keptfiles <dir>: how many kept results are filed under the repository's key, 0 when none is.
+keptfiles() {
+    local key f n=0
+    key="$(rootkey "$1")"
+    for f in "$TMPDIR/redline-checks/$key"-*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
 
 # ANSI escapes are stripped before anything is measured, and a passing check prints no output.
 AR="$WORK/ansi-repo"; mkdir -p "$AR"
