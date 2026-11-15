@@ -2894,8 +2894,13 @@ function forceAskRules(record, pass, inScope, shaped) {
       call.why_human = why
     }
     // A decline the rule overrides is recorded with what Redline would have done, for the
-    // autopilot's Deferred entry, which has no change left open (#94, R5-8).
-    record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}) }
+    // autopilot's Deferred entry, which has no change left open (#94, R5-8). Once the finding's
+    // call is decided, the entry it was decided on stands: a reshape returns the finding as an ask
+    // with no call, and an entry rebuilt from that would drop what Redline would have declined
+    // (#94, R7-7).
+    if (!(decisions[f.id] && record.forced[f.id])) {
+      record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}) }
+    }
   }
 }
 
