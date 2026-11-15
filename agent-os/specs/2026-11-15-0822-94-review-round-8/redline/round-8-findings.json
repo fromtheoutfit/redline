@@ -1,0 +1,230 @@
+{
+  "round": 8,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "8739d8b6a40ce4af9312090c4a79bd8c1e9082e0",
+    "to": "754aa6751427895fa20a5dedf02933346afd98eb"
+  },
+  "summary": "The round 7 fixes do what each says. Final-nit-pass nits are now declined under that pass's scope and listed rather than dropped. The second look is read and warns on a miss. A decided rule-covered call keeps its forced entry through a reshape. Every implement attempt's commits are read for the quoted subject. The recheck of the fix diff found no correctness bug the fixes introduced. The seven findings all come from the coverage pass's candidates and share one shape: two places that should agree do not. An own-file ask is not left to the person as a rule ask is. Duplicate and settled refs go unchecked, unlike verified ones. roundDeclines tests a decision's disposition rather than the decision. The notPicked ending ignores whether anything was dropped. The shape checks, id numbering and scope wording are each written more than once. The repository has no scheduled or queued work, and the fix diff needs no Docs or Version entry beyond the doc lines it already changes.",
+  "findings": [
+    {
+      "id": "R8-1",
+      "file": "workflows/redline-loop.js",
+      "line": 348,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The scope a workflow decline names is spelled in four places, and the handoff passes a made-up reviewed value to pick it",
+      "description": "R7-10 added `scopeName(reviewed)` (line 348), but the same two phrases are still hard-coded in `SCOPE_DECLINED` (343, \"this run's scope\"), `NIT_PASS_DECLINED` (346, \"the final nit pass's scope\") and the human pass's log line (3967). The handoff (3497) calls `scopeName(scope === 'correctness' ? 'pr' : 'final-nit-pass')`, inventing a `reviewed` value only to choose a string. The review-body heading and closing sentence (1003, 1021) read `scopeName`, while the outcome posted for the same item reads the constant, so a later rewording that misses one copy makes a thread outcome and its heading name different scopes. No current output is wrong: every copy says the same thing today.",
+      "proposedFix": "Build the two outcome constants from `scopeName` (for example `const declinedUnder = (reviewed) => `declined: outside ${scopeName(reviewed)} (correctness only) · decided by: redline``), use it at 4055 and 3971, and give the handoff a helper that takes the scope rather than a synthetic `reviewed`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-2",
+      "file": "workflows/redline-loop.js",
+      "line": 1626,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A duplicate or settled coverage entry is accepted whatever its ref names, so a candidate can leave the round with no finding and no warning",
+      "description": "`accountCoverage` checks the ref only for `verified` and `unconfirmed` (lines 1601-1625). Every other outcome goes straight into `seen` at line 1626, so the mint loop (1629-1646) skips it. Nothing checks that a `duplicate` points at a real candidate index or finding, that it is not its own index, or that two duplicates do not point at each other. Nothing checks that a `settled` ref names an earlier finding. The set-aside block (2486-2488) resolves a duplicate's target only when `to !== e.index && byIndex.has(to)` and otherwise shows the ref as written. Its only warning is for an empty ref (2483-2485). Traced case: candidate 2 `{outcome: 'duplicate', ref: '3'}` and candidate 3 `{outcome: 'duplicate', ref: '2'}`, with no finding for either. Both are seen, neither is minted, no warning is raised, and both appear only in the folded block. A duplicate with ref `R1-9`, when no R1-9 exists, does the same. The PR describes the rule as \"A candidate the verifier leaves out, or accounts for with a bad ref, becomes an unconfirmed finding of the round, with a warning. Nothing is dropped\", and docs/running.md:69 (added by this PR) calls it \"Nothing leaves quietly\". The failure needs a verifier that writes a dangling or circular ref. The line that accepts such an entry predates this pull request (main had the same `seen.set` for `duplicate` and `settled`), so the cause is outside the diff. The promise that covers it is this pull request's.",
+      "proposedFix": "Before line 1626, check the ref of a `duplicate` and a `settled` entry. A `duplicate` must lead with an index of another candidate (one whose own entry is not a duplicate back to it) or with a finding id of this round. A `settled` ref must lead with an id in `priorById` or the run's earlier rounds. Treat a ref that fails the check as the code already treats a bad verified ref: add a warning, put the index in `told`, and mint the candidate as an unconfirmed finding. Add loop checks for a mutual duplicate pair and a duplicate of a missing id.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-3",
+      "file": "workflows/redline-loop.js",
+      "line": 2385,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The next free finding number of a round is computed three times, in three variants",
+      "description": "`review()` computes `nextId` from the ids of the round's form only (line 2385, filtered by `idForm`). `reconcilePrior` (2539) and `accountCoverage` (1628, with `String()`) each compute `next` from every id, unfiltered. Because review() renames every id outside the round's form first, the three agree today and no collision is reachable. R4-6 still had to line them up by hand, and a change to the id form (a prefix, stricter parsing) would have to be made three times or two minting paths could hand out the same id again.",
+      "proposedFix": "Extract one `nextFindingNumber(round, findings)` helper that filters by the round's id form, and call it from the three places.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3084,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "On autopilot a \"redline's own file\" call is decided and settled like any other, not left to the person as the docs and spec say",
+      "description": "This pull request adds `why_human: \"redline's own file\"` (ROUND_WHY, line 353). Its comment (350-352) and the spec's decision 9 (shape.md:53) call it \"a change only a person can make, as a finding under a repository ask rule is\". docs/running.md:92, added by this PR, says such a finding \"is put to you the same way\" as a rule-covered one, which \"on autopilot it is listed under Deferred with no mitigation\". The code does not do this. `settle()` gives `leftDecision` only to a call with a `record.forced` entry (3083-3084), and `forceAskRules` writes that entry only for repository ask rules, so an own-file call gets `autopilotDecision(call)`: the shaper's recommendation, attributed to autopilot. `resolveWith` passes no `rule` (3112-3119). `outcomesFor` records it as `decided` (2636-2637), posted as \"Autopilot took the shaper's recommendation: ... No code change.\" `decided` is in `SETTLED_KINDS` (349), so Finish resolves the thread, and the handoff lists the item under \"Asked, decided on autopilot\", not under Deferred or Left to. The change only a person can make is left in no open list and in no open thread. This needs the autopilot dial and a finding on one of Redline's own files. On guided the person answers the call themselves.",
+      "proposedFix": "Treat an own-file call as left to the person on autopilot, as a rule-forced one is. In `settle()`, give a call with `why_human === \"redline's own file\"` a left decision (choice 'Left to the person', notes naming Redline's own files). Record it in a forced-style entry so `outcomesFor` gives it the `left` kind, it is listed under Deferred with mitigation none, and its thread stays open. Add a loop check for an own-file call on autopilot.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3189,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The checks on the shaper's output are written twice, once after the shape and once after each reshape, and the copies already differ",
+      "description": "Lines 3053-3060 (shape) and 3188-3195 (reshape) run the same sequence: checkDispositions, checkSecondLook, checkCalls, checkSpec, forceAskRules, checkDeclineReasons, checkWhy, then `record.dispositions = shaped.findings`. R7-5 added `checkSecondLook` to both by hand, as R1-13, R2-9 and R5-6 each had to change both. The copies have already drifted: only the first shape checks for findings with no disposition (`unsorted`, 3049-3052) and warns on a wrong spec folder (3046-3048), so a reshape that leaves a finding out passes. A check added to one copy only would let a reshaped plan skip what the first shape got.",
+      "proposedFix": "Extract one helper, for example `async function vetShape(pass, record, inScope, shaped, known, label, suffix)`, holding the unsorted check and the seven checks in their current order, and call it from both places.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3881,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A decided judgment call whose finding a reshape returns as decline is handed to the skill as a Redline decline to overrule",
+      "description": "`roundDeclines` (3881) leaves out a finding only when `decisions[x.id].disposition` is set, which holds for a disposition override and not for an answered judgment call. checkCalls lets a reshape keep a decided call \"beside a re-sorted finding\" (2751-2753, 2755-2766), so a reshape can return a call the person already answered (for example 'Accept, no change') with disposition `decline` and a reason. If that reshape then raises a new call, it stops at 3200 with `afterApproval: true`, and handoffResult puts the decided finding's id in `declinedAfterRun` (3897). The skill (SKILL.md:208) then tells the person this is one of the round's declines, to be overruled after the run by a reply and the human review pass. That run's posted outcome is the person's own decision, since `outcomesFor`'s `decision` branch (2636) comes before the decline branch (2640) and the item is listed under Put to. This needs a reshape that re-sorts a decided call's finding to decline and raises a new call in the same pass.",
+      "proposedFix": "Leave out every finding the person or autopilot has decided: `!decisions[x.id]` in place of `!(decisions[x.id] && decisions[x.id].disposition)` at line 3881. Add a loop check where a reshape returns a decided call's finding as decline and raises a new call.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R8-7",
+      "file": "workflows/redline-loop.js",
+      "line": 4082,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The review dial's 'none of its findings was picked' opening is posted when the round had no findings to pick",
+      "description": "After the review dial relaunches, the workflow takes the `notPicked` ending whenever `active` is empty (4080-4083). This includes a first round that verified nothing, or verified only items the correctness scope declined: there `record.dropped` is empty and `selected.act` is `[]`. handoffComment then opens with \"Redline ran 1 review round; none of its findings was picked to act on.\" (3420-3421), and the result note says \"No finding was selected to act on\". Both claim there were findings and none was picked. reviewedResult stops after posting even with no findings (4067-4069), so a review-dial run on such a pull request reaches this path. Before this pull request the same path posted the generic ending (`handoffComment(false, ...)` on main).",
+      "proposedFix": "Pass `{ notPicked: record.dropped.length > 0 }` at line 4082. Use the matching note: the generic \"the last one verified no new correctness item\" ending when nothing was dropped.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "754aa6751427895fa20a5dedf02933346afd98eb",
+    "candidates": 7,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R8-4"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R8-2"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R8-6"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R8-7"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R8-5"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R8-3"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R8-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3083,
+        "summary": "A judgment call whose why_human is \"redline's own file\" is handled like any ordinary call rather than as left to the person. The spec says such a finding is 'a change only a person can make, as a finding under a repository ask rule is', and docs/running.md says it 'is put to you the same way'; in code only record.forced (repository ask rules) gets leftDecision and the 'left' outcome.",
+        "failure_scenario": "A round's finding is on .claude/redline.json, so the shaper asks with why_human \"redline's own file\". On autopilot, settle() finds no record.forced entry and applies the shaper's recommendation as a 'redline (autopilot)' decision. The resolve agent gets no `rule`, so it may plan a task writing a Redline-owned file; the plan approver then bounces it until maxPlanAdjustments, or the guard refuses the write. On guided, the person's answer 'make the change by hand after the run' becomes kind 'decided' with 'No code change.' Because 'decided' is in SETTLED_KINDS, Finish resolves the thread. The handoff lists the item under 'Put to @login', not under Deferred or 'Left to @login', so a by-hand change only the person can make looks done, and prior-findings reads it back as settled."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 1626,
+        "summary": "accountCoverage checks only verified/unconfirmed refs. A duplicate or settled entry is accepted whatever its ref names: a candidate index that does not exist, its own index, another candidate that is itself a duplicate of it, or a finding id that does not exist. So a candidate can leave the round with no finding and no warning, contrary to the 'Nothing leaves quietly' rule in docs/running.md.",
+        "failure_scenario": "The verifier accounts for candidate 2 as {outcome: 'duplicate', ref: '3'} and candidate 3 as {outcome: 'duplicate', ref: '2'}, and reports no finding for either; or it gives a duplicate the ref 'R1-9' or settles one against an earlier id when no such finding exists. Both entries go into `seen`, so the mint loop skips them. They land only in the folded set-aside block, and the warning fires only for an empty ref. A true correctness bug the coverage pass found gets no finding, no thread, no shaper decision and buys no round."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 3881,
+        "summary": "roundDeclines excludes a finding only when its decision carries a `disposition`, so a judgment call the person already decided is listed as a shaper decline when a reshape returns its finding as 'decline'. The round enum has no 'accept', so 'decline' is a natural way for the shaper to restate an accepted call.",
+        "failure_scenario": "The person answers R1-2's call with 'Accept, no change'. The plan approver bounces, and the reshape returns R1-2 as disposition 'decline' with a reason, then raises a new call and stops. decisions['R1-2'] has no `.disposition`, so R1-2 goes into declinedAfterRun. The skill then tells the person R1-2 is a Redline decline to overrule after the run, although outcomesFor posts it as the person's decision ('decided', listed under 'Put to @login'). The test should be `!decisions[x.id]`."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 4082,
+        "summary": "The new notPicked opening sentence is used whenever active is empty after the review dial, including a first round that had no findings to pick, so the handoff says findings existed and none was picked. Before this PR the same path posted 'the last one found no correctness bugs'.",
+        "failure_scenario": "A run is launched with the review dial on a PR whose first round verifies nothing, or only scope-declined nits. The dial still stops with selectionNeeded [] and relaunches with selected {act: []}. The handoff then opens 'Redline ran 1 review round; none of its findings was picked to act on.' and the result note says 'No finding was selected to act on'. It should only say this when record.dropped is non-empty."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 3188,
+        "summary": "The checks run on the shaper's output appear twice, after the shape and after each reshape: checkDispositions, checkSecondLook, checkCalls, checkSpec, forceAskRules, checkDeclineReasons, checkWhy, then record.dispositions. The copies differ only in label and `known`.",
+        "failure_scenario": "The order of these calls has already been the subject of R1-13, R2-9, R3-5 and R5-6, and each fix had to change both copies in step. A future reorder or new check applied to one copy only would let a reshaped plan skip a check the first shape got. One helper (e.g. vetShape(shaped, known, label, suffix)) called from both places removes the drift."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 2539,
+        "summary": "The next free finding number of the round is computed three times with slight variations: review() builds nextId with an idForm filter (2385), reconcilePrior uses `next` (2539) and accountCoverage uses `next` (1628, with String()).",
+        "failure_scenario": "Three copies of one rule (number after the highest R<round>-<n> in use) that R4-6 had to align by hand. A change to the id form, such as a new prefix or stricter parsing, must be made three times or two minting paths can hand out colliding ids again. Use one nextFindingId(round, findings) helper."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 343,
+        "summary": "The scope wording is spelled three ways: SCOPE_DECLINED and NIT_PASS_DECLINED hard-code \"this run's scope\" and \"the final nit pass's scope\", scopeName() returns the same two phrases, and the handoff calls scopeName with a made-up `reviewed` value ('pr' or 'final-nit-pass') just to pick a string.",
+        "failure_scenario": "Rewording a scope means editing the constants, scopeName, and the two headings that append '(correctness only)' by hand. A missed copy makes a thread's outcome and the review-body heading name different scopes. A single declinedUnder(reviewed) built from scopeName would cover every site."
+      }
+    ]
+  }
+}

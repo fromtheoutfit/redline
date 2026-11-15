@@ -1,0 +1,250 @@
+{
+  "round": 6,
+  "reviewed": "pr",
+  "range": {
+    "from": "9d22ff86b76dc7f2186da747a13e2effa7de4b0d",
+    "to": "9d22ff86b76dc7f2186da747a13e2effa7de4b0d"
+  },
+  "summary": "The #68 slice sizes the gate's printed result for the workflow and adds a kept result with --verdict, and setup and loop cases cover the budget, the subject cut and each verdict path. Every round 5 fix landed. Most findings are about the kept result: where it lives (a predictable path in shared /tmp, a TMPDIR the checker's second call must share), what happens when it cannot be written or the write fails, what the verdict still carries whole, the budget's encoding assumption, the resume label when the verdict agent returns nothing, and the cut subjects that replies now quote. The repository has no scheduled or queued work. The version is 0.3.0 against main's 0.2.4, and the #68 plan names a Docs entry for every touched file.",
+  "findings": [
+    {
+      "id": "R6-1",
+      "file": "scripts/checks-template.sh",
+      "line": 25,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "unconfirmed",
+      "title": "The verdict assumes the checker's two agent calls see one TMPDIR, which the repository cannot show",
+      "description": "The kept result's path is built from `${TMPDIR:-/tmp}` (scripts/checks-template.sh:98-101), and the header says a --verdict call must see the same TMPDIR (lines 25-26). The workflow asks for the verdict in a second agent call labelled `<label> verdict` (workflows/redline-loop.js:2962). The background script's start and wait, which have the same requirement, run inside one checker call (checkerPrompt, 1907-1919). If the harness gave each agent call its own TMPDIR, every verdict would exit 2 with 'no kept result for <root>', and every spill would stop at check as it did before #68. The run would be no worse than on main, but #68's decision 4, that a result which still spills must not stop a round whose gate passed, would not hold. What I tried: this reviewer agent, in the same run, sees TMPDIR=/var/folders/l4/jz4g7psj5h1gxvk_6zp29rvm0000gn/T/, the per-user macOS directory and not a per-agent one. Its redline-checks/ folder holds a kept result written at 08:09 by the build's gate run, so the session and this agent share it. The checker's own environment, and that of a sandboxed Bash call, cannot be observed from here. No run has yet reached a verdict with a v3 checks.sh: the round 6 record folder holds only snapshot-start.json.",
+      "proposedFix": "Keep the result under a directory every agent of the session resolves the same way whatever its environment, such as the repository's git directory (`git rev-parse --git-common-dir`, keyed by the root as now). That is also outside the working tree and private to the repository's owner.",
+      "wouldConfirm": "One spilled check in a real Redline run with a v3 checks.sh: the verdict call either finds the kept result or exits 2 with 'no kept result' (or the checker prints TMPDIR in both calls).",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-2",
+      "file": "scripts/checks-template.sh",
+      "line": 98,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "With TMPDIR unset, the kept result sits at a predictable path in shared /tmp that other local users can read and replace",
+      "description": "kept_dir is `${TMPDIR:-/tmp}/redline-checks` (lines 98-99), and the file is `<git hash of the physical root>-<HEAD>.json` (100-101). The run creates the directory with `mkdir -p` and writes the file with the default umask (480, 498-503). On this machine the existing kept file is -rw-r--r-- inside a drwxr-xr-x redline-checks/. Nothing checks the directory's owner or mode: `mkdir -p` accepts a directory that already exists, and `-w` only asks whether this user may write to it.\n\nThis matters on a multi-user host where TMPDIR is unset, which is usual on Linux. macOS gives each user a 0700 TMPDIR, as here (/var/folders/.../T/ is drwx------). On such a host:\n(a) Every local user can read every kept file: each check's whole command, the last 200 lines (up to 64 KB) of each stream, every changed path and every commit subject (lines 173-175).\n(b) A user who creates /tmp/redline-checks first with mode 0777 can replace `<key>-<HEAD>.json` between the checker's run and the verdict call, a window of one agent round trip. The replacement is a copy of the victim's own readable file with `exit` 0 and an ok `printed`. --verdict (106-125) checks only mode and snapshot, both copied from that file, so a failing gate reads as passing.\n(c) A symlink planted at `<kept>.part` is removed first by the run's own `rm -f \"$kept_dir/$root_key-\"*` (497), so redirecting the jq write means winning the race between lines 497 and 498.\n\nThe same class predates this pull request in scripts/redline-background.sh (outside this diff, lines 67-92), which keeps the gate's printed result under `${TMPDIR:-/tmp}/redline-background/`. The kept file adds the full output and the full lists. The attack needs a shared host with TMPDIR unset and a hostile or curious local user. `.claude/redline/checks.sh` is generated from the template and carries the same lines.",
+      "proposedFix": "Create the directory private (`mkdir -m 700`). Refuse a directory this user does not own or that others can write (`[[ -O \"$kept_dir\" ]]` plus a mode check), and in that case don't keep the result. Write the file under `umask 077`. Or keep the result under the repository's git directory instead of the temp directory.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-3",
+      "file": "scripts/checks-template.sh",
+      "line": 124,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "--verdict keeps unexpected_files, uncommitted and the round's commits whole, so a spill those lists cause spills the verdict too",
+      "description": "--verdict prints `.printed | .verdict = true | .checks |= map(del(.truncated, .stdout, .stderr))` (line 124), which drops only the checks' output. The printed git block carries `unexpected_files`, `uncommitted` and every commit of the round whole (lines 456-462; comment 152-155, 170-171). The budget's fixed parts are at most 9,240 bytes passing and 22,960 failing, so these lists are the main way stdout can still cross the tool's limit (30 to 31 KB on PR #94, per the #68 shape.md).\n\nTraced: a round whose formatter or tests leave about 600 paths of 50 bytes outside the plan or uncommitted prints over 30 KB. The checker reports spilled. The verdict carries the same paths and spills too. checker() returns the verdictError `checks.sh --verdict could not be read either (spilled)` (workflows/redline-loop.js:2970), and the run stops at check (stopReason, 2130) instead of going to the repair pass with the paths named. The stop's text then says 'A checks.sh made from a template before v3 has no --verdict ... run /redline:setup', which does not help a v3 checks.sh. A round of well over 40 commits, each up to 174 bytes, does the same.\n\ndocs/contract.md documents this stop ('a verdict the tool could not show either ... the run stops at check as before'), so it is the behaviour from before #68, kept in a case the fallback does not reach. #68's title asks to cap the git block's lists. The author decided to keep these two lists whole in stdout (shape.md, decisions made before shaping); that decision does not bind the verdict's own form. Coverage candidate 11 describes the same cause, seen from stdout.",
+      "proposedFix": "In --verdict, print the two lists and the commits as counts plus their first few entries; the kept file's `result` still holds them whole. That leaves stdout's form as the author decided. Or cap them in stdout as well. Add a setup-test case with several hundred unexpected paths whose verdict stays under 10 KB.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-4",
+      "file": "scripts/checks-template.sh",
+      "line": 167,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The budget assumes JSON encoding at most doubles a byte, but jq writes each non-UTF-8 byte as three",
+      "description": "The comment (lines 167-168) says encoding 'adds a byte to each newline, tab, quote and backslash and nothing to any other byte left in a stream, so the output is at most twice the budget'. It states the worst case as 22,960 bytes, under 25 KB (165-166), and #68's shape.md decides 'the worst case with every check failing under 25 KB'. `plain` keeps bytes 0x80-0xFF on purpose (180-187, LC_ALL=C). jq replaces each byte that is not valid UTF-8 with U+FFFD, which is three bytes. Reproduced with jq 1.8.2: `printf '\\351%.0s' {1..5120} | jq -n -c --rawfile s /dev/stdin '{s: $s}' | wc -c` prints 15363 for 5,120 input bytes.\n\nSo the failing checks' share can reach about 15,360 bytes, not 10,240. The worst case is then about 600 + 960 + 12 x 350 + 15,360 + 40 x 174 = 28,080 bytes. That is over the 25 KB the spec and the template promise, and over the 25,000 the setup test checks (tests/setup-test.sh:637). That test's worst-case run prints ASCII only, and its one non-UTF-8 case (line 519) checks that a byte survives, not the size.\n\nIt needs failing checks whose kept tails are mostly non-UTF-8 (Latin-1 or binary output) at the stated scale. Below the tool's inline limit nothing else changes; above it, the verdict applies, and it drops the outputs.",
+      "proposedFix": "Make every kept byte encode to at most two bytes, for example by dropping or replacing invalid UTF-8 in `plain` before the cut (`iconv -f UTF-8 -t UTF-8 -c`). Or correct the comment's factor to three and lower `budget` so the worst case stays under 25 KB. Add a setup-test case: the worst-case run with Latin-1 output, under 25 KB.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-5",
+      "file": "scripts/checks-template.sh",
+      "line": 426,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Replies and the handoff now quote a commit's cut subject, which drops the issue reference and appends rescued ids",
+      "description": "The round's commits go through cut_subjects (line 426), and the workflow builds roundCommits' `message` from them (workflows/redline-loop.js:3241-3248). Every 'fixed in <sha> (<subject>)' reply (1316) and the handoff's Commits list (3458) post that message as written. Before #68, git.commits carried the whole subject.\n\n11 of this pull request's commit subjects are over 100 characters (`git log --format=%s origin/main..HEAD`). `redline: R5-9 drop a deferral the person changed away from defer, and keep the resolve agent's entry (#93)` (106 characters) would be posted as `... and keep the resolve agent's entry...`, without `(#93)`. `redline: R1-12 build the shaper's why_human enum per pass, so a v3 section's reason is refused in the shaper's own run (R1-5) (#93)` (131 characters) would end in `... R1-5` after the cut.\n\ndocs/contract.md:75 documents the cut message but not that replies quote it. The implementer already reports each commit's whole `message` (IMPLEMENT_SCHEMA, workflows/redline-loop.js:798), and roundCommits already matches each commit to the implementer's (3247).",
+      "proposedFix": "Post `claimed.message` when the implementer reported the commit, else the cut subject (`message: claimed && claimed.message ? claimed.message : c.message` at workflows/redline-loop.js:3248). judge() keeps reading the cut subjects from the git block for its id checks. Or say in docs/running.md, step 6, that a long subject is quoted cut.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-6",
+      "file": "scripts/checks-template.sh",
+      "line": 456,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The printed git block is built by a second jq over the same files, and git log runs twice over one range on a first round",
+      "description": "Lines 449-455 and 456-462 are two `jq -n` calls over the same slurped files. Each spells out the shared keys: start_sha, round_sha, unexpected_files, uncommitted and diff_lines. Lines 425-426 run `git log` over start_sha..HEAD and over round_sha..HEAD, which are the same range whenever round_sha is start_sha: a snapshot without round_sha (374-376), and every run's first round (workflows/redline-loop.js:3163). A key added to one call and not the other makes the kept `result` and `printed` disagree. --verdict reads `printed` (line 124), so the verdict itself cannot disagree with what the run printed (#68 deviation 14). The cost is one extra jq and one extra git log per run.",
+      "proposedFix": "Build git.print.json from git.full.json in one jq: set allowed_count, changed_count, commits_count and formatter_touched_count from the full lists, delete allowed, changed_files and formatter_touched_outside_pr, and set commits to the round's cut list. Cut the round's commits from commits_all when round_sha equals start_sha.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-7",
+      "file": "scripts/checks-template.sh",
+      "line": 480,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A run that cannot write the kept directory leaves an earlier run's file there, and --verdict reads it as this run's",
+      "description": "When the directory cannot be written, the run sets `kept=\"\"` (lines 480-483). The removal and the write both sit inside `if [[ -n \"$kept\" ]]` (496-504), so an earlier file for this root stays. Moving the `rm -f` out of the `if` would not help, since removing an entry needs write permission on the directory. --verdict (105-125) rebuilds the path from the root and the current HEAD and checks only the kept file's mode and snapshot. So a file an earlier run wrote at the same HEAD, in the same mode and with the same snapshot is printed as this run's verdict, with that run's exit code. The comment at 478-479 says the opposite: 'a --verdict after it finds nothing'.\n\nThe implementer's gate run is such an earlier run: its command is the checker's full one, with the same snapshot (gateLine, workflows/redline-loop.js:1861; checkerCommand, 1834). Two runs at one HEAD can still differ in the working tree (an uncommitted file fails `git.uncommitted`) and in a flaky check, so the verdict could pass a round whose own check failed.\n\nIt needs the directory to lose write permission between the earlier run and the checker's run, and the checker's result to spill. The guard refuses chmod and ln to every role (scripts/redline-guard.sh:1053-1054), so an agent cannot cause it by those commands.",
+      "proposedFix": "Have --verdict exit 2 when the kept directory is not writable: a run that could not keep its result could not have replaced the file either, so any file there predates it. Correct the comment at 478-479 to match.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-8",
+      "file": "scripts/checks-template.sh",
+      "line": 498,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A failure while keeping the result exits the script before it prints, though the spec says keeping must never cost the gate its answer",
+      "description": "The `rm -f`, the `jq ... > \"$kept.part\"` and the `mv` (lines 497-503) run under `set -euo pipefail` (51), before `cat \"$work/printed.json\"` (506). If any of them fails, the script exits with no JSON on stdout (the EXIT trap removes $work). The checker then reports not_json, or no_result after a background wait, and the run stops at check even when every check passed. #68's shape.md deviation 16 says a run that cannot write the temp directory still prints its result: 'Keeping the result must never cost the gate its answer'. The guard at 480 covers only a directory that is missing or not writable.\n\nWays to reach it:\n- The temp filesystem runs out of space or quota between the $work writes and the kept file, which can reach about 1.5 MB (12 checks, two streams, 64 KB each).\n- Another checks.sh run for the same root removes this run's `.part` with its `rm -f \"$kept_dir/$root_key-\"*` before the `mv`. That run could be a background gate a timed-out wait left running (scripts/redline-background.sh:87) or a run started by hand.\n- The directory holds an entry this user cannot remove, such as another user's file in a shared, sticky /tmp/redline-checks (TMPDIR unset). `rm -f` then exits 1.",
+      "proposedFix": "Make keeping the result non-fatal, and print in every case. Write printed.json after trying to keep the result, and set `kept` only when the write and the move succeeded: `if ! { rm -f ...; jq ... > \"$kept.part\" && mv \"$kept.part\" \"$kept\"; } 2>/dev/null; then log ...; kept=\"\"; fi`. Add a setup-test case whose kept `.part` path is a directory.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-9",
+      "file": "workflows/redline-loop.js",
+      "line": 1926,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "verdictCommand rebuilds checkerCommand's command line instead of calling it",
+      "description": "verdictCommand (1926-1928) writes `${CHECKS} --verdict${flag ? ` ${flag}` : ''} ${snapshot}`. That is the string checkerCommand (1834-1836) builds with octane false and '--verdict' put before the flag. --verdict matches the kept file on the snapshot path as the script makes it absolute (scripts/checks-template.sh:77, 120), so the two builders have to keep spelling the script and the snapshot the same way. Today they do, and loop-test checks pin the verdict's line (tests/loop-test.mjs:905, 927, 931). gateRun's start line (1848) is a third copy of the same pattern. GitHub sends no patch for this file, so the comment goes in the review body.",
+      "proposedFix": "`return checkerCommand(flag ? `--verdict ${flag}` : '--verdict', snapshot, false)`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R6-10",
+      "file": "workflows/redline-loop.js",
+      "line": 2962,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A verdict call that returns nothing stops the run under the verdict's label, so a resume replays the spilled check",
+      "description": "run() sets `lastLabel = opts.label` before it calls the agent (519). When the agent returns null or undefined, run() throws `stageError(stage, ...)` (526-528), which takes its label from `lastLabel` (482-483). checker() resets `lastLabel = label` only after `await run(..., { label: `${label} verdict` })` returns (2962-2963). So a verdict agent that is skipped, stalls on every attempt or dies on an API error stops the run with `resumeFrom.label` set to `check r<n> verdict` (4080-4081).\n\ndocs/contract.md:88 says 'The stop names the check's own label, never the verdict's, so a resume runs the gate again'. #68's shape.md deviation 19 relies on the reset covering every stop.\n\nOn that relaunch the check's prompt is unchanged, so the check replays its cached spilled result and only the verdict reruns. If HEAD has not moved, the verdict reads the earlier run's kept result. If a hand commit under .claude/ has moved HEAD (a resume accepts one), the verdict exits 2 and the run stops again, now at `check r<n>`, which costs a second relaunch.\n\nNo loop-test case covers this. The checker mock cannot script an absent verdict (`(scenario.checker && scenario.checker(opts.label, out)) || out`, tests/loop-test.mjs:247), and the case that pins the label (919) uses an exit-2 verdict. GitHub sends no patch for this file, so the comment goes in the review body.",
+      "proposedFix": "Give the verdict call's error the check's label: `let asked; try { asked = await run(...) } catch (e) { e.label = label; throw e } finally { lastLabel = label }`. Add a loop check whose verdict agent returns null and that expects resumeFrom `{label: 'check r1', attempt: 2}`; the mock needs a way to return null.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "9d22ff86b76dc7f2186da747a13e2effa7de4b0d",
+    "candidates": 11,
+    "counts": {
+      "verified": 9,
+      "unconfirmed": 1,
+      "refuted": 0,
+      "duplicate": 1,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R6-7"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R6-2"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R6-10"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R6-8"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R6-3"
+      },
+      {
+        "index": 6,
+        "outcome": "unconfirmed",
+        "ref": "R6-1"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R6-4"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R6-5"
+      },
+      {
+        "index": 9,
+        "outcome": "verified",
+        "ref": "R6-6"
+      },
+      {
+        "index": 10,
+        "outcome": "verified",
+        "ref": "R6-9"
+      },
+      {
+        "index": 11,
+        "outcome": "duplicate",
+        "ref": "R6-3: same cause. The git block's unexpected_files, uncommitted and commits are printed whole in stdout, and --verdict keeps them whole. Printing counts plus the first entries is R6-3's proposed fix."
+      }
+    ]
+  }
+}

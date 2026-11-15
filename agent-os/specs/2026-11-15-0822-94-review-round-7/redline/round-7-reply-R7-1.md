@@ -1,0 +1,1 @@
+Redline round 7: fixed in fdea23d (redline: R7-1 name the handoff's outcome lines in Decided by (#93)). · decided by: redline

@@ -1,0 +1,329 @@
+{
+  "round": 7,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "9d22ff86b76dc7f2186da747a13e2effa7de4b0d",
+    "to": "8739d8b6a40ce4af9312090c4a79bd8c1e9082e0"
+  },
+  "summary": "The fix diff does what round 6 decided. verdictCommand now calls checkerCommand with the same output. A verdict call that returns nothing, or throws, stops at the check's label, as the new loop check pins. Replies and the handoff quote the implementer's whole subject when git's was cut. The README's Known limits name each deferred gap in the kept result. Two of this round's findings show that R6-5's fix does not fully land: macOS awk cuts subjects in bytes, and only the last implement attempt's report is read. The rest are small gaps where #93's model meets older code: a forced decline's note lost on reshape, a final nit pass's dropped nits, stale comments and docs, an unread secondLook, and a dropped override warning. The repository has no scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R7-1",
+      "file": "docs/running.md",
+      "line": 165,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "'Decided by' still names the handoff comment's Decisions list, which this pull request removed",
+      "description": "docs/running.md:165 says each line of \"the handoff comment's Decisions list\" ends with an owner. handoffComment no longer writes a `### Decisions` heading. Its own comment says so (workflows/redline-loop.js:3392: 'The single Decisions list is gone'), and no other file in docs/, README.md or the workflow names that list. The owners now sit on the lines under the outcome groups (put to the person, overruled, declined by Redline, deferred, left under a rule, fixed). Line 165 is a context line of the PR's hunk in docs/running.md.",
+      "proposedFix": "Update the 'Decided by' section of docs/running.md: say that each line of the handoff comment's outcome groups ends with its owner, in place of 'each line of the handoff comment's Decisions list'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-2",
+      "file": "scripts/checks-template.sh",
+      "line": 319,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A commit subject passes through three layers (cut, id rescue, rebuild from the implementer's report), each with its own edge case",
+      "description": "The round's subjects are cut at 100 in cut_subjects (scripts/checks-template.sh:319-331). The ids in the part cut off are put back after the '...' (line 328). Then the workflow rebuilds the whole subject from the implementer's report (shownSubject, workflows/redline-loop.js:1317-1321), using it only when it opens with the part the cut kept. Each layer has its own edge case. Two are R7-6 (awk counts bytes) and R7-9 (only the last implement attempt is consulted). The third: git's `%s` joins a subject paragraph that wraps over several lines, but shownSubject takes only the report's first line (`split('\\n')[0]`, line 1318), so such a subject fails the length or prefix test and is quoted cut. The kept result already holds every commit since start_sha with its whole subject (template comment, lines 173-175). The cut exists for the budget: each commit counts 174 bytes, 40 commits for 6,960 of the 22,960-byte worst case (lines 157-166), not 'one line'. Removing the cut, or bounding the commit count instead, changes `scripts/checks-template.sh` below its header. The README bullet at line 116 says only a person makes that change, then regenerates `checks.sh` and restamps.",
+      "proposedFix": "In a person's next change to the template: print the round's own subjects whole and bound their count, or have the workflow read whole subjects from the kept result. Either removes the id rescue and shownSubject together.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-3",
+      "file": "skills/redline/SKILL.md",
+      "line": 170,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The review-only summary asks for what would confirm each unconfirmed finding, which the result it reads does not carry",
+      "description": "skills/redline/SKILL.md:170 tells the session to say how many findings the verifier could not confirm, 'each with what would confirm it'. The review-only result is `result('review-only', { reviewFile, findingsFile })` (workflows/redline-loop.js:4016). Its `rounds[].findings` are built by compactFinding (2242-2244), which returns id, category, severity, file, line, title, confidence, knownAs and carriedFrom, and no wouldConfirm. The step names `reviewFile` and never `findingsFile`, so the session has to open a file the step does not point to, or it leaves the line out or makes it up. The `reviewed` hand-off at line 190 does list `wouldConfirm`, since it receives findings in full.",
+      "proposedFix": "Add wouldConfirm to compactFinding (or only to the review-only rounds), or say at line 170 to read it from `findingsFile`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-4",
+      "file": "workflows/redline-loop.js",
+      "line": 176,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Two code comments still state behaviour this pull request changed (the correctness scope and rule-covered declines)",
+      "description": "Line 176 says the 'correctness' scope 'never looks for nits'. Since #93, a nit a candidate raises under that scope is still verified, kept in the round's record and declined under the scope (`scoped`, line 3997; SCOPE_DECLINED at 4009). Line 114 says a rule-covered finding is 'never fixed or deferred by Redline'. rulesBlock now says 'never fixed, declined or deferred' (line 463, after R4-2), and forceAskRules turns a decline into an ask (2837-2840). Both comments are unchanged from main (origin/main lines 114 and 176), so the cause is outside the diff: this pull request changed the behaviour they describe and left them as they were.",
+      "proposedFix": "Line 114: 'never fixed, declined or deferred by Redline'. Line 176: say the correctness scope runs no nit checks of its own and declines any nit it verifies, with the scope as the reason.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-5",
+      "file": "workflows/redline-loop.js",
+      "line": 726,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "secondLook is asked for and allowed by the schema, but the workflow never reads or checks it",
+      "description": "The shaper prompt asks for `secondLook` on each finding the verifier could not confirm (workflows/redline-loop.js:1696). The shaper agent file does too (agents/redline-shaper.md:21, 32), and the round schema allows it (line 726). It is not required, and no code in the workflow reads it: the only other mention is the schema line. A shaper can leave it out for an unconfirmed finding, or return `refuted` and decline with a 'could not confirm' reason, and nothing notices. The field only rides along in `record.dispositions` (shaped.findings, 3016/3150). The loop test scripts it (tests/loop-test.mjs:198) but checks nothing about it. The PR description says an unconfirmed finding 'gets the shaper's second look before it is decided'; only the plan approver, reading shape.md, can see whether it did.",
+      "proposedFix": "Either check it in checkDispositions (an unconfirmed finding needs a secondLook; a decline of a `refuted` one needs a reason that is not 'could not confirm'), or drop the field from the schema and the prompt and leave the second look to shape.md.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-6",
+      "file": "workflows/redline-loop.js",
+      "line": 1320,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "shownSubject counts UTF-16 characters but macOS awk cuts subjects in bytes, so a non-ASCII subject is quoted cut",
+      "description": "R6-5 was fixed, but still reproduces here for any subject with non-ASCII characters on macOS. cut_subjects uses awk's `length` and `substr` (scripts/checks-template.sh:320-327). This machine's awk (`awk --version`: 20200816, the BWK awk macOS ships) counts bytes: `printf 'e\\303\\251\\342\\200\\224x\\n' | awk '{print length()}'` prints 7 for a 4-character line. So a subject of 96 characters and 102 bytes (an em dash or a curly quote is 3 bytes) is cut. shownSubject (workflows/redline-loop.js:1320) restores the whole subject only when `whole.length > 100`, which is a count of JavaScript characters. It sees 96, returns git's cut message, and the reply ('fixed in <sha> (...)', line 1327) and the handoff's Commits list (3479) quote it without its `(#93)`. docs/contract.md:56 and 75 say the cut is at 100 characters, which holds only where awk counts characters (gawk in a UTF-8 locale). The loop test pins only an ASCII subject (tests/loop-test.mjs:888).",
+      "proposedFix": "In shownSubject, drop the length test and rely on the prefix test, which is enough: use whole when git's message ends in a cut ('...' after the kept part) and whole starts with that part. Add a loop-test case with a subject under 100 characters but over 100 bytes. Correcting docs/contract.md to say bytes on BWK awk is a separate doc fix.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-7",
+      "file": "workflows/redline-loop.js",
+      "line": 2865,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A reshape rewrites record.forced and drops the 'would have declined' note, so the handoff lists the finding as a change left open",
+      "description": "R5-8 (round 5, fixed in 73ceccf) made a rule-covered finding the shaper declined appear on autopilot as 'Redline would have declined it', with nothing left open. Its fix records `declined` on `record.forced` (line 2865). forceAskRules runs again after every reshape (line 3147) and overwrites `record.forced[f.id]` from that reshape's output. Traced on autopilot. The first shape declines R1-2, a file under a paths rule, so forced.declined is set. Autopilot settles the call with leftDecision (3040). The plan approver bounces another task. The reshape is told to return only calls 'still pending or newly raised' (1753) and that a rule-covered finding is an ask (463). So it returns R1-2 as `ask` with no call. forceAskRules then sees wasDecline false, builds a call with recommendation 'By hand: …' or 'Make the change by hand after the run.' (2856), and rewrites record.forced without `declined`. The autopilot Deferred loop (3284-3291) then writes `fullFix: forced.recommendation` and no `declined` flag, and the handoff's rule line prints 'open: By hand: …' for a finding Redline would have declined. It needs autopilot, a declined finding under a rule, and a bounce that reshapes. A reshape that returns `decline` again keeps the note.",
+      "proposedFix": "In forceAskRules, keep an earlier entry's `declined` when the new pass returns an ask (`...(wouldDecline ? { declined: wouldDecline } : record.forced[f.id] && record.forced[f.id].declined ? { declined: record.forced[f.id].declined, recommendation: record.forced[f.id].recommendation } : {})`), or leave an existing entry alone once its call is decided. Add a loop case: autopilot, a declined rule-covered finding, one plan bounce whose reshape returns it as ask.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-8",
+      "file": "workflows/redline-loop.js",
+      "line": 2985,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The verdict call's structural-override warning is thrown away, unlike the check call's",
+      "description": "checker() pushes readStructure's warning for the check call (lines 2966-2969). For the verdict call it keeps only `.out` (`const verdict = readStructure(asked).out`, line 2985). Here the checker returns result_unreadable with a STRUCTURAL_REASONS reason (not_json, no_git_block) but a gate-shaped result. readStructure (2120-2127) overrides it to `read`, and the run goes on with the verdict as the gate's result. The warnings record only the generic 'too large … read the verdict' line (2987), not that the workflow overrode the checker's status. The same misread on the check path leaves a warning.",
+      "proposedFix": "`const readVerdict = readStructure(asked); if (readVerdict.warning) { warnings.push(`${prefix} verdict: ${readVerdict.warning}`) }; const verdict = readVerdict.out`, with a loop check for a verdict scripted as not_json with a gate-shaped result.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-9",
+      "file": "workflows/redline-loop.js",
+      "line": 3269,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "After a repair pass, the first attempt's commits lose their whole subject, since only the last implementer report is read",
+      "description": "R6-5 was fixed, but still reproduces after a repair pass. `implemented` is reassigned on each attempt of the implement loop (workflows/redline-loop.js:3221, 3229). The repair is a fresh implementer call, and nothing in its prompt (1905) or its agent file (agents/redline-implementer.md:40, 47) asks it to report commits an earlier attempt made. The round's commits come from the checker's git block, which lists every commit since round_sha. The `claimed` lookup (3268) searches only `implemented.commits`, the repair's report. So a first-attempt commit with a subject over 100 characters gets `subject: shownSubject(c.message, undefined)`, git's cut form (1318, 3269), and the reply and the handoff's Commits list quote it cut. The same lookup sets `finding: ''` for those commits. That part is unchanged from main (origin/main:workflows/redline-loop.js:2916-2917), but `outcomesFor` falls back to `mentions(c.message, f.id)` (2615), so no fix goes unmatched. It needs a check that fails after the first attempt's commits and a repair pass that commits again.",
+      "proposedFix": "Keep every attempt's reported commits (`const reported = []`, then `reported.push(...implemented.commits)` after each attempt) and look up `claimed` in `reported`. Add a loop case: a failing check r1, a repair, and a long-subject commit from the first attempt quoted whole.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R7-10",
+      "file": "workflows/redline-loop.js",
+      "line": 3990,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A final nit pass drops the nits its reviewer reports with only a log line and a count, while the correctness scope now declines them visibly",
+      "description": "In a final nit pass, `considered` keeps only correctness findings (workflows/redline-loop.js:3987). The rest become `droppedNits` and a log line (3988-3990). They are passed neither to post() (4008) nor to the findings file, and they get no thread, no reply and no handoff line; the round record keeps only the count (4009, 2279). A human review pass's nit pass does the same (3911-3915, 3918-3919). The drop is unchanged from main (origin/main lines 3442 and 3514-3519). This pull request rewrote the log line at 3990, and at 3997 changed the `correctness only` path from dropping to declining visibly, with the scope as the reason. So a verified nit is now declined with a reason under one scope and vanishes under the other. It needs a final-nit-pass reviewer that reports a nit despite being told to report only correctness bugs. Two readings, with different results. (a) A nit there is outside the pass's contract, and dropping it is the scope working as designed; then this is only a gap between the two paths. (b) The title's promise, 'every verified item is fixed, declined with a reason, or put to the person', covers it, and the drop breaks that promise.",
+      "proposedFix": "Treat a final nit pass's nits as the correctness scope's are: keep them in the round as declined with the reason 'the final nit pass reports correctness only', listed once with a non-bold id and no thread (scopedLine), and name them in the handoff. Or, under reading (a), say in docs/running.md and the PR description that a final nit pass drops them.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "8739d8b6a40ce4af9312090c4a79bd8c1e9082e0",
+    "candidates": 11,
+    "counts": {
+      "verified": 10,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 1
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R7-6"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R7-9"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R7-7"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R7-10"
+      },
+      {
+        "index": 5,
+        "outcome": "known",
+        "ref": "#88: its change asks for 'a newline rule for posted free text, so no free text can start a line the readers parse', with prior-findings' `- **R<n>-<k>** ·` line as the named hazard. wouldConfirm under a finding line is one more such free text, and postedText keeps its newline as the issue says."
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R7-3"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R7-8"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R7-2"
+      },
+      {
+        "index": 9,
+        "outcome": "verified",
+        "ref": "R7-5"
+      },
+      {
+        "index": 10,
+        "outcome": "verified",
+        "ref": "R7-1"
+      },
+      {
+        "index": 11,
+        "outcome": "verified",
+        "ref": "R7-4"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 1320,
+        "summary": "shownSubject checks `whole.length > 100` in JavaScript characters, but checks.sh cuts subjects in bytes on macOS (BWK awk), so a non-ASCII subject is cut and never restored to the whole subject the implementer reported.",
+        "failure_scenario": "On macOS, the implementer commits 'redline: R1-1 keep the subject — whole — in the reply and in the handoff’s list of commits (#93)'. That is 96 characters but 102 bytes. cut_subjects cuts it to '...of commits...', dropping '(#93)'. shownSubject sees whole.length 96, which is not over 100, and returns the cut message. The thread reply and the handoff's Commits list quote the truncated subject: the R6-5 fix fails for any subject with an em dash, a curly quote or an accented letter. docs/contract.md says the cut is at 100 characters, which is only true where awk counts characters (gawk in a UTF-8 locale)."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 3268,
+        "summary": "The commit claim that sets `subject` and `finding` is looked up only in the last implement attempt's report, so after a repair pass the first attempt's commits lose their whole subject.",
+        "failure_scenario": "Round 2's first implementer commits 'redline: R2-1 <a subject over 100 characters> (#93)'. check r2 fails, and the repair implementer commits a second fix and reports only that commit. After the loop, `implemented` is the repair's output, so `claimed` is undefined for the first commit: its `finding` is '' and its subject is git's cut form ending '...'. The R2-1 reply and the handoff's Commits list quote the truncated subject even though the implementer reported the whole one."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 2865,
+        "summary": "forceAskRules rewrites record.forced on every reshape, so a decline that a repository rule forced in the first shape loses its `declined` note when the reshape returns the finding as an ask.",
+        "failure_scenario": "Autopilot run. The first shape declines R1-2, a file under a paths rule, so record.forced[R1-2].declined is 'Redline would have declined it: X.' The plan approver bounces another task. The reshape returns R1-2 as ask with no call, since that call is already decided. forceAskRules sees wasDecline false, builds a new call with recommendation 'By hand: <recommendation>', and overwrites record.forced[R1-2] without `declined`. The handoff's Deferred line then reads 'left to @x under repository rule R; open: By hand: ...', the R5-8 symptom, for a finding Redline would have declined."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 3988,
+        "summary": "The final nit pass still drops verified nits with only a log line and a count. They are not posted, not declined and not listed, which breaks the PR's new promise that every verified item is fixed, declined with a reason, or put to the person.",
+        "failure_scenario": "A final nit pass reviewer reports one correctness item and one nit (it was told to report none, but did). `considered` keeps only the correctness item, so the nit appears in no review body, no findings file, no thread and no handoff list. Only `droppedNits: 1` and a log line remain. The same happens at line 3912 in a human review pass's nit pass. Meanwhile the correctness-only scope now declines nits visibly, with the scope as the reason, so the two paths treat a verified nit differently."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 939,
+        "summary": "wouldConfirm is trimmed but its newlines are not collapsed. findingLine posts it on an indented second line, so any newline in it becomes a raw line in the review body.",
+        "failure_scenario": "The verifier returns wouldConfirm 'Run the queue with two workers.\\n### Already tracked'. postedText keeps the newline, since a newline only switches it to escaping the whole text. The review body then has a stray '### Already tracked' heading inside the Could not confirm list. A line of the form '- **R<n>-<k>** · correctness · ...' would be read back by redline-gh.sh prior-findings as a finding of that round. Minted titles get whitespace-collapsed; this field does not."
+      },
+      {
+        "index": 6,
+        "file": "skills/redline/SKILL.md",
+        "line": 170,
+        "summary": "The review-only summary tells the session to list each unconfirmed finding with what would confirm it, but result().rounds[].findings comes from compactFinding, which carries no wouldConfirm.",
+        "failure_scenario": "After a `review only` run, the session reads rounds[0].findings to say what would confirm each unconfirmed finding. compactFinding (workflows/redline-loop.js:2242) returns id, category, severity, file, line, title, confidence, knownAs and carriedFrom only. The session has to open the findings file, which the step does not say to do, or it omits or invents the line."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 2985,
+        "summary": "The verdict call's readStructure warning is thrown away, so a structural misread the workflow overrides on the verdict leaves no trace in the run's warnings, unlike the check call just above.",
+        "failure_scenario": "The verdict checker returns result_unreadable/not_json with a gate-shaped result. readStructure overrides it to read, and `readStructure(asked).out` drops `.warning`. The run continues on the overridden verdict, and warnings records only the generic 'too large' line. On the check path, the same misread is pushed to warnings."
+      },
+      {
+        "index": 8,
+        "file": "scripts/checks-template.sh",
+        "line": 319,
+        "summary": "Altitude: the round's commit subjects go through three layers of special cases (cut at a space, a regex that re-appends finding ids after '...', and the workflow rebuilding the whole subject from the implementer's own report), all to save one line of budget.",
+        "failure_scenario": "Each layer has its own edge case: byte versus character counting (above), only the last implement attempt being consulted (above), and an implementer report whose first line differs from git's joined %s. Printing the round's own subjects whole and bounding their count, or reading them from the kept result, would remove cut_subjects' rescue and shownSubject together."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 726,
+        "summary": "secondLook is required by the shaper's prompt and allowed by the round schema, but nothing ever reads, validates or posts it.",
+        "failure_scenario": "A shaper that omits secondLook for an unconfirmed finding, or returns 'refuted' while declining with a 'could not confirm' reason, passes silently. The field only rides along in rounds[].dispositions, which the skill does not read. The second-look rule is enforced only by the plan approver reading shape.md, so the schema field costs prompt and schema text for no check."
+      },
+      {
+        "index": 10,
+        "file": "docs/running.md",
+        "line": 165,
+        "summary": "'Decided by' still says each line of the handoff comment's Decisions list ends with an owner, but this PR replaced that list with grouped sections.",
+        "failure_scenario": "handoffComment no longer emits `### Decisions`. Its own comment at workflows/redline-loop.js:3392 says 'The single Decisions list is gone'. A reader looking for that list will not find it; the owners now sit under Put to, Overruled, Declined by Redline, Fixed and the other groups."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 176,
+        "summary": "Two code comments now state the old behaviour: line 176 says the correctness scope 'never looks for nits', and line 114 says a rule-covered finding is 'never fixed or deferred'.",
+        "failure_scenario": "Since #93, a nit under correctness only is still verified, kept as a finding and declined under the scope. A rule-covered finding is also never declined (the rulesBlock wording was fixed in R4-2, but this comment was not). Someone changing the scope or ask-rule code from these comments would expect nits to be gone and the decline path not to apply."
+      }
+    ]
+  }
+}

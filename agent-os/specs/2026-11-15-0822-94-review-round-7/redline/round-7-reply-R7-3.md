@@ -1,0 +1,1 @@
+Redline round 7: fixed in ccc37d0 (redline: R7-3 carry wouldConfirm in the result for the review-only summary (#93)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 6: fixed in 66a7931 (redline: R6-5 quote a commit's whole subject in replies and the handoff (#93)). · decided by: redline
