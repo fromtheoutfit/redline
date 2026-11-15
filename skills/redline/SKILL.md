@@ -24,7 +24,7 @@ The grammar, in any order, case-insensitive:
 | --- | --- | --- |
 | `<n>` or `#<n>` | PR number. **Required.** | none: stop with "Usage: /redline:redline <pr> [...]" |
 | `autopilot`, `guided`, `plan`, `review`, `review only` | `interrupt`: the dial, where the run stops for the person (see "The interrupt dial" below). `review only` also sets `reviewOnly = true`: stop after the first round's review is posted (or written, in a dry run) | saved, else `guided` (step 3) |
-| `correctness only` | `scope = "correctness"`: the reviewer never looks for nits, and a round without a correctness finding is done, with no final nit pass | saved, else `all` (step 3) |
+| `correctness only` | `scope = "correctness"`: the reviewer runs no nit checks of its own, a nit it verifies is declined with the scope as its reason, and a round without a correctness finding is done, with no final nit pass | saved, else `all` (step 3) |
 | `max <N> rounds`, `max <N> round`, `max <N>` | `maxRounds = N` (revise rounds allowed while correctness bugs remain) | saved, else `maxRounds` in `redline.json`, else 3 (step 3) |
 | `revise fable`, `revise opus` | `models.revise.model`: `claude-fable-5-1` or `claude-opus-5-5` | saved, else ask (step 3) |
 | `reviewer @handle` | `reviewer = handle` (the `@` is dropped) | `reviewer` |

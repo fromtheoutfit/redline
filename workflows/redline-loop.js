@@ -111,7 +111,7 @@ const priorById = Object.fromEntries(priorFindings.map((p) => [p.id, p]))
 const maxPlanAdjustments = Number.isInteger(A.maxPlanAdjustments) && A.maxPlanAdjustments >= 0 ? A.maxPlanAdjustments : 2
 // Repository ask rules (#49): what a person is always brought in for, declared as askRules in the
 // repository's .claude/redline.json and passed by the skill at launch (the workflow reads no
-// file). A finding a rule covers is the person's to act on, never fixed or deferred by Redline.
+// file). A finding a rule covers is the person's to act on, never fixed, declined or deferred by Redline.
 // The validation wording is the guard's and redline-setup.sh config's.
 const RULE_ID = /^[a-z][a-z0-9-]*$/
 const askRules = A.askRules === undefined || A.askRules === null ? [] : A.askRules
@@ -173,8 +173,10 @@ if (!INTERRUPTS.includes(interruptWord)) {
 }
 const reviewOnly = A.reviewOnly === true || interruptWord === 'review only'
 const interrupt = reviewOnly ? 'review only' : interruptWord
-// Finding scope: 'all' reviews for correctness bugs and nits; 'correctness' never looks for nits,
-// and a round without a correctness finding is done (no final nit pass).
+// Finding scope: 'all' reviews for correctness bugs and nits; under 'correctness' the reviewer runs
+// no nit checks of its own, a nit a candidate raises is still verified and declined by the
+// workflow with the scope as its reason, and a round without a correctness finding is done (no
+// final nit pass).
 if (A.scope !== undefined && A.scope !== 'all' && A.scope !== 'correctness') {
   fail(`args.scope must be "all" or "correctness"; got ${JSON.stringify(A.scope)}`)
 }
