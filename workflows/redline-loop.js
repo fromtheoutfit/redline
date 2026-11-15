@@ -3098,6 +3098,29 @@ async function checker(flag, snapshot, octane, label, prefix) {
   return { ...read.out, verdictError: verdict.status === 'read' ? `checks.sh --verdict exited ${verdict.exit}${said}` : `checks.sh --verdict could not be read either (${verdict.reason})${said}` }
 }
 
+// The checks on the shaper's output, after the shape and after each reshape, in one order (#94,
+// R8-5): the spec folder it reports, a disposition for every finding (the reshape prompt asks for
+// every finding, as the shape prompt does), then the seven checks, forceAskRules among them, and
+// the round's dispositions. `known` is the round's calls so far, [] on the shape; `label` names
+// the shaper call for the checks that stop on it, and `suffix` its spec-status call.
+async function vetShape(pass, record, inScope, shaped, known, label, suffix) {
+  if (shaped.specFolder.replace(/\/+$/, '') !== record.specFolder) {
+    warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${record.specFolder}`)
+  }
+  const unsorted = inScope.filter((f) => !shaped.findings.some((s) => s.id === f.id)).map((f) => f.id)
+  if (unsorted.length) {
+    throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
+  }
+  checkDispositions(pass, shaped)
+  checkSecondLook(pass, shaped, inScope)
+  checkCalls(shaped, known)
+  await checkSpec(pass, record.specFolder, label, suffix)
+  forceAskRules(record, pass, inScope, shaped)
+  checkDeclineReasons(shaped, label)
+  checkWhy(pass, shaped, known, label)
+  record.dispositions = shaped.findings
+}
+
 // One revise pass for a round: Shape, hand-off, Resolve, Approve, Implement, Check, Push and reply.
 async function revise(record, inScope, reviewedKind) {
   const { round, specFolder } = record
@@ -3107,21 +3130,7 @@ async function revise(record, inScope, reviewedKind) {
   let shaped = await run('shape', pass.human ? humanShapePrompt(pass, record, inScope) : shapePrompt(round, specFolder, reviewedKind, inScope, record.prBody), {
     agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `shape ${pass.tag}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
   })
-  if (shaped.specFolder.replace(/\/+$/, '') !== specFolder) {
-    warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${specFolder}`)
-  }
-  const unsorted = inScope.filter((f) => !shaped.findings.some((s) => s.id === f.id)).map((f) => f.id)
-  if (unsorted.length) {
-    throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
-  }
-  checkDispositions(pass, shaped)
-  checkSecondLook(pass, shaped, inScope)
-  checkCalls(shaped)
-  await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
-  forceAskRules(record, pass, inScope, shaped)
-  checkDeclineReasons(shaped, `shape ${pass.tag}`)
-  checkWhy(pass, shaped, [], `shape ${pass.tag}`)
-  record.dispositions = shaped.findings
+  await vetShape(pass, record, inScope, shaped, [], `shape ${pass.tag}`, '')
 
   // The interrupt dial. Decisions enter only after the shaper, so its result replays from cache
   // on the relaunch whatever the dial says.
@@ -3252,14 +3261,7 @@ async function revise(record, inScope, reviewedKind) {
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
-    checkDispositions(pass, shaped)
-    checkSecondLook(pass, shaped, inScope)
-    checkCalls(shaped, calls)
-    await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
-    forceAskRules(record, pass, inScope, shaped)
-    checkDeclineReasons(shaped, `reshape ${pass.tag} #${adjustment + 1}`)
-    checkWhy(pass, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`)
-    record.dispositions = shaped.findings
+    await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))

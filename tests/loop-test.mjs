@@ -163,7 +163,8 @@ function mock(scenario) {
     }
     if (t === 'redline:redline-shaper') {
       // scenario.shaperDrop (#10): the ids the shaper leaves out of its findings, a shape-stage error.
-      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id))
+      // scenario.reshapeDrop (#94, R8-5): the ids a reshape alone leaves out, a shape-stage error since the reshape is vetted as the shape is.
+      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id)).filter((id) => !(typeof opts.label === 'string' && opts.label.startsWith('reshape') && (scenario.reshapeDrop || []).includes(id)))
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
@@ -1513,6 +1514,10 @@ function samePrefix(name, first, second, n) {
   check('reshape: a new ask without a call still stops at shape', newAsk.res.status === 'error' && newAsk.res.stage === 'shape' && newAsk.res.error === 'the shaper marked R1-1 as ask but returned no judgment call for it' && JSON.stringify(newAsk.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [newAsk.res.status, newAsk.res.stage, newAsk.res.error, newAsk.res.resumeFrom])
   const newCall = await go('reshape: a new call for a fix', decidedArgs, { ...decidedAsk, reshapeExtraCall: ['R1-1'] })
   check('reshape: a new call for a finding sorted fix still stops at shape', newCall.res.status === 'error' && newCall.res.stage === 'shape' && newCall.res.error === 'the shaper returned a judgment call for R1-1, which it sorted as fix' && JSON.stringify(newCall.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [newCall.res.status, newCall.res.stage, newCall.res.error, newCall.res.resumeFrom])
+  // The reshape is vetted as the first shape is (#94, R8-5): one that leaves a finding out stops at
+  // shape, naming the reshape as the step to resume.
+  const reshapeDropped = await go('reshape: a finding left out', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, reshapeDrop: ['R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  check('reshape: a reshape that leaves a finding out stops at shape, as the first shape does', reshapeDropped.res.status === 'error' && reshapeDropped.res.stage === 'shape' && reshapeDropped.res.error === 'the shaper gave no disposition for R1-2' && JSON.stringify(reshapeDropped.res.resumeFrom) === JSON.stringify({ label: 'reshape r1 #1', attempt: 2 }), [reshapeDropped.res.status, reshapeDropped.res.stage, reshapeDropped.res.error, reshapeDropped.res.resumeFrom])
 
   // The relayed line (#60): the script cannot see it, so RUN_LINE names the two lines the harness
   // may relay, the namespaced commands and their short aliases (#44; #63, R1-4), in every prompt, and a decision's
