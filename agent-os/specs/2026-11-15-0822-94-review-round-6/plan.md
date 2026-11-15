@@ -320,3 +320,25 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 11. **Version.** Stays 0.3.0: the pull request already carries the minor bump and #68's spec keeps the version on purpose; nothing this round changes what a setup rerun writes, and no template marker moves.
 12. **Standards retrospective.** Apply only the edits the standards approver approves from `shape.md`, `## Standards retrospective (proposed)`, in their own commit after the finding commits: `redline: record the round 6 review lessons in the standards (#93)`. When none is approved, record "Standards retrospective: no changes" under Decisions in `shape.md`.
 13. **Spec folder.** `plan.md` gains an As built section with each task's commit and its red and green counts, and any deviation is recorded under Decisions in `shape.md`, in a final `redline:` commit.
+
+---
+
+## As built
+
+Commits, in order, on top of `9d22ff8`:
+
+- Task 1: `643326c` redline: save review round 6 spec for PR #94 (#93)
+- Task 2: `b6996dc` redline: R6-2 list the kept result's exposure in a shared temp directory under Known limits (#93). `grep -c 'R6-2' README.md` prints `1`.
+- Task 3: `d522528` redline: R6-4 note under Known limits that the gate's budget assumes UTF-8 output (#93). `grep -c 'R6-4' README.md` prints `1`.
+- Task 4: `edfdf8c` redline: R6-7 note under Known limits that a verdict can read an earlier run's result (#93). `grep -c 'R6-7' README.md` prints `1`.
+- Task 5: `1b483ab` redline: R6-8 note under Known limits that a failed keep costs the gate its answer (#93). `grep -c 'R6-8' README.md` prints `1`.
+- Task 6: `62d25d9` redline: R6-10 stop under the check's label when the verdict call returns nothing (#93). Red: loop `938 checks passed, 1 failed`, the new check's `resumeFrom` `{"label":"check r1 verdict","attempt":2}`. Green: `939 checks passed, 0 failed`. `grep -c 'error.label = label' workflows/redline-loop.js` prints `1`.
+- Task 7: `66a7931` redline: R6-5 quote a commit's whole subject in replies and the handoff (#93). Red: loop `943 checks passed, 1 failed`, the reply quoting the cut subject; the fallback check green. Green: `944 checks passed, 0 failed`. `grep -c 'shownSubject' workflows/redline-loop.js` prints `2`.
+- Task 8: `9d946fc` redline: R6-9 build the verdict's command line with checkerCommand (#93). Loop `944 checks passed, 0 failed` before and after; the verdict-line checks unchanged. `grep -c 'return checkerCommand(flag' workflows/redline-loop.js` prints `1`.
+- Standards retrospective: `53ce886` redline: record the round 6 review lessons in the standards (#93). The three approved edits (`workflow/agents.md` line 44, `testing/tests.md` line 15, `scripts/bash-conventions.md` line 45), as worded. Each is a lesson that carries no part of a finding's fix, so the message names no finding.
+
+The gate (Task 9), the last run before this commit, at `53ce886`: `ok: true`, no failing check, `git.unexpected_files` and `git.uncommitted` empty. Loop `944 checks passed, 0 failed`; guard `596 passed, 0 mismatched`; prefs `121`; gate `117`; setup `506`; gh `136`; background `39`. The counts match the plan's expectation.
+
+Deviations:
+
+- Task 6's check holds its run in `const silent` instead of reassigning `run` as the plan's snippet does. The check after it, `verdict: the relaunch reruns the check and asks again`, builds its resume from `run.res.error` and compares its verdict prompt with `pick(run.calls, 'check r1 verdict')`, both meant to be the stale-verdict run above it; reassigning `run` would have moved that relaunch onto the new run. Behaviour and counts are as planned, and no existing expectation changes.
