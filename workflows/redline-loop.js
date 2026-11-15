@@ -347,10 +347,18 @@ const NIT_PASS_DECLINED = `declined: outside the final nit pass's scope (correct
 // The scope a workflow decline names: the final nit pass's in that pass, else the run's.
 const scopeName = (reviewed) => (reviewed === 'final-nit-pass' ? 'the final nit pass\'s scope' : 'this run\'s scope')
 const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
+// A finding on one of Redline's own files (#94, R8-4): the why_human its call gives, and the reason
+// its forced entry records. forceAskRules records it as it records a finding a repository ask rule
+// covers, so it is left to the person on every dial: on autopilot it is never decided, it is
+// listed under Deferred with no mitigation, its thread stays open, and Redline makes no change.
+const OWN_FILE = "redline's own file"
+const OWN_FILE_REASON = 'no Redline role may write them'
+// What a finding left to the person is left under: its repository rule, or Redline's own files.
+const leftUnder = (forced) => (forced.own ? "the rule on Redline's own files" : `repository rule ${forced.rule}`)
 // The sixth, "redline's own file", is no case of judgment: no Redline role may write one of
 // Redline's own files in the repository under review, so a finding on one is the person's to
 // change by hand, as a finding under a repository ask rule is (the shaper's rule 7).
-const ROUND_WHY = ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', "redline's own file"]
+const ROUND_WHY = ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', OWN_FILE]
 const HUMAN_WHY = ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix']
 const ASK_CASES = 'You decide every finding, and the person is asked in five cases only: the options differ in what the product does or what a user sees; the fix changes an assumption, the approach or the architecture the original spec agreed; the fix reaches outside what the pull request set out to do; two options are both defensible and neither is the clear pick; or the finding is still unconfirmed after your second look and its harm would be serious if it were true (security, privacy, data loss, money). A finding on a file of Redline\'s own is asked as well, as your instructions say. In every other case you take your own recommendation, a decision to decline included, and record it as decided by redline with its reason. Name the case, never a degree of confidence.'
 const PENDING_IS_THEIRS = 'A decision that is still pending is the person\'s: you do not pick an option, you do not implement a default, and you do not treat an earlier spec as having settled it.'
@@ -1194,15 +1202,16 @@ function autopilotDecision(call) {
   }
 }
 
-// autopilot on a finding a repository ask rule covers (#49): nothing is applied; the finding is
-// left to the person, with the rule as the reason.
+// autopilot on a finding a repository ask rule covers (#49), or one on Redline's own files (#94,
+// R8-4): nothing is applied; the finding is left to the person, with the rule as the reason.
 function leftDecision(forced, human) {
   return {
     choice: 'Left to the person',
-    notes: `Repository rule ${forced.rule}: ${forced.reason}. No change made; ${human ? 'the person' : personLabel} makes it.`,
+    notes: `${forced.own ? "Redline's own files" : `Repository rule ${forced.rule}`}: ${forced.reason}. No change made; ${human ? 'the person' : personLabel} makes it.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
     rule: forced.rule,
+    ...(forced.own ? { own: true } : {}),
   }
 }
 
@@ -1347,7 +1356,7 @@ function replyBody(pass, outcome) {
       // "declined: " back as the disposition, so a later run never raises the finding again.
       return `${pass.title}: declined: ${outcome.reason}${owner}`
     case 'left':
-      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under repository rule ${outcome.rule} (${outcome.reason}). ${outcome.notes}${owner}`
+      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under ${leftUnder(outcome)} (${outcome.reason}). ${outcome.notes}${owner}`
     case 'dropped':
       return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
     case 'none':
@@ -1810,6 +1819,9 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
     `- A decision whose decidedBy is \`${AUTOPILOT}\` carries the shaper's own recommendation as its choice: apply the option that recommendation names (it may paraphrase the label), with the notes as its reasoning.`,
     ...(askRules.length
       ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (repository rule <rule>)" and the shaper's recommendation as the full fix.`]
+      : []),
+    ...(Object.values(callDecisions).some((d) => d && d.own)
+      ? [`- A decision carrying \`own\` is on a finding on one of Redline's own files, which no Redline role may write, left to the person the same way (#94, R8-4): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (Redline's own files)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (the rule on Redline's own files)" and the shaper's recommendation as the full fix.`]
       : []),
   ]
   if (calls.length) {
@@ -2340,7 +2352,7 @@ function result(status, extra) {
     })),
     judgmentCalls: [],
     // The findings left to the person under a repository ask rule (#49), every round.
-    forced: rounds.flatMap((record) => Object.entries(record.forced || {}).map(([id, x]) => ({ id, round: record.round, rule: x.rule, reason: x.reason, outcome: record.outcomes && record.outcomes[id] ? record.outcomes[id] : '' }))),
+    forced: rounds.flatMap((record) => Object.entries(record.forced || {}).map(([id, x]) => ({ id, round: record.round, rule: x.rule, ...(x.own ? { own: true } : {}), reason: x.reason, outcome: record.outcomes && record.outcomes[id] ? record.outcomes[id] : '' }))),
     deferred: deferredAll,
     decided: decidedAll,
     openFindings: [],
@@ -2666,7 +2678,7 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const left = (forced || {})[f.id]
     if (left) {
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
-      outcomes[f.id] = { kind: 'left', rule: left.rule, reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
+      outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
       outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
@@ -2699,7 +2711,7 @@ function describeOutcome(outcome, human) {
     case 'declined':
       return `declined: ${outcome.reason}${owner}`
     case 'left':
-      return `left to ${human ? 'the author' : personLabel} under repository rule ${outcome.rule}: ${outcome.notes}${owner}`
+      return `left to ${human ? 'the author' : personLabel} under ${leftUnder(outcome)}: ${outcome.notes}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
     case 'none':
@@ -2872,7 +2884,9 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 // gave none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
 // A human pass's none, a comment that asks for nothing, is left as it is: there is no change to
 // leave to the person (#52, R1-4). Deterministic from args and the shaper's JSON, so a relaunch
-// replays it. The numeric limits of #25 force here too, when they come.
+// replays it. The numeric limits of #25 force here too, when they come. A finding on one of
+// Redline's own files, a Redline round's ask whose call gives `redline's own file`, is recorded the
+// same way, marked `own` (#94, R8-4).
 function forceAskRules(record, pass, inScope, shaped) {
   record.forced = record.forced || {}
   for (const f of inScope) {
@@ -2891,6 +2905,15 @@ function forceAskRules(record, pass, inScope, shaped) {
     if (!rule) {
       if (tagged) {
         warnings.push(`${pass.name}: the shaper tagged ${f.id} with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; ignored`)
+      }
+      // A finding on one of Redline's own files (#94, R8-4) is recorded as a rule-covered one is,
+      // so it is left to the person on every dial. The entry its call was decided on stands, as a
+      // rule's does (#94, R7-7); one a reshape no longer asks about this way is dropped while undecided.
+      const ownCall = !pass.human && s.disposition === 'ask' ? shaped.judgmentCalls.find((c) => c.id === f.id && c.why_human === OWN_FILE) : null
+      if (ownCall && !(decisions[f.id] && record.forced[f.id])) {
+        record.forced[f.id] = { rule: OWN_FILE, own: true, reason: OWN_FILE_REASON, recommendation: ownCall.recommendation }
+      } else if (!ownCall && !decisions[f.id] && record.forced[f.id] && record.forced[f.id].own) {
+        delete record.forced[f.id]
       }
       continue
     }
@@ -3116,7 +3139,7 @@ async function revise(record, inScope, reviewedKind) {
         // A finding a repository ask rule covers is left to the person, never applied (#49).
         const forced = record.forced[call.id]
         decisions[call.id] = forced ? leftDecision(forced, pass.human) : autopilotDecision(call)
-        log(`${pass.name}: autopilot ${forced ? `left ${call.id} to the person (repository rule ${forced.rule})` : `decided ${call.id} (${decisions[call.id].choice})`}`)
+        log(`${pass.name}: autopilot ${forced ? `left ${call.id} to the person (${leftUnder(forced)})` :`decided ${call.id} (${decisions[call.id].choice})`}`)
       }
       return false
     }
@@ -3146,10 +3169,13 @@ async function revise(record, inScope, reviewedKind) {
       const forced = record.forced[id]
       if (forced) {
         if (decision.disposition) {
-          warnings.push(`${pass.name}: ${id} is left to the person under repository rule ${forced.rule}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
+          warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
           delete decision.disposition
         }
         decision.rule = forced.rule
+        if (forced.own) {
+          decision.own = true
+        }
       }
       roundDecisions[id] = decision
     }
@@ -3362,7 +3388,8 @@ async function revise(record, inScope, reviewedKind) {
     const f = inScope.find((finding) => finding.id === item.id)
     deferredAll.push({ ...item, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[item.id] || 0 })
   }
-  // On autopilot a finding a repository ask rule covers is deferred with no mitigation (#49): the
+  // On autopilot a finding a repository ask rule covers, or one on Redline's own files (#94, R8-4),
+  // is deferred with no mitigation (#49): the
   // person makes the change, and the handoff's Deferred list and the skill's triage name it.
   for (const [id, forced] of Object.entries(record.forced)) {
     const decision = roundDecisions[id]
@@ -3370,7 +3397,7 @@ async function revise(record, inScope, reviewedKind) {
       continue
     }
     const f = inScope.find((finding) => finding.id === id)
-    deferredAll.push({ id, mitigation: `none (repository rule ${forced.rule})`, fullFix: forced.declined || forced.recommendation, ...(forced.declined ? { declined: true } : {}), rule: forced.rule, reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
+    deferredAll.push({ id, mitigation: `none (${leftUnder(forced)})`, fullFix: forced.declined || forced.recommendation, ...(forced.declined ? { declined: true } : {}), rule: forced.rule, ...(forced.own ? { own: true } : {}), reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
   }
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
@@ -3532,12 +3559,15 @@ function handoffComment(ending, prBody, threads) {
   }
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under repository rule ${d.rule}; ${d.declined ? '' : 'open: '}${d.fullFix}`
+      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under ${leftUnder(d)}; ${d.declined ? '' : 'open: '}${d.fullFix}`
       : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
   }
   const left = leftToYou()
   if (left.length) {
-    lines.push('', `### Left to ${personLabel} (repository rules)`, '', ...left)
+    // The heading names what the findings are left under: repository rules, Redline's own files
+    // (#94, R8-4), or both.
+    const under = unique(rounds.flatMap((record) => Object.values(record.forced || {}).map((x) => (x.own ? "Redline's own files" : 'repository rules'))))
+    lines.push('', `### Left to ${personLabel} (${under.join(' and ')})`, '', ...left)
   }
   if (notPicked.length) {
     lines.push('', `### Not picked by ${personLabel} (${notPicked.length})`, '', ...notPicked.map(line))
@@ -3568,15 +3598,16 @@ function handoffComment(ending, prBody, threads) {
   return lines.join('\n')
 }
 
-// The findings every round left to the person under a repository ask rule (#49), one line each
+// The findings every round left to the person under a repository ask rule (#49), or on Redline's
+// own files (#94, R8-4), one line each
 // with the rule, its reason and the outcome as recorded (which carries the owner).
 function leftToYou() {
   const lines = []
   for (const record of rounds) {
     for (const [id, forced] of Object.entries(record.forced || {})) {
       const f = record.findings.find((x) => x.id === id)
-      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to ${personLabel} under repository rule ${forced.rule}`
-      lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: rule ${forced.rule} (${forced.reason}); ${outcome}`)
+      const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to ${personLabel} under ${leftUnder(forced)}`
+      lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: ${forced.own ? "Redline's own files" : `rule ${forced.rule}`} (${forced.reason}); ${outcome}`)
     }
   }
   return lines
@@ -3721,7 +3752,7 @@ function threadCandidates() {
       }
       const kind = kinds[f.id] || ''
       const settled = SETTLED_KINDS.includes(kind) && replyIds[f.id] > 0
-      const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[f.id] || {}).rule}` : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
+      const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? leftUnder((record.forced || {})[f.id] || {}) : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
     // The earlier rounds' threads this round answered (#35): a carried finding's thread is settled
@@ -3743,7 +3774,7 @@ function threadCandidates() {
       // The scope declined the carried finding, so its earlier thread gets no reply and stays
       // open, and a later run without the scope sees it fresh (#94, R1-19).
       const scopeDeclined = (record.scoped || []).some((s) => s.id === newId)
-      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? `repository rule ${((record.forced || {})[newId] || {}).rule}` : kind === 'not-changed' ? 'not changed' : scopeDeclined ? 'declined under the scope' : !kind ? 'not settled' : 'no reply posted'
+      const reason = settled ? '' : carrier.knownAs ? 'already tracked' : dropped.has(newId) ? `dropped by ${personLabel}` : kind === 'left' ? leftUnder((record.forced || {})[newId] || {}) : kind === 'not-changed' ? 'not changed' : scopeDeclined ? 'declined under the scope' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: priorId, round: prior.round, commentId: prior.comment_id, extraIds: prior.reply ? [prior.reply.id] : [], replyId: replyIds[priorId] || 0, settled, reason })
     }
     for (const r of record.resolvedPrior || []) {

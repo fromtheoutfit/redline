@@ -2324,6 +2324,16 @@ function samePrefix(name, first, second, n) {
     check(`ask: "${reason}" is a reason the person is asked for, and the run stops for them`, run.res.status === 'handoff' && run.res.handoffKind === 'decisions' && run.res.judgmentCalls[0].why_human === reason, [run.res.status, run.res.error])
   }
 
+  // A finding on one of Redline's own files is the person's on every dial, as a rule-covered one is
+  // (#94, R8-4): on autopilot it is left to them and never decided, its reply opens "left to", it is
+  // listed under Deferred with no mitigation and under Left to, and the resolve agent is told no task
+  // writes anything for it.
+  const ownFile = await go('ask: redline\'s own file, on autopilot', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness', { file: '.claude/redline.json', line: 3 })], []], ask: ['R1-2'], whyHuman: { 'R1-2': 'redline\'s own file' }, commitIds: [['R1-1']] })
+  const ownHandoff = comment(ownFile.calls, 'handoff comment') || ''
+  const ownReply = replyFor(ownFile.calls, 'push and reply r1', 'R1-2') || ''
+  check('ask: on autopilot a finding on Redline\'s own files is left to the person, never decided: its reply opens "left to", and it is listed under Deferred with no mitigation and under Left to', ownFile.res.status === 'done' && ownReply.startsWith('Redline round 1: left to @author under the rule on Redline\'s own files (no Redline role may write them).') && ownReply.endsWith(' · decided by: redline (autopilot)') && ownHandoff.includes('- **R1-2** title R1-2: left to @author under the rule on Redline\'s own files; open: Keep it') && ownHandoff.includes('### Left to @author (Redline\'s own files)') && !ownHandoff.includes('Autopilot took the shaper\'s recommendation: Keep it'), [ownFile.res.status, ownReply, ownHandoff])
+  check('ask: the result names a finding on Redline\'s own files as left to the person, and the resolve agent is told no task writes anything for it', JSON.stringify((ownFile.res.forced || []).map((x) => [x.id, x.own === true])) === '[["R1-2",true]]' && ((ownFile.res.deferred || []).find((d) => d.id === 'R1-2') || {}).mitigation === 'none (the rule on Redline\'s own files)' && (pick(ownFile.calls, 'resolve r1') || { prompt: '' }).prompt.includes('A decision carrying `own` is on a finding on one of Redline\'s own files'), [ownFile.res.forced, ownFile.res.deferred])
+
   // A human review pass is unchanged: it keeps its own reasons and its own wording, and it gains
   // no decline.
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
