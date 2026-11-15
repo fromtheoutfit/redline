@@ -50,6 +50,54 @@ Made while planning, small enough not to ask, shown to the author in the plan an
 10. stderr counts toward what the tool shows, so the progress lines name the check and drop its command, and the two failure lines give counts.
 11. The test of the rescue is permanent: a template copy with the rescue line removed must lose the id.
 
+Deviations from the shaped plan, found while building:
+
+12. **`agents/redline-implementer.md` follows the keys too.** The plan named the checker's agent file. The implementer's rule for running the gate said that whatever the formatter changed "appears in `git.changed_files`", a key stdout no longer carries; it now says `git.uncommitted`, which holds the same files until they are committed and is printed whole. Found by the search the bash-conventions standard asks for when a script's output changes, in slice A.
+13. **The budget's figures.** A failing check's envelope is 350 bytes, not 344: a cut command carries the three bytes of `...`, doubled at worst. The worst case is therefore at most 22,960 bytes, not 22,888. The passing figure, 9,240, stands. Measured: 8,671 and 16,028.
+14. **The kept file also holds `printed`,** the object stdout carried, beside `result`. `--verdict` is that object without the checks' output, so it never recomputes a cut or a count and cannot disagree with what the run printed.
+15. **`--verdict` refuses a result for another snapshot,** as it does one for another mode, and names what the kept result is for. The plan named the mode only.
+16. **A run that cannot write the temp directory still prints its result,** with `kept` empty and one line on stderr. Keeping the result must never cost the gate its answer.
+17. **The lists reach `jq` through files.** The git block's arrays were passed with `--argjson`, which the bash-conventions standard already rules out for a value that grows with the pull request; they now go through `--slurpfile`.
+18. **The temp directory is read with an unquoted assignment** in the template. `redline-setup.sh read-checks` takes a line of the shape `name="${ENV:-default}"` above the check block for one of the repository's own variables, and the round-trip case would have read `kept_dir` back into `checks.json`. A comment beside the line says so.
+19. **The workflow hands the label back in one place.** The plan had the two `stageError('check', ...)` sites pass the check's own label. `checker()` sets `lastLabel` to the check's label after the verdict call instead, which covers both sites and any added later.
+20. **A verdict the tool could not show either has its own message** (`checks.sh --verdict could not be read either (<reason>)`), beside the exit 2 one, and the stop record carries what the verdict call said under `verdictError`.
+21. **The loop test's checker mock lists commits from `round_sha`,** as a v3 `checks.sh` does, with `scenario.oldChecks` for one from before it. Two resume scenarios then needed an empty commit list for their recheck: the mock hands out one list per checker call, so round 2's commit had been appearing during round 1's recheck, which only passed while every round listed every commit.
+22. **Three existing spilled cases script the verdict as absent** (`checks.sh: unknown flag --verdict`, exit 2, as from a `checks.sh` made before template v3), which is the path that stops as before. One of them gained a check that a result arriving beside a spilled status is never read.
+
+## Standards retrospective
+
+Done mechanically, against every decision above, every deviation, and every check that went red and was fixed by learning something about the tooling. Ten edits, approved by the author on 2026-11-15 ("apply all ten") and applied in their own commit, `81ca5d3`.
+
+Already in a standard, so no edit:
+
+- A JSON value that grows with the pull request reaches `jq` through `--slurpfile` (`scripts/bash-conventions.md`): deviation 17 brought the template into line with it.
+- A check fails, it does not throw (`testing/tests.md`): the first red run of the new loop cases threw a `TypeError` and hid its count; the cases were rewritten to read an absent prompt as `''`.
+- A stage error is pinned by its `resumeFrom` label (`testing/tests.md`): the stop after an absent verdict is pinned at `check r1`.
+- A path compared with `git rev-parse --show-toplevel` is made physical first (`scripts/bash-conventions.md`): the root key.
+- A change to what a subcommand prints rewords every description of it in the same commit (`scripts/bash-conventions.md`): deviation 12.
+- A bug fix lands red before green (`testing/tests.md`): slices A and B.
+
+Contradicted, and corrected:
+
+1. `workflow/agents.md`, the checker bullet. It said: "A reason about where the output went (`spilled`, `backgrounded`, `no_result`) stops as before: the JSON cannot refute it (#55)." A spilled result no longer stops by itself. It now says the reason is never overridden from the JSON, that `backgrounded` and `no_result` stop, and that `spilled` is asked for again from the script as `checks.sh --verdict`, since the kept verdict is the script's word where a relayed exit code is not.
+
+Extended:
+
+2. `scripts/bash-conventions.md`, "`checks.sh`'s whole JSON stays bounded however many checks fail": bounded whatever the pull request's size and the run's length as well, with what stdout carries, that stderr counts, where the budget is written and run, and the kept result.
+3. `testing/tests.md`, the checker scenarios: a spilled result with its verdict passing, failing and absent; the mock's one commit list per checker call, listed from `round_sha`.
+4. `workflow/replay.md`, the resume bullet: a call made because of a resumed step's answer carries the attempt; what a prompt before a resume point is built from changes only when a step completes, which is why `round_sha` is the same on a resumed attempt.
+5. `workflow/agents.md`, the `stageError` bullet: a call made on a step's behalf hands the label back.
+
+Missing, and added:
+
+6. `scripts/bash-conventions.md`: a cut of text the workflow matches on falls at a word boundary and puts back the tokens cut off.
+7. `scripts/bash-conventions.md`: a result kept outside the tree is filed by physical root and commit, one a root, and its reader exits 2 rather than read another commit's.
+8. `scripts/bash-conventions.md`: a line added to the template above the check block is read by `read-checks`.
+9. `testing/tests.md`: a behaviour one template line carries is pinned twice, by the case and by the same case with the line removed.
+10. `testing/tests.md`: a size budget is pinned by a synthetic run at the stated scale, both streams counted, and by a run at twice the scale that must be the same size.
+
+No pattern was used that is not in `agent-os/standards/`: the kept file follows `scripts/redline-background.sh`'s files under the temp directory, and the mutation case follows the existing "template missing an anchor" case.
+
 ## Reported, not built: why rounds 4 and 5 of PR #94 placed no finding inline
 
 Asked for with the brief, as a report only. It is a limit of Redline's, not GitHub refusing the diff.

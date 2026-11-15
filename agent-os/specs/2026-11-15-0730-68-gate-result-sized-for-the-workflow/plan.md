@@ -189,3 +189,51 @@ Docs in the same slice: `docs/contract.md` (the Exit codes paragraph on `spilled
 - Not verified: that GitHub accepts a review comment on those lines. Redline never sent one, and proving it takes one post, which I did not make. That GitHub serves the hunks makes it likely.
 - Known and untracked: `README.md:105` lists it under Known limits ("A file whose patch GitHub omits anchors nothing"), written for lockfiles and built assets; no open issue covers it. PRs 80 to 92 had no such file, so #94 is the first where the omitted file is the one under review.
 - A fix would read a patchless file's hunks from the whole-PR diff when GitHub serves it, or from the local `git diff` of the merge base. That is a follow-up issue for the author to open.
+
+## As built
+
+Built 2026-11-15, one slice per commit, each commit made by the author.
+
+**The gate.** `.claude/redline/checks.sh --baseline` exits 0 at `81ca5d3` with all nine checks green: guard 596 passed, 0 mismatched; loop 938 checks passed, 0 failed (899 before this spec); prefs 121; gate 117; setup 506 (474 before); gh 136; background 39. `claude plugin validate .` passes with the known icon warning. `scripts/redline-gate.sh check .` reports a match, since the gate's backticked text did not move, and `scripts/redline-setup.sh version .` reports `checks.sh` at template v3. That baseline run is itself the first real reading of the new shape: 603 bytes of stdout and 471 of stderr, 1,074 together, where the same nine passing checks were 14.3 KB.
+
+**The slices, red then green.**
+
+| Commit | Slice | Harness, red then green |
+| --- | --- | --- |
+| `dee9bbb` | Task 1, the spec folder | none (documents) |
+| `24e0569` | Task 2, slice A: the template, the generator's header, this repository's `checks.sh`, their docs | `tests/setup-test.sh`: 474 passed, 32 failed; then 506 passed, 0 failed |
+| `83597db` | Task 3, slice B: the workflow, the checker's agent file, their docs | `node tests/loop-test.mjs`: 910 passed, 22 failed; then 938 passed, 0 failed |
+| `0736fa7` | Task 4, slice C: the guard cases | `tests/guard-test.sh`: 596 passed, 0 mismatched. No red run: the two rows pin decisions of the guard as it stands, and the guard did not change |
+| `81ca5d3` | Task 5, the standards retrospective | none reads the standards |
+
+**Measured.** The two budget cases in `tests/setup-test.sh` print what they measure: 8,671 bytes for the passing result (300 files, 100 commits since the start, 40 in the round, twelve checks), 8,671 again at 600 files and 200 commits, and 16,028 with all twelve checks failing. Against PR #94's own round 5 snapshot, `checks.sh --git-only` prints 4.6 KB where the v2 script printed 14.7 KB; that snapshot was written before `round_sha` existed, so all 26 commits are listed.
+
+**Deviations from the plan above.** Each is recorded under Decisions in `shape.md`, with its reason: the implementer's agent file follows a key that is no longer printed; the budget's two figures moved by a few bytes; the kept file also holds the printed object; `--verdict` refuses another snapshot as well as another mode; a run that cannot write the temp directory still prints; the workflow hands the label back in one place instead of two; a verdict that cannot be read either is its own message; and the loop test's mock lists commits from `round_sha`.
+
+### Docs (gate step 10)
+
+| File | Section | Commit |
+| --- | --- | --- |
+| `scripts/checks-template.sh` | `docs/scripts.md`, "checks-template.sh" (its header, verbatim); `docs/contract.md`, "Usage", "Output contract" (the result, the budget, the kept result, `--verdict`), "Exit code", "Template version", "Snapshot file"; `docs/upgrading.md`, "The checks template, v3 (#68)" | `24e0569` |
+| `scripts/redline-setup.sh` | no reader-facing change of its own: its header comment did not move, and the text it writes into a generated `checks.sh` (the usage line, the snapshot line, the two sentences on the result's size) is what `docs/contract.md` describes | `24e0569` |
+| `.claude/redline/checks.sh` | regenerated from `checks.json` and restamped by the scripts; `docs/contract.md`, "Output contract" | `24e0569` |
+| `agents/redline-implementer.md` | `docs/contract.md`, "Output contract" (the formatter's files appear under `git.uncommitted`; `changed_files` is no longer printed) | `24e0569` |
+| `workflows/redline-loop.js` | `docs/contract.md`, "Exit code" (the verdict call, the warning, the stop and its resume label) and "Snapshot file" (`round_sha`); `docs/running.md`, "Rounds", step 5 | `83597db`, `24e0569` |
+| `agents/redline-checker.md` | `docs/contract.md`, "Exit code"; `docs/running.md`, "Rounds", step 5 | `83597db` |
+
+New flag `--verdict`, new snapshot key `round_sha`, new exit 2 cases (a `round_sha` that is no commit, a `--verdict` with nothing kept for this commit, mode and snapshot): `docs/contract.md`, `24e0569`. No new config key, subcommand or allow rule: the guard already let the checker run the repository's `checks.sh` with any flag, which `0736fa7` pins.
+
+### Version (gate step 11)
+
+0.3.0 in `.claude-plugin/plugin.json` and in the marketplace entry, unchanged on purpose: this is the same pull request as #93, which already made the minor bump over main's 0.2.4 that a template change calls for. The template marker moved, `# redline-template: checks-template.sh v3` (`24e0569`), so a launch on a repository still at v2 warns and names the rerun.
+
+### Standards retrospective (gate step 12)
+
+Ten edits, approved by the author and applied in their own commit, `81ca5d3`. The list is under "Standards retrospective" in `shape.md`.
+
+### Left to the author
+
+- The next Redline round on PR #94, which is the real proof: its checker runs the v3 script against a snapshot that carries `round_sha`.
+- A `/redline:setup` rerun in Losers League and Chalkboard to carry template v3.
+- The follow-up issue on inline placement for a file whose patch the files listing omits ("Separately", above).
+- The tag and the `CHANGELOG.md` entry after the merge; a line under Setup and templates says a rerun regenerates `checks.sh`.
