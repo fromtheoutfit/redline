@@ -1567,6 +1567,14 @@ function coverageMessage(cause) {
   }
 }
 
+// The highest finding number of the round's form in use (#94, R4-6, R8-3). review() renames every
+// id outside the form before reconcilePrior and accountCoverage run, and every path that gives an
+// id numbers after this one, so no two findings of a round share an id.
+function lastFindingNumber(round, findings) {
+  const idForm = new RegExp(`^R${round}-\\d+$`)
+  return Math.max(0, ...findings.filter((f) => idForm.test(String(f.id))).map((f) => Number(String(f.id).split('-')[1]) || 0))
+}
+
 // The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior; #93): every
 // candidate has exactly one entry. One the reviewer left out, or placed with an outcome the schema
 // does not name, or accounted for with a ref that names no finding of this round (#80, R1-4),
@@ -1667,7 +1675,7 @@ function accountCoverage(round, out, candidates) {
     seen.delete(e.index)
     told.add(e.index)
   }
-  let next = Math.max(0, ...out.findings.map((x) => Number(String(x.id).split('-')[1]) || 0))
+  let next = lastFindingNumber(round, out.findings)
   candidates.forEach((c, i) => {
     const index = i + 1
     if (seen.has(index)) {
@@ -2424,10 +2432,10 @@ async function review(round, reviewed, range, facts, source) {
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
   // Each rename is recorded, old id to new, so the coverage refs naming it follow (#80, R2-3); the
   // first finding with an old id keeps it. A renamed id is numbered after the highest id of the
-  // round's form in use, as reconcilePrior and accountCoverage number theirs, so it never takes an
-  // id another finding already has (#94, R4-6).
+  // round's form in use, by lastFindingNumber, as reconcilePrior and accountCoverage number theirs,
+  // so it never takes an id another finding already has (#94, R4-6).
   const idForm = new RegExp(`^R${round}-\\d+$`)
-  let nextId = Math.max(0, ...out.findings.filter((f) => idForm.test(f.id)).map((f) => Number(f.id.split('-')[1]) || 0))
+  let nextId = lastFindingNumber(round, out.findings)
   const renamed = new Map()
   // An id of the round's form another finding already has is renamed the same way, with a warning,
   // so no two findings share an id; a ref naming it stays with the first finding, which keeps it,
@@ -2581,7 +2589,7 @@ function reconcilePrior(round, out) {
     }
     resolved.push({ id, why: (r.why || '').trim() })
   }
-  let next = Math.max(0, ...out.findings.map((x) => Number(x.id.split('-')[1]) || 0))
+  let next = lastFindingNumber(round, out.findings)
   for (const p of carryList) {
     if (carried[p.id] || resolved.some((x) => x.id === p.id)) {
       continue
