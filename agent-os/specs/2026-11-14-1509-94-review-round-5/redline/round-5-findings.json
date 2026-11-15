@@ -1,0 +1,341 @@
+{
+  "round": 5,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "4227e11c4bae2fcae49370c0c1f751420658dd92",
+    "to": "583ac3bf4c89bc7596c8fecd136e2a9591f45202"
+  },
+  "summary": "The round 4 fixes close what they set out to: R4-4 and R4-5 give the resolve agent and the plan approver rules of their own, R4-6 numbers a renamed id after the highest one in use, R4-8 hands back an override the resolve agent could not apply, and R4-12 gates the human pass's final nit pass on a committed fix, each with a loop check. The findings sit at the edges of those fixes and of the shaper and coverage checks around them: the R4-9 filter still lists a deferral the person changed to a fix, relaunch.how was not updated for R4-8's restatement, a coverage ref with a note after a renamed id still mints a duplicate (R2-5's remainder), and repeated valid ids are never renumbered. The repository has no scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R5-1",
+      "file": "workflows/redline-loop.js",
+      "line": 256,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "AGENTS_CHANGED_HANDOFF rebuilds the backticked agent list AGENTS_CHANGED already builds",
+      "description": "AGENTS_CHANGED (line 252) and AGENTS_CHANGED_HANDOFF (line 257) each build the same list, `drift.agents.map((p) => `\\`${p}\\``).join(', ')`, inline. The two sentences must name the same files, and a change to the list format in one is easy to miss in the other. AGENTS_CHANGED is #81 code from main; the handoff copy is this pull request's.",
+      "proposedFix": "Build the list once (`const agentList = drift.agents.map((p) => `\\`${p}\\``).join(', ')`) and interpolate it in both sentences.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-2",
+      "file": "workflows/redline-loop.js",
+      "line": 1559,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A bad-outcome coverage entry is not recorded as seen, so a later entry for the same index replaces it and the warning is false",
+      "description": "In accountCoverage, an entry whose outcome is not in COVERAGE_OUTCOMES (lines 1557-1560), or a verified/unconfirmed one whose ref names no finding (1572-1575), warns 'kept as an unconfirmed finding as reported' and adds the index to `told`, but never sets `seen`. A second entry for the same index then passes the `seen.has(index)` check at 1553 and is accepted, against the 'the first entry stands' rule that check enforces, and the mint loop at 1591-1608 skips the index because it is now seen. Traced with coverage `[{index:1, outcome:'nope'}, {index:1, outcome:'refuted', ref:'...'}]`: the warning says candidate 1 was kept as an unconfirmed finding, but no finding is minted and the candidate is counted refuted and set aside. Needs the reviewer to return two entries for one index, the first malformed. The candidate is not dropped (it is set aside with the second entry's ref), but the run's warning describes something that did not happen.",
+      "proposedFix": "Record the index in `seen` as the minted placeholder when the first entry is bad (or mark it in a separate set that the duplicate check at 1553 also reads), so a later entry is ignored with the 'twice' warning and the candidate is minted as the warning says.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1567,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A coverage ref with a note after an id the rename changed still mints a duplicate correctness finding",
+      "description": "R2-5 was fixed, but still reproduces here for an id the review renamed. The rename of coverage refs in review() matches the whole ref only (`renamed.has(ref)`, line 2382), and the leading-id read added for R2-5 in accountCoverage (line 1567) accepts only an `R\\d+-\\d+` id. Traced: the reviewer returns finding id 'X1' (renamed R1-1 at 2327-2334) and coverage `{index:1, outcome:'verified', ref:'X1 (the lock)'}`. `renamed.has('X1 (the lock)')` is false, the regex does not match 'X1', so `id` is the whole ref, `byId` has no such finding, and lines 1572-1575 warn and leave the index for the mint loop, which adds R1-2 as a correctness, unconfirmed finding (1596-1606) beside R1-1 for the same candidate. The same holds for a wrong-round id such as 'R0-1' with ref 'R0-1: the lock' (the regex reads 'R0-1', which is not in byId). Needs two reviewer slips at once: an id outside the round's form and a note after it in the ref. The minted finding is correctness, so it is posted and shaped, and can buy a round.",
+      "proposedFix": "Normalise a ref in one place: take its leading token (any id shape, up to the first space or punctuation), map it through `renamed`, then look it up in `byId`; apply that in accountCoverage and drop the whole-string lookup at 2382. A loop check: reviewer returns `f('X1', 'correctness')` and coverage `[{index:1, outcome:'verified', ref:'X1 (the lock)'}, ...]`, expect one finding R1-1 and accounting `1:verified:R1-1`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-4",
+      "file": "workflows/redline-loop.js",
+      "line": 2260,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "relaunch.how still says a decisions hand-off relaunches with every decision unchanged, which R4-8's restatement contradicts",
+      "description": "The R4-8 fix hands back an override the resolve agent could not apply as `overridesUnresolved` and adds its id to `decisionsNeeded` (lines 3725-3726); the skill (skills/redline/SKILL.md, 'An override the run could not apply') records the person's restatement under that id, which changes an existing decision and may carry `disposition: accept`. The relaunch note at line 2260 still says: 'handoff (decisions): decisions (... every decision so far, unchanged, plus \"disposition\": \"fix|defer\" on a decline overruled at that stop)'. A session following that note keeps the refused override unchanged, the resolve prompt is the same, the same refusal replays and the stop returns with nothing new.",
+      "proposedFix": "Extend the decisions clause of relaunch.how: '... plus \"disposition\": \"fix|defer\" on a decline overruled at that stop, and for each id in overridesUnresolved the restated decision ({\"choice\", \"notes\", \"date\", \"disposition\": \"fix|defer|accept\"}) in place of the one that was refused'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-5",
+      "file": "workflows/redline-loop.js",
+      "line": 2327,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Two findings returned with the same valid id pass through unchanged and collide in the comment, outcome and reply maps",
+      "description": "The rename in review() (2323-2335) renumbers only ids outside the round's form; it does not check for an id of the round's form that another finding already has. Two findings returned as R1-1 (say app/x.php and app/y.php) both pass. Every later map is keyed by id: `commentIds[comment.finding] = comment.id` keeps one thread, `outcomesFor` and `record.outcomes` hold one outcome, and both replies target the same comment, so one thread is never answered or swept, and a later prior-findings maps both body lines to the same root. No warning is raised. Needs the reviewer to repeat an id. The cause predates this pull request: main's rename (origin/main workflows/redline-loop.js:2176-2182) had the same gap; R4-6's fix changed the numbering of renamed ids only.",
+      "proposedFix": "In the same pass, keep a set of ids taken; a finding whose id of the round's form is already taken is renamed to the next free number with a warning, exactly as a non-form id is. Loop check: reviews `[f('R1-1'), f('R1-1')]` give ids R1-1, R1-2 and a warning.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-6",
+      "file": "workflows/redline-loop.js",
+      "line": 2611,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A reasonless decline on a rule-covered finding stops the run before forceAskRules would have made it an ask",
+      "description": "revise() runs checkDispositions (line 2902) before forceAskRules (2905). checkDispositions throws at 2611-2614 for any decline with no reason. Under a paths rule, a shaper decline of R1-1 on config/a.yaml with no `reason` ends the run at shape with 'the shaper declined R1-1 with no reason', although forceAskRules would turn it into an ask (2755-2765), which needs no reason. The same ordering class R1-13 fixed for checkWhy; this is a different check. Needs the shaper to break two rules at once: decline a rule-covered finding (rulesBlock says never declined) and give no reason.",
+      "proposedFix": "Skip rule-covered findings in the noReason check (or move that check after forceAskRules, as checkWhy was).",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-7",
+      "file": "workflows/redline-loop.js",
+      "line": 2618,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A Redline-round decline marked decidedBy reviewer is rewritten before the human-values check, so it only warns while a fix with the same value stops the run",
+      "description": "In checkDispositions, the decline loop (2615-2620) sets `decidedBy` to 'redline' with a warning before the `bad` filter (2621-2623) looks for `decidedBy === 'reviewer'` in a Redline round. A decline with decidedBy 'reviewer' therefore never reaches the stage error 'sorted ... with a human review pass's values', while a fix with decidedBy 'reviewer' in the same JSON does. The outcome is harmless (a decline is Redline's own), but the two values are judged differently.",
+      "proposedFix": "Run the `bad` check before the decline loop, or state in the comment that a decline's owner is always rewritten and exclude declines from `bad` on purpose.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-8",
+      "file": "workflows/redline-loop.js",
+      "line": 2778,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A rule-forced decline posts 'open: Accept, no change: <reason>' in the handoff's Deferred list",
+      "description": "For a finding the shaper declined and a repository rule forces into an ask, forceAskRules sets the call's recommendation to `Accept, no change: ${declineReason}.` (2778) and stores it as `forced.recommendation` (2785). On autopilot that value becomes the deferred entry's `fullFix` (3163), which the handoff prints as 'left to @author under repository rule cfg; open: Accept, no change: <reason>.' (3324), under a label that reads as the change left open. The skill's done walk calls `fullFix` 'what Redline would have done' (skills/redline/SKILL.md:242), which for a decline is accurate, so the misleading text is the handoff line only. The declineReason branch is this pull request's; main had only 'By hand: ...'.",
+      "proposedFix": "For a forced decline, print the handoff line without 'open:' (e.g. 'Redline would have declined it: <reason>'), or give the entry a fullFix that names the change itself rather than the recommendation.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-9",
+      "file": "workflows/redline-loop.js",
+      "line": 3151,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A shaper deferral the person changes to fix or accept is still listed under Deferred as shipped, and blocks the resolve agent's newer entry",
+      "description": "R4-9 was fixed, but a plan-dial override still reproduces it. The new filter at 3151 admits every outcome of kind 'decided'. Traced: the shaper defers R1-1 with {mitigation:'a guard clause', fullFix:'a lock'}; checkDispositions keeps it (its disposition is defer), and `deferred` starts as `shaped.deferred.slice()` (2947). On the plan dial the person records {disposition:'fix'} (or 'accept'), so overridesFor (2944) sends it to resolve and roundDecisions holds it; outcomesFor returns kind 'decided' (2558-2559), the filter passes it, and deferredAll gets the shaper's entry, which the handoff prints as 'R1-1: shipped a guard clause; open: a lock' (3325) while the same handoff lists R1-1 as overruled and applied. The stale entry also reaches the implementer through ctx.deferred (3090) and the plan approver (3004). With {disposition:'defer'} and the person's own mitigation, line 2981 skips the resolve agent's entry because an entry for R1-1 already exists, so the shaper's mitigation is the one planned and posted. The skill's done walk then offers this deferral to the person. Main had no filter at all here (origin/main workflows/redline-loop.js:2923), so the override case predates this pull request, but the R4-9 filter's comment (3148-3150) says a fix beside a leftover entry is never called shipped, and it is.",
+      "proposedFix": "When an override changes a finding's disposition away from defer, drop its entry from `deferred` (in resolveWith, beside roundDecisions[id] = decision), and let the resolve agent's entry replace an existing one for the same id at 2981 rather than be skipped. Loop check: shaper defers R1-1, plan dial decisions {'R1-1': {disposition:'fix'}}, expect res.deferred empty and no '### Deferred' in the handoff.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-10",
+      "file": "workflows/redline-loop.js",
+      "line": 3231,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "handoffComment's `ran` clause is used in three branches while four still spell it out",
+      "description": "`ran` (3231) is `Redline ran ${reviews} review round(s)`, used at 3243, 3245 and 3247. The four final-nit-pass branches (3234, 3235, 3237, 3239, 3241) each write `Redline ran ${reviews} review rounds.` by hand, so the opening clause's wording lives in several copies in one function.",
+      "proposedFix": "Use `${ran}.` in the four final-nit-pass branches.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "583ac3bf4c89bc7596c8fecd136e2a9591f45202",
+    "candidates": 12,
+    "counts": {
+      "verified": 10,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 2,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R5-9"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R5-3"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R5-5"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R5-8"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R5-6"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R5-2"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R5-7"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R5-4"
+      },
+      {
+        "index": 9,
+        "outcome": "duplicate",
+        "ref": "R5-9: the same cause, a deferred list that is never rebuilt from each item's final disposition; the altitude fix it names is one way to fix R5-9"
+      },
+      {
+        "index": 10,
+        "outcome": "duplicate",
+        "ref": "R5-3: the same cause, coverage refs normalised in two places that disagree; the one helper it names is R5-3's proposed fix"
+      },
+      {
+        "index": 11,
+        "outcome": "verified",
+        "ref": "R5-10"
+      },
+      {
+        "index": 12,
+        "outcome": "verified",
+        "ref": "R5-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3151,
+        "summary": "The R4-9 filter lets every `decided` outcome through, so the shaper's deferred entry stays under Deferred after the person changes that finding to fix or accept. A stale entry also blocks the resolve agent's newer one (line 2981 skips any id already listed, and line 3040 keeps every entry a decision stands on).",
+        "failure_scenario": "Reproduced. The shaper defers R1-1 (mitigation 'a guard clause'). On the plan dial the person records {disposition:'fix'} and the fix is committed. `res.deferred` and the handoff still say `R1-1: shipped a guard clause; open: a lock`, while the same handoff lists it under Overruled as 'Applied in 1bbbbbb'. The same happens with {disposition:'accept'}, where nothing shipped. With {disposition:'defer'} and the person's own mitigation, the resolve agent's entry ('a feature flag...') is dropped and the shaper's 'a guard clause' is posted. The skill's `done` walk then offers this fake deferral to the person (open an issue, or decline it in a code comment)."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 2382,
+        "summary": "The coverage ref rename only matches the whole ref, but R2-5's leading-id read happens later in accountCoverage. A ref with a note after an id the reviewer got wrong is never renamed, and it mints a duplicate correctness finding.",
+        "failure_scenario": "Reproduced. The reviewer returns finding id 'X1' (renamed R1-1) and coverage entry {index:1, outcome:'verified', ref:'X1 (the lock)'}. `renamed.has('X1 (the lock)')` is false, and the leading-id regex needs `R\\d+-\\d+`, so the candidate is 'not a finding of this round'. It is minted as R1-2, correctness and unconfirmed, posted inline, and shaped beside R1-1. Same result for a wrong-round id: 'R0-1' with ref 'R0-1: the lock'."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 2327,
+        "summary": "R4-6 renumbers only ids outside the round's form. Two findings returned with the same valid id (e.g. two 'R1-1') pass through unchanged, and commentIds, outcomes and replies are all keyed by id, so they collide.",
+        "failure_scenario": "Reproduced. The reviewer returns R1-1 on app/x.php and R1-1 on app/y.php. Both are posted, commentIds keeps one thread, and both replies target comment 100. The GitHub agent's one-reply-per-thread rule skips the second, so the other thread is never answered and never swept. A later prior-findings maps both body lines to the same root comment. There is no warning."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 2778,
+        "summary": "For a decline that an ask rule forces into an ask, the call's recommendation becomes 'Accept, no change: <reason>', and forced.recommendation is then posted as the full fix left open.",
+        "failure_scenario": "Reproduced. With a `config/**` paths rule, autopilot, and the shaper declining R1-1 on config/a.yaml, the handoff's Deferred section reads 'left to @author under repository rule cfg; open: Accept, no change: the spec keeps R1-1 as it is on purpose.' The skill's done walk presents that as 'what Redline would have done', which says the opposite of a fix left open."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2611,
+        "summary": "checkDispositions refuses a decline with no reason before forceAskRules runs. A rule-covered finding the workflow would turn into an ask anyway stops the run at shape (the same ordering class R1-13 fixed for checkWhy).",
+        "failure_scenario": "Reproduced. Under a paths rule, the shaper returns a decline with no `reason` for R1-1 on config/a.yaml. The run ends with 'the shaper declined R1-1 with no reason', although line 2905 would have made it an ask, which needs no reason."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 1559,
+        "summary": "A coverage entry with an unknown outcome, or a ref that names no finding, warns 'kept as an unconfirmed finding as reported' but never records the index in `seen`. A second entry for the same index is then accepted, against the 'first entry stands' rule, and the warning describes something that did not happen.",
+        "failure_scenario": "Reproduced. Coverage is [{index:1, outcome:'nope'}, {index:1, outcome:'refuted', ref:'...'}]. The warning says candidate 1 was kept as an unconfirmed finding, but no finding is minted and the candidate is counted refuted and set aside."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 2618,
+        "summary": "The decline loop changes `decidedBy` to 'redline' before the `bad` check, so a Redline-round decline with decidedBy 'reviewer' (a human pass's value) only gets a warning, while a fix with the same value stops the run.",
+        "failure_scenario": "The shaper returns {disposition:'decline', decidedBy:'reviewer'} in a Redline round. The `bad` filter (line 2623) no longer sees 'reviewer', so the stage error 'sorted ... with a human review pass's values' never fires for it. A fix with decidedBy 'reviewer' in the same JSON stops the run."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 2260,
+        "summary": "`relaunch.how` still says a decisions hand-off relaunches with every decision 'unchanged' plus fix|defer on an overruled decline. The R4-8 restatement of an `overridesUnresolved` line has to change an existing decision and may use `accept`.",
+        "failure_scenario": "A session following relaunch.how at a stop with `overridesUnresolved` keeps the refused override 'unchanged'. The first resolve's prompt is then byte-identical, it replays the same refusal, and the stop comes back with nothing new to ask."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 3040,
+        "summary": "Altitude: the Deferred list is patched in three places (the stray drop in checkDispositions, `stillDeferred` on a reshape, and the outcome-kind filter at line 3151). It is never built from each item's final disposition, which is why the override case above still slips through.",
+        "failure_scenario": "Each new way of setting a disposition (plan-dial override, typed overrule, restatement, reshape) needs another special case. The simpler fix is to build the list after `outcomesFor` from items whose effective final disposition is `defer`, or a decided call the resolve agent mitigated, taking the newest mitigation (the resolve agent's over the shaper's)."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 1567,
+        "summary": "Altitude: coverage refs are normalised in two places, a whole-string rename lookup in review() and the leading-id parse in accountCoverage, and the two disagree.",
+        "failure_scenario": "Parsing the leading id once, then applying `renamed`, then looking up `byId` in one helper would close the duplicate-mint path above. Today each new ref shape needs a fix in both places."
+      },
+      {
+        "index": 11,
+        "file": "workflows/redline-loop.js",
+        "line": 3231,
+        "summary": "Simplification: `ran` is introduced for the opening sentence, but the four final-nit-pass branches still spell out 'Redline ran ${reviews} review rounds.' themselves.",
+        "failure_scenario": "The wording of the shared opening clause lives in five places in one function, so changing it means editing four copies by hand."
+      },
+      {
+        "index": 12,
+        "file": "workflows/redline-loop.js",
+        "line": 256,
+        "summary": "Reuse: AGENTS_CHANGED_HANDOFF rebuilds the backticked drift list (`drift.agents.map(...).join(', ')`) that AGENTS_CHANGED already builds.",
+        "failure_scenario": "The two sentences must name the same files. A change to the list format in one is easy to miss in the other; one shared `agentList` constant removes that risk."
+      }
+    ]
+  }
+}
