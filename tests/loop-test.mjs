@@ -2579,6 +2579,11 @@ function samePrefix(name, first, second, n) {
   const late = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-2'], planBounce: 1, reshapeAsk: ['R1-1'], commitIds: [['R1-1']] }
   const lateStop = await go('overrule: a reshape stop', baseArgs, late)
   check('overrule: a reshape\'s decisions stop lists no declines and names them for after the run', lateStop.res.status === 'handoff' && lateStop.res.handoffKind === 'decisions' && JSON.stringify(lateStop.res.decisionsNeeded) === '["R1-1"]' && JSON.stringify(lateStop.res.declined) === '[]' && JSON.stringify(lateStop.res.declinedAfterRun) === '["R1-2"]', [lateStop.res.status, lateStop.res.handoffKind, lateStop.res.decisionsNeeded, lateStop.res.declined, lateStop.res.declinedAfterRun])
+  // A finding whose call the person already answered is theirs, whatever a reshape sorts it as: a
+  // reshape that returns it as a decline and raises a new call never hands it back as Redline's
+  // decline to overrule after the run (#94, R8-6).
+  const decidedLate = await go('overrule: a reshape declines a decided call\'s finding and raises a new call', { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'The author keeps it as it is.', date: '2026-11-02' } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], planBounce: 1, reshapeDecline: ['R1-2'], reshapeAsk: ['R1-1'], commitIds: [['R1-1']] })
+  check('overrule: a finding whose call was decided is never listed as Redline\'s decline at a reshape\'s stop', decidedLate.res.status === 'handoff' && decidedLate.res.handoffKind === 'decisions' && JSON.stringify(decidedLate.res.decisionsNeeded) === '["R1-1"]' && JSON.stringify(decidedLate.res.declined) === '[]' && JSON.stringify(decidedLate.res.declinedAfterRun) === '[]', [decidedLate.res.status, decidedLate.res.handoffKind, decidedLate.res.decisionsNeeded, decidedLate.res.declined, decidedLate.res.declinedAfterRun])
   // The plan approver checks the shaper's own dispositions and sends one back, and the reshape
   // decides again a decision of its own that an adjustment names (#94, R4-5).
   const lateApprover = (pick(lateStop.calls, 'plan approver r1') || { prompt: '' }).prompt

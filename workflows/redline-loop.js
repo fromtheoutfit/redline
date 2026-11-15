@@ -3943,16 +3943,17 @@ function handoffResult(record, outcome) {
     })
   }
   log(`round ${record.round}: ${outcome.pending.length} judgment call(s) for the person; the run ends here and resumes on relaunch`)
-  const roundDeclines = (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !(decisions[x.id] && decisions[x.id].disposition)).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() }))
+  const roundDeclines = (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !decisions[x.id]).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() }))
   return result('handoff', {
     handoffKind: 'decisions',
     handoffRound: record.round,
     specFolder: record.specFolder,
     judgmentCalls,
     // What the shaper declined on its own in this round (#93), each with its reason: the skill
-    // lists them after the calls, and a typed line overrules one before the relaunch. A decline the
-    // person already overruled is left out: the overrule is in the decisions the relaunch carries,
-    // and it is applied there (#94, R2-15).
+    // lists them after the calls, and a typed line overrules one before the relaunch. A finding the
+    // person or autopilot decided is left out: an overrule is in the decisions the relaunch carries
+    // and is applied there (#94, R2-15), and an answered call is the person's decision, posted as
+    // theirs, whatever disposition a reshape gave its finding (#94, R8-6).
     // At a stop a plan approver of the round has run before (a reshape's, or its resolve's), an
     // overrule would be applied at the round's first resolve, which ran before the stop, so the
     // relaunch would change earlier prompts and could lose the answer to the new call. Such a
