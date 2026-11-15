@@ -104,7 +104,7 @@ In every other case the shaper takes its own recommendation, a decision to decli
 
 A refactor that fails one of the four is declined with the reason and where it belongs, or asked about when one of the five cases holds. One that would undo a choice the pull request's own spec records as deliberate is never asked about: the shaper answers it from the spec and declines it with that decision cited.
 
-**A finding the verifier could not confirm** gets the shaper's second look first: it tries what the verifier said would confirm it. Confirmed, the finding is decided like any other. Refuted, it is declined with the evidence. Still unconfirmed, it is fixed when a cheap guard is right whether or not the claim holds, and otherwise declined with `could not confirm: needs <what>`, unless its harm would be serious if it were true: then it is put to you (case 5), with what was tried and what would confirm it, and never declined on Redline's own say.
+**A finding the verifier could not confirm** gets the shaper's second look first: it tries what the verifier said would confirm it. Confirmed, the finding is decided like any other. Refuted, it is declined with the evidence. Still unconfirmed, it is fixed when a cheap guard is right whether or not the claim holds, and otherwise declined with `could not confirm: needs <what>`, unless its harm would be serious if it were true: then it is put to you (case 5), with what was tried and what would confirm it, and never declined on Redline's own say. The shaper returns what it found as `secondLook`; the run warns when a finding the verifier could not confirm has none, or when a decline gives `could not confirm` as its reason though the second look refuted or confirmed the claim.
 
 ### Overruling a decline
 

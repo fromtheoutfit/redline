@@ -2723,6 +2723,26 @@ function checkDispositions(pass, shaped) {
   }
 }
 
+// The second look (#93; #94, R7-5): a finding the verifier could not confirm carries the shaper's
+// secondLook, and a decline whose second look refuted or confirmed the claim does not give
+// "could not confirm" as its reason. Read before forceAskRules rewrites a disposition. A miss is a
+// warning: a Redline round's shape stops only on the ask cases and a decline with no reason.
+function checkSecondLook(pass, shaped, inScope) {
+  if (pass.human) {
+    return
+  }
+  const unconfirmed = new Set(inScope.filter((f) => f.confidence === 'unconfirmed').map((f) => f.id))
+  const missing = shaped.findings.filter((s) => unconfirmed.has(s.id) && !s.secondLook).map((s) => s.id)
+  if (missing.length) {
+    warnings.push(`${pass.name}: the shaper gave no second look (secondLook) for ${missing.join(', ')}, which the verifier could not confirm`)
+  }
+  for (const s of shaped.findings) {
+    if (s.disposition === 'decline' && s.secondLook && s.secondLook !== 'unconfirmed' && /^could not confirm/i.test((s.reason || '').trim())) {
+      warnings.push(`${pass.name}: the shaper declined ${s.id} as could not confirm, but its second look says ${s.secondLook}`)
+    }
+  }
+}
+
 // Ask and call agree (#57): every ask has its judgment call and no other finding has one, as the
 // shaper's rule 10 says; the script pins it, so a call can never stand in for a finding the shaper
 // did not write as an ask. Runs before forceAskRules, which adds the one call the workflow writes,
@@ -3020,6 +3040,7 @@ async function revise(record, inScope, reviewedKind) {
     throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
+  checkSecondLook(pass, shaped, inScope)
   checkCalls(shaped)
   await checkSpec(pass, specFolder, `shape ${pass.tag}`, '')
   forceAskRules(record, pass, inScope, shaped)
@@ -3154,6 +3175,7 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     checkDispositions(pass, shaped)
+    checkSecondLook(pass, shaped, inScope)
     checkCalls(shaped, calls)
     await checkSpec(pass, specFolder, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
     forceAskRules(record, pass, inScope, shaped)
