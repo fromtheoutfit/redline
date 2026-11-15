@@ -1583,6 +1583,9 @@ function samePrefix(name, first, second, n) {
   // The done rule's other branches: a new verified finding runs another round; nits only end in the
   // final nit pass with no coverage call; correctness only is done at once; the cap holds.
   const settledAll = [{ index: 1, outcome: 'settled', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]
+  // A first round has no earlier finding to settle a candidate into, so a settled ref there names
+  // nothing (#94, R8-2): a first-round run that needs no finding refutes both candidates instead.
+  const refutedAll = [{ index: 1, outcome: 'refuted', ref: 'untouched code' }, { index: 2, outcome: 'refuted', ref: 'untouched code' }]
   run = await go('coverage: a new verified finding runs another round', covArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [two, two, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'refuted', ref: 'not reachable' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }, { index: 2, outcome: 'known', ref: '#7' }], settledAll] })
   check('coverage: round 3 runs after a new finding in round 2, then the run is done', run.res.status === 'done' && run.res.rounds.length === 3 && labels(run.calls).join('|').includes('|gather r3|coverage r3|re-review r3|'), [run.res.status, labels(run.calls)])
   // A candidate matching a fixed finding that still reproduces at this head is new, named with the
@@ -1639,7 +1642,7 @@ function samePrefix(name, first, second, n) {
 
   // Defaults: models.coverage absent means on, at reviewerFirstRound's model and effort; with no
   // effort anywhere the pass is told high.
-  run = await go('coverage: defaults from reviewerFirstRound', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, reviewerFirstRound: { model: 'm-first', effort: 'xhigh' } } }, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })
+  run = await go('coverage: defaults from reviewerFirstRound', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' }, reviewerFirstRound: { model: 'm-first', effort: 'xhigh' } } }, { reviews: [[]], coverage: [two], coverageOut: [refutedAll] })
   check('coverage: absent means on at the first-round reviewer\'s model and effort', pick(run.calls, 'coverage r1').opts.model === 'm-first' && pick(run.calls, 'coverage r1').opts.effort === 'xhigh' && pick(run.calls, 'coverage r1').prompt.includes('"xhigh redline-seed-3 --max-findings all"'), pick(run.calls, 'coverage r1').opts)
   run = await go('coverage: no effort anywhere', { ...baseArgs, models: { revise: { model: 'claude-opus-5-5' } } }, { reviews: [[]] })
   check('coverage: with no effort configured the pass is told high', pick(run.calls, 'coverage r1').opts.effort === 'high' && pick(run.calls, 'coverage r1').prompt.includes('"high redline-seed-3 --max-findings all"'), pick(run.calls, 'coverage r1').opts)
@@ -1742,7 +1745,7 @@ function samePrefix(name, first, second, n) {
     run = await go(`coverage: ${name}`, covArgs, { reviews: [[]], coverage: [text] })
     check(`coverage: ${name}`, run.res.status === 'error' && run.res.stage === 'review' && JSON.stringify(run.res.resumeFrom) === JSON.stringify({ label: 'coverage r1', attempt: 2 }) && run.res.error.includes(words) && run.res.error.includes('launch again with coverage off'), [run.res.status, run.res.stage, run.res.resumeFrom, run.res.error])
   }
-  run = await go('coverage: a skill result that quotes a marker', covArgs, { reviews: [[]], coverage: ['`coverage: skill denied` is one of the markers the prompt names.\n' + two], coverageOut: [settledAll] })
+  run = await go('coverage: a skill result that quotes a marker', covArgs, { reviews: [[]], coverage: ['`coverage: skill denied` is one of the markers the prompt names.\n' + two], coverageOut: [refutedAll] })
   check('coverage: a skill result that quotes a marker is still the list', run.res.status === 'done' && labels(run.calls).includes('review r1') && pick(run.calls, 'review r1').prompt.includes('"summary": "the real one"'), [run.res.status, run.res.error, labels(run.calls)])
   // An array with none of the skill's fields is not the skill's list (#80, R1-3): renamed keys or
   // bare strings are the recipe-drift stop, never blank candidates.
@@ -1792,7 +1795,7 @@ function samePrefix(name, first, second, n) {
   // the index or the id, so the target parse reads it (#86, R4-1).
   const offRules = await go('coverage: off, the verifier rules and the set-aside block', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
   const uncovered = pick(offRules.calls, 'review r1').prompt
-  const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [settledAll] })).calls, 'review r1').prompt
+  const covered = pick((await go('coverage: the verifier rules', covArgs, { reviews: [[]], coverage: [two], coverageOut: [refutedAll] })).calls, 'review r1').prompt
   for (const [rule, phrase] of [['partly tracked', 'the remainder is judged as its own candidate'], ['a refutation answers the candidate\'s claim', 'neighbouring claim does not refute'], ['a removed guard is a fact the verifier states', 'this pull request stopped handling'], ['a verified or unconfirmed entry\'s ref is the finding\'s id alone', 'ref is the finding\'s id alone'], ['a partly tracked remainder meets every other rule', 'unless another rule here puts it elsewhere'], ['the review body lists every candidate that is not a finding of the round', 'every candidate that is not a finding of this round'], ['a duplicate\'s ref opens with the index or the id', 'opening with the index of the candidate or the id of the finding'], ['could not confirm is the narrow case', 'turns on something the repository cannot show'], ['no candidate is held back for its size, its cost or where its cause lies', 'What to do about a true claim is not yours to decide'], ['a decline for want of confirmation reopens once confirmed', 'could not be confirmed, and that you now confirm'], ['a decided finding that still reproduces is settled', 'accounted for as settled']]) {
     check(`coverage: the agent file and the verify prompt state the rule "${rule}", and a coverage-off prompt does not`, reviewerAgent.includes(phrase) && covered.includes(phrase) && !uncovered.includes(phrase), [phrase, reviewerAgent.includes(phrase), covered.includes(phrase), uncovered.includes(phrase)])
   }
@@ -1998,7 +2001,8 @@ function samePrefix(name, first, second, n) {
   // A leading number that runs into a word (`1st`) is not an index token, since the index ends at
   // a word boundary, and `candidate` with no space before the number is not the `candidate N`
   // form, so both are shown as written: one check each for the `\b` and the `\s+` (#86, R5-2).
-  const forms = fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate'), cand('app/z.php', 10, 'a ref with a note after the index'), cand('app/z.php', 11, 'a ref whose number runs into a word'), cand('app/z.php', 12, 'a ref with no space after candidate')])
+  // A ref naming the candidate itself or an index past the last candidate names nothing, so its candidate is kept as an unconfirmed finding (#94, R8-2).
+  const forms =fenced([cand('app/z.php', 5, 'the target'), cand('app/z.php', 6, 'a lower-case index ref'), cand('app/z.php', 7, 'an upper-case candidate ref'), cand('app/z.php', 8, 'a ref naming itself'), cand('app/z.php', 9, 'a ref past the last candidate'), cand('app/z.php', 10, 'a ref with a note after the index'), cand('app/z.php', 11, 'a ref whose number runs into a word'), cand('app/z.php', 12, 'a ref with no space after candidate')])
   const formsOut = [
     { index: 1, outcome: 'refuted', ref: 'The claim is one thing; the code does another.' },
     { index: 2, outcome: 'duplicate', ref: 'index 1' },
@@ -2009,12 +2013,14 @@ function samePrefix(name, first, second, n) {
     { index: 7, outcome: 'duplicate', ref: '1st pass missed it' },
     { index: 8, outcome: 'duplicate', ref: 'candidate1' },
   ]
-  run = await go('coverage: a duplicate\'s target by the form of its ref', covArgs, { reviews: [[]], coverage: [forms], coverageOut: [formsOut] })
+  run = await go('coverage: a duplicate\'s target by the form of its ref', covArgs, { reviews: [[]], decline: ['R1-1', 'R1-2'], secondLook: { 'R1-1': 'unconfirmed', 'R1-2': 'unconfirmed' }, coverage: [forms], coverageOut: [formsOut] })
   const fb = body(run.calls, 'post r1')
   check('coverage: a lower-case `index N` duplicate ref reads as another candidate\'s index and gives its place and outcome', fb.includes('\n- `app/z.php:6` · a lower-case index ref · duplicate: index 1 (candidate 1, `app/z.php:5`: refuted)\n'), fb)
   check('coverage: an upper-case `CANDIDATE N` duplicate ref reads as another candidate\'s index, since the parse ignores case', fb.includes('\n- `app/z.php:7` · an upper-case candidate ref · duplicate: CANDIDATE 1 (candidate 1, `app/z.php:5`: refuted)\n'), fb)
-  check('coverage: a duplicate ref naming the candidate itself is shown as written, with no addition', fb.includes('\n- `app/z.php:8` · a ref naming itself · duplicate: 4\n'), fb)
-  check('coverage: a duplicate ref past the round\'s last candidate is shown as written, with no addition', fb.includes('\n- `app/z.php:9` · a ref past the last candidate · duplicate: 99\n'), fb)
+  // A ref naming the candidate itself, or an index past the round's last, names nothing it
+  // collapses into, so the candidate is kept as an unconfirmed finding with a warning (#94, R8-2).
+  check('coverage: a duplicate ref naming the candidate itself names nothing it collapses into, so the candidate is kept as an unconfirmed finding with a warning', fb.includes('\n- **R1-1** · correctness · medium · unconfirmed · `app/z.php:8` · a ref naming itself\n') && !fb.includes('· duplicate: 4\n') && run.res.warnings.includes('round 1: the reviewer accounted for coverage candidate 4 as duplicate with ref "4", which names nothing it collapses into; kept as an unconfirmed finding as reported'), [fb, run.res.warnings])
+  check('coverage: a duplicate ref past the round\'s last candidate names nothing it collapses into, so the candidate is kept as an unconfirmed finding with a warning', fb.includes('\n- **R1-2** · correctness · medium · unconfirmed · `app/z.php:9` · a ref past the last candidate\n') && !fb.includes('· duplicate: 99\n') && run.res.warnings.includes('round 1: the reviewer accounted for coverage candidate 5 as duplicate with ref "99", which names nothing it collapses into; kept as an unconfirmed finding as reported'), [fb, run.res.warnings])
   check('coverage: a duplicate ref that opens with another candidate\'s index keeps its place and outcome with a note after the index', fb.includes('\n- `app/z.php:10` · a ref with a note after the index · duplicate: 1; #7 tracks the case-folding (candidate 1, `app/z.php:5`: refuted)\n'), fb)
   check('coverage: a duplicate ref whose leading number runs into a word is shown as written, with no addition', fb.includes('\n- `app/z.php:11` · a ref whose number runs into a word · duplicate: 1st pass missed it\n'), fb)
   check('coverage: a duplicate ref with no space between `candidate` and the number is shown as written, with no addition', fb.includes('\n- `app/z.php:12` · a ref with no space after candidate · duplicate: candidate1\n'), fb)
@@ -2027,6 +2033,25 @@ function samePrefix(name, first, second, n) {
   run = await go('coverage: a duplicate of a candidate that became a finding', covArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], coverage: [intoFinding, two], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }, { index: 2, outcome: 'duplicate', ref: '1' }], settledAll] })
   const ib = body(run.calls, 'post r1')
   check('coverage: a duplicate of a candidate that became a finding names the finding\'s id after the target\'s place and outcome', ib.includes('\n- `app/x.php:8` · the same cause, seen from the save · duplicate: 1 (candidate 1, `app/x.php:3`: verified R1-1)\n'), ib)
+
+  // A collapse names what it collapses into (#94, R8-2): two duplicates naming each other, a
+  // duplicate of an id no finding has and a settled ref naming no earlier finding each name
+  // nothing, so each candidate is kept as an unconfirmed finding with a warning; a duplicate ref
+  // in words names something and stays as written in the block, with no warning.
+  const nameless = fenced([cand('app/q.php', 1, 'a pair, one way'), cand('app/q.php', 2, 'a pair, the other way'), cand('app/q.php', 3, 'a duplicate of a finding no round has'), cand('app/q.php', 4, 'settled into a finding no round has'), cand('app/q.php', 5, 'a duplicate in words')])
+  const namelessOut = [
+    { index: 1, outcome: 'duplicate', ref: '2' },
+    { index: 2, outcome: 'duplicate', ref: 'candidate 1' },
+    { index: 3, outcome: 'duplicate', ref: 'R1-9' },
+    { index: 4, outcome: 'settled', ref: 'R1-8 was decided' },
+    { index: 5, outcome: 'duplicate', ref: 'the same cause as the owner check' },
+  ]
+  run = await go('coverage: a collapse whose ref names nothing', covArgs, { reviews: [[]], decline: ['R1-1', 'R1-2', 'R1-3', 'R1-4'], secondLook: { 'R1-1': 'unconfirmed', 'R1-2': 'unconfirmed', 'R1-3': 'unconfirmed', 'R1-4': 'unconfirmed' }, coverage: [nameless], coverageOut: [namelessOut] })
+  nb = body(run.calls, 'post r1')
+  const namesNothing = (index, outcome, ref) => run.res.warnings.includes(`round 1: the reviewer accounted for coverage candidate ${index} as ${outcome} with ref ${JSON.stringify(ref)}, which names nothing it collapses into; kept as an unconfirmed finding as reported`)
+  check('coverage: two duplicates that name each other name nothing, so each is kept as an unconfirmed finding with a warning', nb.includes('\n- **R1-1** · correctness · medium · unconfirmed · `app/q.php:1` · a pair, one way\n') && nb.includes('\n- **R1-2** · correctness · medium · unconfirmed · `app/q.php:2` · a pair, the other way\n') && namesNothing(1, 'duplicate', '2') && namesNothing(2, 'duplicate', 'candidate 1'), [nb, run.res.warnings])
+  check('coverage: a duplicate of an id no finding has, and a settled ref whose id no earlier finding has, are each kept as an unconfirmed finding with a warning', nb.includes('\n- **R1-3** · correctness · medium · unconfirmed · `app/q.php:3` · a duplicate of a finding no round has\n') && nb.includes('\n- **R1-4** · correctness · medium · unconfirmed · `app/q.php:4` · settled into a finding no round has\n') && namesNothing(3, 'duplicate', 'R1-9') && namesNothing(4, 'settled', 'R1-8 was decided'), [nb, run.res.warnings])
+  check('coverage: a duplicate ref in words names something, so it stays as written in the block, with no warning', nb.includes('### Candidates set aside (1)') && nb.includes('\n- `app/q.php:5` · a duplicate in words · duplicate: the same cause as the owner check\n') && !run.res.warnings.some((w) => w.includes('coverage candidate 5')), [nb, run.res.warnings])
 
   // coverage off: no candidates, so no set-aside block anywhere.
   check('coverage: off has no set-aside block in the review body or the handoff', !body(offRules.calls, 'post r1').includes('<details>') && !comment(offRules.calls, 'handoff comment').includes('Candidates set aside'), body(offRules.calls, 'post r1'))

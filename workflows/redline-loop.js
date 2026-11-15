@@ -1562,9 +1562,9 @@ function coverageMessage(cause) {
 // The accounting for the coverage pass's candidates (#79, the mirror of reconcilePrior; #93): every
 // candidate has exactly one entry. One the reviewer left out, or placed with an outcome the schema
 // does not name, or accounted for with a ref that names no finding of this round (#80, R1-4),
-// becomes a finding of the round as reported: a new id, correctness, unconfirmed, with a warning,
-// so the shaper's second look decides it and no candidate is dropped or parked. A verified or
-// unconfirmed entry is counted by its finding's own confidence, and one naming a finding with a
+// or collapsed with a ref that names nothing it collapses into (#94, R8-2), becomes a finding of
+// the round as reported: a new id, correctness, unconfirmed, with a warning, so the shaper's second
+// look decides it and no candidate is dropped or parked. A verified or unconfirmed entry is counted by its finding's own confidence, and one naming a finding with a
 // knownAs is known, since the body lists that finding under Already tracked.
 const MINTED_WOULD_CONFIRM = 'The verifier gave no account of this candidate; check the claim as the finder made it.'
 // The place of a minted finding whose candidate named no file (#94, R2-6): prior-findings reads a
@@ -1624,6 +1624,40 @@ function accountCoverage(round, out, candidates) {
       continue
     }
     seen.set(index, { index, outcome: entry.outcome, ref })
+  }
+  // A collapse names what it collapses into (#94, R8-2). A duplicate whose ref opens with an index
+  // (`3`, `candidate 3`, `index 3`, as the set-aside block reads it) names another candidate of the
+  // round, and one whose duplicates do not lead back to it; a duplicate or settled ref that opens
+  // with an id names a finding of this round, of an earlier round of this run or of an earlier run
+  // on the PR. One that names nothing is a bad ref: the candidate is kept as an unconfirmed finding
+  // with a warning, as a verified ref naming no finding is. A ref that opens with neither, a note
+  // in words, names something and is shown as written in the set-aside block (#86, R4-1, R5-2).
+  const named = new Set([...byId.keys(), ...Object.keys(priorById), ...rounds.flatMap((r) => (r.findings || []).map((x) => x.id))])
+  const targetOf = (e) => (e.outcome === 'duplicate' ? Number((/^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(e.ref) || [])[1]) || 0 : 0)
+  const namesNothing = (e) => {
+    if (e.outcome !== 'duplicate' && e.outcome !== 'settled') {
+      return false
+    }
+    const to = targetOf(e)
+    if (!to) {
+      const id = (/^([RH]\d+-\d+)(?![\w-])/.exec(e.ref) || [])[1] || ''
+      return id !== '' && !named.has(id)
+    }
+    const visited = new Set([e.index])
+    for (let at = to; ; at = targetOf(seen.get(at))) {
+      if (at < 1 || at > candidates.length || visited.has(at)) {
+        return true
+      }
+      if (!seen.has(at) || !targetOf(seen.get(at))) {
+        return false
+      }
+      visited.add(at)
+    }
+  }
+  for (const e of [...seen.values()].filter(namesNothing)) {
+    warnings.push(`round ${round}: the reviewer accounted for coverage candidate ${e.index} as ${e.outcome} with ref ${JSON.stringify(e.ref)}, which names nothing it collapses into; kept as an unconfirmed finding as reported`)
+    seen.delete(e.index)
+    told.add(e.index)
   }
   let next = Math.max(0, ...out.findings.map((x) => Number(String(x.id).split('-')[1]) || 0))
   candidates.forEach((c, i) => {
