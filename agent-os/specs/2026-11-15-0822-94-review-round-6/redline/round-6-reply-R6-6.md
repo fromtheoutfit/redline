@@ -1,0 +1,1 @@
+Redline round 6: declined: a refactor with no behaviour change, costing one extra jq and one git log a run, where #68's deviation 14 already keeps the verdict from disagreeing with what the run printed; it is in the template below its header, which no Redline role may regenerate, so it belongs in a person's next change to the template · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 1: fixed in ac592aa (redline: R1-1 say the decline-reopen exception wherever a declined finding is said never to be raised again (#93)). · decided by: redline

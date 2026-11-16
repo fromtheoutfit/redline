@@ -17,11 +17,11 @@ GATE="$PLUGIN/scripts/redline-gate.sh"
 FIX="$PLUGIN/tests/setup-fixtures"
 GFIX="$PLUGIN/tests/gate-fixtures"
 TEMPLATE="$PLUGIN/scripts/checks-template.sh"
-# The template's version (v2 on 2026-10-30); the version cases are relative to it, never spelled.
+# The template's version (v3 on 2026-11-15, #68); the version cases are relative to it, never spelled.
 TV="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}')"
 TN="${TV#v}"
 UT="$PLUGIN/templates/shape-spec-unattended.md"
-# The unattended section's version (v3 on 2026-11-02), read off the template's marker line; the
+# The unattended section's version (v4 on 2026-11-13, #93), read off the template's marker line; the
 # section cases are relative to it, never spelled (#15).
 UV="$(grep -m1 '^<!-- redline-unattended: v' "$UT" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
 UN="${UV#v}"
@@ -459,6 +459,9 @@ jq '.baseline = {seconds: 61, date: "2026-10-22"}' "$LJ" > "$WORK/base.json"
 check "baseline filled: the header records it without a note" grep -q '^# Baseline on 2026-10-22: 61 seconds, so `checker: full` is the right mode\.' "$WORK/nobase.sh"
 
 echo "# checks: a generated file runs"
+# A run keeps its full result under TMPDIR/redline-checks/ (#68), so every run from here on keeps it
+# inside the throwaway directory.
+export TMPDIR="$WORK/tmp"; mkdir -p "$TMPDIR"
 SR="$WORK/scratch-repo"; mkdir -p "$SR/.claude/redline"
 ( cd "$SR" && git init -q && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m init )
 cat > "$WORK/scratch.json" <<'JSON'
@@ -470,7 +473,7 @@ OUT="$(cd "$SR" && .claude/redline/checks.sh --baseline 2>/dev/null)"; RCODE=$?
 [[ "$RCODE" == "1" ]] && ok "runs: a failing check exits 1" || bad "runs: a failing check exits 1" "exit $RCODE"
 [[ "$(jq -r '[.mode, (.ok|tostring), (.checks | map(.name) | join(","))] | join(" ")' <<<"$OUT")" == "baseline false passes,fails" ]] && ok "runs: the output contract" || bad "runs: the output contract" "$OUT"
 [[ "$(jq -r '.checks[1] | [(.exit|tostring), .stderr] | join(" ")' <<<"$OUT")" == "3 broken"* ]] && ok "runs: the failing check's exit and stderr" || bad "runs: the failing check's exit and stderr" "$(jq -c '.checks[1]' <<<"$OUT")"
-[[ "$(jq -r '.checks[0].stdout' <<<"$OUT")" == "fine"* ]] && ok "runs: the passing check's stdout" || bad "runs: the passing check's stdout" "$(jq -c '.checks[0]' <<<"$OUT")"
+[[ "$(jq -r '.result.checks[0].stdout' "$(jq -r '.kept' <<<"$OUT")" 2>/dev/null)" == "fine"* ]] && ok "runs: the passing check's stdout is in the kept result (#68)" || bad "runs: the passing check's stdout is in the kept result (#68)" "$(jq -c '{kept, first: .checks[0]}' <<<"$OUT")"
 check "runs: no formatter means no fix check" jq -e '[.checks[] | select(.name == "fix")] | length == 0' <<<"$OUT"
 # #50: an untracked file that cannot be read (a symlink to a directory) must not stop the git block before its JSON:
 # cat fails on the link, xargs exits 123, and under pipefail the untracked-lines assignment used to end the script.
@@ -484,6 +487,161 @@ mkdir -p "$SR/somedir" && ln -s somedir "$SR/link" && printf 'a\nb\n' > "$SR/rea
 printf '{"pr": 1, "start_sha": "%s", "base_ref": "HEAD", "files": [], "plan_paths": []}\n' "$(git -C "$SR" rev-parse HEAD)" > "$WORK/scratch-snapshot.json"
 OUT2="$(cd "$SR" && .claude/redline/checks.sh "$WORK/scratch-snapshot.json" 2>/dev/null)"; RCODE2=$?
 [[ "$(jq -r '[.mode, (.git.diff_lines|tostring)] | join(" ")' <<<"$OUT2" 2>/dev/null)" == "full 2" ]] && ok "runs: an untracked symlink to a directory still gets one JSON object, counting the readable file's lines" || bad "runs: an untracked symlink to a directory still gets one JSON object, counting the readable file's lines" "exit $RCODE2: ${OUT2:-no output}"
+
+echo "# checks: the printed result is bounded (#68)"
+# brun <dir> <script> <args...>: run a checks.sh from inside a repository. BOUT is its stdout, BERR its
+# stderr, BCODE its exit code and BBYTES both streams together, which is what the Bash tool shows.
+brun() {
+    local dir="$1" script="$2"; shift 2
+    BOUT="$(cd "$dir" && "$script" "$@" 2>"$WORK/brun.err")"; BCODE=$?
+    BERR="$(cat "$WORK/brun.err")"
+    BBYTES=$(( $(printf '%s\n' "$BOUT" | wc -c) + $(wc -c < "$WORK/brun.err") ))
+}
+bgit() { git -C "$1" -c user.email=t@t -c user.name=t -c commit.gpgsign=false "${@:2}"; }
+# rootkey <dir>: the key a repository's kept result is filed under.
+rootkey() { printf '%s' "$(cd "$1" && pwd -P)" | git hash-object --stdin; }
+# keptfiles <dir>: how many kept results are filed under the repository's key, 0 when none is.
+keptfiles() {
+    local key f n=0
+    key="$(rootkey "$1")"
+    for f in "$TMPDIR/redline-checks/$key"-*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
+
+# ANSI escapes are stripped before anything is measured, and a passing check prints no output.
+AR="$WORK/ansi-repo"; mkdir -p "$AR"
+( cd "$AR" && git init -q && git -c user.email=t@t -c user.name=t -c commit.gpgsign=false commit -q --allow-empty -m init )
+cat > "$WORK/ansi.json" <<'JSON'
+{"repo": "a scratch repository", "gateFile": "gate.md", "baseline": {"seconds": 1, "date": "2026-11-15"},
+ "steps": [{"step": 1, "name": "quiet", "recorded": 0, "cmd": "echo fine"},
+           {"step": 2, "name": "colour", "recorded": 0, "cmd": "printf '\\033[31mred\\033[0m plain\\033]0;title\\007\\n'; printf 'bad \\377 byte\\n' >&2; exit 1"}]}
+JSON
+"$SETUP" checks "$WORK/ansi.json" "$WORK/ansi.sh" >/dev/null 2>&1
+brun "$AR" "$WORK/ansi.sh" --baseline
+[[ "$BCODE" == "1" ]] && ok "bounded: a failing check still exits 1" || bad "bounded: a failing check still exits 1" "exit $BCODE: $BERR"
+[[ "$(jq -c '.checks[0]' <<<"$BOUT" 2>/dev/null)" == '{"name":"quiet","exit":0,"recorded":false}' ]] && ok "bounded: a passing check prints its name, its exit code and recorded, nothing else" || bad "bounded: a passing check prints its name, its exit code and recorded, nothing else" "$(jq -c '.checks[0]' <<<"$BOUT" 2>&1)"
+[[ "$(jq -r '.checks[1].stdout' <<<"$BOUT" 2>/dev/null)" == "red plain" ]] && ok "bounded: a failing check's output has its colour and title escapes stripped" || bad "bounded: a failing check's output has its colour and title escapes stripped" "$(jq -c '.checks[1]' <<<"$BOUT" 2>&1)"
+[[ -n "$BOUT" && "$(grep -c 'u001b\|u0007' <<<"$BOUT")" == "0" ]] && ok "bounded: no escape byte reaches the JSON" || bad "bounded: no escape byte reaches the JSON" "$BOUT"
+[[ "$(jq -r '.checks[1].stderr' <<<"$BOUT" 2>/dev/null)" == "bad "*" byte" ]] && ok "bounded: a byte that is not UTF-8 does not stop the strip" || bad "bounded: a byte that is not UTF-8 does not stop the strip" "$(jq -c '.checks[1]' <<<"$BOUT" 2>&1)"
+[[ -n "$BOUT" && "$(printf '%s\n' "$BOUT" | wc -l | tr -d ' ')" == "1" ]] && ok "bounded: stdout is one line" || bad "bounded: stdout is one line" "$(printf '%s\n' "$BOUT" | wc -l)"
+grep -q '^checks.sh: running colour$' <<<"$BERR" && ! grep -q 'printf' <<<"$BERR" && ok "bounded: a progress line names the check and leaves its command out" || bad "bounded: a progress line names the check and leaves its command out" "$BERR"
+[[ "$(jq -r '.result.checks[0].stdout' "$(jq -r '.kept' <<<"$BOUT" 2>/dev/null)" 2>/dev/null)" == "fine" ]] && ok "bounded: the kept result holds the passing check's output" || bad "bounded: the kept result holds the passing check's output" "$(jq -r '.kept' <<<"$BOUT" 2>&1)"
+brun "$AR" "$WORK/ansi.sh" --verdict --baseline
+[[ "$BCODE" == "1" && "$(jq -c '[.verdict, (.checks[1] | keys | join("+"))]' <<<"$BOUT" 2>/dev/null)" == '[true,"cmd+exit+name+recorded"]' ]] && ok "--verdict after a failing run: the run's exit code, the failing check without its output" || bad "--verdict after a failing run: the run's exit code, the failing check without its output" "exit $BCODE: $BOUT $BERR"
+# The cap is measured on the stripped text: 3000 coloured dots are 30 KB raw and 3 KB stripped.
+cat > "$WORK/dots.json" <<'JSON'
+{"repo": "a scratch repository", "gateFile": "gate.md", "baseline": {"seconds": 1, "date": "2026-11-15"},
+ "steps": [{"step": 1, "name": "dots", "recorded": 0, "cmd": "for i in $(seq 3000); do printf '\\033[32m.\\033[0m'; done; echo; exit 1"}]}
+JSON
+"$SETUP" checks "$WORK/dots.json" "$WORK/dots.sh" >/dev/null 2>&1
+brun "$AR" "$WORK/dots.sh" --baseline
+[[ "$(jq -c '.checks[0] | [.truncated, (.stdout | length)]' <<<"$BOUT" 2>/dev/null)" == "[false,3001]" ]] && ok "bounded: a stream over the cap only by its escapes is whole and not truncated" || bad "bounded: a stream over the cap only by its escapes is whole and not truncated" "$(jq -c '.checks[0] | [.truncated, (.stdout | length)]' <<<"$BOUT" 2>&1)"
+sed 's/seq 3000/seq 6000/' "$WORK/dots.json" > "$WORK/dots-over.json"
+"$SETUP" checks "$WORK/dots-over.json" "$WORK/dots-over.sh" >/dev/null 2>&1
+brun "$AR" "$WORK/dots-over.sh" --baseline
+[[ "$(jq -c '.checks[0] | [.truncated, ((.stdout | length) <= 5120)]' <<<"$BOUT" 2>/dev/null)" == "[true,true]" ]] && ok "bounded: a stream over the cap once stripped is cut to the budget and truncated" || bad "bounded: a stream over the cap once stripped is cut to the budget and truncated" "$(jq -c '.checks[0] | [.truncated, (.stdout | length)]' <<<"$BOUT" 2>&1)"
+
+# The git block: counts for the lists nobody reads, this round's commits, subjects cut with their ids kept.
+GR="$WORK/git-repo"; mkdir -p "$GR/.claude/redline"
+( cd "$GR" && git init -q )
+"$SETUP" checks "$WORK/scratch-pass.json" "$GR/.claude/redline/checks.sh" >/dev/null 2>&1
+bgit "$GR" add .claude; bgit "$GR" commit -q -m checks
+GS="$(git -C "$GR" rev-parse HEAD)"
+printf 'a\n' > "$GR/a.txt"; bgit "$GR" add a.txt; bgit "$GR" commit -q -m "redline: R1-1 a first fix (#68)"
+G1="$(git -C "$GR" rev-parse HEAD)"
+# Ids past column 100 only (the standards commit's shape), with a look-alike that is no id.
+PAST="redline: $(printf 'word %.0s' $(seq 20))finishing R12-3 and H2-10, not ABR7-7 (#68)"
+bgit "$GR" commit -q --allow-empty -m "$PAST"
+# An id across column 100: a cut at the column itself would leave R5-1, a different finding.
+STRADDLE="redline: $(printf 'x%.0s' $(seq 87)) R5-10 and the rest of a long subject line"
+bgit "$GR" commit -q --allow-empty -m "$STRADDLE"
+WANT_PAST="redline: $(printf 'word %.0s' $(seq 17))word..."
+WANT_STRADDLE="redline: $(printf 'x%.0s' $(seq 87))..."
+GSNAP='{"pr": 1, "start_sha": "%s", %s"base_ref": "HEAD", "files": ["a.txt"], "plan_paths": ["docs/"]}\n'
+printf "$GSNAP" "$GS" "" > "$WORK/git-all.json"
+printf "$GSNAP" "$GS" "\"round_sha\": \"$G1\", " > "$WORK/git-round.json"
+printf "$GSNAP" "$GS" '"round_sha": "0000000000000000000000000000000000000000", ' > "$WORK/git-badround.json"
+GC="$GR/.claude/redline/checks.sh"
+brun "$GR" "$GC" "$WORK/git-all.json"
+[[ "$BCODE" == "0" ]] && ok "git block: a clean round passes" || bad "git block: a clean round passes" "exit $BCODE: $BOUT $BERR"
+[[ "$(jq -c '.git | [.allowed_count, .changed_count, .commits_count, (.commits | length), .round_sha]' <<<"$BOUT" 2>/dev/null)" == "[4,1,3,3,\"$GS\"]" ]] && ok "git block: counts for allowed and changed, and without round_sha every commit since the start" || bad "git block: counts for allowed and changed, and without round_sha every commit since the start" "$(jq -c '.git' <<<"$BOUT" 2>&1)"
+[[ "$(jq -c '.git | [has("allowed"), has("changed_files"), has("formatter_touched_outside_pr"), has("unexpected_files"), has("uncommitted")]' <<<"$BOUT" 2>/dev/null)" == "[false,false,false,true,true]" ]] && ok "git block: the allowed and changed lists are not printed; unexpected_files and uncommitted are" || bad "git block: the allowed and changed lists are not printed; unexpected_files and uncommitted are" "$(jq -c '.git | keys' <<<"$BOUT" 2>&1)"
+GK="$(jq -r '.kept' <<<"$BOUT" 2>/dev/null)"
+[[ "$GK" == "$TMPDIR/redline-checks/$(rootkey "$GR")-$(git -C "$GR" rev-parse HEAD).json" ]] && ok "kept: the path is the temp directory, the root's key and the commit" || bad "kept: the path is the temp directory, the root's key and the commit" "$GK"
+[[ "$(jq -c '[.root, .head, .mode, .snapshot, .exit] | map(tostring) | join(" ")' "$GK" 2>/dev/null)" == "\"$(cd "$GR" && pwd -P) $(git -C "$GR" rev-parse HEAD) full $(cd "$WORK" && pwd)/git-all.json 0\"" ]] && ok "kept: the file names its root, commit, mode, snapshot and exit code" || bad "kept: the file names its root, commit, mode, snapshot and exit code" "$(jq -c 'del(.result, .printed)' "$GK" 2>&1)"
+[[ "$(jq -c '.result.git | [(.allowed | length), .changed_files, (.commits | length), .commits[1].message]' "$GK" 2>/dev/null)" == "$(jq -c -n --arg m "$PAST" '[4, ["a.txt"], 3, $m]')" ]] && ok "kept: the full lists and whole subjects are in the kept result" || bad "kept: the full lists and whole subjects are in the kept result" "$(jq -c '.result.git' "$GK" 2>&1)"
+[[ "$(jq -r '.git.commits[2].message' <<<"$BOUT" 2>/dev/null)" == "redline: R1-1 a first fix (#68)" ]] && ok "the cut: a subject of 100 characters or fewer is whole" || bad "the cut: a subject of 100 characters or fewer is whole" "$(jq -r '.git.commits[2].message' <<<"$BOUT" 2>&1)"
+[[ "$(jq -r '.git.commits[1].message' <<<"$BOUT" 2>/dev/null)" == "$WANT_PAST R12-3 H2-10" ]] && ok "the cut: a subject whose only mention of an id is past the cut still carries it, in both forms, and no look-alike" || bad "the cut: a subject whose only mention of an id is past the cut still carries it, in both forms, and no look-alike" "$(jq -r '.git.commits[1].message' <<<"$BOUT" 2>&1)"
+[[ "$(jq -r '.git.commits[0].message' <<<"$BOUT" 2>/dev/null)" == "$WANT_STRADDLE R5-10" ]] && ok "the cut: it falls at a space, so an id across column 100 is never split into another id" || bad "the cut: it falls at a space, so an id across column 100 is never split into another id" "$(jq -r '.git.commits[0].message' <<<"$BOUT" 2>&1)"
+# The same case against a template with the rescue line removed: the id is lost, so the case above is the rescue's.
+grep -v '# the id rescue' "$TEMPLATE" > "$WORK/norescue-template.sh"
+REDLINE_TEMPLATE="$WORK/norescue-template.sh" "$SETUP" checks "$WORK/scratch-pass.json" "$WORK/norescue.sh" >/dev/null 2>&1
+brun "$GR" "$WORK/norescue.sh" "$WORK/git-all.json"
+[[ "$(jq -r '.git.commits[1].message' <<<"$BOUT" 2>/dev/null)" == "$WANT_PAST" ]] && ok "the cut, with the rescue line removed from the template: the id past the cut is lost" || bad "the cut, with the rescue line removed from the template: the id past the cut is lost" "$(jq -r '.git.commits[1].message' <<<"$BOUT" 2>&1)"
+brun "$GR" "$GC" "$WORK/git-round.json"; GROUND="$BOUT"
+[[ "$(jq -c '.git | [(.commits | length), .commits_count, .round_sha, ([.commits[].sha] | index("'"$G1"'"))]' <<<"$BOUT" 2>/dev/null)" == "[2,3,\"$G1\",null]" ]] && ok "git block: with round_sha, only the commits after it are listed and the count still covers the start" || bad "git block: with round_sha, only the commits after it are listed and the count still covers the start" "$(jq -c '.git' <<<"$BOUT" 2>&1)"
+brun "$GR" "$GC" "$WORK/git-badround.json"
+[[ "$BCODE" == "2" && "$BERR" == *"round_sha"*"not a commit"* ]] && ok "git block: a round_sha that is no commit exits 2, named" || bad "git block: a round_sha that is no commit exits 2, named" "exit $BCODE: $BERR"
+
+# --verdict: the kept result's smallest form, only for this root, this commit, this mode and this snapshot.
+brun "$GR" "$GC" "$WORK/git-round.json"
+brun "$GR" "$GC" --verdict "$WORK/git-round.json"
+[[ "$BCODE" == "0" && "$(jq -c '.verdict' <<<"$BOUT" 2>/dev/null)" == "true" && "$(jq -c 'del(.verdict)' <<<"$BOUT" 2>/dev/null)" == "$(jq -c . <<<"$GROUND")" ]] && ok "--verdict after a passing run: exit 0 and the run's own result, marked verdict" || bad "--verdict after a passing run: exit 0 and the run's own result, marked verdict" "exit $BCODE: $BOUT $BERR"
+[[ -z "$(git -C "$GR" status --porcelain)" ]] && ok "kept: a run leaves the working tree clean" || bad "kept: a run leaves the working tree clean" "$(git -C "$GR" status --porcelain)"
+brun "$GR" "$GC" --verdict --git-only "$WORK/git-round.json"
+[[ "$BCODE" == "2" && "$BERR" == *"is for full"* ]] && ok "--verdict for another mode than the kept run's: exit 2" || bad "--verdict for another mode than the kept run's: exit 2" "exit $BCODE: $BERR"
+brun "$GR" "$GC" --verdict "$WORK/git-all.json"
+[[ "$BCODE" == "2" && "$BERR" == *"git-round.json"* ]] && ok "--verdict for another snapshot than the kept run's: exit 2" || bad "--verdict for another snapshot than the kept run's: exit 2" "exit $BCODE: $BERR"
+# Two worktrees of one repository never read each other's kept result.
+bgit "$GR" worktree add -q "$WORK/wt" HEAD >/dev/null 2>&1
+brun "$WORK/wt" "$WORK/wt/.claude/redline/checks.sh" --verdict "$WORK/git-round.json"
+[[ "$BCODE" == "2" && "$BERR" == *"no kept result for"* ]] && ok "--verdict in a second worktree at the same commit: exit 2, it has no kept result of its own" || bad "--verdict in a second worktree at the same commit: exit 2, it has no kept result of its own" "exit $BCODE: $BERR"
+brun "$WORK/wt" "$WORK/wt/.claude/redline/checks.sh" --git-only "$WORK/git-round.json"
+brun "$GR" "$GC" --verdict "$WORK/git-round.json"
+[[ "$BCODE" == "0" && "$(jq -r '.mode' <<<"$BOUT" 2>/dev/null)" == "full" && "$(keptfiles "$GR")" == "1" && "$(keptfiles "$WORK/wt")" == "1" ]] && ok "kept: a run in the second worktree leaves the first one's result as it was" || bad "kept: a run in the second worktree leaves the first one's result as it was" "exit $BCODE: $(jq -c '.mode' <<<"$BOUT" 2>&1) $(keptfiles "$GR") $(keptfiles "$WORK/wt")"
+# The stale case: HEAD moved since the kept result.
+GOLD="$(git -C "$GR" rev-parse HEAD)"
+bgit "$GR" commit -q --allow-empty -m "redline: R1-2 one more commit (#68)"
+brun "$GR" "$GC" --verdict "$WORK/git-round.json"
+[[ "$BCODE" == "2" && -z "$BOUT" && "$BERR" == *"is for commit $GOLD"*"HEAD is now $(git -C "$GR" rev-parse HEAD)"* ]] && ok "--verdict after HEAD moved: exit 2, no JSON, both commits named" || bad "--verdict after HEAD moved: exit 2, no JSON, both commits named" "exit $BCODE: $BOUT $BERR"
+brun "$GR" "$GC" "$WORK/git-round.json"
+[[ "$(keptfiles "$GR")" == "1" && ! -e "$GK" ]] && ok "kept: the next run replaces the root's kept result, one file a root" || bad "kept: the next run replaces the root's kept result, one file a root" "$(ls "$TMPDIR/redline-checks")"
+
+# The budget (the arithmetic is in the template's comment): both streams together, as the Bash tool shows them.
+PB="$WORK/budget-repo"; mkdir -p "$PB/.claude/redline"
+( cd "$PB" && git init -q )
+jq -n '{repo: "a scratch repository", gateFile: "gate.md", baseline: {seconds: 1, date: "2026-11-15"}, steps: [range(1; 13) | {step: ., name: "check-number-\(.)", recorded: 0, cmd: "echo passed"}]}' > "$WORK/budget-pass.json"
+"$SETUP" checks "$WORK/budget-pass.json" "$PB/.claude/redline/checks.sh" >/dev/null 2>&1
+bgit "$PB" add .claude; bgit "$PB" commit -q -m checks
+PS0="$(git -C "$PB" rev-parse HEAD)"
+LONG="$(printf 'word %.0s' $(seq 24))"
+# batch <letter>: 300 files at 75-character paths in one commit, then 99 more commits, every subject over 100 characters.
+batch() {
+    local d="$PB/app/Http/Controllers/Api/V1/Feature$1" i
+    mkdir -p "$d"
+    for i in $(seq 300); do printf 'x\n' > "$d/ResourceControllerWithALongName$((i + 99)).php"; done
+    bgit "$PB" add app; bgit "$PB" commit -q -m "redline: R1-1 ${LONG}(#68)"
+    for i in $(seq 99); do bgit "$PB" commit -q --allow-empty -m "redline: R1-$i ${LONG}(#68)"; done
+}
+batch A; PMID="$(git -C "$PB" rev-parse HEAD)"
+batch B; PROUND="$(git -C "$PB" rev-parse HEAD~40)"
+bsnap() { git -C "$PB" diff --name-only "$1" HEAD | jq -R . | jq -s --arg s "$1" --arg r "$PROUND" '{pr: 1, start_sha: $s, round_sha: $r, base_ref: "HEAD", files: ., plan_paths: []}'; }
+bsnap "$PMID" > "$WORK/budget-300.json"; bsnap "$PS0" > "$WORK/budget-600.json"
+brun "$PB" "$PB/.claude/redline/checks.sh" "$WORK/budget-300.json"; B300=$BBYTES
+[[ "$BCODE" == "0" && "$(jq -c '[(.checks | length), .git.changed_count, .git.allowed_count, .git.commits_count, (.git.commits | length)]' <<<"$BOUT" 2>/dev/null)" == "[12,300,302,100,40]" ]] && ok "budget: the passing run is 12 checks, 300 files, 100 commits since the start and 40 in the round" || bad "budget: the passing run is 12 checks, 300 files, 100 commits since the start and 40 in the round" "exit $BCODE: $(jq -c '[(.checks | length), .git.changed_count, .git.allowed_count, .git.commits_count, (.git.commits | length)]' <<<"$BOUT" 2>&1) $BERR"
+[[ "$B300" -lt 10000 ]] && ok "budget: that passing result is under 10 KB" || bad "budget: that passing result is under 10 KB" "$B300 bytes"
+brun "$PB" "$PB/.claude/redline/checks.sh" "$WORK/budget-600.json"; B600=$BBYTES
+[[ "$(jq -c '[.git.changed_count, .git.commits_count, (.git.commits | length)]' <<<"$BOUT" 2>/dev/null)" == "[600,200,40]" && $(( B600 > B300 ? B600 - B300 : B300 - B600 )) -lt 20 ]] && ok "budget: twice the files and twice the commits since the start change the size by under 20 bytes" || bad "budget: twice the files and twice the commits since the start change the size by under 20 bytes" "$B300 then $B600 bytes: $(jq -c '[.git.changed_count, .git.commits_count, (.git.commits | length)]' <<<"$BOUT" 2>&1)"
+WORSTCMD="$(cat <<'CMD'
+for i in $(seq 300); do printf '\033[31mE a failing assertion line padded with words until it is one hundred and twenty characters long, to the end\033[0m\n'; done; for i in $(seq 300); do printf '\033[33mW a warning line on stderr padded with words until it is one hundred and twenty characters long, right to the end\033[0m\n' >&2; done; exit 1
+CMD
+)"
+jq -n --arg cmd "$WORSTCMD" '{repo: "a scratch repository", gateFile: "gate.md", baseline: {seconds: 1, date: "2026-11-15"}, steps: [range(1; 13) | {step: ., name: "check-number-\(.)", recorded: 0, cmd: $cmd}]}' > "$WORK/budget-worst.json"
+"$SETUP" checks "$WORK/budget-worst.json" "$WORK/worst.sh" >/dev/null 2>&1
+brun "$PB" "$WORK/worst.sh" "$WORK/budget-300.json"; BWORST=$BBYTES
+[[ "$BCODE" == "1" && "$(jq -c '[(.checks | length), ([.checks[] | .truncated and (.stdout | length) > 0 and (.stderr | length) > 0 and (.cmd | length) <= 123] | all), (.git.commits | length)]' <<<"$BOUT" 2>/dev/null)" == "[12,true,40]" ]] && ok "budget: the worst run is 12 failing checks, each with cut output on both streams and a cut command" || bad "budget: the worst run is 12 failing checks, each with cut output on both streams and a cut command" "exit $BCODE: $(jq -c '[.checks[] | [.truncated, (.stdout | length), (.stderr | length), (.cmd | length)]]' <<<"$BOUT" 2>&1) $BERR"
+[[ "$BWORST" -lt 25000 ]] && ok "budget: that worst case is under 25 KB" || bad "budget: that worst case is under 25 KB" "$BWORST bytes"
+printf '     measured: passing %s bytes, twice the size %s bytes, every check failing %s bytes\n' "$B300" "$B600" "$BWORST"
 
 echo "# checks: bad input"
 jq '.steps[0].name = "snapshots"' "$LJ" > "$WORK/dup.json"
@@ -583,6 +741,7 @@ expect_json "v1 section, --merge: changed and written" '[.changed, .written] | j
 check "--merge: the hand edit survives" grep -q 'HAND EDIT kept' "$V1"
 check "--merge: v2's owner line arrived" grep -q 'Every decision names its owner' "$V1"
 check "--merge: v3's ask-rules sentence arrived" grep -q 'repository rule <id>' "$V1"
+check "--merge: v4's decline and its ask cases arrived (#93)" grep -q 'asked in five cases only' "$V1"
 check "--merge: the marker is the template's version" grep -q "^<!-- redline-unattended: $UV -->\$" "$V1"
 check "--merge: the fill-ins are the wanted ones" grep -q '(gate steps 1 to 5)' "$V1"
 [[ "$(grep -c '^## Unattended mode (Redline)$' "$V1")" == "1" ]] && ok "--merge: the heading once" || bad "--merge: the heading once" "$(grep -c '^## Unattended mode (Redline)$' "$V1")"
@@ -700,6 +859,7 @@ ubody_pin() {
         v1) echo "a408539181c8e3bc9719ad4b8544705158b0ce48a9cd69f25be3b2f3e6836421" ;;
         v2) echo "223a713c121ca604bdc5aba264485b3af64a5d49a0730d0ed9382ac94bacf9d4" ;;
         v3) echo "e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a" ;;
+        v4) echo "d88ad3f0ea4188a5a93a4b49e9c88634f81e314e45ce4f04aa8b995bd472586b" ;;
     esac
 }
 # ubody_sha <file>: the sha256 of the file's body, the lines after its first --- line.

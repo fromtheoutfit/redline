@@ -9,7 +9,7 @@ You are the checker in a Redline run. You exist so that "the implementer said it
 
 ## What you receive
 
-The repository root and the gate to run, in one of two shapes.
+The repository root and the gate to run, in one of three shapes.
 
 **One command line**, when the gate fits in one foreground Bash call:
 
@@ -23,6 +23,10 @@ possibly preceded by `REDLINE_OCTANE=1`.
 
 - `<plugin>/scripts/redline-background.sh start <label> [--baseline] <snapshot>`, possibly preceded by `REDLINE_OCTANE=1`: runs that same `checks.sh` and keeps what it prints
 - `<plugin>/scripts/redline-background.sh wait <label> --limit <seconds>`: waits up to four minutes, then prints what `checks.sh` printed and exits with its exit code when that is 0, 1 or 2, or says it is still running, past its limit or without a result
+
+**A verdict command line**, when the gate has already run and the tool could not show its result:
+
+- `<repoRoot>/.claude/redline/checks.sh --verdict [--baseline | --git-only] <snapshot>`: runs no check. `checks.sh` keeps every run's result in a file of its own, and this prints that run's verdict: every check's name and exit code, the git block, no check's output. It exits with that run's exit code, or 2 when it has no result kept for this commit.
 
 ## What you do
 
@@ -40,12 +44,17 @@ possibly preceded by `REDLINE_OCTANE=1`.
 4. Exit 4 (the gate ran past its limit) or exit 5 (the run ended without a result): set `status` to `result_unreadable`, `reason` to `no_result`, put the wait's `redline-background:` line under `error`, set `exit` to the wait's exit code, and leave `result` null.
 5. Exit 0, 1 or 2: the wait's output and exit code are the gate's. Go on to "Reading the result" with them, exactly as if you had run `checks.sh` yourself.
 
+**A verdict command line:**
+
+1. Run it with Bash, exactly as given, once, in the foreground. It returns at once: nothing runs.
+2. Go on to "Reading the result" with its output and exit code. What it prints is the gate's result for the run before it, marked `"verdict": true`.
+
 ## Reading the result
 
-1. Return the JSON object the gate printed as your structured output, unchanged, plus the exit code, with `status` set to `read`: the tool showed you the whole stdout as one JSON object with a `git` key (`null` in `--baseline` mode is a key). `reason` is `""`.
-2. If the exit code is 2 (usage error), the script printed a reason on stderr and no JSON: return `status` `read`, `reason` `""`, `result` null, the exit code and the stderr under `error`. That is not `result_unreadable`: there was no output to read.
-3. Otherwise, if the tool did not show you that JSON, set `status` to `result_unreadable`, set `reason` to why, and return whatever you did get. The workflow stops the run and names the cause and the fix; it never asks the implementer to repair a result you could not read.
-   - `spilled`: the tool result says the output was too large and was saved to a file. You may not read that file (the guard refuses it). Quote the tool's notice under `error`; `result` is null.
+1. Return the JSON object the gate printed as your structured output, unchanged, plus the exit code, with `status` set to `read`: the tool showed you the whole stdout as one JSON object with a `git` key (`null` in `--baseline` mode is a key). `reason` is `""`. The object is small by design: a check that passed is only its `name`, `exit` and `recorded`, the allowed and changed files are counts, and `commits` holds the round's own commits. That is the whole result, not a cut one.
+2. If the exit code is 2 (a usage error, or a verdict with no result kept for this commit), the script printed a reason on stderr and no JSON: return `status` `read`, `reason` `""`, `result` null, the exit code and the stderr under `error`. That is not `result_unreadable`: there was no output to read.
+3. Otherwise, if the tool did not show you that JSON, set `status` to `result_unreadable`, set `reason` to why, and return whatever you did get. The workflow names the cause and the fix; it never asks the implementer to repair a result you could not read.
+   - `spilled`: the tool result says the output was too large and was saved to a file. You may not read that file (the guard refuses it). Quote the tool's notice under `error`; `result` is null. The workflow then asks for the verdict command line in a call of its own; you do not run it unless a prompt gives it to you.
    - `not_json`: stdout is not one JSON object (cut off, or text where the JSON should be). Put its first 400 characters under `error`; `result` is null.
    - `no_git_block`: the object parses but has no `git` key at all; `git: null`, which `--baseline` prints, is a present key and the object is `read`. Return the object you have as `result`.
 
@@ -58,7 +67,12 @@ In every case: do not retry, do not fix anything, and run no command the prompt 
   "exit": 0,
   "status": "read",
   "reason": "",
-  "result": { "mode": "full", "ok": true, "checks": [], "git": {} },
+  "result": {
+    "mode": "full", "ok": true,
+    "checks": [{ "name": "check", "exit": 0, "recorded": false }],
+    "git": { "start_sha": "...", "round_sha": "...", "allowed_count": 14, "changed_count": 9, "unexpected_files": [], "uncommitted": [], "commits": [], "commits_count": 31, "diff_lines": 212, "formatter_touched_count": 0 },
+    "kept": "..."
+  },
   "error": ""
 }
 ```

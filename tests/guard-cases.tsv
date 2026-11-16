@@ -547,6 +547,12 @@ redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-background.sh run 2026-
 redline:redline-checker	deny	Bash	/tmp/redline-background.sh start 2026-10-26-1304-790-baseline --baseline /tmp/s.json
 redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline > /tmp/out.json
 redline:redline-checker	deny	Bash	cat /tmp/redline-background/2026-10-26-1304-790-baseline.json
+# checks.sh --verdict (#68): the checker asks the script for the verdict of a gate run whose result
+# the Bash tool could not show. No guard change: the checks group takes the repository's own
+# checks.sh whatever its flags, so the script reads its kept result and the checker still reads
+# no file, the kept result included.
+redline:redline-checker	allow	Bash	REPO/.claude/redline/checks.sh --verdict REPO/agent-os/specs/x/redline/snapshot.json
+redline:redline-checker	deny	Bash	cat /tmp/redline-checks/0a1b2c3d-4e5f6a7b.json
 redline:redline-implementer	deny	Edit	PLUGIN/scripts/redline-background.sh
 -	inert	Bash	PLUGIN/scripts/redline-background.sh wait 2026-10-26-1304-790-baseline
 

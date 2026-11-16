@@ -1,0 +1,4 @@
+<!-- redline:R2-12 -->
+**R2-12** · `workflows/redline-loop.js:3128` · from the Redline round 2 review body
+
+Redline round 2: mitigated in bc70286 (redline: R2-12 never count a declined item as fixed in the round's fixed list (#93)). The full fix is deferred and listed in the Redline handoff: Name a deferred item whose mitigation was committed apart in the final nit pass's opening sentence (handoffComment) and the human review pass's summary (humanSummary), e.g. '1 deferred, its mitigation committed in one more pass that was not re-reviewed', with loop checks for a final nit pass that defers one item; the wording extends the owner-approved #93 sentences. · decided by: redline

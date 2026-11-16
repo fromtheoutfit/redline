@@ -1,0 +1,1 @@
+Redline round 6: declined: refuted: the reviewer and the shaper, two separate agent calls of this run, both see the session's TMPDIR and the kept file the build's gate wrote there, so agent calls inherit the session's environment rather than getting their own; moving the file would also undo #68's decision 5 on where it lives · decided by: redline

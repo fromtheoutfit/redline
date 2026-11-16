@@ -34,21 +34,30 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  comment_id, body, reply, carried_from, carried_to, disposition}],
 #                                  by round then number, [] when no Redline review exists. A
 #                                  finding is a review body line "- **R<n>-<k>** · <category> ·
-#                                  <severity> · <confidence> · `<file>:<line>` · <title>" (an
-#                                  "Already tracked" line has no such fields and is not one);
-#                                  " · needs a decision", " · first reported as R<n>-<k>"
-#                                  (carried_from) and " · yours under rule <id>" (a repository ask
-#                                  rule, #49) are stripped from the title. comment_id and body
+#                                  <severity> · <confidence> · `<file>:<line>` · <title>", under
+#                                  whatever heading (an "Already tracked" line has no such fields
+#                                  and is not one, nor is a scope-declined line, whose id is not
+#                                  bold, #93); <confidence> is confirmed or unconfirmed, and likely
+#                                  or unsure in a review posted before #93. " · needs a decision",
+#                                  " · first reported as R<n>-<k>" (carried_from) and a repository
+#                                  ask rule's tail (#49), " · left to <person> under rule <id>" or,
+#                                  before #93, " · yours under rule <id>", are stripped from the
+#                                  title; <person> is @<login>, or "the person running Redline"
+#                                  when the run had no login ("the author" in a final nit pass
+#                                  after a human review pass with none). comment_id and body
 #                                  are the root inline comment opening **<id>** · , 0 and "" for a
 #                                  finding in the review body. reply is the newest "Redline round
 #                                  N: " reply in that thread, else the issue comment opening
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "not acted on in
-#                                  this run." dropped, "not changed in this round." not-changed,
+#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  declined (Redline's own decision not to act, #93; a reply that
+#                                  only mentions a decline is decided), "not acted on in this
+#                                  run." dropped, "not changed in this round." not-changed,
 #                                  "carried forward as R<n>-<k>;" carried (carried_to), "left to
-#                                  the author" left (a finding a repository ask rule left to the
+#                                  <person> under repository rule" or, before #93, "left to the
+#                                  author" left (a finding a repository ask rule left to the
 #                                  person, #49), "resolved; first reported as" fixed (a later
 #                                  run's reviewer found the code no longer has it, #80, R4-3), any
 #                                  other reply decided, no reply none; a finding a later round's
@@ -478,19 +487,28 @@ What every repository's `checks.sh` is generated from, by `redline-setup.sh chec
 #   checks.sh <snapshot.json>              full run: commands + git block
 #   checks.sh --baseline [snapshot.json]   commands only, git block is null
 #   checks.sh --git-only <snapshot.json>   git block only, checks is []
+#   checks.sh --verdict [--baseline | --git-only] [snapshot.json]
+#                                          no run: the verdict of the run kept for this commit
 #
 # Environment:
 #   REDLINE_OCTANE=1   set by the workflow when the approved plan touches app/Providers/,
 #                      bootstrap/ or config/octane.php; run a long-lived-process suite
 #                      here if the repository has one, else ignore it
+#   TMPDIR             a run keeps its full result under it, in redline-checks/; a --verdict
+#                      call must see the same one
 #
-# Snapshot: {"pr", "start_sha", "base_ref", "files": [...], "plan_paths": [...]}.
+# Snapshot: {"pr", "start_sha", "round_sha", "base_ref", "files": [...], "plan_paths": [...]}.
 # Allowed changes are files + plan_paths + agent-os/specs/ + agent-os/standards/ +
-# ALWAYS_ALLOWED; anything else that changed since start_sha is unexpected.
+# ALWAYS_ALLOWED; anything else that changed since start_sha is unexpected. git.commits lists
+# round_sha..HEAD, the round's own commits, or start_sha..HEAD when the snapshot has no round_sha.
 #
 # Exit 0 when every non-recorded check passed and git.unexpected_files and
-# git.uncommitted are both empty, else 1. Usage errors exit 2. See the Redline
-# README for the output contract.
+# git.uncommitted are both empty, else 1. Usage errors exit 2, and so does a --verdict with no
+# kept result for this commit, mode and snapshot. See the Redline README for the output contract.
+#
+# stdout is sized for the workflow and stays small whatever the pull request's size or the run's
+# length. The full result is kept in a file outside the working tree, named under "kept" in the
+# result; the comments in the script give the sizes and the file's place.
 #
 # The last line of this header is the gate stamp: a hash of the gate's backticked text, written
 # by <plugin>/scripts/redline-gate.sh stamp. A launch recomputes it from the gate and refuses to
@@ -499,7 +517,7 @@ What every repository's `checks.sh` is generated from, by `redline-setup.sh chec
 # <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 # The line above the stamp names the template version this file was made from; a launch warns
 # when the plugin's template is newer.
-# redline-template: checks-template.sh v2
+# redline-template: checks-template.sh v3
 # redline-gate: TODO  stamp it: <plugin>/scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 ```
 

@@ -1,0 +1,4 @@
+[
+  {"id": 70, "user": {"login": "author"}, "body": "<!-- redline:R1-4 -->\n**R1-4** · `public/build/vendor.js:7` · from the Redline round 1 review body\n\nRedline round 1: declined: generated code, rebuilt on every deploy · decided by: redline"},
+  {"id": 71, "user": {"login": "marcamos"}, "body": "Looks fine."}
+]

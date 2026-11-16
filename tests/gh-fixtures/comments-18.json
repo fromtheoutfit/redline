@@ -1,0 +1,28 @@
+[
+  {
+    "id": 1801,
+    "pull_request_review_id": 60,
+    "user": {
+      "login": "octo_acme"
+    },
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-1** · correctness · medium · confirmed\n\n**Field handle renamed**\n\nThe handle is changed in project config.\n\nThis one is left to @octo_acme: repository rule craft-config (Craft project config is applied through the control panel).",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-13T10:00:00Z"
+  },
+  {
+    "id": 1811,
+    "pull_request_review_id": 61,
+    "user": {
+      "login": "octo_acme"
+    },
+    "path": "config/project/project.yaml",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: left to @octo_acme under repository rule craft-config (Craft project config is applied through the control panel). No change made; @octo_acme makes it. · decided by: @octo_acme",
+    "in_reply_to_id": 1801,
+    "created_at": "2026-11-13T12:00:00Z"
+  }
+]

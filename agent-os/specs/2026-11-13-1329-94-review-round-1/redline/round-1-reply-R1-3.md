@@ -1,0 +1,1 @@
+Redline round 1: fixed in a8c7f56 (redline: R1-3 strip a "left to the author under rule" tail from a prior finding's title (#93)). · decided by: redline

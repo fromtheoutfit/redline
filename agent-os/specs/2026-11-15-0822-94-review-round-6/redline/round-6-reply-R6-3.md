@@ -1,0 +1,1 @@
+Redline round 6: declined: it needs several hundred paths left outside the plan or uncommitted, a round whose gate fails anyway, and the stop that follows is the one docs/contract.md documents; the change is to the template's --verdict, which only a person can make and regenerate, so it belongs in a person's next change to the template · decided by: redline
