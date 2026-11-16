@@ -30,7 +30,7 @@ Applied: R7-10's log line and its list (15, 39); R7-4, including the skill's gra
 
 Line 11 (its opening):
 
-- An invisible or non-ASCII character a test or a fixture needs is written as its escape (`⁠` in JavaScript and JSON source), never as the character itself. ...
+- An invisible or non-ASCII character a test or a fixture needs is written as its escape (`\u2060` in JavaScript and JSON source), never as the character itself. ...
 
 Line 13 (its opening):
 

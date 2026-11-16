@@ -427,3 +427,27 @@ Fourteen edits, approved by the owner and applied in their own commit, `8f5fd84`
 ### Left to the owner
 
 As "After the gate" above says: the two measurements, this pull request's own review, a `/redline:setup` rerun in each repository that uses Redline, the follow-up issue on one notification per round, and the tag and changelog after the merge.
+
+### Closed out by hand after round 9 (2026-11-15)
+
+Redline's third run on PR #94 stopped at the cap of three revise rounds after round 9, with R9-5 open (`agent-os/specs/2026-11-15-0822-94-review-round-9/redline/cap-hit.md`). The owner closed the pull request out by hand, with no Redline run and no new spec folder. Each commit was made by the owner.
+
+| Commit | Change | Harness, red then green |
+| --- | --- | --- |
+| `f3445a6` | The shellcheck job's one finding, SC2010 at `tests/setup-test.sh` line 503: `keptfiles` counts the kept results with a glob loop instead of `ls \| grep -c`. Run side by side, the two gave the same count with none kept, with mixed names and with the directory missing | CI's shellcheck job failed on SC2010 at `b54974b`; shellcheck is not installed locally, so its command was not run here. `tests/setup-test.sh`: 506 passed, 0 failed |
+| `3326e51` | R9-5: `leadingId` reads a coverage ref's leading id for both the rename in `review()` and `accountCoverage`, so `R0-1. note`, `R0-1/note` and a duplicate's `R0-1: note` follow the rename. A settled ref names an earlier finding and keeps its id. `R0-1-x` is read as no id by either, as before | `node tests/loop-test.mjs`: 972 passed, 2 failed; then 976, 0 |
+| the nits | R9-2: `duplicateTarget` is the one reading of a duplicate's target index, for `accountCoverage` and the set-aside block. R9-3: the reshape prompt asks for `secondLook`, and the loop test's reshape mock gives one only when its prompt asks. R9-4: when a decision carries `own`, the resolve prompt's rule bullet sends it to the own-file bullet. R9-7: the Left-to heading names repository rules before Redline's own files, as `docs/running.md` does | `node tests/loop-test.mjs`: 979 passed, 3 failed (R9-3, R9-4, R9-7); then 982, 0. R9-2 changes no behaviour, and the duplicate-forms cases cover both of its readers. R9-4's neighbour, a rules-only resolve prompt that names no exception, was green throughout |
+| the standards | The three edits below | none reads the standards |
+| this note | This section, and line 33 of round 7's `standards.md`, whose raw U+2060 is now its six-character escape. A byte search for E2 81 A0 finds no file in the working tree | none |
+
+Declined, not changed: R9-1 (a finding on Redline's own files is stored as a made-up rule plus an `own` flag) and R9-6 (whether a finding is on Redline's own files is decided by the shaper's label, never by its path). Each is a design change that belongs in a follow-up.
+
+The PR #94 description gained `Closes #68.` beside `Closes #93.` and a section on the nine review rounds over three runs.
+
+**The gate.** `.claude/redline/checks.sh --baseline` exits 0 with all nine checks green, run over the tree holding the nits and the U+2060 edit: guard 596 passed, 0 mismatched; loop 982, setup 506, gh 136, prefs 121, gate 117, background 39, each with 0 failed. The standards edits and this note come after the run, and no check reads them. `scripts/redline-gate.sh check .` reports a match, and `scripts/redline-setup.sh version .` exits 0.
+
+**Docs (gate step 10).** `workflows/redline-loop.js`: no reader-facing change. R9-5 and R9-2 change how the workflow reads a coverage ref, which no doc describes. R9-3 and R9-4 change agent prompts only. R9-7 makes the heading read as `docs/running.md`, "The handoff comment", already says.
+
+**Version (gate step 11).** 0.3.0 still, since this is the same pull request.
+
+**Standards retrospective (gate step 12).** Three edits, approved by the owner and landed in their own commit. In `workflow/agents.md`, the reshape prompt asks for every field the shared shape checks read (R9-3), and a coverage ref's leading id and a duplicate's target index are each read by one function (R9-5, R9-2). In `testing/tests.md`, the reshape mock gives such a field only when the reshape prompt asks for it (R9-3).
