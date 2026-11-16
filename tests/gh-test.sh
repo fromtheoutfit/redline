@@ -86,6 +86,8 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "diff" ]]; then echo "could not find pull 
 # `list` is logged with its search and served from $PAGES/issues-list.json ([] when absent);
 # `create` is logged with its title and its body (as one JSON string) and answered with an issue
 # URL, numbered from 123. GH_FAKE_LIST_FAIL=1 and GH_FAKE_CREATE_FAIL=1 fail them as GitHub would.
+# GH_FAKE_CREATE_WRITES=<file> writes GH_FAKE_CREATE_TEXT into that file before the create answers,
+# as a defer for another finding finishing while this one is on GitHub would (#97).
 if [[ "${1:-}" == "issue" ]]; then
     sub="${2:-}"; shift 2
     title=""; body=""; search=""
@@ -107,6 +109,7 @@ if [[ "${1:-}" == "issue" ]]; then
             if [[ "${GH_FAKE_CREATE_FAIL:-0}" == 1 ]]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi
             n=$(( $(grep -c '^create' "$PAGES/issue.log" 2>/dev/null || true) + 123 ))
             printf 'create\t%s\t%s\n' "$title" "$(jq -Rs . "$body")" >> "$PAGES/issue.log"
+            if [[ -n "${GH_FAKE_CREATE_WRITES:-}" ]]; then printf '%s\n' "${GH_FAKE_CREATE_TEXT:-}" > "$GH_FAKE_CREATE_WRITES"; fi
             echo "https://github.com/o/r/issues/$n" ;;
         *) echo "fake gh: unexpected issue subcommand $sub" >&2; exit 1 ;;
     esac
@@ -443,6 +446,12 @@ is "defer issue, a failed create: writes no record" "$([[ -e "$D/failed.json" ]]
 rm -f "$LOG"
 GH_FAKE_LIST_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>&1; code=$?
 is "defer issue, a failed lookup: exits 1, creates nothing and writes no record" "$code $(cut -f1 "$LOG" | tr '\n' ' ')$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 list no"
+rm -f "$LOG"
+# A defer for another finding that finished while this one was on GitHub (#97, R1-2): the entry is
+# merged into the record as the file stands when it is written, so the other entry is kept.
+GH_FAKE_CREATE_WRITES="$D/overlap.json" GH_FAKE_CREATE_TEXT='{"R2-5":{"where":"issue","number":90,"url":"https://github.com/o/r/issues/90","path":"x.md"}}' gh defer issue R2-8 "$D/issue-R2-3.md" "$D/overlap.json" >/dev/null
+is "defer issue, another finding recorded meanwhile: the record keeps both entries" "$(jq -c 'keys' "$D/overlap.json")" '["R2-5","R2-8"]'
+is "defer issue, another finding recorded meanwhile: this finding's entry is the issue it opened" "$(jq -c '[.["R2-8"].number, .["R2-5"].number]' "$D/overlap.json")" '[123,90]'
 rm -f "$LOG"
 cp "$D/issue-R2-3.md" "$WORK/pages/loose.md"
 is "defer draft: a draft outside any repository keeps its path as given" "$(gh defer draft R2-9 "$WORK/pages/loose.md" "$WORK/pages/loose.json" | jq -r .path)" "$WORK/pages/loose.md"

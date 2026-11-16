@@ -118,9 +118,11 @@
 #                                  the draft's last line (the pull request, round and finding it
 #                                  came from, text only that issue has) is looked up, recorded and
 #                                  printed; else the issue is opened and recorded as {where:
-#                                  "issue", number, url, path}. draft: the path is recorded as
-#                                  {where: "draft", path} and GitHub is not called. Prints
-#                                  {finding, where, number, url, path, reused}: path is the
+#                                  "issue", number, url, path}. Each entry is merged into the
+#                                  record as the file stands when it is written, so an entry
+#                                  another defer recorded meanwhile is kept. draft: the path is
+#                                  recorded as {where: "draft", path} and GitHub is not called.
+#                                  Prints {finding, where, number, url, path, reused}: path is the
 #                                  draft's, relative to its repository; number 0 and url "" for a
 #                                  draft; reused true when the issue was already there. A failed
 #                                  lookup or create exits 1 and writes no record
@@ -168,13 +170,18 @@ need_int() {
     fi
 }
 
-# defer_record <record file> <the record's JSON> <finding> <entry>: the record with the finding's
-# entry set, written beside itself and moved into place, so a reader never sees half a file.
+# defer_record <record file> <finding> <entry>: the record with the finding's entry set, merged
+# into the record as the file stands now, not as `defer` read it before the lookup and the create
+# on GitHub, so an entry another defer recorded in between is kept (#97, R1-2); written beside
+# itself and moved into place, so a reader never sees half a file.
 defer_record() {
-    local tmp
+    local tmp current='{}'
     mkdir -p "$(dirname "$1")"
+    if [[ -f "$1" ]]; then
+        current="$(cat "$1")"
+    fi
     tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"
-    jq --arg id "$3" --argjson e "$4" '. + {($id): $e}' <<<"$2" > "$tmp"
+    jq --arg id "$2" --argjson e "$3" '. + {($id): $e}' <<<"$current" > "$tmp"
     mv "$tmp" "$1"
 }
 
@@ -582,7 +589,7 @@ case "$cmd" in
         fi
         if [[ "$mode" == "draft" ]]; then
             entry="$(jq -cn --arg path "$path" '{where: "draft", path: $path}')"
-            defer_record "$record" "$existing" "$finding" "$entry"
+            defer_record "$record" "$finding" "$entry"
             defer_print "$finding" "$entry" false
             exit 0
         fi
@@ -594,7 +601,7 @@ case "$cmd" in
         match="$(jq -c --arg m "$marker" '[.[] | select((.body // "") | split("\n") | map(sub("\r$"; "")) | index($m) != null)] | sort_by(.number) | first // null' <<<"$found")"
         if [[ "$match" != "null" ]]; then
             entry="$(jq -c --arg path "$path" '{where: "issue", number: .number, url: .url, path: $path}' <<<"$match")"
-            defer_record "$record" "$existing" "$finding" "$entry"
+            defer_record "$record" "$finding" "$entry"
             defer_print "$finding" "$entry" true
             exit 0
         fi
@@ -608,7 +615,7 @@ case "$cmd" in
             exit 1
         fi
         entry="$(jq -cn --arg path "$path" --arg url "$url" --argjson number "$number" '{where: "issue", number: $number, url: $url, path: $path}')"
-        defer_record "$record" "$existing" "$finding" "$entry"
+        defer_record "$record" "$finding" "$entry"
         defer_print "$finding" "$entry" false
         ;;
 

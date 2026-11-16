@@ -128,9 +128,11 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  the draft's last line (the pull request, round and finding it
 #                                  came from, text only that issue has) is looked up, recorded and
 #                                  printed; else the issue is opened and recorded as {where:
-#                                  "issue", number, url, path}. draft: the path is recorded as
-#                                  {where: "draft", path} and GitHub is not called. Prints
-#                                  {finding, where, number, url, path, reused}: path is the
+#                                  "issue", number, url, path}. Each entry is merged into the
+#                                  record as the file stands when it is written, so an entry
+#                                  another defer recorded meanwhile is kept. draft: the path is
+#                                  recorded as {where: "draft", path} and GitHub is not called.
+#                                  Prints {finding, where, number, url, path, reused}: path is the
 #                                  draft's, relative to its repository; number 0 and url "" for a
 #                                  draft; reused true when the issue was already there. A failed
 #                                  lookup or create exits 1 and writes no record
