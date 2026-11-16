@@ -205,11 +205,12 @@ function mock(scenario) {
       const human = prompt.includes('a revise pass whose findings are the review comments')
       // A reshape answers what the reshape prompt asks for (#61, R1-2), and only when scripted: the
       // ids whose call it leaves out (reshapeOmitCall), sorts fix with the call kept (reshapeFix),
-      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall), or
-      // declines (reshapeDecline). It gives a second look only when its prompt asks for one (#94, R9-3).
+      // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall),
+      // declines (reshapeDecline), or sorts defer with its entry (reshapeDefer, #97, R1-10). It gives
+      // a second look only when its prompt asks for one (#94, R9-3).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
-      const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
+      const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : onReshape('reshapeDefer').includes(id) ? 'defer' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
       // workflow's check of it.
       const owner = (id) => (scenario.ownerOf && scenario.ownerOf[id]) || (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
@@ -229,7 +230,7 @@ function mock(scenario) {
         // nothing. Each entry carries its drafted issue (title, found, why, fullFix), which the
         // shape and reshape prompts ask for, unless scenario.noDraft names the finding, a
         // shape-stage error.
-        deferred: ids.filter((id) => defer.includes(id)).map((id) => ({
+        deferred: ids.filter((id) => defer.includes(id) || onReshape('reshapeDefer').includes(id)).map((id) => ({
           id, mitigation: scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause', fullFix: 'a lock',
           // scenario.drafts[id] (#95) replaces fields of one finding's draft, fullFix included.
           // scenario.reshapeDrafts[id] (#95) does the same on a reshape alone: a draft the reshape changed.
@@ -2958,6 +2959,16 @@ function samePrefix(name, first, second, n) {
   // A deferral the person chose is their decision: its reply and its line keep the decision and end with where it went.
   const chosen = await go('filing: a fix the person changes to a deferral on the plan dial', { ...filedArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }] })
   check('filing: a deferral the person chose is filed, and its reply ends with where it went, as their decision', chosen.res.status === 'done' && labels(chosen.calls).includes('file deferred r1') && replyFor(chosen.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it behind a log line. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author', [chosen.res.status, chosen.res.error, replyFor(chosen.calls, 'push and reply r1', 'R1-1')])
+  // A finding the person decided is a deferral only when the decision made it one (#97, R1-10): a
+  // resolve agent's entry that ships nothing beside a call it planned as a fix, and a reshape's
+  // entry beside a decided call, leave the fix a fix; a call answered with a deferral that ships
+  // nothing, with no task, is still the person's deferral.
+  const strayResolve = await go('filing: the resolve agent defers a call it planned as a fix, shipping nothing', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1']] })
+  check('filing: a resolve entry that ships nothing beside a call planned as a fix files nothing, and the fix is posted and counted as one', strayResolve.res.status === 'done' && !labels(strayResolve.calls).includes('file deferred r1') && (strayResolve.res.deferred || []).length === 0 && (replyFor(strayResolve.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(strayResolve.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to') && (strayResolve.res.rounds[1] || {}).reviewed === 'fix-diff', [strayResolve.res.status, labels(strayResolve.calls), replyFor(strayResolve.calls, 'push and reply r1', 'R1-1'), strayResolve.res.rounds.map((r) => r.reviewed)])
+  const strayReshape = await go('filing: a reshape defers a decided call\'s finding, shipping nothing', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-16' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeDefer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [['R1-1']] })
+  check('filing: a reshape\'s entry beside a decided call raises no draft and files nothing, and the fix is posted as the person\'s', strayReshape.res.status === 'done' && !labels(strayReshape.calls).includes('file deferred r1') && replyFor(strayReshape.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author' && (strayReshape.res.rounds[1] || {}).reviewed === 'fix-diff', [strayReshape.res.status, strayReshape.res.handoffKind, labels(strayReshape.calls), replyFor(strayReshape.calls, 'push and reply r1', 'R1-1')])
+  const chosenBare = await go('filing: a call answered with a deferral that ships nothing', { ...baseArgs, decisions: { 'R1-1': { choice: 'Defer it', notes: 'Defer it; nothing ships now.', date: '2026-11-16' } }, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [[]] })
+  check('filing: a call answered with a deferral that ships nothing, with no task, is still filed as the person\'s deferral', chosenBare.res.status === 'done' && labels(chosenBare.calls).includes('file deferred r1') && replyFor(chosenBare.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it; nothing ships now. No code change. Deferred to #301. · decided by: @author', [chosenBare.res.status, labels(chosenBare.calls), replyFor(chosenBare.calls, 'push and reply r1', 'R1-1')])
 
   // The cap-hit comment carries the section, since no handoff follows.
   const capped = await go('filing: a run that defers, then hits the cap', { ...filedArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], defer: ['R1-1'], commitIds: [['R1-1']] })

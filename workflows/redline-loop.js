@@ -2868,7 +2868,7 @@ function shaperOwner(decidedBy, pass) {
 function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced, filing) {
   // What became of each deferral's draft (#95): filed (where it went), dropped by the person (their
   // answer), or held for the stop before the run finishes.
-  const { filed = {}, dropped = {}, held = new Set() } = filing || {}
+  const { filed = {}, dropped = {}, held = new Set(), planned = new Set() } = filing || {}
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
@@ -2880,8 +2880,9 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const deferredItem = deferred.find((d) => d.id === f.id)
     // A deferral that ships nothing has no commits of its own (#95): a commit that only names its
     // id, the standards commit say, is not its mitigation, so it is never called mitigated and
-    // never earns a final nit pass.
-    const shipsNothing = Boolean(deferredItem) && !hasMitigation(deferredItem)
+    // never earns a final nit pass. A task the round planned with files for the finding is never
+    // one that ships nothing: needCommits demands its commit, and the commit is its own (#97, R1-10).
+    const shipsNothing = Boolean(deferredItem) && !hasMitigation(deferredItem) && !planned.has(f.id)
     const shipped = shipsNothing ? [] : named
     const owner = owners[f.id] || REDLINE
     const left = (forced || {})[f.id]
@@ -3610,6 +3611,10 @@ async function revise(record, inScope, reviewedKind) {
   const awayFromDefer = (id) => Boolean(roundDecisions[id] && roundDecisions[id].disposition && roundDecisions[id].disposition !== 'defer')
   let deferred = shaped.deferred.slice()
   let resolved = null
+  // The findings whose deferred entry the round's resolve agent returned (#97, R1-10): how a call's
+  // answer shows a deferral. A reshape's entry never does, since the person's decision stays
+  // whatever disposition a reshape gives its finding (#94, R8-6).
+  const resolveDeferred = new Set()
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     for (const id of newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))) {
       const decision = withOwner(decisions[id])
@@ -3655,6 +3660,9 @@ async function revise(record, inScope, reviewedKind) {
     if (undrafted.length) {
       throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
     }
+    for (const item of fresh) {
+      resolveDeferred.add(item.id)
+    }
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
@@ -3663,11 +3671,25 @@ async function revise(record, inScope, reviewedKind) {
     const decision = roundDecisions[f.id]
     return decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
   })
+  // A task the round's resolve planned with files for a finding: what needCommits demands.
+  const plannedTask = (id) => Boolean(resolved) && resolved.tasks.some((task) => task.finding === id && task.files.length > 0)
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
-  // or by the person's override, or carries a decision the resolve agent planned a deferral for.
-  // A decline or a fix beside a leftover entry is none (#94, R4-9), and neither is a finding left
-  // to the person under a rule, which has no entry at all.
-  const isDeferral = (d) => !record.forced[d.id] && (effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer') || Boolean(roundDecisions[d.id]))
+  // or by the person's override. A finding the person or autopilot decided is a deferral only
+  // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
+  // when it ships a mitigation or the finding has no planned task with files, since a deferral
+  // that ships nothing has no task. A reshape's disposition or entry never makes a decided finding
+  // one (#94, R8-6). A decline or a fix beside a leftover entry is none (#94, R4-9), and neither is
+  // a finding left to the person under a rule, which has no entry at all.
+  const isDeferral = (d) => {
+    if (record.forced[d.id]) {
+      return false
+    }
+    const decision = roundDecisions[d.id]
+    if (decision) {
+      return decision.disposition === 'defer' || (resolveDeferred.has(d.id) && (hasMitigation(d) || !plannedTask(d.id)))
+    }
+    return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
+  }
   // A stop for drafts once the round's first resolve has run. It takes no disposition override
   // and lists no declines, as a stop after a plan approver does (afterApproval; #94, R3-7): an
   // override is applied by that first resolve, whose prompt comes before this stop.
@@ -3875,7 +3897,7 @@ async function revise(record, inScope, reviewedKind) {
   // say where its item went: the issue's number, or the draft's path.
   const filed = toFile.length ? await fileDeferred(pass, record, toFile) : {}
   const heldIds = new Set(held.map((d) => d.item.id))
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds })
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds, planned: new Set(inScope.map((f) => f.id).filter(plannedTask)) })
   for (const d of toFile) {
     deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))
   }
