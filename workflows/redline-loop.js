@@ -181,6 +181,14 @@ if (A.scope !== undefined && A.scope !== 'all' && A.scope !== 'correctness') {
   fail(`args.scope must be "all" or "correctness"; got ${JSON.stringify(A.scope)}`)
 }
 const scope = A.scope === 'correctness' ? 'correctness' : 'all'
+// Where a deferred item's drafted issue goes (#95): 'github' opens an issue, 'spec' leaves the
+// draft in the round's spec folder, 'print' does the same and has the skill print it to paste.
+// The draft file is written in every mode; a dry run opens nothing whatever the word.
+const DEFER_TO = ['github', 'spec', 'print']
+if (A.deferTo !== undefined && !DEFER_TO.includes(A.deferTo)) {
+  fail(`args.deferTo must be one of ${DEFER_TO.join(' | ')}; got ${JSON.stringify(A.deferTo)}`)
+}
+const deferTo = A.deferTo === undefined ? 'github' : A.deferTo
 // Who decided what. A person's decision is attributed to their GitHub login (args.login, from
 // redline-gh.sh login); the shaper's own, settled from evidence, to "redline"; a recommendation
 // taken on autopilot to "redline (autopilot)".
@@ -348,8 +356,9 @@ const declinedUnder = (nitPass) => `declined: outside ${scopeName(nitPass)} (cor
 const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
 // A finding on one of Redline's own files (#94, R8-4): the why_human its call gives, and the reason
 // its forced entry records. forceAskRules records it as it records a finding a repository ask rule
-// covers, so it is left to the person on every dial: on autopilot it is never decided, it is
-// listed under Deferred with no mitigation, its thread stays open, and Redline makes no change.
+// covers, so it is left to the person on every dial: on autopilot it is never decided, its line
+// under Left to the person says what Redline would have done (#95: it is no deferral, having no
+// drafted issue), its thread stays open, and Redline makes no change.
 const OWN_FILE = "redline's own file"
 const OWN_FILE_REASON = 'no Redline role may write them'
 // What a finding left to the person is left under: its repository rule, or Redline's own files.
@@ -402,7 +411,8 @@ function passOf(record) {
       replyFile: (id) => `${record.specFolder}/redline/human-review-${n}-reply-${id}.md`,
       bodyHeader: (f) => `**${f.id}** · from review ${f.reviewId} by ${reviewer}`,
       bodyHeaderHint: `\`**<id>** · from review <review id> by ${reviewer}\``,
-      deferredNote: 'The full fix is deferred: ',
+      issueFile: (id) => `${record.specFolder}/redline/issue-${id}.md`,
+      deferredFile: `${record.specFolder}/redline/human-review-${n}-deferred.json`,
     }
   }
   return {
@@ -410,7 +420,9 @@ function passOf(record) {
     replyFile: (id) => `${record.specFolder}/redline/round-${n}-reply-${id}.md`,
     bodyHeader: (f) => `**${f.id}** · \`${f.file}:${f.line}\` · from the Redline round ${n} review body`,
     bodyHeaderHint: `\`**<id>** · ... · from the Redline round ${n} review body\``,
-    deferredNote: 'The full fix is deferred and listed in the Redline handoff: ',
+    // A deferred finding's drafted issue as filed, and the round's record of what was filed (#95).
+    issueFile: (id) => `${record.specFolder}/redline/issue-${id}.md`,
+    deferredFile: `${record.specFolder}/redline/round-${n}-deferred.json`,
   }
 }
 const abs = (path) => `${repoRoot}/${path}`
@@ -665,6 +677,20 @@ const LAST_ROUND_SCHEMA = {
   type: 'object',
   required: ['operation', 'round', 'error'],
   properties: { operation: str, round: int, error: str },
+}
+
+// Filing a round's deferred drafts (#95): one entry per draft, as redline-gh.sh defer prints it.
+const DEFER_SCHEMA = {
+  type: 'object',
+  required: ['operation', 'deferred', 'error'],
+  properties: {
+    operation: str,
+    deferred: {
+      type: 'array',
+      items: { type: 'object', required: ['finding', 'where', 'number', 'url', 'path', 'reused'], properties: { finding: str, where: { type: 'string', enum: ['issue', 'draft'] }, number: int, url: str, path: str, reused: bool } },
+    },
+    error: str,
+  },
 }
 
 // The spec check (#57): the spec folder's files and the Decisions heading, as the GitHub agent's
@@ -1184,6 +1210,51 @@ function commentBody(f) {
   return lines.join('\n')
 }
 
+// A drafted issue's title as it is filed (#95, decision 38 of its spec). GitHub shows an issue
+// title as plain text: it decodes no entity there and links no @word (measured on GraphQL's
+// titleHTML; the spec's Evidence), so the title is never passed through postedText, which would
+// put `&lt;` and `&#8288;` on screen. It is made safe as plain text instead: one line (a newline,
+// a carriage return or a tab becomes a space), no control characters, and at most GitHub's 256
+// characters, counted as characters so no pair is cut in half.
+function draftTitle(text) {
+  const line = String(text || '').replace(/[\r\n\t]+/g, ' ').replace(/[\x00-\x1f\x7f-\x9f]/g, '').trim()
+  return [...line].slice(0, 256).join('').trim()
+}
+
+// A deferred finding's drafted issue as the GitHub agent writes it and redline-gh.sh defer files
+// it (#95): the first line is the title, the second is empty, the rest is the body. The shaper's
+// (or the resolve agent's) fields each go through postedText as one text, since the body is
+// posted text GitHub renders: no tag in it can break the body and no @word notifies, while a
+// code span stays as written. The place and the last line are the workflow's own. The last line
+// names the pull request, the pass and the finding, text only this issue carries: the script
+// looks an issue up by it before it opens one.
+function issueDraft(pass, f, item, title) {
+  return [
+    `# ${draftTitle(title || item.title)}`,
+    '',
+    postedText(item.found.trim()),
+    '',
+    ...(f && f.file ? [`- **Where:** \`${f.file}:${f.line}\``] : []),
+    `- **Why it is not fixed in #${pr}:** ${postedText(item.why.trim())}`,
+    `- **Proposed fix:** ${postedText(item.fullFix.trim())}`,
+    '',
+    `Deferred from pull request #${pr} by Redline (${pass.name}, finding ${item.id}).`,
+    '',
+  ].join('\n')
+}
+
+// A composed draft cut back into its title and its body, as redline-gh.sh defer cuts it.
+function draftParts(text) {
+  const lines = text.split('\n')
+  return { title: lines[0].replace(/^# /, ''), body: lines.slice(2).join('\n') }
+}
+
+// Where a deferred item went, as a reply and the handoff say it (#95): the issue's number, or the
+// draft's path.
+const deferredTo = (filed) => (filed.where === 'issue' ? `deferred to #${filed.number}` : `deferred; the issue draft is at \`${filed.path}\``)
+// The same, closing a decision of the person's: a deferral they chose stays their decision.
+const deferredSentence = (filed) => (filed.where === 'issue' ? ` Deferred to #${filed.number}.` : ` The issue draft is at \`${filed.path}\`.`)
+
 // A decision as it reaches GitHub: the session's one-sentence restatement (choice and reasoning),
 // never the person's chat. The choice label stands in only when a decision carries no notes.
 function decisionSentence(decision, human) {
@@ -1359,12 +1430,12 @@ function replyBody(pass, outcome) {
     case 'fixed':
       return `${pass.title}: fixed in ${commits}.${local}${owner}`
     case 'deferred':
-      // A deferral that ships nothing says so (#95), and is never called mitigated.
-      return outcome.mitigation
-        ? `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
-        : `${pass.title}: deferred, with no mitigation. ${pass.deferredNote}${outcome.fullFix}${owner}`
+      // Where the item went (#95): the issue's number, or the draft's path. The reply opens
+      // "deferred", which redline-gh.sh prior-findings reads back as the disposition, so a later
+      // run never raises the finding again. A deferral that ships nothing is never called mitigated.
+      return `${pass.title}: ${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}.${commits ? ` Mitigated in ${commits}.${local}` : outcome.mitigation ? ` Mitigation: ${outcome.mitigation}.` : ''}${owner}`
     case 'decided':
-      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
+      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${outcome.filed ? deferredSentence(outcome.filed) : ''}${owner}`
     case 'declined':
       // Redline's own decision not to act (#93). redline-gh.sh prior-findings reads the opening
       // "declined: " back as the disposition, so a later run never raises the finding again.
@@ -1858,10 +1929,10 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
     `- Each decision carries its owner (decidedBy): \`${personLabel}\` for the person, \`${AUTOPILOT}\` for a recommendation taken on autopilot. Every decided entry you write under Decisions in shape.md ends with the line \`Decided by: <that value>\`, verbatim.`,
     `- A decision whose decidedBy is \`${AUTOPILOT}\` carries the shaper's own recommendation as its choice: apply the option that recommendation names (it may paraphrase the label), with the notes as its reasoning.`,
     ...(askRules.length
-      ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers${anyOwn ? " (one that also carries `own` is on one of Redline's own files and follows the next bullet instead)" : ''}, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (repository rule <rule>)" and the shaper's recommendation as the full fix.`]
+      ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers${anyOwn ? " (one that also carries `own` is on one of Redline's own files and follows the next bullet instead)" : ''}, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding is not listed under Deferred in shape.md, which holds only what carries a drafted issue: the person makes this change.`]
       : []),
     ...(anyOwn
-      ? [`- A decision carrying \`own\` is on a finding on one of Redline's own files, which no Redline role may write, left to the person the same way (#94, R8-4): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (Redline's own files)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (the rule on Redline's own files)" and the shaper's recommendation as the full fix.`]
+      ? [`- A decision carrying \`own\` is on a finding on one of Redline's own files, which no Redline role may write, left to the person the same way (#94, R8-4): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (Redline's own files)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding is not listed under Deferred in shape.md, which holds only what carries a drafted issue: the person makes this change.`]
       : []),
   ]
   if (calls.length) {
@@ -2071,6 +2142,24 @@ ${json(replies)}
 Return only the JSON your instructions specify, with operation "push-and-reply", pushed, and one replies entry per reply (reply_id 0 when nothing was posted).`
 }
 
+// Filing a pass's deferred drafts (#95): the agent writes each draft file byte for byte and runs
+// the one defer line given for it. The script is what makes a repeat safe: it reads the pass's
+// record, then looks on GitHub for an issue that carries the draft's last line, and opens one
+// only when both hold none. So a resume that reruns this call reuses what an earlier attempt
+// opened, and the agent is told to check and open nothing itself.
+function deferPrompt(pass, specFolder, entries) {
+  return `${RUN_LINE}
+
+Operation: defer for ${pass.name}. PR #${pr}. Spec folder: ${abs(specFolder)}. postToGitHub: ${postToGitHub}.
+
+Each draft below is a deferred finding's issue as it is to be filed. For each one, in order: Step 1. Write its file with the Write tool, byte for byte (its first line is the title, its second is empty, the rest is the body). Step 2. Run its command exactly as given, once, and keep the JSON object it prints. Mode "issue" opens a GitHub issue; mode "draft" records the file's path and calls nothing on GitHub${postToGitHub ? '' : ', which is every draft of a dry run'}. The command is safe to repeat: it opens an issue only when neither the record nor GitHub holds one for the finding, and otherwise prints the one already there with reused true. So never look for an issue yourself, never open one another way, and never run \`gh\`. If a command exits non-zero, set error to its stderr and run nothing further.
+
+Drafts, as JSON:
+${json(entries)}
+
+Return only the JSON your instructions specify, with operation "defer" and one deferred entry per draft exactly as its command printed it (finding, where, number, url, path, reused).`
+}
+
 function updatePrompt(specFolder, bodyCandidates, copy) {
   return `${RUN_LINE}
 
@@ -2117,7 +2206,7 @@ function resolveThreadsPrompt(settled) {
 
 Operation: resolve-threads. PR #${pr}. postToGitHub: true. push: true.
 
-These findings are settled (fixed, deferred with the mitigation committed, declined by Redline with its reason posted, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
+These findings are settled (fixed, deferred with its drafted issue filed, declined by Redline with its reason posted, decided by the person and applied, or, for an earlier round's finding this run carried forward or resolved, answered in its thread), their commits are pushed and their replies posted, so Redline closes the threads it opened for them; the ids are the inline comment and every reply Redline posted in each thread, in this run or an earlier round's:
 ${settled.map((s) => `- ${s.id} (round ${s.round}): comments ${all(s).join(', ')}`).join('\n')}
 
 Run this once, exactly as given, and nothing else:
@@ -2392,7 +2481,12 @@ function result(status, extra) {
     })),
     judgmentCalls: [],
     // The findings left to the person under a repository ask rule (#49), every round.
-    forced: rounds.flatMap((record) => Object.entries(record.forced || {}).map(([id, x]) => ({ id, round: record.round, rule: x.rule, ...(x.own ? { own: true } : {}), reason: x.reason, outcome: record.outcomes && record.outcomes[id] ? record.outcomes[id] : '' }))),
+    // `open` is what Redline would have done for one nobody answered, on autopilot (#95), else ''.
+    forced: rounds.flatMap((record) => Object.entries(record.forced || {}).map(([id, x]) => ({ id, round: record.round, rule: x.rule, ...(x.own ? { own: true } : {}), reason: x.reason, outcome: record.outcomes && record.outcomes[id] ? record.outcomes[id] : '', open: (record.leftOpen || {})[id] || '' }))),
+    // What the run deferred (#95): each item with its mitigation, its draft as filed (title and
+    // body), where it went (where, number, url, path) and its outcome as posted; deferTo is the
+    // run's setting, which the session reads to print the drafts when it is print.
+    deferTo,
     deferred: deferredAll,
     decided: decidedAll,
     openFindings: [],
@@ -2706,7 +2800,7 @@ function shaperOwner(decidedBy, pass) {
   return decidedBy || REDLINE
 }
 
-function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced) {
+function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced, filed) {
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
@@ -2727,9 +2821,10 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
       outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
-      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel }
+      // A deferral the person chose is their decision, and says where its drafted issue went (#95).
+      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel, filed: (deferredItem && (filed || {})[f.id]) || null }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
-      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner }
+      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner, filed: (filed || {})[f.id] || null }
     } else if (dispositions[f.id] === 'decline') {
       // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
       outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
@@ -2752,11 +2847,11 @@ function describeOutcome(outcome, human) {
     case 'fixed':
       return `fixed in ${andList(outcome.commits.map((c) => short(c.sha)))}${owner}`
     case 'deferred':
-      return outcome.mitigation
-        ? `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
-        : `deferred, with no mitigation: ${outcome.fullFix}${owner}`
+      // Where the item went (#95), then the mitigation's commits when one shipped. An item with
+      // no filing yet is one the run has still to raise with the person.
+      return `${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}${outcome.commits.length ? `; mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}` : outcome.mitigation ? `; mitigation: ${outcome.mitigation}` : ''}${owner}`
     case 'decided':
-      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${owner}`
+      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${outcome.filed ? deferredSentence(outcome.filed) : ''}${owner}`
     case 'declined':
       return `declined: ${outcome.reason}${owner}`
     case 'left':
@@ -3085,6 +3180,44 @@ function knownCarriedReplies(record) {
     record.knownCarriedRecorded = true
   }
   return entries
+}
+
+// File a pass's deferred drafts and keep where each went on the pass's record (#95). `drafts` is
+// [{item, f, title}]: the deferred entry, its finding, and a title the person gave or ''. One
+// GitHub-agent call, which a round with nothing to file never makes. The mode is the run's: an
+// issue when the setting is github and the run posts, else the draft's path alone. The number is
+// the agent's relay of what the script printed; the path is the workflow's own, so no posted line
+// depends on how an agent spelled it.
+async function fileDeferred(pass, record, drafts) {
+  const mode = deferTo === 'github' && postToGitHub ? 'issue' : 'draft'
+  const recordFile = abs(pass.deferredFile)
+  const entries = drafts.map(({ item, f, title }) => {
+    const file = abs(pass.issueFile(item.id))
+    return { finding: item.id, mode, file, command: `${GH} defer ${mode} ${item.id} ${file} ${recordFile}`, content: issueDraft(pass, f, item, title) }
+  })
+  const out = await run('defer', deferPrompt(pass, record.specFolder, entries), {
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `file deferred ${pass.tag}`, phase: 'Push and reply', schema: DEFER_SCHEMA,
+  })
+  if (out.error) {
+    throw stageError('defer', `filing the deferred drafts failed in ${pass.name}: ${out.error}`)
+  }
+  record.filed = record.filed || {}
+  const unfiled = []
+  for (const entry of entries) {
+    const got = (out.deferred || []).find((d) => d.finding === entry.finding)
+    // An issue the record already held stands whatever the mode; a draft answers only a draft.
+    const issue = got && got.where === 'issue' && Number.isInteger(got.number) && got.number > 0
+    if (!issue && !(got && got.where === 'draft' && mode === 'draft')) {
+      unfiled.push(entry.finding)
+      continue
+    }
+    record.filed[entry.finding] = { where: got.where, number: issue ? got.number : 0, url: issue ? got.url || '' : '', path: pass.issueFile(entry.finding) }
+  }
+  if (unfiled.length) {
+    throw stageError('defer', `the GitHub agent returned no filing for ${unfiled.join(', ')} in ${pass.name}`)
+  }
+  record.files = unique(record.files.concat(entries.map((entry) => entry.file.slice(repoRoot.length + 1)), [pass.deferredFile]))
+  return record.filed
 }
 
 // A first round that ends without a revise pass (nothing selected on the review dial, or no
@@ -3465,24 +3598,36 @@ async function revise(record, inScope, reviewedKind) {
   commitsAll.push(...roundCommits)
   record.commits = roundCommits
 
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced)
-  // Only an item that ended deferred, or decided with a mitigation the resolve agent planned, is
-  // listed under Deferred, so a decline or a fix beside a leftover entry is never called shipped
-  // (#94, R4-9).
-  for (const item of deferred.filter((d) => outcomes[d.id] && ['deferred', 'decided'].includes(outcomes[d.id].kind))) {
-    const f = inScope.find((finding) => finding.id === item.id)
-    deferredAll.push({ ...item, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[item.id] || 0 })
+  // The round's deferrals (#95): what the shaper deferred and what the person chose to defer, each
+  // with its drafted issue. Only an entry whose finding ended deferred, or carries a decision the
+  // resolve agent planned a deferral for, counts, so a decline or a fix beside a leftover entry
+  // files nothing (#94, R4-9); a finding left to the person under a rule has no entry at all.
+  const deferrals = deferred
+    .filter((d) => !record.forced[d.id] && (finalDispositions.some((s) => s.id === d.id && s.disposition === 'defer') || Boolean(roundDecisions[d.id])))
+    .map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id), title: '' }))
+    .filter((d) => d.f)
+  // They are filed once the gate has passed and before the replies, so each reply and the handoff
+  // say where its item went: the issue's number, or the draft's path.
+  const filed = deferrals.length ? await fileDeferred(pass, record, deferrals) : {}
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced, filed)
+  for (const { item, f, title } of deferrals.filter((d) => ['deferred', 'decided'].includes(outcomes[d.item.id].kind))) {
+    deferredAll.push({
+      id: item.id, round, title: f.title, file: f.file, line: f.line, specFolder, commentId: record.commentIds[item.id] || 0,
+      mitigation: hasMitigation(item) ? item.mitigation : '', fullFix: item.fullFix,
+      // The draft as filed, for the session's closing summary, which prints it when the setting is print.
+      draft: draftParts(issueDraft(pass, f, item, title)),
+      ...filed[item.id],
+      outcome: describeOutcome(outcomes[item.id], pass.human),
+    })
   }
   // On autopilot a finding a repository ask rule covers, or one on Redline's own files (#94, R8-4),
-  // is deferred with no mitigation (#49): the
-  // person makes the change, and the handoff's Deferred list and the skill's triage name it.
+  // is left to the person with no change made (#49). It is no deferral, since it has no drafted
+  // issue (#95): its line under Left to the person says what Redline would have done.
   for (const [id, forced] of Object.entries(record.forced)) {
     const decision = roundDecisions[id]
-    if (!decision || decision.decidedBy !== AUTOPILOT) {
-      continue
+    if (decision && decision.decidedBy === AUTOPILOT) {
+      record.leftOpen = Object.assign(record.leftOpen || {}, { [id]: `${forced.declined ? '' : 'open: '}${forced.declined || forced.recommendation}` })
     }
-    const f = inScope.find((finding) => finding.id === id)
-    deferredAll.push({ id, mitigation: `none (${leftUnder(forced)})`, fullFix: forced.declined || forced.recommendation, ...(forced.declined ? { declined: true } : {}), rule: forced.rule, ...(forced.own ? { own: true } : {}), reason: forced.reason, round, title: f ? f.title : '', file: f ? f.file : '', line: f ? f.line : 0, specFolder, commentId: record.commentIds[id] || 0 })
   }
   record.outcomes = Object.assign(record.outcomes || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, describeOutcome(outcome, pass.human)])))
   record.outcomeKinds = Object.assign(record.outcomeKinds || {}, Object.fromEntries(Object.entries(outcomes).map(([id, outcome]) => [id, outcome.kind])))
@@ -3647,11 +3792,7 @@ function handoffComment(ending, prBody, threads) {
   if (scoped.length) {
     lines.push('', `### Declined under ${scopeName(scope !== 'correctness')} (correctness only) (${scoped.length})`, '', ...scoped.map(scopedLine))
   }
-  if (deferredAll.length) {
-    lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
-      ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under ${leftUnder(d)}; ${d.declined ? '' : 'open: '}${d.fullFix}`
-      : `- **${d.id}** ${postedText(d.title)}: ${hasMitigation(d) ? `shipped ${d.mitigation}; ` : ''}open: ${d.fullFix}`)))
-  }
+  lines.push(...deferredSection())
   const left = leftToYou()
   if (left.length) {
     // The heading names what the findings are left under: repository rules, Redline's own files
@@ -3690,16 +3831,29 @@ function handoffComment(ending, prBody, threads) {
   return lines.join('\n')
 }
 
+// What the run deferred (#95): every item that ended in a drafted issue, with where it went (the
+// issue's number, or the draft's path) and, when one shipped, its mitigation's commits. The
+// handoff and the cap-hit comment carry the same section; with nothing deferred it is absent.
+// The line is the item's outcome as its round recorded it, so a deferral the person chose reads
+// as their decision and ends with where it went. A finding left to the person under a rule is
+// not here: it has no drafted issue.
+function deferredSection() {
+  return deferredAll.length ? ['', `### Deferred (${deferredAll.length})`, '', ...deferredAll.map((d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`)] : []
+}
+
 // The findings every round left to the person under a repository ask rule (#49), or on Redline's
 // own files (#94, R8-4), one line each
-// with the rule, its reason and the outcome as recorded (which carries the owner).
+// with the rule, its reason and the outcome as recorded (which carries the owner). On autopilot,
+// where nobody answered, the line also says what Redline would have done (#95): that text sat on
+// the Deferred list until a deferral came to mean a drafted issue.
 function leftToYou() {
   const lines = []
   for (const record of rounds) {
     for (const [id, forced] of Object.entries(record.forced || {})) {
       const f = record.findings.find((x) => x.id === id)
       const outcome = record.outcomes && record.outcomes[id] ? record.outcomes[id] : `left to ${personLabel} under ${leftUnder(forced)}`
-      lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: ${forced.own ? "Redline's own files" : `rule ${forced.rule}`} (${forced.reason}); ${outcome}`)
+      const open = (record.leftOpen || {})[id] ? `${record.leftOpen[id].replace(/\.$/, '')}; ` : ''
+      lines.push(`- **${id}** ${f ? postedText(f.title) : ''}: ${forced.own ? "Redline's own files" : `rule ${forced.rule}`} (${forced.reason}); ${open}${outcome}`)
     }
   }
   return lines
@@ -3724,9 +3878,11 @@ function humanSummary(record, nitPass, threads) {
   if (decided.length) {
     parts.push(`${andList(decided)} ${plural(decided, 'was a question', 'were questions')} for ${personLabel}, answered in ${plural(decided, 'its thread', 'their threads')}`)
   }
-  const deferred = ids('deferred')
-  if (deferred.length) {
-    parts.push(`${andList(deferred)} deferred with a mitigation`)
+  // What the pass deferred is read off what was filed, never off the outcome kind (#95): in a
+  // human review pass a deferral is the author's decision, so no finding has the kind.
+  const filed = record.findings.map((f) => f.id).filter((id) => (record.filed || {})[id])
+  if (filed.length) {
+    parts.push(andList(filed.map((id) => (record.filed[id].where === 'issue' ? `${id} deferred to #${record.filed[id].number}` : `${id} deferred to the draft at \`${record.filed[id].path}\``))))
   }
   const none = ids('none')
   if (none.length) {
@@ -3764,6 +3920,8 @@ function capComment(open) {
     '### Still open',
     '',
     ...open.map(findingLine),
+    // What the run deferred before the cap has its numbers here, since no handoff follows (#95).
+    ...deferredSection(),
   ].join('\n')
 }
 

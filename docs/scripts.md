@@ -6,7 +6,7 @@ Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 o
 
 ## `redline-gh.sh`
 
-The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands and `resolve-threads` against a fake `gh` that serves `tests/gh-fixtures/`.
+The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
 
 ```text
 #
@@ -51,7 +51,9 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  words: "fixed in" fixed, "deferred" (since #95: "deferred to
+#                                  #<n>", "deferred; the issue draft is at") or, before it,
+#                                  "mitigated" deferred, "declined: "
 #                                  declined (Redline's own decision not to act, #93; a reply that
 #                                  only mentions a decline is decided), "not acted on in this
 #                                  run." dropped, "not changed in this round." not-changed,
@@ -116,7 +118,22 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
-#   issue-create <title> <file>    open an issue; prints its URL
+#   defer <issue|draft> <finding> <draft-file> <record-file>
+#                                  file a deferred finding's drafted issue, safe to repeat (#95).
+#                                  The draft's first line is "# <title>", its second is empty and
+#                                  the rest is the body, so no title crosses the command line. The
+#                                  record is a JSON object of the round's filed drafts, by finding
+#                                  id. issue: a finding the record holds as an issue is printed
+#                                  again and nothing is called; else an issue whose body carries
+#                                  the draft's last line (the pull request, round and finding it
+#                                  came from, text only that issue has) is looked up, recorded and
+#                                  printed; else the issue is opened and recorded as {where:
+#                                  "issue", number, url, path}. draft: the path is recorded as
+#                                  {where: "draft", path} and GitHub is not called. Prints
+#                                  {finding, where, number, url, path, reused}: path is the
+#                                  draft's, relative to its repository; number 0 and url "" for a
+#                                  draft; reused true when the issue was already there. A failed
+#                                  lookup or create exits 1 and writes no record
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR

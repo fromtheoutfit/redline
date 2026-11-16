@@ -1,0 +1,20 @@
+[
+  {
+    "id": 60,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "Redline round 1\n\nReviewed the whole pull request.\n\nFour items.\n\n### Correctness (4)\n\n- **R1-1** · correctness · medium · confirmed · `app/a.php:5` · Retry storm when the queue is down\n- **R1-2** · correctness · low · confirmed · `app/b.php:9` · OrderExporter does three jobs\n- **R1-3** · correctness · low · confirmed · `app/c.php:3` · The client swallows a timeout\n- **R1-4** · correctness · low · confirmed · `app/d.php:2` · The cache key leaves the tenant out\n\nEach item has an inline comment with the detail.",
+    "submitted_at": "2026-11-16T10:00:00Z"
+  },
+  {
+    "id": 61,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "",
+    "submitted_at": "2026-11-16T12:00:00Z"
+  }
+]
