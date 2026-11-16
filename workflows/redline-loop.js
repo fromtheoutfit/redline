@@ -189,6 +189,34 @@ if (A.deferTo !== undefined && !DEFER_TO.includes(A.deferTo)) {
   fail(`args.deferTo must be one of ${DEFER_TO.join(' | ')}; got ${JSON.stringify(A.deferTo)}`)
 }
 const deferTo = A.deferTo === undefined ? 'github' : A.deferTo
+// When a deferred item's draft is raised with the person (#95): 'round' stops the round, with its
+// judgment calls, after shaping; 'end' stops no round and asks once, before the run finishes.
+// Autopilot never asks, so there the word changes nothing.
+const DEFER_AT = ['round', 'end']
+if (A.deferAt !== undefined && !DEFER_AT.includes(A.deferAt)) {
+  fail(`args.deferAt must be one of ${DEFER_AT.join(' | ')}; got ${JSON.stringify(A.deferAt)}`)
+}
+const deferAt = A.deferAt === undefined ? 'round' : A.deferAt
+// What the person said about each draft a stop raised (#95): {action: "file" | "drop", title,
+// notes, date, draft}. `draft` is the version of the draft the stop showed, so an answer stands
+// only for a draft the person saw; `title` is their own title, or ''; `notes` the restated reason
+// for a drop. It enters after the stop that asked, like every decision: it is read at a stop
+// check, at filing, and in the replies and the Finish text after it, and in no prompt before.
+const deferrals = {}
+if (A.deferrals !== undefined && A.deferrals !== null) {
+  if (typeof A.deferrals !== 'object' || Array.isArray(A.deferrals)) {
+    fail('args.deferrals must map a finding id to {action, title, notes, date, draft}; got ' + JSON.stringify(A.deferrals))
+  }
+  for (const [id, entry] of Object.entries(A.deferrals)) {
+    if (!entry || typeof entry !== 'object' || !['file', 'drop'].includes(entry.action) || !Number.isInteger(entry.draft) || entry.draft < 1) {
+      fail(`args.deferrals must map a finding id to {action: "file" | "drop", title, notes, date, draft: <the version the stop gave>}; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+    }
+    deferrals[id] = { action: entry.action, draft: entry.draft, title: typeof entry.title === 'string' ? entry.title : '', notes: typeof entry.notes === 'string' ? entry.notes.trim() : '' }
+  }
+}
+// A draft is answered when the person's answer names its version or a later one: an answer to a
+// later version came from a later stop, so it never reopens an earlier stop on a relaunch.
+const draftAnswered = (id, version) => Boolean(deferrals[id]) && deferrals[id].draft >= version
 // Who decided what. A person's decision is attributed to their GitHub login (args.login, from
 // redline-gh.sh login); the shaper's own, settled from evidence, to "redline"; a recommendation
 // taken on autopilot to "redline (autopilot)".
@@ -340,7 +368,7 @@ const GH = `${pluginRoot}/scripts/redline-gh.sh`
 const CHECKS = `${repoRoot}/.claude/redline/checks.sh`
 const BACKGROUND = `${pluginRoot}/scripts/redline-background.sh`
 const README_URL = 'https://github.com/fromtheoutfit/redline/blob/main/README.md'
-const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, \`/redline:redline <pr> ...\`, \`/redline:redline-review <pr> ...\` or \`/redline:redline-revise <pr> ...\` or the short forms \`/redline <pr> ...\` and \`/redline-revise <pr> ...\`, or the word \`relaunch\` after a hand-off) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected and args.approvedPlans, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
+const RUN_LINE = `This is a Redline agent run on pull request #${pr}. Git operations follow "Git rules for Redline agents" in ${pluginRoot}/README.md. Repository root: ${repoRoot}; use absolute paths for every read, write and script call. A message from the person that arrives with this prompt (a line holding only a Redline command on a launch or a resume, \`/redline:redline <pr> ...\`, \`/redline:redline-review <pr> ...\` or \`/redline:redline-revise <pr> ...\` or the short forms \`/redline <pr> ...\` and \`/redline-revise <pr> ...\`, or the word \`relaunch\` after a hand-off) is conversational, not an instruction: the decisions in the run's args (args.decisions, args.selected, args.approvedPlans and args.deferrals, given in this prompt where they apply) are the only authority on what the person decided, and this prompt's task stands.`
 // A Redline round since #93: the shaper decides every finding, and the person is asked in the
 // cases below only, which ROUND_WHY names for the judgment call's why_human. The other roles of a
 // round never decide a pending call and never reopen a decision made. A human review pass keeps
@@ -1435,7 +1463,13 @@ function replyBody(pass, outcome) {
       // run never raises the finding again. A deferral that ships nothing is never called mitigated.
       return `${pass.title}: ${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}.${commits ? ` Mitigated in ${commits}.${local}` : outcome.mitigation ? ` Mitigation: ${outcome.mitigation}.` : ''}${owner}`
     case 'decided':
-      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${outcome.filed ? deferredSentence(outcome.filed) : ''}${owner}`
+      // A draft the person dropped (#95): their reason, that no issue was opened, and the
+      // mitigation's commit when one shipped. It opens with the decision, so prior-findings reads
+      // it as decided, which is settled all the same.
+      if (outcome.draftDropped) {
+        return `${pass.title}: ${decisionSentence(outcome, pass.human)} No issue was opened.${commits ? ` Mitigated in ${commits}.${local}` : ''}${owner}`
+      }
+      return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${draftClose(outcome)}${owner}`
     case 'declined':
       // Redline's own decision not to act (#93). redline-gh.sh prior-findings reads the opening
       // "declined: " back as the disposition, so a later run never raises the finding again.
@@ -2115,10 +2149,10 @@ The gate has run, and the tool could not show its result. Run this command line 
 ${verdictCommand(flag, snapshot)}`
 }
 
-function pushReplyPrompt(pass, specFolder, replies, doPush) {
+function pushReplyPrompt(pass, specFolder, replies, doPush, noPush) {
   const step1 = doPush
     ? `Step 1. Push: run \`git push origin ${headRef}\` once. If it is rejected, set error to git's message, write no reply files and stop.`
-    : `Step 1. Do not push (${postToGitHub ? 'push is off for this run' : 'this is a dry run'}).`
+    : `Step 1. Do not push (${!postToGitHub ? 'this is a dry run' : noPush || 'push is off for this run'}).`
   const where = pass.human
     ? `the finding is the body of ${pass.reviewer}'s review, which has no thread, and its file already starts with a <!-- redline:<id> --> marker`
     : 'the finding sits in the review body behind a <!-- redline:<id> --> marker, and its file already starts with that marker'
@@ -2487,6 +2521,7 @@ function result(status, extra) {
     // body), where it went (where, number, url, path) and its outcome as posted; deferTo is the
     // run's setting, which the session reads to print the drafts when it is print.
     deferTo,
+    deferAt,
     deferred: deferredAll,
     decided: decidedAll,
     openFindings: [],
@@ -2498,7 +2533,7 @@ function result(status, extra) {
     warnings,
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -2800,7 +2835,10 @@ function shaperOwner(decidedBy, pass) {
   return decidedBy || REDLINE
 }
 
-function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced, filed) {
+function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced, filing) {
+  // What became of each deferral's draft (#95): filed (where it went), dropped by the person (their
+  // answer), or held for the stop before the run finishes.
+  const { filed = {}, dropped = {}, held = new Set() } = filing || {}
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
@@ -2821,10 +2859,15 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
       outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
-      // A deferral the person chose is their decision, and says where its drafted issue went (#95).
-      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel, filed: (deferredItem && (filed || {})[f.id]) || null }
+      // A deferral the person chose is their decision, and says where its drafted issue went, or
+      // that they dropped it, or that it waits for the end of the run (#95).
+      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel, filed: (deferredItem && filed[f.id]) || null, dropped: Boolean(deferredItem && dropped[f.id]), held: Boolean(deferredItem) && held.has(f.id) }
+    } else if (dispositions[f.id] === 'defer' && deferredItem && dropped[f.id]) {
+      // A draft the person dropped (#95): nothing is filed and nothing else changes, so a planned
+      // mitigation still ships. It is their decision, posted with their reason.
+      outcomes[f.id] = droppedOutcome(dropped[f.id], shipped)
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
-      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner, filed: (filed || {})[f.id] || null }
+      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner, filed: filed[f.id] || null, held: held.has(f.id) }
     } else if (dispositions[f.id] === 'decline') {
       // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
       outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
@@ -2839,6 +2882,19 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
   return outcomes
 }
 
+// The outcome of a deferral Redline made whose draft the person dropped (#95): their decision,
+// with their restated reason; the mitigation's commits, when one shipped, stay with it.
+function droppedOutcome(answer, commits) {
+  return { kind: 'decided', draftDropped: true, choice: 'drop', notes: answer.notes || `${personLabelStart} does not want this tracked.`, commits, decidedBy: personLabel }
+}
+// What an item whose draft waits for the end of the run says until then (#95): the round records
+// it from the setting alone, so no answer given later can change what a later round is shown.
+const HELD = `deferred; raised with ${personLabel} at the end of the run`
+const HELD_SENTENCE = ` Its drafted issue is raised with ${personLabel} at the end of the run.`
+// How a decision closes when it deferred something: where the draft went, that it was dropped, or
+// that it is still to be raised.
+const draftClose = (outcome) => (outcome.filed ? deferredSentence(outcome.filed) : outcome.dropped ? ' No issue was opened.' : outcome.held ? HELD_SENTENCE : '')
+
 // `human` is a human-review pass, which keeps its own wording: "the author", and a decision's
 // sentence alone. A Redline round names the person by login and says whether a decision was applied.
 function describeOutcome(outcome, human) {
@@ -2849,9 +2905,12 @@ function describeOutcome(outcome, human) {
     case 'deferred':
       // Where the item went (#95), then the mitigation's commits when one shipped. An item with
       // no filing yet is one the run has still to raise with the person.
-      return `${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}${outcome.commits.length ? `; mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}` : outcome.mitigation ? `; mitigation: ${outcome.mitigation}` : ''}${owner}`
+      return `${outcome.filed ? deferredTo(outcome.filed) : outcome.held ? HELD : 'deferred'}${outcome.commits.length ? `; mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}` : outcome.mitigation ? `; mitigation: ${outcome.mitigation}` : ''}${owner}`
     case 'decided':
-      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${outcome.filed ? deferredSentence(outcome.filed) : ''}${owner}`
+      if (outcome.draftDropped) {
+        return `${decisionSentence(outcome, human)} No issue was opened.${outcome.commits.length ? ` Mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ''}${owner}`
+      }
+      return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${draftClose(outcome)}${owner}`
     case 'declined':
       return `declined: ${outcome.reason}${owner}`
     case 'left':
@@ -3220,6 +3279,114 @@ async function fileDeferred(pass, record, drafts) {
   return record.filed
 }
 
+// A deferred item as the result and the handoff carry it (#95): the finding, its mitigation and
+// full fix, its draft as filed (for the session's closing summary, which prints it when the
+// setting is print), where it went, and its outcome as posted.
+function deferredEntry(pass, record, d, filedTo, outcome) {
+  return {
+    id: d.item.id, round: record.round, title: d.f.title, file: d.f.file, line: d.f.line, specFolder: record.specFolder, commentId: record.commentIds[d.item.id] || 0,
+    mitigation: hasMitigation(d.item) ? d.item.mitigation : '', fullFix: d.item.fullFix,
+    draft: draftParts(issueDraft(pass, d.f, d.item, d.title || '')),
+    ...filedTo,
+    outcome: describeOutcome(outcome, pass.human),
+  }
+}
+
+// A draft as a stop shows it to the person (#95): the finding, what ships in the round, where the
+// draft goes, the title and body as they will be filed, and its version, which the answer names.
+// `canFix` says whether turning it back into a fix can still be built in this round: only at the
+// stop no resolve of the round has run before.
+function draftView(record, d, canFix) {
+  const parts = draftParts(record.drafts[d.item.id].text)
+  return {
+    id: d.item.id, round: record.round, finding: compactFinding(d.f), mitigation: hasMitigation(d.item) ? d.item.mitigation : '',
+    goesTo: postToGitHub ? deferTo : 'spec', dryRun: !postToGitHub, title: parts.title, body: parts.body, draft: d.version, canFix,
+  }
+}
+
+// The drafts the rounds held for the end of the run (#95), each with its round's record.
+const heldDrafts = () => rounds.flatMap((record) => (record.held || []).map((d) => ({ record, d })))
+
+// The end-of-run stop (#95): with the setting at the end of the run, no round stops for a draft,
+// and the run stops once here, before anything of Finish runs, with every draft the person has
+// not answered. No agent is called for it, so every prompt before it replays on the relaunch.
+// A fix can no longer be built: the rounds are over.
+function heldStop() {
+  const open = heldDrafts().filter(({ d }) => !draftAnswered(d.item.id, d.version))
+  if (!open.length) {
+    return null
+  }
+  const last = rounds[rounds.length - 1]
+  log(`${open.length} deferred draft(s) held for the end of the run; the run ends here and resumes on relaunch`)
+  return result('handoff', {
+    handoffKind: 'deferred',
+    handoffRound: last.round,
+    specFolder: last.specFolder,
+    judgmentCalls: [],
+    drafts: open.map(({ record, d }) => draftView(record, d, false)),
+    draftsNeeded: open.map(({ d }) => d.item.id),
+    declined: [],
+    declinedAfterRun: [],
+    unresolved: [],
+    overridesUnresolved: [],
+    decisionsNeeded: [],
+  })
+}
+// Thrown where a run would finish while held drafts are unanswered: the loop returns the stop.
+function stopForHeld() {
+  const stop = heldStop()
+  if (stop) {
+    throw Object.assign(new Error('deferred drafts are held for the person'), { handoffResult: stop })
+  }
+}
+
+// After the person answered the end-of-run stop (#95): each round that held drafts files the ones
+// that go ahead, then posts the replies its deferred items waited for, and each item's outcome,
+// kind and decided entry are completed from its answer, so a dropped draft is counted and listed
+// as the person's decision and a filed one says where it went. The reply ids are kept on the
+// round's own record, which is where the thread sweep reads them.
+async function settleHeld() {
+  for (const record of rounds) {
+    const held = record.held || []
+    if (!held.length) {
+      continue
+    }
+    const pass = passOf(record)
+    const toFile = held.filter((d) => deferrals[d.item.id].action !== 'drop').map((d) => ({ ...d, title: deferrals[d.item.id].title }))
+    const filed = toFile.length ? await fileDeferred(pass, record, toFile) : {}
+    const outcomes = {}
+    for (const d of held) {
+      const id = d.item.id
+      const answer = deferrals[id]
+      const outcome = answer.action !== 'drop'
+        ? { ...d.outcome, held: false, filed: filed[id] }
+        : d.outcome.kind === 'decided' ? { ...d.outcome, held: false, dropped: true } : droppedOutcome(answer, d.outcome.commits)
+      outcomes[id] = outcome
+      const text = describeOutcome(outcome, pass.human)
+      record.outcomes[id] = text
+      record.outcomeKinds[id] = outcome.kind
+      const entry = decidedAll.find((x) => x.id === id && x.round === record.round)
+      if (entry) {
+        Object.assign(entry, { outcome: text, decidedBy: outcome.decidedBy, choice: outcome.choice || '', notes: outcome.notes || '', kind: outcome.kind, overruled: entry.overruled || Boolean(outcome.draftDropped) })
+      }
+      if (outcome.filed) {
+        deferredAll.push(deferredEntry(pass, record, toFile.find((x) => x.item.id === id), filed[id], outcome))
+      }
+    }
+    const findings = held.map((d) => d.f)
+    const replies = findings.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(carriedReplies(pass, record, findings, outcomes))
+    const pushed = await run('push-and-reply', pushReplyPrompt(pass, record.specFolder, replies, false, 'the round pushed its commits when it ended; these are the replies its deferred items waited for'), {
+      agentType: 'redline:redline-github', ...modelOpts('github'), label: `deferred replies ${pass.tag}`, phase: 'Finish', schema: PUSH_REPLY_SCHEMA,
+    })
+    if (pushed.error) {
+      throw stageError('push-and-reply', `the deferred items' replies failed in ${pass.name}: ${pushed.error}`)
+    }
+    record.files.push(...replies.map((reply) => reply.file.slice(repoRoot.length + 1)))
+    keepReplyIds(record, pushed)
+    record.held = []
+  }
+}
+
 // A first round that ends without a revise pass (nothing selected on the review dial, or no
 // finding at all): the drops, the resolved earlier findings and a carried finding an issue tracks
 // still get their replies.
@@ -3340,9 +3507,37 @@ async function revise(record, inScope, reviewedKind) {
   // plan: the person sees every disposition before anything is planned further. The run ends
   // here each round until the relaunch carries this pass's key in args.approvedPlans, with any ask
   // answered and any disposition changed under args.decisions.
+  //
+  // The round's drafted issues (#95). On every dial but autopilot a deferral's draft is raised
+  // with the person before it is filed: in the round, at the stops below, when the setting is
+  // each round (and in a human review pass at either setting, whose threads take one reply per
+  // pass, so nothing of it can wait); once, before the run finishes, when the setting is the end
+  // of the run, where the round holds the draft and its reply (holdsDrafts).
+  const raisesDrafts = interrupt !== 'autopilot' && (deferAt === 'round' || pass.human)
+  const holdsDrafts = interrupt !== 'autopilot' && !raisesDrafts
+  // Each draft has a version, counted over the draft as the shaper or the resolve agent wrote it,
+  // never over a title the person gave, so the count depends on no answer: 1 when first seen, one
+  // more each time a reshape or the resolve agent changes it. An answer names the version it saw,
+  // so a draft that changed after it was answered is raised once more, and every body is shown
+  // before anything is filed.
+  record.drafts = record.drafts || {}
+  const draftsOf = (list) => list.map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id) })).filter((d) => d.f).map((d) => {
+    const text = issueDraft(pass, d.f, d.item, '')
+    const seen = record.drafts[d.item.id]
+    if (!seen || seen.text !== text) {
+      record.drafts[d.item.id] = { text, version: seen ? seen.version + 1 : 1 }
+    }
+    return { ...d, version: record.drafts[d.item.id].version }
+  })
+  const openDrafts = (drafts) => (raisesDrafts ? drafts.filter((d) => !draftAnswered(d.item.id, d.version)) : [])
+  // What the shaper deferred. A disposition the person changed at a stop replaces the draft that
+  // stop showed, so that one is not asked about here: the round's resolve applies the change, and
+  // a deferral it drafts is raised after it.
+  const shaperDrafts = draftsOf(shaped.deferred.filter((d) => shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')))
+    .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition))
   if (interrupt === 'plan' && !approvedPlans.includes(pass.planKey)) {
     const pendingCalls = shaped.judgmentCalls.filter((call) => !decisions[call.id])
-    return { handoff: true, kind: 'plan', pending: pendingCalls, calls: shaped.judgmentCalls, shaped }
+    return { handoff: true, kind: 'plan', pending: pendingCalls, calls: shaped.judgmentCalls, shaped, drafts: openDrafts(shaperDrafts) }
   }
 
   // Judgment calls still open: autopilot takes the shaper's recommendation for each and goes on;
@@ -3363,8 +3558,15 @@ async function revise(record, inScope, reviewedKind) {
     }
     return true
   }
-  if (settle(calls.filter((call) => !decisions[call.id]))) {
-    return { handoff: true, kind: 'decisions', pending: calls.filter((call) => !decisions[call.id]), calls, shaped }
+  // The round's one stop after shaping (#95): its open calls and its drafts not yet answered are
+  // raised together, so a round with both stops once, and a round with only deferred items stops
+  // too. Nothing is planned or built yet, so a draft the person turns back into a fix here is a
+  // disposition override like any other, built in this round.
+  const openCalls = calls.filter((call) => !decisions[call.id])
+  const stopForCalls = settle(openCalls)
+  const firstDrafts = openDrafts(shaperDrafts)
+  if (stopForCalls || firstDrafts.length) {
+    return { handoff: true, kind: 'decisions', pending: stopForCalls ? openCalls : [], calls, shaped, drafts: firstDrafts }
   }
 
   // A decision on a finding that was not a judgment call is a disposition override from the plan
@@ -3426,18 +3628,36 @@ async function revise(record, inScope, reviewedKind) {
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
+  // Dispositions after the overrides: what the implementer builds and the replies report.
+  const effectiveDispositions = () => shaped.findings.map((f) => {
+    const decision = roundDecisions[f.id]
+    return decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
+  })
+  // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
+  // or by the person's override, or carries a decision the resolve agent planned a deferral for.
+  // A decline or a fix beside a leftover entry is none (#94, R4-9), and neither is a finding left
+  // to the person under a rule, which has no entry at all.
+  const isDeferral = (d) => !record.forced[d.id] && (effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer') || Boolean(roundDecisions[d.id]))
+  // A stop for drafts once the round's first resolve has run. It takes no disposition override
+  // and lists no declines, as a stop after a plan approver does (afterApproval; #94, R3-7): an
+  // override is applied by that first resolve, whose prompt comes before this stop.
+  const draftStop = () => {
+    const open = openDrafts(draftsOf(deferred.filter(isDeferral)))
+    return open.length ? { handoff: true, kind: 'decisions', pending: [], calls, shaped, drafts: open, afterApproval: true } : null
+  }
   if (calls.length || overrides.length) {
     phase('Resolve')
     resolved = await resolveWith(calls, overrides, '')
     if (resolved.handoff) {
       return resolved
     }
+    // A deferral the person chose at the stop is drafted by the resolve agent, after the stop, so
+    // its draft is raised before it is filed.
+    const drafted = draftStop()
+    if (drafted) {
+      return drafted
+    }
   }
-  // Dispositions after the overrides: what the implementer builds and the replies report.
-  const effectiveDispositions = () => shaped.findings.map((f) => {
-    const decision = roundDecisions[f.id]
-    return decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
-  })
 
   // Approve: plan and standards in parallel; a bounced plan goes back to the shaper.
   phase('Approve')
@@ -3472,20 +3692,30 @@ async function revise(record, inScope, reviewedKind) {
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
-    if (settle(raised.filter((call) => !decisions[call.id]))) {
-      return { handoff: true, kind: 'decisions', pending: raised.filter((call) => !decisions[call.id]), calls: shaped.judgmentCalls, shaped, afterApproval: true }
-    }
     // An earlier entry stays only while its finding is still deferred or a decision stands on it:
     // a defer the reshape re-sorted is no deferral any more (#94, R4-9). An entry for a finding the
-    // person changed away from defer is dropped, whichever list holds it (#94, R5-9).
+    // person changed away from defer is dropped, whichever list holds it (#94, R5-9). The list is
+    // rebuilt before the stop below reads it, so a draft the reshape wrote or changed is raised
+    // at the same stop as a call it raised (#95).
     const stillDeferred = (id) => Boolean(roundDecisions[id]) || shaped.findings.some((s) => s.id === id && s.disposition === 'defer')
     deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
+    const openRaised = raised.filter((call) => !decisions[call.id])
+    const stopForRaised = settle(openRaised)
+    const redrafted = draftStop()
+    if (stopForRaised || redrafted) {
+      return { handoff: true, kind: 'decisions', pending: stopForRaised ? openRaised : [], calls: shaped.judgmentCalls, shaped, drafts: redrafted ? redrafted.drafts : [], afterApproval: true }
+    }
     if (raised.length) {
       calls = calls.concat(raised)
       phase('Resolve')
       resolved = await resolveWith(raised, [], ` #${adjustment + 1}`)
       if (resolved.handoff) {
         return resolved
+      }
+      // A raised call the person answered with a deferral, drafted by this resolve.
+      const drafted = draftStop()
+      if (drafted) {
+        return drafted
       }
     }
     phase('Approve')
@@ -3599,27 +3829,25 @@ async function revise(record, inScope, reviewedKind) {
   record.commits = roundCommits
 
   // The round's deferrals (#95): what the shaper deferred and what the person chose to defer, each
-  // with its drafted issue. Only an entry whose finding ended deferred, or carries a decision the
-  // resolve agent planned a deferral for, counts, so a decline or a fix beside a leftover entry
-  // files nothing (#94, R4-9); a finding left to the person under a rule has no entry at all.
-  const deferrals = deferred
-    .filter((d) => !record.forced[d.id] && (finalDispositions.some((s) => s.id === d.id && s.disposition === 'defer') || Boolean(roundDecisions[d.id])))
-    .map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id), title: '' }))
-    .filter((d) => d.f)
+  // with its drafted issue, and what becomes of each draft. Held: the setting is the end of the
+  // run, so nothing is filed and no reply is posted for it yet. Dropped: the person said so at a
+  // stop, so nothing is filed and nothing else changes. Filed: every other draft, with the
+  // person's title when they gave one; on autopilot that is every draft, as drafted.
+  const roundDeferrals = draftsOf(deferred.filter(isDeferral))
+  const held = holdsDrafts ? roundDeferrals : []
+  const dropped = Object.fromEntries(roundDeferrals.filter((d) => raisesDrafts && deferrals[d.item.id] && deferrals[d.item.id].action === 'drop').map((d) => [d.item.id, deferrals[d.item.id]]))
+  const toFile = holdsDrafts ? [] : roundDeferrals.filter((d) => !dropped[d.item.id]).map((d) => ({ ...d, title: raisesDrafts && deferrals[d.item.id] ? deferrals[d.item.id].title : '' }))
   // They are filed once the gate has passed and before the replies, so each reply and the handoff
   // say where its item went: the issue's number, or the draft's path.
-  const filed = deferrals.length ? await fileDeferred(pass, record, deferrals) : {}
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced, filed)
-  for (const { item, f, title } of deferrals.filter((d) => ['deferred', 'decided'].includes(outcomes[d.item.id].kind))) {
-    deferredAll.push({
-      id: item.id, round, title: f.title, file: f.file, line: f.line, specFolder, commentId: record.commentIds[item.id] || 0,
-      mitigation: hasMitigation(item) ? item.mitigation : '', fullFix: item.fullFix,
-      // The draft as filed, for the session's closing summary, which prints it when the setting is print.
-      draft: draftParts(issueDraft(pass, f, item, title)),
-      ...filed[item.id],
-      outcome: describeOutcome(outcomes[item.id], pass.human),
-    })
+  const filed = toFile.length ? await fileDeferred(pass, record, toFile) : {}
+  const heldIds = new Set(held.map((d) => d.item.id))
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred, roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds })
+  for (const d of toFile) {
+    deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))
   }
+  // What the end-of-run stop needs of a held draft: the draft with its version, and the outcome
+  // the round gave its finding, which the answer then completes.
+  record.held = held.map((d) => ({ ...d, outcome: outcomes[d.item.id] }))
   // On autopilot a finding a repository ask rule covers, or one on Redline's own files (#94, R8-4),
   // is left to the person with no change made (#49). It is no deferral, since it has no drafted
   // issue (#95): its line under Left to the person says what Redline would have done.
@@ -3644,8 +3872,12 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   phase('Push and reply')
-  const replies = withAnswers(pass, inScope, mergeThreadReplies(pass, inScope.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))))
-    .concat(carriedReplies(pass, record, inScope, outcomes), droppedReplies(record), resolvedReplies(record), knownCarriedReplies(record))
+  // A finding whose draft is held gets its reply, and the reply in an earlier thread it carries,
+  // once the draft is settled at the end of the run (#95): a thread takes one Redline reply a
+  // round, and that reply says where the item went.
+  const answeredNow = inScope.filter((f) => !heldIds.has(f.id))
+  const replies = withAnswers(pass, answeredNow, mergeThreadReplies(pass, answeredNow.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted))))
+    .concat(carriedReplies(pass, record, answeredNow, outcomes), droppedReplies(record), resolvedReplies(record), knownCarriedReplies(record))
   const doPush = push && roundCommits.length > 0
   const pushed = await run('push-and-reply', pushReplyPrompt(pass, specFolder, replies, doPush), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `push and reply ${pass.tag}`, phase: 'Push and reply', schema: PUSH_REPLY_SCHEMA,
@@ -3929,6 +4161,8 @@ function capComment(open) {
 // replaced. compose(prBody) returns the comment's text. A human review pass finishes with its
 // summary comment only: no description, no review request (#36).
 async function finish(kind, record, compose) {
+  // The drafts the rounds held are raised once, before anything of Finish runs (#95).
+  stopForHeld()
   phase('Finish')
   // The round that ends a run is the highest one posted on the PR (#81). A run whose rounds
   // re-ran (PR #80: a relaunch under an edited script) can come back clean at an earlier round
@@ -3949,6 +4183,9 @@ async function finish(kind, record, compose) {
       throw Object.assign(stageError('finish', `the run was finishing from round ${finishing}, but the highest Redline round posted on PR #${pr} is ${last.round}, so round ${finishing} is a re-run of an earlier round; nothing was posted after this check. Start a fresh run: /redline:redline ${pr}`), { fresh: true })
     }
   }
+  // The held drafts are filed, and their replies posted, only after the read above: nothing is
+  // posted once that check refuses (#81; #95).
+  await settleHeld()
   const names = { handoff: 'handoff.md', 'cap-hit': 'cap-hit.md', 'human-summary': `human-review-${record.round}-summary.md` }
   const file = `${record.specFolder}/redline/${names[kind]}`
   let prBody = { file: '', updated: false, backup: '', copy: '' }
@@ -4178,6 +4415,11 @@ function handoffResult(record, outcome) {
   // `forced` names the repository ask rule a finding is left to the person under (#49), or null.
   const forcedOf = (id) => (record.forced || {})[id] || null
   const judgmentCalls = outcome.pending.map((call) => ({ ...call, finding: findingOf(call.id), forced: forcedOf(call.id) }))
+  // The drafts the stop raises (#95), each as the person is shown it; draftsNeeded is what the
+  // relaunch answers in args.deferrals. A fix can still be built only at a stop the round reaches
+  // before its first resolve: the plan dial's, and the one after shaping.
+  const drafts = (outcome.drafts || []).map((d) => draftView(record, d, !outcome.afterApproval))
+  const draftsNeeded = drafts.map((d) => d.id)
   if (outcome.kind === 'plan') {
     log(`round ${record.round}: the plan dial stops after shaping (${outcome.shaped.findings.length} dispositions, ${outcome.pending.length} to answer); the run ends here and resumes on relaunch`)
     return result('handoff', {
@@ -4187,24 +4429,29 @@ function handoffResult(record, outcome) {
       plan: outcome.shaped.findings.map((s) => ({ ...s, finding: findingOf(s.id), decidedBy: shaperOwner(s.decidedBy, passOf(record)), forced: forcedOf(s.id) })),
       deferredPlanned: outcome.shaped.deferred,
       judgmentCalls,
+      drafts,
+      draftsNeeded,
       unresolved: [],
       decisionsNeeded: outcome.pending.map((call) => call.id),
       approveWith: { approvedPlans: unique(approvedPlans.concat(passOf(record).planKey)) },
     })
   }
-  log(`round ${record.round}: ${outcome.pending.length} judgment call(s) for the person; the run ends here and resumes on relaunch`)
+  log(`round ${record.round}: ${outcome.pending.length} judgment call(s)${drafts.length ? ` and ${drafts.length} deferred draft(s)` : ''} for the person; the run ends here and resumes on relaunch`)
   const roundDeclines = (outcome.shaped ? outcome.shaped.findings : []).filter((x) => x.disposition === 'decline' && !decisions[x.id]).map((x) => ({ id: x.id, title: findingOf(x.id).title || '', reason: (x.reason || '').trim() }))
   return result('handoff', {
     handoffKind: 'decisions',
     handoffRound: record.round,
     specFolder: record.specFolder,
     judgmentCalls,
+    drafts,
+    draftsNeeded,
     // What the shaper declined on its own in this round (#93), each with its reason: the skill
     // lists them after the calls, and a typed line overrules one before the relaunch. A finding the
     // person or autopilot decided is left out: an overrule is in the decisions the relaunch carries
     // and is applied there (#94, R2-15), and an answered call is the person's decision, posted as
     // theirs, whatever disposition a reshape gave its finding (#94, R8-6).
-    // At a stop a plan approver of the round has run before (a reshape's, or its resolve's), an
+    // At a stop the round's first resolve has run before (the stop for a draft that resolve
+    // wrote, #95; a reshape's after a bounced plan, or its resolve's), an
     // overrule would be applied at the round's first resolve, which ran before the stop, so the
     // relaunch would change earlier prompts and could lose the answer to the new call. Such a
     // stop lists no declines, and declinedAfterRun names them for the after-run door: a reply in
@@ -4325,7 +4572,10 @@ try {
     if (outcome.handoff) {
       return handoffResult(record, outcome)
     }
+    // A revise-only pass ends here, so the drafts it held are raised and settled here (#95).
+    stopForHeld()
     phase('Finish')
+    await settleHeld()
     recordCommit = await commitRecord()
     return result('done', { reviseOnly: true, handoffPosted: false, reviewRequested: false, note: 'One revise pass; no re-review, handoff comment or review request.' })
   }
@@ -4459,6 +4709,10 @@ try {
     round += 1
   }
 } catch (error) {
+  // The end-of-run stop for held drafts (#95) is a hand-off, not an error.
+  if (error && error.handoffResult) {
+    return error.handoffResult
+  }
   log(`stopped: ${error.message}`)
   // The step a resume reruns from (#10): the agent label the error names, with the attempt the
   // relaunch would be. A gather error (the head moved, the PR is not open, the branch is wrong)

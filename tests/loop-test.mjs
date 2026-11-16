@@ -111,9 +111,12 @@ function mock(scenario) {
       // scenario.pushError is the agent's error on a push and replies that went through. The
       // replies answer as the real agent does: one entry per entry in the prompt, reply_id 200+i
       // for a thread reply and 0 where nothing was posted (#39).
-      if (opts.label.startsWith('push')) {
+      // The replies a round's deferred items waited for (#95) are the same operation under their
+      // own label, posted at the end of the run; their reply ids are numbered from 250.
+      if (opts.label.startsWith('push') || opts.label.startsWith('deferred replies')) {
         const entries = JSON.parse(prompt.slice(prompt.indexOf('Replies, as JSON:\n[') + 18, prompt.lastIndexOf(']') + 1))
-        const replies = entries.map((r, i) => ({ finding: r.finding, comment_id: r.comment_id, reply_id: r.route === 'thread' ? 200 + i : 0 }))
+        const base = opts.label.startsWith('deferred replies') ? 250 : 200
+        const replies = entries.map((r, i) => ({ finding: r.finding, comment_id: r.comment_id, reply_id: r.route === 'thread' ? base + i : 0 }))
         return { operation: 'push-and-reply', dryRun: false, pushed: true, replies, files: [], error: scenario.pushError || '' }
       }
       // Filing a pass's deferred drafts (#95): one entry per draft in the prompt, answered as
@@ -228,7 +231,8 @@ function mock(scenario) {
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({
           id, mitigation: scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause', fullFix: 'a lock',
           // scenario.drafts[id] (#95) replaces fields of one finding's draft, fullFix included.
-          ...((scenario.noDraft || []).includes(id) ? {} : { title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}`, ...((scenario.drafts || {})[id] || {}) }),
+          // scenario.reshapeDrafts[id] (#95) does the same on a reshape alone: a draft the reshape changed.
+          ...((scenario.noDraft || []).includes(id) ? {} : { title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}`, ...((scenario.drafts || {})[id] || {}), ...((reshape && (scenario.reshapeDrafts || {})[id]) || {}) }),
         })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
@@ -294,6 +298,11 @@ function mock(scenario) {
 const f = (id, category, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category, severity: 'low', confidence: 'confirmed', title: `title ${id}`, description: 'd', proposedFix: '', knownAs: '', carriedFrom: '', ...extra })
 // An earlier round's finding as redline-gh.sh prior-findings prints it (#35).
 const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split('-')[0]), review_id: 20, category: 'correctness', severity: 'low', confidence: 'likely', file: 'app/x.php', line: 1, title: `title ${id}`, comment_id: 0, body: '', reply: null, carried_from: '', carried_to: '', disposition, ...extra })
+// Since #95 a guided run stops for a deferred item's draft, in the round by default. goAhead(ids)
+// is the person letting each draft go ahead as drafted, at its first version. A scenario whose
+// subject is not the stop passes it from the first launch: the answer is read at the stop check
+// and at filing, and by no prompt before, which the stop's own scenarios prove.
+const goAhead = (...ids) => Object.fromEntries(ids.map((id) => [id, { action: 'file', title: '', notes: '', date: '2026-11-16', draft: 1 }]))
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
@@ -325,7 +334,7 @@ async function go(name, args, scenario, script = body) {
   // after the post of a review-only run or the replies of a revise-only run (#10).
   if (!thrown && (res.status === 'capped' || res.status === 'review-only' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
     const tail = calls.slice(-3).map((c) => c.label)
-    const before = res.status === 'review-only' ? /^post r\d+$/ : res.reviseOnly ? /^push and reply r\d+$/ : /comment$/
+    const before = res.status === 'review-only' ? /^post r\d+$/ : res.reviseOnly ? /^(push and reply|deferred replies) r\d+$/ : /comment$/
     check(`${name}: the run-record commit is the last call, after the closing step`, before.test(tail[0]) && tail[1] === 'record files' && tail[2] === 'record commit' && res.recordCommit && res.recordCommit.committed, tail)
   }
   return { res, calls, thrown }
@@ -531,11 +540,11 @@ function samePrefix(name, first, second, n) {
 //    review only, and a bad interrupt word.
 // ---------------------------------------------------------------------------
 {
-  let run = await go('defer + nits, round 2 clean', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'nit')], []], defer: ['R1-1'], commitIds: [['R1-1', 'R1-2', 'R1-3']] })
+  let run = await go('defer + nits, round 2 clean', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'nit')], []], defer: ['R1-1'], commitIds: [['R1-1', 'R1-2', 'R1-3']] })
   check('defer: done', run.res.status === 'done')
   check('defer: R1-1 reply', replyFor(run.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline', replyFor(run.calls, 'push and reply r1', 'R1-1'))
   check('defer: deferred list', run.res.deferred.length === 1 && run.res.deferred[0].commentId === 100)
-  check('defer: every prompt names the authority', run.calls.every((c) => c.prompt.includes('args.decisions, args.selected and args.approvedPlans')))
+  check('defer: every prompt names the authority', run.calls.every((c) => c.prompt.includes('args.decisions, args.selected, args.approvedPlans and args.deferrals')))
   run = await go('final nit pass finds correctness', baseArgs, { reviews: [[f('R1-1', 'nit')], [f('R2-1', 'correctness')]], commitIds: [['R1-1'], ['R2-1']] })
   check('nit pass: lastFixUnreviewed', run.res.status === 'done' && run.res.lastFixUnreviewed === true)
   run = await go('cap (maxRounds 1)', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] })
@@ -1210,7 +1219,7 @@ function samePrefix(name, first, second, n) {
 {
   const four = [f('R1-1', 'correctness'), f('R1-2', 'nit'), f('R1-3', 'correctness'), f('R1-4', 'nit')]
   const scenario = { reviews: [four, []], ask: ['R1-3'], defer: ['R1-2'], commitIds: [['R1-1', 'R1-2', 'R1-3', 'R1-4']], moved: ['R1-4'] }
-  const args = { ...baseArgs, decisions: { 'R1-3': { choice: 'Keep it', notes: 'Kept, the board shows it.', date: '2026-10-20' } } }
+  const args = { ...baseArgs, decisions: { 'R1-3': { choice: 'Keep it', notes: 'Kept, the board shows it.', date: '2026-10-20' } }, deferrals: goAhead('R1-2') }
   let run = await go('threads: settled findings', args, scenario)
   let sweep = pick(run.calls, 'resolve threads')
   check('threads: the sweep runs after the PR description and before the handoff comment', run.res.status === 'done' && labels(run.calls).slice(-5).join('|') === 'PR description|resolve threads|handoff comment|record files|record commit', labels(run.calls))
@@ -2144,7 +2153,7 @@ function samePrefix(name, first, second, n) {
     f('R1-2', 'nit', { title: 'one ` open', knownAs: '#41 `<c>`' }),
     f('R1-3', 'correctness', { title: 'Deferred @csrf <i> check' }),
   ]
-  let run = await go('posted text: the lines outside the block', { ...baseArgs, askRules: [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }], decisions: { 'R1-1': { choice: 'Make the change by hand after the run', notes: 'The author makes it by hand.', date: '2026-11-13' } } }, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], askRule: { 'R1-1': 'billing' }, mitigation: 'a <b> guard', commitIds: [['R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'] })
+  let run = await go('posted text: the lines outside the block', { ...baseArgs, askRules: [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }], decisions: { 'R1-1': { choice: 'Make the change by hand after the run', notes: 'The author makes it by hand.', date: '2026-11-13' } }, deferrals: goAhead('R1-3') }, { reviews: [outside, []], postDrop: ['R1-2'], defer: ['R1-3'], askRule: { 'R1-1': 'billing' }, mitigation: 'a <b> guard', commitIds: [['R1-3']], summary: ['Uses @param and <b>.', 'Line one with `<b>`\nline two'] })
   const r1 = review(run.calls, 'post r1')
   check('posted text: the finding line escapes its title and keeps its suffix', r1.body.includes('\n- **R1-1** · correctness · low · confirmed · `app/x.php:1` · ' + posted + ' · left to @author under rule billing\n'), r1.body)
   check('posted text: the inline comment\'s title line is escaped the same way', r1.comments.some((c) => c.body.includes('\n\n**' + posted + '**\n\n')), r1.comments.map((c) => c.body))
@@ -2477,7 +2486,7 @@ function samePrefix(name, first, second, n) {
   // A defer the reshape re-sorts to decline is posted as declined and never listed under Deferred;
   // the deferred entry the reshape left beside it is dropped with a warning, and the implementer is
   // not given it (#94, R4-9). The mock's reshape keeps the entry for a scenario's defer ids.
-  const deferResorted = await go('decline: a reshape re-sorts a defer to decline', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-4', 'nit')], []], defer: ['R1-4'], planBounce: 1, reshapeDecline: ['R1-4'], commitIds: [['R1-1']] })
+  const deferResorted = await go('decline: a reshape re-sorts a defer to decline', { ...baseArgs, deferrals: goAhead('R1-4') }, { reviews: [[f('R1-1', 'correctness'), f('R1-4', 'nit')], []], defer: ['R1-4'], planBounce: 1, reshapeDecline: ['R1-4'], commitIds: [['R1-1']] })
   check('decline: a defer re-sorted to decline is posted as declined, never listed under Deferred, and its stray entry is dropped with a warning', deferResorted.res.status === 'done' && (replyFor(deferResorted.calls, 'push and reply r1', 'R1-4') || '').startsWith('Redline round 1: declined: ') && !comment(deferResorted.calls, 'handoff comment').includes('### Deferred') && deferResorted.res.deferred.length === 0 && !(pick(deferResorted.calls, 'implement r1') || { prompt: '' }).prompt.includes('"mitigation": "a guard clause"') && deferResorted.res.warnings.some((w) => w.includes('R1-4') && w.includes('as deferred, but its disposition is not defer')), [deferResorted.res.status, deferResorted.res.deferred, deferResorted.res.warnings])
   // A shaper deferral the person changes on the plan dial is no deferral any more: changed to fix,
   // it leaves no entry under Deferred and none reaches the implementer, with or without a reshape;
@@ -2489,7 +2498,7 @@ function samePrefix(name, first, second, n) {
   const changedBounced = await go('defer: changed to fix on the plan dial, then a reshape', deferToFix, { ...deferScenario, planBounce: 1 })
   const noDeferral = (x) => x.res.status === 'done' && (x.res.deferred || []).length === 0 && !(comment(x.calls, 'handoff comment') || '').includes('### Deferred') && !(pick(x.calls, 'implement r1') || { prompt: '' }).prompt.includes('"mitigation": "a guard clause"')
   check('defer: a deferral the person changes to fix on the plan dial is never listed under Deferred nor given to the implementer, with or without a reshape', noDeferral(changedPlain) && noDeferral(changedBounced), [changedPlain.res.status, changedPlain.res.deferred, changedBounced.res.status, changedBounced.res.deferred])
-  const restated = await go('defer: restated with the person\'s mitigation on the plan dial', { ...planArgs, approvedPlans: [1], decisions: { 'R1-4': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-14', disposition: 'defer' } } }, { ...deferScenario, resolveDeferred: [{ id: 'R1-4', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-4', found: 'found R1-4', why: 'why R1-4' }] })
+  const restated = await go('defer: restated with the person\'s mitigation on the plan dial', { ...planArgs, approvedPlans: [1], decisions: { 'R1-4': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-14', disposition: 'defer' } }, deferrals: goAhead('R1-4') }, { ...deferScenario, resolveDeferred: [{ id: 'R1-4', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-4', found: 'found R1-4', why: 'why R1-4' }] })
   check('defer: a deferral restated on the plan dial lists the resolve agent\'s mitigation, not the shaper\'s', restated.res.status === 'done' && (restated.res.deferred || []).length === 1 && restated.res.deferred[0].mitigation === 'a log line' && restated.res.deferred[0].number === 301 && (comment(restated.calls, 'handoff comment') || '').includes('### Deferred (1)\n\n- **R1-4** title R1-4: Defer it behind a log line. Applied in ') && (comment(restated.calls, 'handoff comment') || '').includes(' Deferred to #301. · decided by: @author'), [restated.res.status, restated.res.deferred, comment(restated.calls, 'handoff comment')])
 
   // An earlier run's decline is a disposition: handled, never carried into the new run.
@@ -2606,7 +2615,7 @@ function samePrefix(name, first, second, n) {
   check('done: a commit that mentions a declined item does not count it fixed in the final nit pass sentence', comment(run.calls, 'handoff comment').includes('The final nit pass found 2 correctness items in the nit fixes: 1 fixed in one more pass, which was not re-reviewed (please look at that commit first); 1 not changed, listed below. '), comment(run.calls, 'handoff comment').slice(0, 400))
   // The neighbour: a deferral's mitigation commit is still counted, so it is flagged for a look.
   // The sentence still calls it fixed; naming it apart is R2-12's deferred full fix.
-  run = await go('done: the final nit pass, one deferred with its mitigation', covArgs, nitThen({ defer: ['R2-1'], commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
+  run = await go('done: the final nit pass, one deferred with its mitigation', { ...covArgs, deferrals: goAhead('R2-1') }, nitThen({ defer: ['R2-1'], commitIds: [['R1-1'], ['R2-1', 'R2-2']] }))
   check('done: a final nit pass deferral\'s mitigation commit is still flagged as unreviewed', run.res.status === 'done' && run.res.lastFixUnreviewed === true && comment(run.calls, 'handoff comment').includes('### Deferred (1)\n\n- **R2-1** '), [run.res.status, run.res.lastFixUnreviewed, comment(run.calls, 'handoff comment')])
 
   // The same after a human-review pass: its summary gives the counts (decision 8's question).
@@ -2644,11 +2653,11 @@ function samePrefix(name, first, second, n) {
   check('overrule: a decisions hand-off carries the round\'s declines with their reasons', stop.res.status === 'handoff' && stop.res.handoffKind === 'decisions' && JSON.stringify(stop.res.declined) === JSON.stringify([{ id: 'R1-3', title: 'title R1-3', reason: 'the spec keeps R1-3 as it is on purpose' }, { id: 'R1-6', title: 'title R1-6', reason: 'could not confirm: needs two workers on one queue' }, { id: 'R1-7', title: 'title R1-7', reason: 'the spec keeps R1-7 as it is on purpose' }]), stop.res.declined)
   // A second stop in the same round (here an answer the resolve agent could not apply) does not
   // list again a decline the person already overruled (#94, R2-15).
-  const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
+  const again = await go('overrule: a second stop after an overrule', { ...covArgs, askRules: rules, decisions, deferrals: goAhead('R1-4') }, { ...scenario, unresolved: [{ id: 'R1-2', why: 'no such option' }] })
   check('overrule: a second decisions stop leaves out a decline the person already overruled', again.res.status === 'handoff' && again.res.handoffKind === 'decisions' && JSON.stringify((again.res.declined || []).map((d) => d.id)) === '["R1-3","R1-6"]', [again.res.status, again.res.handoffKind, again.res.declined])
   // An override the resolve agent cannot apply is handed back with its line and its why, and is a
   // decision the stop needs, so the stop has something to ask (#94, R4-8).
-  const stuckOverride = await go('overrule: an override the resolve cannot apply', { ...covArgs, askRules: rules, decisions }, { ...scenario, unresolved: [{ id: 'R1-7', why: 'the notes do not say what to fix' }] })
+  const stuckOverride = await go('overrule: an override the resolve cannot apply', { ...covArgs, askRules: rules, decisions, deferrals: goAhead('R1-4') }, { ...scenario, unresolved: [{ id: 'R1-7', why: 'the notes do not say what to fix' }] })
   check('overrule: an override the resolve agent cannot apply is handed back with its why and is a decision needed', stuckOverride.res.status === 'handoff' && stuckOverride.res.handoffKind === 'decisions' && JSON.stringify(stuckOverride.res.decisionsNeeded) === '["R1-7"]' && JSON.stringify(stuckOverride.res.overridesUnresolved) === JSON.stringify([{ id: 'R1-7', title: 'title R1-7', disposition: 'fix', notes: 'Fix it now; a third caller lands next week.', why: 'the notes do not say what to fix' }]), [stuckOverride.res.status, stuckOverride.res.decisionsNeeded, stuckOverride.res.overridesUnresolved])
   // A stop after a plan approver of the round has run (a reshape's) lists no declines and names
   // them for the after-run door, since the round's first resolve, which applies an overrule, ran
@@ -2670,7 +2679,7 @@ function samePrefix(name, first, second, n) {
   const lateRun = await go('overrule: a reshape stop answered', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept as it is after the reshape.', date: '2026-11-14' } } }, late)
   samePrefix('overrule: the relaunch from a reshape stop', lateStop.calls, lateRun.calls, lateStop.calls.length)
   check('overrule: the answer typed at a reshape stop reaches the reshape\'s resolve, and the first resolve does not run', Boolean(pick(lateRun.calls, 'resolve r1 #1')) && pick(lateRun.calls, 'resolve r1 #1').prompt.includes('Kept as it is after the reshape.') && !pick(lateRun.calls, 'resolve r1'), labels(lateRun.calls))
-  const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions }, scenario)
+  const run = await go('layout: every outcome in one run', { ...covArgs, askRules: rules, decisions, deferrals: goAhead('R1-4') }, scenario)
   samePrefix('overrule: the relaunch replays every prompt before the stop', stop.calls, run.calls, stop.calls.length)
   check('overrule: a typed overrule at the hand-off turns a decline into a fix decided by the person', run.res.status === 'done' && pick(run.calls, 'resolve r1').prompt.includes('Disposition overrides') && replyFor(run.calls, 'push and reply r1', 'R1-7') === 'Redline round 1: Fix it now; a third caller lands next week. Applied in 4bbbbbb (redline: R1-7 fix). · decided by: @author', [run.res.status, replyFor(run.calls, 'push and reply r1', 'R1-7')])
   const handoff = comment(run.calls, 'handoff comment')
@@ -2742,11 +2751,11 @@ function samePrefix(name, first, second, n) {
   check('layout: the result says what kind each decision was, with a decline\'s reason, for the closing summary', run.res.decided.map((d) => `${d.id}:${d.kind}`).join(',') === 'R1-1:fixed,R1-2:decided,R1-4:deferred,R1-5:left,R1-3:declined,R1-6:declined,R1-7:decided' && run.res.decided.find((d) => d.id === 'R1-6').reason === 'could not confirm: needs two workers on one queue' && run.res.decided.find((d) => d.id === 'R1-7').overruled === true && run.res.decided.find((d) => d.id === 'R1-2').overruled === false, run.res.decided)
 
   // With no login the fallback names nobody's role: headings, lines and the way to overrule.
-  const anon = await go('layout: no login', { ...covArgs, askRules: rules, login: '', decisions }, scenario)
+  const anon = await go('layout: no login', { ...covArgs, askRules: rules, login: '', decisions, deferrals: goAhead('R1-4') }, scenario)
   const anonHandoff = comment(anon.calls, 'handoff comment')
   check('layout: with no login the person running Redline stands in everywhere, and the overrule line asks for a login', anon.res.status === 'done' && anonHandoff.includes('### Put to the person running Redline (1)') && anonHandoff.includes('### Left to the person running Redline (repository rules)') && anonHandoff.includes('left to the person running Redline under repository rule craft-config') && anonHandoff.includes('To overrule one, reply in its thread (for one in the review body, which has no thread, submit a pull request review whose body names its id), then run `/redline:redline-revise 114 review @<login>` with the login of whoever replied.') && !anonHandoff.includes('the author'), anonHandoff)
   // With no login, a decision with no notes starts its sentence with a capital (#94, R4-3).
-  const noNotes = await go('layout: no login, a decision with no notes', { ...covArgs, askRules: rules, login: '', decisions: { ...decisions, 'R1-2': { choice: 'Keep it', date: '2026-11-13' } } }, scenario)
+  const noNotes = await go('layout: no login, a decision with no notes', { ...covArgs, askRules: rules, login: '', decisions: { ...decisions, 'R1-2': { choice: 'Keep it', date: '2026-11-13' } }, deferrals: goAhead('R1-4') }, scenario)
   const noNotesReply = replyFor(noNotes.calls, 'push and reply r1', 'R1-2') || ''
   check('layout: with no login a decision with no notes starts its sentence with a capital', noNotesReply.startsWith('Redline round 1: The person running Redline chose: Keep it.') && noNotesReply.endsWith('· decided by: the person running Redline'), noNotesReply)
 
@@ -2789,7 +2798,7 @@ function samePrefix(name, first, second, n) {
   check('defer: the resolve agent\'s file has it draft the issue for a deferral the person chose', read('agents', 'redline-resolve.md').includes('drafted issue'))
 
   // A deferral with a mitigation is as before: its commit is demanded, and a correctness one buys the next round.
-  const mitigated = await go('defer: a correctness deferral that ships a mitigation', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
+  const mitigated = await go('defer: a correctness deferral that ships a mitigation', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
   check('defer: with a mitigation, a correctness deferral buys the next round', mitigated.res.status === 'done' && mitigated.res.rounds.length === 2 && mitigated.res.rounds[1].reviewed === 'fix-diff', [mitigated.res.status, mitigated.res.rounds.map((r) => r.reviewed)])
   const shape = (pick(mitigated.calls, 'shape r1') || { prompt: '' }).prompt
   check('defer: the shape prompt asks for the drafted issue and says a deferral with no mitigation has no task', shape.includes('it always carries a drafted issue that stands on its own') && shape.includes('neither has a deferred one that ships no mitigation') && shape.includes('its drafted issue as title, found, why and fullFix'), shape.slice(-1800))
@@ -2797,7 +2806,7 @@ function samePrefix(name, first, second, n) {
 
   // No mitigation: no task, no commit demanded, nothing bought. The nit fixed beside it earns the
   // final nit pass, as any fix does; the deferral itself earns nothing.
-  const bare = await go('defer: a correctness deferral that ships nothing, beside a nit', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], defer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [['R1-2']] })
+  const bare = await go('defer: a correctness deferral that ships nothing, beside a nit', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], defer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [['R1-2']] })
   check('defer: with no mitigation the gate passes without a commit for it, and it buys no round', bare.res.status === 'done' && bare.res.rounds.length === 2 && bare.res.rounds[1].reviewed === 'final-nit-pass', [bare.res.status, bare.res.error, bare.res.rounds.map((r) => r.reviewed)])
   check('defer: with no mitigation the reply says where the item went and is not called mitigated', replyFor(bare.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. · decided by: redline', replyFor(bare.calls, 'push and reply r1', 'R1-1'))
   // A handoff that may be absent reads as '', so a run that took another path fails the check and does not throw.
@@ -2808,11 +2817,11 @@ function samePrefix(name, first, second, n) {
   // "none" reads as no mitigation, and a commit that only names the finding is not its mitigation:
   // nothing was fixed, so there is no final nit pass and the run ends at the handoff.
   for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string']]) {
-    const named = await go(`defer: no mitigation as ${name}, and a commit that only names it`, baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': word }, commitIds: [['redline: standards edits for R1-1']] })
+    const named = await go(`defer: no mitigation as ${name}, and a commit that only names it`, { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': word }, commitIds: [['redline: standards edits for R1-1']] })
     check(`defer: ${name} is no mitigation, so a commit that names the finding earns no final nit pass and no round`, named.res.status === 'done' && named.res.rounds.length === 1 && !labels(named.calls).includes('gather r2') && !(replyFor(named.calls, 'push and reply r1', 'R1-1') || '').includes('itigated in'), [named.res.status, named.res.error, labels(named.calls).slice(-8), replyFor(named.calls, 'push and reply r1', 'R1-1')])
   }
   // The neighbour: a mitigation that only begins with the word is a mitigation.
-  const noneOf = await go('defer: a mitigation that begins with the word none', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'None of the callers pass null, so a guard clause' }, commitIds: [['R1-1']] })
+  const noneOf = await go('defer: a mitigation that begins with the word none', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'None of the callers pass null, so a guard clause' }, commitIds: [['R1-1']] })
   check('defer: a mitigation that only begins with "none" still ships, is demanded and buys the round', noneOf.res.status === 'done' && noneOf.res.rounds.length === 2 && noneOf.res.rounds[1].reviewed === 'fix-diff', [noneOf.res.status, noneOf.res.rounds.map((r) => r.reviewed)])
 
   // A deferral with no drafted issue is a result the run cannot use: the shaper is rerun.
@@ -2824,7 +2833,7 @@ function samePrefix(name, first, second, n) {
   check('defer: a deferral the resolve agent returns with no drafted issue stops at resolve, resumable there', resolved.res.status === 'error' && resolved.res.stage === 'resolve' && resolved.res.error === 'the resolve agent deferred R1-1 with no drafted issue (title, found, why, fullFix); a deferred item always carries one' && resolved.res.resumeFrom && resolved.res.resumeFrom.label === 'resolve r1', [resolved.res.status, resolved.res.error, resolved.res.resumeFrom])
   check('defer: the resolve prompt asks for the draft of a deferral the person chose', (pick(resolved.calls, 'resolve r1') || { prompt: '' }).prompt.includes('the draft as title, found, why and fullFix'))
   // A reshape is asked for every field the checks read.
-  const bounced = await go('defer: a bounced plan reshapes a deferral', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], planBounce: 1, commitIds: [['R1-1']] })
+  const bounced = await go('defer: a bounced plan reshapes a deferral', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], planBounce: 1, commitIds: [['R1-1']] })
   check('defer: the reshape prompt asks for the mitigation and the drafted issue', bounced.res.status === 'done' && (pick(bounced.calls, 'reshape r1 #1') || { prompt: '' }).prompt.includes('its drafted issue as title, found, why and fullFix'), [bounced.res.status, bounced.res.error])
 
   // A decline that points at follow-up work is warned about, one case per form, beside the
@@ -2852,8 +2861,10 @@ function samePrefix(name, first, second, n) {
   }
   const handoffOf = (r, label = 'handoff comment') => (pick(r.calls, label) ? comment(r.calls, label) : '')
   const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], defer: ['R1-1'], commitIds: [['R1-1', 'R1-2']] }
+  // The stop is slice 4's subject: here every draft goes ahead as drafted.
+  const filedArgs = { ...baseArgs, deferrals: goAhead('R1-1', 'R2-1', 'H1-1') }
 
-  const run = await go('filing: a deferral with a mitigation, to a GitHub issue', baseArgs, scenario)
+  const run = await go('filing: a deferral with a mitigation, to a GitHub issue', filedArgs, scenario)
   check('filing: the drafts are filed after the check and before the push and the replies', run.res.status === 'done' && labels(run.calls).slice(10, 13).join('|') === 'check r1|file deferred r1|push and reply r1', labels(run.calls))
   const filing = (pick(run.calls, 'file deferred r1') || { prompt: '', opts: {} })
   check('filing: the call is the GitHub agent\'s, named as the defer operation of the round', filing.opts.agentType === 'redline:redline-github' && filing.prompt.includes('Operation: defer for round 1. PR #114.') && filing.prompt.includes('postToGitHub: true.'), filing.prompt.slice(0, 1400))
@@ -2873,22 +2884,22 @@ function samePrefix(name, first, second, n) {
   check('filing: its thread is settled and swept, as a deferred one was', (pick(run.calls, 'resolve threads') || { prompt: '' }).prompt.includes('- R1-1 (round 1): comments 100, '), (pick(run.calls, 'resolve threads') || { prompt: '' }).prompt)
 
   // A round that defers nothing makes no such call, so its prompts and its labels are as before.
-  const plain = await go('filing: a round with nothing deferred', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  const plain = await go('filing: a round with nothing deferred', filedArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   check('filing: a round with nothing deferred makes no filing call and has no Deferred section', plain.res.status === 'done' && !labels(plain.calls).some((l) => l.startsWith('file deferred')) && !handoffOf(plain).includes('### Deferred'), labels(plain.calls))
 
   // The other two destinations write the draft and open nothing: the reply and the handoff give its path.
   for (const word of ['spec', 'print']) {
-    const drafted = await go(`filing: drafts to ${word}`, { ...baseArgs, deferTo: word }, scenario)
+    const drafted = await go(`filing: drafts to ${word}`, { ...filedArgs, deferTo: word }, scenario)
     const [d] = draftsOf(drafted)
     check(`filing: with ${word} the draft is recorded by its path and GitHub is not called`, drafted.res.status === 'done' && d && d.mode === 'draft' && d.command === `/p/scripts/redline-gh.sh defer draft R1-1 /r/${folder}/redline/issue-R1-1.md /r/${folder}/redline/round-1-deferred.json`, d)
     check(`filing: with ${word} the reply gives the draft's path`, replyFor(drafted.calls, 'push and reply r1', 'R1-1') === `Redline round 1: deferred; the issue draft is at \`${folder}/redline/issue-R1-1.md\`. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline`, replyFor(drafted.calls, 'push and reply r1', 'R1-1'))
-    check(`filing: with ${word} the handoff and the result give the draft's path, and the result the setting`, handoffOf(drafted).includes(`- **R1-1** title R1-1: deferred; the issue draft is at \`${folder}/redline/issue-R1-1.md\`; mitigated in 1bbbbbb · decided by: redline\n`) && JSON.stringify([drafted.res.deferTo, drafted.res.deferred[0].where, drafted.res.deferred[0].number, drafted.res.deferred[0].path]) === JSON.stringify([word, 'draft', 0, `${folder}/redline/issue-R1-1.md`]), [handoffOf(drafted), drafted.res.deferTo, drafted.res.deferred])
+    check(`filing: with ${word} the handoff and the result give the draft's path, and the result the setting`, handoffOf(drafted).includes(`- **R1-1** title R1-1: deferred; the issue draft is at \`${folder}/redline/issue-R1-1.md\`; mitigated in 1bbbbbb · decided by: redline\n`) && JSON.stringify([drafted.res.deferTo, (drafted.res.deferred || [])[0].where, (drafted.res.deferred || [])[0].number, (drafted.res.deferred || [])[0].path]) === JSON.stringify([word, 'draft', 0, `${folder}/redline/issue-R1-1.md`]), [handoffOf(drafted), drafted.res.deferTo, drafted.res.deferred])
   }
-  const badWord = await go('filing: a bad deferTo word', { ...baseArgs, deferTo: 'jira' }, scenario)
+  const badWord = await go('filing: a bad deferTo word', { ...filedArgs, deferTo: 'jira' }, scenario)
   check('filing: a deferTo that is not github, spec or print is refused before any agent runs', Boolean(badWord.thrown) && /args\.deferTo must be one of github \| spec \| print/.test(badWord.thrown.message) && badWord.calls.length === 0, badWord.thrown && badWord.thrown.message)
 
   // A dry run opens nothing whatever the setting: every draft is written and recorded by its path.
-  const dry = await go('filing: a dry run', { ...baseArgs, postToGitHub: false }, scenario)
+  const dry = await go('filing: a dry run', { ...filedArgs, postToGitHub: false }, scenario)
   const [dryDraft] = draftsOf(dry)
   check('filing: a dry run files every draft as a draft, and says so', dry.res.status === 'done' && dryDraft && dryDraft.mode === 'draft' && (pick(dry.calls, 'file deferred r1') || { prompt: '' }).prompt.includes('which is every draft of a dry run') && (pick(dry.calls, 'file deferred r1') || { prompt: '' }).prompt.includes('postToGitHub: false.'), dryDraft)
   check('filing: a dry run\'s reply gives the draft\'s path and is written, not posted', (replies(dry.calls, 'push and reply r1').find((r) => r.finding === 'R1-1') || {}).route === 'file-only' && (replyFor(dry.calls, 'push and reply r1', 'R1-1') || '').startsWith(`Redline round 1: deferred; the issue draft is at \`${folder}/redline/issue-R1-1.md\`.`), replies(dry.calls, 'push and reply r1'))
@@ -2897,56 +2908,216 @@ function samePrefix(name, first, second, n) {
   // shown as text and an @word notifies nobody, while a code span stays as written. The title is
   // plain text on GitHub (decision 38), so it is filed as written: the same tag and @word, raw.
   const text = { title: 'Escape <b> in @mention labels', found: 'The label prints <b> raw, @sam is linked & `Map<K, V>` stays in its span.', why: 'It is @param territory: A & B share `x<y`.', fullFix: 'Escape <i> at the edge, as `e(@value)` does.' }
-  const escaped = await go('filing: a draft with a tag, an at-word and a code span', baseArgs, { ...scenario, drafts: { 'R1-1': text } })
+  const escaped = await go('filing: a draft with a tag, an at-word and a code span', filedArgs, { ...scenario, drafts: { 'R1-1': text } })
   const [e] = draftsOf(escaped)
   check('filing: the body is escaped field by field and the title is filed as written', e && e.content === `# Escape <b> in @mention labels\n\nThe label prints &lt;b> raw, @${WJ}sam is linked &amp; \`Map<K, V>\` stays in its span.\n\n- **Where:** \`app/x.php:1\`\n- **Why it is not fixed in #114:** It is @${WJ}param territory: A &amp; B share \`x<y\`.\n- **Proposed fix:** Escape &lt;i> at the edge, as \`e(@value)\` does.\n\nDeferred from pull request #114 by Redline (round 1, finding R1-1).\n`, e && e.content)
-  check('filing: the result gives the title as filed, for the session to print', (escaped.res.deferred[0] || {}).draft && escaped.res.deferred[0].draft.title === 'Escape <b> in @mention labels', escaped.res.deferred[0])
+  check('filing: the result gives the title as filed, for the session to print', ((escaped.res.deferred || [])[0] || {}).draft && (escaped.res.deferred || [])[0].draft.title === 'Escape <b> in @mention labels', (escaped.res.deferred || [])[0])
   check('filing: no raw word joiner is in the filing prompt', !(pick(escaped.calls, 'file deferred r1') || { prompt: '\u2060' }).prompt.includes('\u2060'))
   // The title is made safe as plain text: one line, no control characters, at most 256 characters.
-  const lined = await go('filing: a title over two lines with a tab and a control character', baseArgs, { ...scenario, drafts: { 'R1-1': { title: '  Back off\r\nretries\tin the\x07 client\x1b[0m  ' } } })
+  const lined = await go('filing: a title over two lines with a tab and a control character', filedArgs, { ...scenario, drafts: { 'R1-1': { title: '  Back off\r\nretries\tin the\x07 client\x1b[0m  ' } } })
   check('filing: a newline, a carriage return and a tab in a title become a space, and a control character goes', (draftsOf(lined)[0] || { content: '' }).content.startsWith('# Back off retries in the client[0m\n\n'), (draftsOf(lined)[0] || {}).content)
-  const long = await go('filing: a title of 300 characters', baseArgs, { ...scenario, drafts: { 'R1-1': { title: `${'a'.repeat(255)}\u{1F600}${'b'.repeat(44)}` } } })
+  const long = await go('filing: a title of 300 characters', filedArgs, { ...scenario, drafts: { 'R1-1': { title: `${'a'.repeat(255)}\u{1F600}${'b'.repeat(44)}` } } })
   const longTitle = ((draftsOf(long)[0] || { content: '' }).content.split('\n')[0] || '').slice(2)
   check('filing: a title is cut to 256 characters, counted as characters so no pair is cut in half', [...longTitle].length === 256 && longTitle.endsWith('\u{1F600}'), [[...longTitle].length, longTitle.slice(-4)])
-  const exact = await go('filing: a title of 256 characters', baseArgs, { ...scenario, drafts: { 'R1-1': { title: 'c'.repeat(256) } } })
+  const exact = await go('filing: a title of 256 characters', filedArgs, { ...scenario, drafts: { 'R1-1': { title: 'c'.repeat(256) } } })
   check('filing: a title of exactly 256 characters is filed whole', (draftsOf(exact)[0] || { content: '' }).content.startsWith(`# ${'c'.repeat(256)}\n`))
 
   // Filing is safe to repeat (#95, decision 11): the round's record holds what was filed, so a
   // resumed round that runs the call again is given the same number and no second issue.
   const record = {}
-  const failedPush = await go('filing: the push fails after the issue was opened', baseArgs, { ...scenario, filedRecord: record, pushError: 'rejected' })
+  const failedPush = await go('filing: the push fails after the issue was opened', filedArgs, { ...scenario, filedRecord: record, pushError: 'rejected' })
   check('filing: a failed push stops the run after the filing, resumable at the push', failedPush.res.status === 'error' && failedPush.res.resumeFrom && failedPush.res.resumeFrom.label === 'push and reply r1' && JSON.stringify(record) === '{"R1-1":301}', [failedPush.res.status, failedPush.res.resumeFrom, record])
-  const resumed = await go('filing: the resume runs the filing again', { ...baseArgs, resume: { 'push and reply r1': { attempt: 2, error: failedPush.res.error, hand: { commits: [], paths: [] } } } }, { ...scenario, filedRecord: record })
+  const resumed = await go('filing: the resume runs the filing again', { ...filedArgs, resume: { 'push and reply r1': { attempt: 2, error: failedPush.res.error, hand: { commits: [], paths: [] } } } }, { ...scenario, filedRecord: record })
   samePrefix('filing: a resume replays every prompt through the filing call', failedPush.calls, resumed.calls, labels(failedPush.calls).indexOf('file deferred r1') + 1)
-  check('filing: the resumed round reuses the recorded issue and opens no second one', resumed.res.status === 'done' && JSON.stringify(record) === '{"R1-1":301}' && replyFor(resumed.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: deferred to #301.') && (resumed.res.deferred[0] || {}).number === 301, [resumed.res.status, record, replyFor(resumed.calls, 'push and reply r1', 'R1-1')])
+  check('filing: the resumed round reuses the recorded issue and opens no second one', resumed.res.status === 'done' && JSON.stringify(record) === '{"R1-1":301}' && replyFor(resumed.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: deferred to #301.') && ((resumed.res.deferred || [])[0] || {}).number === 301, [resumed.res.status, record, replyFor(resumed.calls, 'push and reply r1', 'R1-1')])
   // A second deferral in a later round gets its own issue; the first keeps its number.
-  const twoRounds = await go('filing: a deferral in each of two rounds', baseArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], defer: ['R1-1', 'R2-1'], commitIds: [['R1-1'], ['R2-1']] })
+  const twoRounds = await go('filing: a deferral in each of two rounds', filedArgs, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], []], defer: ['R1-1', 'R2-1'], commitIds: [['R1-1'], ['R2-1']] })
   check('filing: each round files its own drafts into its own record', twoRounds.res.status === 'done' && (draftsOf(twoRounds, 'file deferred r2')[0] || {}).command === '/p/scripts/redline-gh.sh defer issue R2-1 /r/agent-os/specs/2026-10-20-1600-114-review-round-2/redline/issue-R2-1.md /r/agent-os/specs/2026-10-20-1600-114-review-round-2/redline/round-2-deferred.json' && JSON.stringify(twoRounds.res.deferred.map((d) => [d.id, d.number])) === '[["R1-1",301],["R2-1",302]]', [twoRounds.res.status, twoRounds.res.deferred])
 
   // A filing that fails, or that leaves a draft out, stops the run at the filing call, where a resume reruns it.
-  const refused = await go('filing: the script fails', baseArgs, { ...scenario, deferError: 'HTTP 403: Resource not accessible by integration' })
+  const refused = await go('filing: the script fails', filedArgs, { ...scenario, deferError: 'HTTP 403: Resource not accessible by integration' })
   check('filing: a failed filing stops at stage defer, resumable at the filing call, before any reply', refused.res.status === 'error' && refused.res.stage === 'defer' && refused.res.error === 'filing the deferred drafts failed in round 1: HTTP 403: Resource not accessible by integration' && refused.res.resumeFrom && refused.res.resumeFrom.label === 'file deferred r1' && !labels(refused.calls).includes('push and reply r1'), [refused.res.status, refused.res.error, refused.res.resumeFrom, labels(refused.calls).slice(-3)])
-  const left = await go('filing: the agent leaves a draft out', baseArgs, { ...scenario, deferDrop: ['R1-1'] })
+  const left = await go('filing: the agent leaves a draft out', filedArgs, { ...scenario, deferDrop: ['R1-1'] })
   check('filing: a draft the agent gave no filing for stops the run, resumable at the filing call', left.res.status === 'error' && left.res.stage === 'defer' && left.res.error === 'the GitHub agent returned no filing for R1-1 in round 1' && left.res.resumeFrom && left.res.resumeFrom.label === 'file deferred r1', [left.res.status, left.res.error, left.res.resumeFrom])
 
   // A deferral the person chose is their decision: its reply and its line keep the decision and end with where it went.
-  const chosen = await go('filing: a fix the person changes to a deferral on the plan dial', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }] })
+  const chosen = await go('filing: a fix the person changes to a deferral on the plan dial', { ...filedArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }] })
   check('filing: a deferral the person chose is filed, and its reply ends with where it went, as their decision', chosen.res.status === 'done' && labels(chosen.calls).includes('file deferred r1') && replyFor(chosen.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it behind a log line. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author', [chosen.res.status, chosen.res.error, replyFor(chosen.calls, 'push and reply r1', 'R1-1')])
 
   // The cap-hit comment carries the section, since no handoff follows.
-  const capped = await go('filing: a run that defers, then hits the cap', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], defer: ['R1-1'], commitIds: [['R1-1']] })
+  const capped = await go('filing: a run that defers, then hits the cap', { ...filedArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], defer: ['R1-1'], commitIds: [['R1-1']] })
   check('filing: the cap-hit comment lists what the run deferred, with its number, after what is still open', capped.res.status === 'capped' && handoffOf(capped, 'cap-hit comment').includes('### Still open\n\n') && handoffOf(capped, 'cap-hit comment').endsWith('\n\n### Deferred (1)\n\n- **R1-1** title R1-1: deferred to #301; mitigated in 1bbbbbb · decided by: redline'), handoffOf(capped, 'cap-hit comment'))
-  const cappedPlain = await go('filing: a run that defers nothing hits the cap', { ...baseArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] })
+  const cappedPlain = await go('filing: a run that defers nothing hits the cap', { ...filedArgs, maxRounds: 1 }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']] })
   check('filing: a cap-hit comment with nothing deferred has no such section', cappedPlain.res.status === 'capped' && !handoffOf(cappedPlain, 'cap-hit comment').includes('### Deferred'), handoffOf(cappedPlain, 'cap-hit comment'))
 
   // A human review pass: the author answers a comment with a deferral, which is filed into the
   // pass's own record; the summary reads what was filed, since no finding there has the kind.
   const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please rewrite H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
   const humanFolder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
-  const human = await go('filing: a human pass, the author defers a comment', { ...baseArgs, firstRound: 3, decisions: { 'H1-1': { choice: 'Mitigate', notes: 'The author defers the rewrite behind a guard.', date: '2026-11-16' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: humanFolder, findings: [h], commentIds: { 'H1-1': 900 }, posted: true } }, { reviews: [[]], ask: ['H1-1'], commitIds: [['H1-1'], []], resolveDeferred: [{ id: 'H1-1', mitigation: 'a guard', fullFix: 'a rewrite', title: 'Rewrite H1-1', found: 'found H1-1', why: 'why H1-1' }] })
+  const human = await go('filing: a human pass, the author defers a comment', { ...filedArgs, firstRound: 3, decisions: { 'H1-1': { choice: 'Mitigate', notes: 'The author defers the rewrite behind a guard.', date: '2026-11-16' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: humanFolder, findings: [h], commentIds: { 'H1-1': 900 }, posted: true } }, { reviews: [[]], ask: ['H1-1'], commitIds: [['H1-1'], []], resolveDeferred: [{ id: 'H1-1', mitigation: 'a guard', fullFix: 'a rewrite', title: 'Rewrite H1-1', found: 'found H1-1', why: 'why H1-1' }] })
   const [hd] = draftsOf(human, 'file deferred h1')
   check('filing: a human pass files the author\'s deferral into the pass\'s own record, naming the pass', human.res.status === 'done' && hd && hd.command === `/p/scripts/redline-gh.sh defer issue H1-1 /r/${humanFolder}/redline/issue-H1-1.md /r/${humanFolder}/redline/human-review-1-deferred.json` && hd.content.endsWith('\n\nDeferred from pull request #114 by Redline (human review 1, finding H1-1).\n'), [human.res.status, human.res.error, hd])
   check('filing: a human pass\'s reply and summary say where the deferral went', (replyFor(human.calls, 'push and reply h1', 'H1-1') || '').includes(' Deferred to #301. · decided by: @author') && handoffOf(human, 'summary comment').includes('H1-1 deferred to #301'), [replyFor(human.calls, 'push and reply h1', 'H1-1'), handoffOf(human, 'summary comment')])
+}
+
+// ---------------------------------------------------------------------------
+// #95, the stops: on every dial but autopilot a deferred item's draft is raised with the person
+// before it is filed. Each round (the default): at the round's stop after shaping, with its
+// judgment calls, and once more for a draft that appears or changes later in the round. End of
+// the run: no round stops, the deferred items' replies wait, and the run stops once before
+// Finish. The answers enter as args.deferrals, read by no prompt before the stop that asked.
+// ---------------------------------------------------------------------------
+{
+  const folder = 'agent-os/specs/2026-10-20-1600-114-review-round-1'
+  const draftsOf = (r, label = 'file deferred r1') => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    return p.includes('Drafts, as JSON:\n[') ? JSON.parse(p.slice(p.indexOf('Drafts, as JSON:\n[') + 17, p.lastIndexOf(']') + 1)) : []
+  }
+  const bodyOf = (r, label = 'handoff comment') => (pick(r.calls, label) ? comment(r.calls, label) : '')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const answer = (action, extra) => ({ action, title: '', notes: '', date: '2026-11-16', draft: 1, ...extra })
+  const only = { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] }
+
+  // A round with only a deferred item stops, after shaping and before anything is planned.
+  const first = await go('stop: a round with only a deferred item', baseArgs, only)
+  check('stop: a round with only a deferred item stops after shaping, as a decisions hand-off with nothing to decide', first.res.status === 'handoff' && first.res.handoffKind === 'decisions' && first.res.handoffRound === 1 && labels(first.calls).join('|') === 'gather r1|review r1|post r1|shape r1|spec status r1' && JSON.stringify([first.res.judgmentCalls, first.res.decisionsNeeded, first.res.draftsNeeded]) === '[[],[],["R1-1"]]', [first.res.status, first.res.handoffKind, labels(first.calls), first.res.draftsNeeded])
+  const shown = (first.res.drafts || [])[0] || {}
+  check('stop: the draft is handed back as the person is shown it: the finding, what ships, where it goes, the title and body as filed, its version, and that a fix can still be built', JSON.stringify([shown.id, shown.round, shown.finding && shown.finding.file, shown.mitigation, shown.goesTo, shown.dryRun, shown.title, shown.body, shown.draft, shown.canFix]) === JSON.stringify(['R1-1', 1, 'app/x.php', 'a guard clause', 'github', false, 'Lock R1-1', 'found R1-1\n\n- **Where:** `app/x.php:1`\n- **Why it is not fixed in #114:** why R1-1\n- **Proposed fix:** a lock\n\nDeferred from pull request #114 by Redline (round 1, finding R1-1).\n', 1, true]), shown)
+  check('stop: the result says when drafts are raised, each round by default, and the relaunch note names the answer', first.res.deferAt === 'round' && first.res.relaunch.how.includes('deferrals ({"<id>": {"action": "file|drop"') && first.res.relaunch.how.includes('one for each id in draftsNeeded') && first.res.relaunch.how.includes('only for a draft whose canFix is true'), [first.res.deferAt, first.res.relaunch.how])
+  const second = await go('stop: the relaunch files the draft', { ...baseArgs, deferrals: { 'R1-1': answer('file') } }, only)
+  samePrefix('stop: the relaunch replays every prompt before the stop', first.calls, second.calls, first.calls.length)
+  check('stop: on the relaunch the draft is filed and the run goes on', second.res.status === 'done' && labels(second.calls).includes('file deferred r1') && replyFor(second.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: deferred to #301.'), [second.res.status, labels(second.calls)])
+  for (const [word, goesTo, dryRun, extra] of [['spec', 'spec', false, { deferTo: 'spec' }], ['print', 'print', false, { deferTo: 'print' }], ['a dry run', 'spec', true, { postToGitHub: false }]]) {
+    const where = await go(`stop: where the draft goes, ${word}`, { ...baseArgs, ...extra }, only)
+    check(`stop: with ${word} the draft says where it goes`, JSON.stringify([((where.res.drafts || [])[0] || {}).goesTo, ((where.res.drafts || [])[0] || {}).dryRun]) === JSON.stringify([goesTo, dryRun]), where.res.drafts)
+  }
+
+  // A call and a draft make one stop, with the round's declines listed as at any stop before its resolve.
+  const both = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'nit')], []], defer: ['R1-1'], ask: ['R1-2'], decline: ['R1-3'], commitIds: [['R1-1', 'R1-2']] }
+  const one = await go('stop: a call and a draft', baseArgs, both)
+  check('stop: a round with a call and a draft stops once, for both, and lists its declines', one.res.status === 'handoff' && JSON.stringify([one.res.decisionsNeeded, one.res.draftsNeeded, (one.res.declined || []).map((d) => d.id), one.res.declinedAfterRun]) === '[["R1-2"],["R1-1"],["R1-3"],[]]', [one.res.decisionsNeeded, one.res.draftsNeeded, one.res.declined])
+  const kept = { 'R1-2': { choice: 'Keep it', notes: 'Kept as it is, on purpose.', date: '2026-11-16' } }
+  const onward = await go('stop: a call and a draft, answered', { ...baseArgs, decisions: kept, deferrals: { 'R1-1': answer('file') } }, both)
+  samePrefix('stop: with a call and a draft the relaunch replays every prompt before the stop', one.calls, onward.calls, one.calls.length)
+  check('stop: both answered, the round goes on with no second stop', onward.res.status === 'done' && labels(onward.calls).includes('resolve r1') && labels(onward.calls).includes('file deferred r1'), [onward.res.status, onward.res.handoffKind, labels(onward.calls)])
+  const half = await go('stop: the call answered, the draft not', { ...baseArgs, decisions: kept }, both)
+  check('stop: with the call answered and the draft not, the round still stops at the same point, for the draft', half.res.status === 'handoff' && labels(half.calls).join('|') === labels(one.calls).join('|') && JSON.stringify([half.res.decisionsNeeded, half.res.draftsNeeded]) === '[[],["R1-1"]]', [labels(half.calls), half.res.decisionsNeeded, half.res.draftsNeeded])
+
+  // Drop: nothing is filed and nothing else changes, so the mitigation still ships; it is the person's decision.
+  const why = '@author does not want this tracked: the client is replaced next quarter.'
+  const droppedRun = await go('stop: the person drops the draft', { ...baseArgs, deferrals: { 'R1-1': answer('drop', { notes: why }) } }, only)
+  check('stop: a dropped draft is not filed, its mitigation still ships and buys the round, and the reply gives the person\'s reason', droppedRun.res.status === 'done' && !labels(droppedRun.calls).some((l) => l.startsWith('file deferred')) && droppedRun.res.rounds.length === 2 && replyFor(droppedRun.calls, 'push and reply r1', 'R1-1') === `Redline round 1: ${why} No issue was opened. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: @author`, [droppedRun.res.status, labels(droppedRun.calls), replyFor(droppedRun.calls, 'push and reply r1', 'R1-1')])
+  check('stop: a dropped draft is listed as overruled by the person, never under Deferred, and the result holds no deferred item', bodyOf(droppedRun).includes(`### Overruled by @author (1)\n\n- **R1-1** title R1-1: ${why} No issue was opened. Mitigated in 1bbbbbb. · decided by: @author\n`) && !bodyOf(droppedRun).includes('### Deferred') && bodyOf(droppedRun).includes('1 item: 1 overruled by @author;') && (droppedRun.res.deferred || []).length === 0 && JSON.stringify(droppedRun.res.decided.map((d) => [d.id, d.kind, d.overruled, d.decidedBy])) === '[["R1-1","decided",true,"@author"]]', [bodyOf(droppedRun), droppedRun.res.decided])
+  const droppedBare = await go('stop: the person drops a draft that ships nothing, giving no reason', { ...baseArgs, deferrals: { 'R1-1': answer('drop') } }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [[]] })
+  check('stop: a dropped draft with no mitigation changes nothing, and a drop with no reason says only that the person does not want it tracked', droppedBare.res.status === 'done' && droppedBare.res.rounds.length === 1 && replyFor(droppedBare.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: @author does not want this tracked. No issue was opened. · decided by: @author', [droppedBare.res.status, droppedBare.res.error, replyFor(droppedBare.calls, 'push and reply r1', 'R1-1')])
+
+  // A title of the person's is the title filed. It is no new draft, so it moves no version, and no earlier prompt holds it.
+  const titled = await go('stop: the person gives a title', { ...baseArgs, deferrals: { 'R1-1': answer('file', { title: 'Mine: lock <b> the queue' }) } }, { ...only, planBounce: 1 })
+  check('stop: the person\'s title is the one filed, as written, and the result carries it', titled.res.status === 'done' && (draftsOf(titled)[0] || { content: '' }).content.startsWith('# Mine: lock <b> the queue\n\nfound R1-1\n') && ((titled.res.deferred || [])[0] || { draft: {} }).draft.title === 'Mine: lock <b> the queue', [titled.res.status, draftsOf(titled)[0], titled.res.deferred])
+  check('stop: a title of the person\'s moves no version, so a reshape that leaves the draft as it was does not stop again', labels(titled.calls).includes('reshape r1 #1') && titled.res.status === 'done', [titled.res.status, labels(titled.calls)])
+  check('stop: no prompt before the filing call holds the person\'s title: the plan approver and the implementer are shown the shaper\'s entry', titled.calls.filter((c) => c.label !== 'file deferred r1').every((c) => !c.prompt.includes('Mine: lock')), titled.calls.filter((c) => c.prompt.includes('Mine: lock')).map((c) => c.label))
+
+  // Fix: the existing disposition override, planned and built in the same round, with nothing filed.
+  const fixed = await go('stop: the person turns the draft back into a fix', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it here; the client is ours.', date: '2026-11-16', disposition: 'fix' } } }, only)
+  check('stop: a draft turned back into a fix is built in the round as the person\'s decision, and nothing is filed or asked again', fixed.res.status === 'done' && labels(fixed.calls).includes('resolve r1') && !labels(fixed.calls).some((l) => l.startsWith('file deferred')) && replyFor(fixed.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it here; the client is ours. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author' && !bodyOf(fixed).includes('### Deferred') && promptOf(fixed, 'resolve r1').includes('Disposition overrides'), [fixed.res.status, labels(fixed.calls), replyFor(fixed.calls, 'push and reply r1', 'R1-1')])
+
+  // A deferral the person chose is drafted by the resolve agent, after the stop, so its draft is
+  // raised before it is filed, at a stop that takes no override and lists no declines.
+  const chosenScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'nit')], []], ask: ['R1-2'], decline: ['R1-3'], commitIds: [['R1-1', 'R1-2']], resolveDeferred: [{ id: 'R1-2', mitigation: 'a guard', fullFix: 'a rewrite', title: 'Rewrite R1-2', found: 'found R1-2', why: 'why R1-2' }] }
+  const mitigate = { 'R1-2': { choice: 'Mitigate', notes: 'Defer the rewrite behind a guard.', date: '2026-11-16' } }
+  const chosen = await go('stop: a deferral the person chose', { ...baseArgs, decisions: mitigate }, chosenScenario)
+  check('stop: a deferral the person chose is raised after the resolve that drafted it, before anything is built', chosen.res.status === 'handoff' && chosen.res.handoffKind === 'decisions' && labels(chosen.calls).join('|') === 'gather r1|review r1|post r1|shape r1|spec status r1|resolve r1' && JSON.stringify([chosen.res.draftsNeeded, chosen.res.decisionsNeeded, ((chosen.res.drafts || [])[0] || {}).title, ((chosen.res.drafts || [])[0] || {}).draft]) === '[["R1-2"],[],"Rewrite R1-2",1]', [chosen.res.status, labels(chosen.calls), chosen.res.drafts])
+  check('stop: a stop after the round\'s first resolve takes no fix and lists no declines, naming them for after the run', ((chosen.res.drafts || [])[0] || {}).canFix === false && JSON.stringify([chosen.res.declined, chosen.res.declinedAfterRun]) === '[[],["R1-3"]]', [chosen.res.drafts, chosen.res.declined, chosen.res.declinedAfterRun])
+  const chosenOn = await go('stop: a deferral the person chose, its draft answered', { ...baseArgs, decisions: mitigate, deferrals: { 'R1-2': answer('file') } }, chosenScenario)
+  samePrefix('stop: after the second stop of a round the relaunch replays every prompt before it, the resolve included', chosen.calls, chosenOn.calls, chosen.calls.length)
+  check('stop: the chosen deferral is then filed, and stays the person\'s decision', chosenOn.res.status === 'done' && replyFor(chosenOn.calls, 'push and reply r1', 'R1-2') === 'Redline round 1: Defer the rewrite behind a guard. Applied in 2bbbbbb (redline: R1-2 fix). Deferred to #301. · decided by: @author', [chosenOn.res.status, replyFor(chosenOn.calls, 'push and reply r1', 'R1-2')])
+
+  // A reshape that changes a draft the person answered raises it once more, as its next version;
+  // an answer to the later version passes the round's first stop too.
+  const changed = { ...only, planBounce: 1, reshapeDrafts: { 'R1-1': { found: 'found R1-1, with the caller named' } } }
+  const redrafted = await go('stop: a reshape changes an answered draft', { ...baseArgs, deferrals: { 'R1-1': answer('file') } }, changed)
+  check('stop: a draft the reshape changed is raised again as version 2, with its new body, where no fix can be built', redrafted.res.status === 'handoff' && labels(redrafted.calls).slice(-2).join('|') === 'reshape r1 #1|spec status r1 #1' && JSON.stringify([redrafted.res.draftsNeeded, ((redrafted.res.drafts || [])[0] || {}).draft, ((redrafted.res.drafts || [])[0] || {}).canFix]) === '[["R1-1"],2,false]' && (((redrafted.res.drafts || [])[0] || {}).body || '').startsWith('found R1-1, with the caller named\n'), [redrafted.res.status, labels(redrafted.calls), redrafted.res.drafts])
+  const redraftedOn = await go('stop: the changed draft answered', { ...baseArgs, deferrals: { 'R1-1': answer('file', { draft: 2 }) } }, changed)
+  samePrefix('stop: after a reshape\'s stop the relaunch replays every prompt before it', redrafted.calls, redraftedOn.calls, redrafted.calls.length)
+  check('stop: an answer to the later version passes the first stop too, and the changed draft is the one filed', redraftedOn.res.status === 'done' && (draftsOf(redraftedOn)[0] || { content: '' }).content.includes('found R1-1, with the caller named'), [redraftedOn.res.status, redraftedOn.res.handoffKind, draftsOf(redraftedOn)])
+  const same = await go('stop: a reshape leaves an answered draft as it was', { ...baseArgs, deferrals: { 'R1-1': answer('file') } }, { ...only, planBounce: 1 })
+  check('stop: a reshape that leaves the draft as it was does not stop again', same.res.status === 'done' && labels(same.calls).includes('reshape r1 #1'), [same.res.status, labels(same.calls)])
+
+  // The plan dial shows the drafts in the list it already stops for: one approval answers them.
+  const planArgs = { ...baseArgs, interrupt: 'plan' }
+  const planned = await go('stop: the plan dial', planArgs, only)
+  check('stop: the plan dial\'s stop carries the drafts, where a fix can still be built', planned.res.status === 'handoff' && planned.res.handoffKind === 'plan' && JSON.stringify([planned.res.draftsNeeded, ((planned.res.drafts || [])[0] || {}).draft, ((planned.res.drafts || [])[0] || {}).canFix]) === '[["R1-1"],1,true]', [planned.res.handoffKind, planned.res.drafts])
+  const approved = await go('stop: the plan approved with its draft answered', { ...planArgs, approvedPlans: [1], deferrals: { 'R1-1': answer('file') } }, only)
+  samePrefix('stop: the plan dial\'s relaunch replays every prompt before the stop', planned.calls, approved.calls, planned.calls.length)
+  check('stop: an approval that answers the draft is followed by no second stop in the round', labels(approved.calls).includes('file deferred r1') && labels(approved.calls).includes('push and reply r1'), [approved.res.status, approved.res.handoffKind, labels(approved.calls)])
+  const unanswered = await go('stop: the plan approved, its draft not answered', { ...planArgs, approvedPlans: [1] }, only)
+  check('stop: an approval that leaves the draft unanswered stops again for it, as an unanswered ask does', unanswered.res.status === 'handoff' && unanswered.res.handoffKind === 'decisions' && JSON.stringify(unanswered.res.draftsNeeded) === '["R1-1"]', [unanswered.res.status, unanswered.res.handoffKind, unanswered.res.draftsNeeded])
+
+  // Autopilot never asks: every draft is filed as drafted, in its round, at either setting.
+  for (const at of ['round', 'end']) {
+    const auto = await go(`stop: autopilot, deferred at ${at}`, { ...baseArgs, interrupt: 'autopilot', deferAt: at }, only)
+    check(`stop: on autopilot, with drafts raised at ${at}, the run never stops and files each draft in its round`, auto.res.status === 'done' && labels(auto.calls).slice(10, 13).join('|') === 'check r1|file deferred r1|push and reply r1' && replyFor(auto.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline', [auto.res.status, labels(auto.calls)])
+  }
+
+  // End of the run: no round stops for a draft. Round 1 fixes one finding, which buys round 2,
+  // and defers another with no mitigation. The deferred thread gets no reply yet; round 2's
+  // reviewer is shown the item as deferred, from the round's record, so a candidate that matches
+  // it is settled and buys nothing; the run then stops once, before anything of Finish.
+  const covArgs = { ...baseArgs, deferAt: 'end', models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const candidate = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the deferred one again', failure_scenario: 'f' }]) + '\n```\n'
+  const ended = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], defer: ['R1-2'], mitigations: { 'R1-2': '' }, commitIds: [['R1-1']], coverage: [candidate, candidate], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'settled', ref: 'R1-2' }]] }
+  const held = await go('end: the rounds run, then the run stops once', covArgs, ended)
+  check('end: no round stops for a draft; the run stops once, after its last round and before anything of Finish', held.res.status === 'handoff' && held.res.handoffKind === 'deferred' && held.res.handoffRound === 2 && held.res.rounds.length === 2 && labels(held.calls).slice(-1)[0] === 'post r2' && !labels(held.calls).some((l) => l === 'last round' || l.startsWith('file deferred') || l.startsWith('deferred replies')), [held.res.status, held.res.handoffKind, labels(held.calls)])
+  check('end: the stop hands back every held draft with its round and version, where no fix can be built, and nothing else to decide', JSON.stringify([held.res.draftsNeeded, held.res.decisionsNeeded, held.res.judgmentCalls, ((held.res.drafts || [])[0] || {}).round, ((held.res.drafts || [])[0] || {}).draft, ((held.res.drafts || [])[0] || {}).canFix, held.res.deferAt]) === '[["R1-2"],[],[],1,1,false,"end"]', [held.res.draftsNeeded, held.res.drafts])
+  check('end: the deferred item\'s thread gets no reply in its round, while the fixed one does', JSON.stringify(replies(held.calls, 'push and reply r1').map((r) => r.finding)) === '["R1-1"]', replies(held.calls, 'push and reply r1'))
+  check('end: the next round\'s reviewer is shown the item as deferred, from the round\'s record, with no reply and no issue yet', promptOf(held, 're-review r2').includes('"outcome": "deferred; raised with @author at the end of the run · decided by: redline"'), promptOf(held, 're-review r2').slice(0, 3000))
+  check('end: a candidate that matches the deferred item is settled, so round 2 finds nothing new and buys no round', ((held.res.rounds[1] || {}).findings || [0]).length === 0 && (((held.res.rounds[1] || {}).coverage || {}).counts || {}).settled === 1, held.res.rounds[1])
+  const filedAtEnd = await go('end: the relaunch files and finishes', { ...covArgs, deferrals: { 'R1-2': answer('file') } }, ended)
+  samePrefix('end: the relaunch replays every prompt of every round', held.calls, filedAtEnd.calls, held.calls.length)
+  check('end: after the answer, Finish reads the highest posted round first, then files, then posts the held replies, then finishes', filedAtEnd.res.status === 'done' && labels(filedAtEnd.calls).slice(held.calls.length).join('|') === 'last round|file deferred r1|deferred replies r1|PR description|resolve threads|handoff comment|record files|record commit', labels(filedAtEnd.calls).slice(held.calls.length))
+  check('end: the held reply says where the item went, and is posted with no push', replyFor(filedAtEnd.calls, 'deferred replies r1', 'R1-2') === 'Redline round 1: deferred to #301. · decided by: redline' && promptOf(filedAtEnd, 'deferred replies r1').includes('Step 1. Do not push (the round pushed its commits when it ended; these are the replies its deferred items waited for).'), [replyFor(filedAtEnd.calls, 'deferred replies r1', 'R1-2'), promptOf(filedAtEnd, 'deferred replies r1').slice(0, 900)])
+  check('end: the handoff and the result carry the number, and the item\'s thread is swept with its late reply', bodyOf(filedAtEnd).includes('### Deferred (1)\n\n- **R1-2** title R1-2: deferred to #301 · decided by: redline\n') && bodyOf(filedAtEnd).includes('2 items: 1 fixed, 1 deferred;') && ((filedAtEnd.res.deferred || [])[0] || {}).number === 301 && ((filedAtEnd.res.rounds[0] || {}).outcomes || {})['R1-2'] === 'deferred to #301 · decided by: redline' && promptOf(filedAtEnd, 'resolve threads').includes('- R1-2 (round 1): comments 101, 250'), [bodyOf(filedAtEnd), filedAtEnd.res.deferred, promptOf(filedAtEnd, 'resolve threads')])
+  const droppedAtEnd = await go('end: the person drops the draft at the end', { ...covArgs, deferrals: { 'R1-2': answer('drop', { notes: why }) } }, ended)
+  check('end: a draft dropped at the end is not filed, and its late reply gives the person\'s reason', droppedAtEnd.res.status === 'done' && !labels(droppedAtEnd.calls).some((l) => l.startsWith('file deferred')) && replyFor(droppedAtEnd.calls, 'deferred replies r1', 'R1-2') === `Redline round 1: ${why} No issue was opened. · decided by: @author`, [droppedAtEnd.res.status, labels(droppedAtEnd.calls).slice(-8), replyFor(droppedAtEnd.calls, 'deferred replies r1', 'R1-2')])
+  check('end: a draft dropped at the end is counted and listed as overruled by the person, never as deferred', bodyOf(droppedAtEnd).includes('2 items: 1 fixed, 1 overruled by @author;') && bodyOf(droppedAtEnd).includes(`### Overruled by @author (1)\n\n- **R1-2** title R1-2: ${why} No issue was opened. · decided by: @author\n`) && !bodyOf(droppedAtEnd).includes('### Deferred') && (droppedAtEnd.res.deferred || []).length === 0 && JSON.stringify(droppedAtEnd.res.decided.filter((d) => d.id === 'R1-2').map((d) => [d.kind, d.overruled, d.decidedBy])) === '[["decided",true,"@author"]]', [bodyOf(droppedAtEnd), droppedAtEnd.res.decided])
+  // Nothing is filed once Finish's read of the highest posted round refuses (#81).
+  const rerun = await go('end: finishing from a re-run earlier round', { ...covArgs, deferrals: { 'R1-2': answer('file') } }, { ...ended, lastPosted: 7 })
+  check('end: when the round check refuses, nothing is filed and no held reply is posted', rerun.res.status === 'error' && rerun.res.stage === 'finish' && labels(rerun.calls).slice(-1)[0] === 'last round' && !labels(rerun.calls).some((l) => l.startsWith('file deferred') || l.startsWith('deferred replies')), [rerun.res.status, rerun.res.stage, labels(rerun.calls).slice(-3)])
+  // With nothing deferred the end setting adds no stop.
+  const nothing = await go('end: a run that defers nothing', { ...baseArgs, deferAt: 'end' }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('end: a run that deferred nothing makes no stop', nothing.res.status === 'done', [nothing.res.status, nothing.res.handoffKind])
+
+  // The same stop comes before a cap-hit comment, which then carries the numbers.
+  const capScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], [f('R2-1', 'correctness')]], defer: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const capHeld = await go('end: the round cap', { ...baseArgs, deferAt: 'end', maxRounds: 1 }, capScenario)
+  check('end: a run that reaches the cap stops for its held drafts before the cap-hit comment', capHeld.res.status === 'handoff' && capHeld.res.handoffKind === 'deferred' && !labels(capHeld.calls).includes('cap-hit comment') && JSON.stringify(capHeld.res.draftsNeeded) === '["R1-2"]', [capHeld.res.status, capHeld.res.handoffKind, labels(capHeld.calls).slice(-3)])
+  const capFiled = await go('end: the round cap, answered', { ...baseArgs, deferAt: 'end', maxRounds: 1, deferrals: { 'R1-2': answer('file') } }, capScenario)
+  check('end: the cap-hit comment then lists what was deferred, with its number and its mitigation\'s commit', capFiled.res.status === 'capped' && labels(capFiled.calls).slice(-6).join('|') === 'last round|file deferred r1|deferred replies r1|cap-hit comment|record files|record commit' && bodyOf(capFiled, 'cap-hit comment').endsWith('### Deferred (1)\n\n- **R1-2** title R1-2: deferred to #301; mitigated in 2bbbbbb · decided by: redline'), [capFiled.res.status, labels(capFiled.calls).slice(-6), bodyOf(capFiled, 'cap-hit comment')])
+
+  // A revise-only pass ends at its record commit, so its held drafts are raised and settled there.
+  const reviseArgs = { ...baseArgs, deferAt: 'end', revise: { round: 1, specFolder: folder, findings: [f('R1-1', 'correctness')], commentIds: { 'R1-1': 100 }, posted: true } }
+  const reviseHeld = await go('end: a revise-only pass', reviseArgs, { reviews: [], defer: ['R1-1'], commitIds: [['R1-1']] })
+  check('end: a revise-only pass stops for its held draft before its record commit', reviseHeld.res.status === 'handoff' && reviseHeld.res.handoffKind === 'deferred' && !labels(reviseHeld.calls).includes('record commit'), [reviseHeld.res.status, reviseHeld.res.handoffKind, labels(reviseHeld.calls)])
+  const reviseFiled = await go('end: a revise-only pass, answered', { ...reviseArgs, deferrals: { 'R1-1': answer('file') } }, { reviews: [], defer: ['R1-1'], commitIds: [['R1-1']] })
+  check('end: a revise-only pass then files, replies and commits its record', reviseFiled.res.status === 'done' && labels(reviseFiled.calls).slice(-4).join('|') === 'file deferred r1|deferred replies r1|record files|record commit', [reviseFiled.res.status, labels(reviseFiled.calls).slice(-4)])
+
+  // A human review pass raises its drafts in the pass at either setting: its threads take one
+  // reply per pass, so nothing of it can wait for the end.
+  const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please rewrite H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanArgs = { ...baseArgs, deferAt: 'end', firstRound: 3, decisions: { 'H1-1': { choice: 'Mitigate', notes: 'The author defers the rewrite behind a guard.', date: '2026-11-16' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h], commentIds: { 'H1-1': 900 }, posted: true } }
+  const humanScenario = { reviews: [[]], ask: ['H1-1'], commitIds: [['H1-1'], []], resolveDeferred: [{ id: 'H1-1', mitigation: 'a guard', fullFix: 'a rewrite', title: 'Rewrite H1-1', found: 'found H1-1', why: 'why H1-1' }] }
+  const humanStop = await go('end: a human pass raises its draft in the pass', humanArgs, humanScenario)
+  check('end: at the end setting a human review pass still raises its draft in the pass, after the resolve', humanStop.res.status === 'handoff' && humanStop.res.handoffKind === 'decisions' && labels(humanStop.calls).slice(-1)[0] === 'resolve h1' && JSON.stringify(humanStop.res.draftsNeeded) === '["H1-1"]', [humanStop.res.status, humanStop.res.handoffKind, labels(humanStop.calls)])
+  const humanOn = await go('end: a human pass, its draft answered', { ...humanArgs, deferrals: { 'H1-1': answer('file') } }, humanScenario)
+  check('end: a human pass files its draft and answers its thread in the pass, never at the end', humanOn.res.status === 'done' && labels(humanOn.calls).indexOf('file deferred h1') + 1 === labels(humanOn.calls).indexOf('push and reply h1') && !labels(humanOn.calls).some((l) => l.startsWith('deferred replies')), [humanOn.res.status, labels(humanOn.calls)])
+
+  // The words and the answers are checked before any agent runs.
+  const badAt = await go('stop: a bad deferAt word', { ...baseArgs, deferAt: 'never' }, only)
+  check('stop: a deferAt that is not round or end is refused before any agent runs', Boolean(badAt.thrown) && /args\.deferAt must be one of round \| end/.test(badAt.thrown.message) && badAt.calls.length === 0, badAt.thrown && badAt.thrown.message)
+  for (const [name, bad] of [['an action that is neither file nor drop', { 'R1-1': answer('open') }], ['no draft version', { 'R1-1': { action: 'file', title: '', notes: '', date: '2026-11-16' } }], ['a list', ['R1-1']]]) {
+    const refused = await go(`stop: deferrals with ${name}`, { ...baseArgs, deferrals: bad }, only)
+    check(`stop: deferrals with ${name} are refused before any agent runs`, Boolean(refused.thrown) && /args\.deferrals must map a finding id to/.test(refused.thrown.message) && refused.calls.length === 0, refused.thrown && refused.thrown.message)
+  }
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
