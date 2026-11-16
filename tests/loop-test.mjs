@@ -3241,6 +3241,41 @@ function samePrefix(name, first, second, n) {
   check('fix-diff: the agent file\'s sentence on what a correctness finding buys names the exception', reviewerAgent.includes('a low-severity one whose cause is in the previous round\'s fixes is fixed like a nit and buys none'), 'agents/redline-reviewer.md, "The kind"')
 }
 
+// ---------------------------------------------------------------------------
+// #95, the statements a reader meets: a verified item ends one of four ways, and every place that
+//     says so names the deferred ending. #79 left the README's opening line, both plugin
+//     descriptions and the mission on the old rule until a fifth round (#80, R5-1), so each is
+//     pinned here beside what the agents themselves are told.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (calls, label) => (pick(calls, label) || { prompt: '' }).prompt
+  const run = await go('statements: a round of nits and its final pass', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
+  const shapers = 'Whether to fix it, defer it, decline it or put it to the person is the shaper\'s decision, never yours.'
+  check('statements: every review prompt leaves all four endings to the shaper', promptOf(run.calls, 'review r1').includes(shapers) && promptOf(run.calls, 'final nit pass r2').includes(shapers), promptOf(run.calls, 'review r1').slice(-700))
+  check('statements: the reviewer\'s file names the four endings the shaper chooses from', reviewerAgent.includes('fix it, defer it to a drafted issue when it is worth doing outside this pull request, decline it with a reason, or put it to the person'), 'agents/redline-reviewer.md')
+  const described = (src.match(/^ {2}description: '(.*)',$/m) || ['', ''])[1]
+  check('statements: the workflow describes itself by the done rule as it is, with the filing step', described.includes('file each deferred item\\\'s drafted issue') && described.endsWith('re-review while a round finds a new correctness item to fix or ask about') && !src.includes('until a round confirms no new correctness finding'), described)
+  const manifest = JSON.parse(read('.claude-plugin', 'plugin.json'))
+  const market = JSON.parse(read('.claude-plugin', 'marketplace.json'))
+  const skill = read('skills', 'redline', 'SKILL.md').split('\n').find((line) => line.startsWith('description: ')) || ''
+  const endings = [
+    ['the README\'s opening paragraph', read('README.md').split('\n')[2], 'defers it to a drafted issue when it is worth doing and not here'],
+    ['the plugin manifest\'s description', manifest.description, 'Every verified item is fixed, deferred to a drafted issue, declined with a reason, or put to you.'],
+    ['the marketplace entry\'s description', market.plugins[0].description, 'Every verified item is fixed, deferred to a drafted issue, declined with a reason, or put to you.'],
+    ['the skill\'s description', skill, 'every verified item is fixed, deferred to a drafted issue, declined with a reason, or put to the person'],
+    ['the product mission', read('agent-os', 'product', 'mission.md'), 'defers what is worth doing outside this pull request'],
+  ]
+  for (const [name, text, phrase] of endings) {
+    check(`statements: ${name} names the deferred ending`, typeof text === 'string' && text.includes(phrase) && !text.includes('fixed, declined with a reason, or put to'), String(text).slice(0, 300))
+  }
+  const limits = read('README.md').split('\n').filter((line) => line.startsWith('- **'))
+  for (const [name, opening] of [['a deferred item opens an issue and a board gets a card', '- **A deferred item becomes a GitHub issue, and a board that takes new issues gets a card.**'], ['an issue is opened once per finding within one run', '- **An issue is opened once per finding, within one run.**'], ['at the end setting an unfinished run leaves threads unanswered', '- **With deferred items raised at the end, a run that never finishes leaves their threads unanswered.**'], ['a draft is the shaper\'s judgment and its title is posted as written', '- **A deferred item\'s draft is the shaper\'s judgment, and its title is posted as written.**']]) {
+    check(`statements: the README's Known limits says ${name}`, limits.some((line) => line.startsWith(opening)), opening)
+  }
+  check('statements: the README states the title\'s unmeasured case as expected, never as fact', limits.some((line) => line.includes('Whether an `@word` in a title notifies by some path other than a link was not measured; it is expected not to.')), 'README.md, Known limits')
+}
+
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

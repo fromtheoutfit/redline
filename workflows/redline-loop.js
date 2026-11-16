@@ -1,6 +1,6 @@
 export const meta = {
   name: 'redline-loop',
-  description: 'Redline: review a pull request (the code-review skill finds, Redline\'s reviewer verifies), post the review, shape and implement the fixes through Agent OS, check, push, reply and re-review until a round confirms no new correctness finding',
+  description: 'Redline: review a pull request (the code-review skill finds, Redline\'s reviewer verifies), post the review, shape and implement the fixes through Agent OS, check, file each deferred item\'s drafted issue, push, reply and re-review while a round finds a new correctness item to fix or ask about',
   whenToUse: 'Launched only by the /redline:redline skill (and its /redline:redline-review and /redline:redline-revise variants), which builds args from the repository\'s .claude/redline.json and the command line. Never launched by hand.',
   phases: [
     { title: 'Gather', detail: 'PR facts through redline-gh.sh (GitHub agent)' },
@@ -413,7 +413,7 @@ const KIND_RULES = 'A finding\'s kind: correctness is wrong behaviour reachable 
 const KINDS = `${KIND_RULES} State the kind with care: a correctness finding the run acts on buys another round.`
 // A final nit pass buys no round: what it finds gets one more revise pass and the run ends (#94, R2-2).
 const KINDS_FINAL = `${KIND_RULES} State the kind with care: in this final nit pass a correctness finding the run acts on gets one more revise pass, and then the run ends.`
-const FACTS_ONLY = 'You establish what is true; you do not decide what to do about it. Report every finding you verified, whatever its size, whatever its fix would cost and wherever its cause lies, with confidence confirmed (reproduced, or traced through the code to the result, with the lines cited). Report one you could not confirm with confidence unconfirmed and, in wouldConfirm, one line on what would confirm it. Whether to fix it, decline it or put it to the person is the shaper\'s decision, never yours.'
+const FACTS_ONLY = 'You establish what is true; you do not decide what to do about it. Report every finding you verified, whatever its size, whatever its fix would cost and wherever its cause lies, with confidence confirmed (reproduced, or traced through the code to the result, with the lines cited). Report one you could not confirm with confidence unconfirmed and, in wouldConfirm, one line on what would confirm it. Whether to fix it, defer it, decline it or put it to the person is the shaper\'s decision, never yours.'
 const NEVER_DECIDE = 'Judgment calls are returned, never decided. A question that turns on product intent, an assumption in the original spec, a standard the codebase does not follow yet, a fix out of proportion to its finding, or anything you cannot settle from the code goes back to the person with the options; you do not pick one, you do not implement a default, and you do not treat an earlier spec as having settled it.'
 // The rule a role after the shaper follows about decisions: a human review pass keeps NEVER_DECIDE;
 // a Redline round's roles apply what was decided and leave what is pending (#93; #94, R1-9).
