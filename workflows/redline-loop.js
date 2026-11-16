@@ -627,6 +627,9 @@ const FINDING_SCHEMA = {
     // A fact the verifier states, never a reason to drop the finding: the cause is in code this
     // pull request did not change.
     outsideDiff: bool,
+    // A fact the verifier states on a fix-diff round (#95): the cause is in the previous round's
+    // fixes. The workflow checks it against the paths that round's plan named, and never infers it.
+    inFixDiff: bool,
     knownAs: str,
     carriedFrom: str,
     // The id of a repository ask rule the reviewer judges the finding to be under (#49);
@@ -1027,6 +1030,13 @@ function scopedLine(f) {
   return `- ${f.id} · \`${f.file}:${f.line}\` · ${postedText(f.title)}`
 }
 
+// What a final nit pass at `round` read (#95): the nit fixes, unless the round before it fixed a
+// low-severity correctness finding from its own fix diff like a nit, which is no nit fix.
+function fixesRead(round) {
+  const before = rounds.find((record) => record.round === round - 1)
+  return before && (before.minor || []).length ? `round ${round - 1}'s fixes` : 'the nit fixes'
+}
+
 // `source` names the pass whose fixes a final nit pass reads when it is not the previous round (the
 // fixes of a human review pass, #36); empty for a Redline round's nit fixes.
 function reviewBody(round, reviewed, range, review, active, known, source) {
@@ -1040,7 +1050,7 @@ function reviewBody(round, reviewed, range, review, active, known, source) {
           ? `Round ${round - 1} changed no code; reviewed the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
           : `Reviewed the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}), and the coverage pass's candidates over the whole pull request at ${short(range.to)}.`
         : `Reviewed only the fix diff from round ${round - 1} (${short(range.from)}..${short(range.to)}).`
-      : `Final nit pass: reviewed only the ${source ? `fixes from ${source}` : 'nit fixes'} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
+      : `Final nit pass: reviewed only ${source ? `the fixes from ${source}` : fixesRead(round)} (${short(range.from)}..${short(range.to)}) for correctness bugs they introduced.`
   // By kind (#93): what the verifier confirmed, correctness first; then what it could not confirm,
   // each with what would confirm it. The review is posted before anything is decided, so what
   // became of each is in its thread and in the handoff.
@@ -1568,7 +1578,13 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   } else if (scope === 'correctness') {
     lines.push('', 'Scope: correctness only. Run no nit checks of your own: no naming, clarity, docblock or test-tightness pass, and no Docs or Version nit. Spend that time on reproducing the correctness candidates you have. A nit a candidate raises is still verified and reported as one, since you state what is true; the run declines it under the scope, in one list, with no thread.')
   }
-  lines.push('', reviewed === 'final-nit-pass' ? KINDS_FINAL : KINDS, '', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
+  lines.push('', reviewed === 'final-nit-pass' ? KINDS_FINAL : KINDS)
+  // The fix-diff rule (#95): only a round that reads a fix diff is asked where a finding's cause
+  // is, right after the sentence on what a correctness finding buys, which this qualifies.
+  if (reviewed === 'fix-diff' && !noFixDiff) {
+    lines.push('', `For each finding, state inFixDiff: true when its cause is in the fix diff named above, in code round ${round - 1}'s fixes added or changed, and false when it is in the pull request's own code or anywhere else. It is a fact you state with care, as outsideDiff is, and the run checks it against the files round ${round - 1}'s plan named: a low-severity correctness finding whose cause is in those fixes is fixed like a nit and buys no further round, so never set it because a finding is small.`)
+  }
+  lines.push('', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
 }
 
@@ -2452,6 +2468,9 @@ if (AGENTS_CHANGED) {
   warnings.push(AGENTS_CHANGED)
 }
 let approvedPaths = []
+// Whether a file is under a list of plan paths, read as checks.sh reads its allowed list: an entry
+// ending in a slash covers everything under it, any other entry only itself.
+const underPaths = (file, paths) => paths.some((entry) => (entry.endsWith('/') ? file.startsWith(entry) : file === entry))
 let baseline = null
 let baselineFailing = []
 let recordCommit = null
@@ -2496,6 +2515,9 @@ function result(status, extra) {
       // as the round's record keeps them, and are listed here apart so the skill's summaries can
       // name them (#94, R3-8).
       scoped: (record.scoped || []).map(compactFinding),
+      // The round's low-severity correctness findings from the previous round's fix diff, fixed
+      // like a nit: none of them bought a round (#95).
+      minor: (record.minor || []).slice(),
       // Nothing a final nit pass reports is dropped since #94, R7-10, so this reads 0; the key
       // is kept for readers of the result.
       droppedNits: record.droppedNits || 0,
@@ -2624,6 +2646,7 @@ async function review(round, reviewed, range, facts, source) {
     // its absence is said.
     delete f.needsDecision
     f.outsideDiff = f.outsideDiff === true
+    f.inFixDiff = f.inFixDiff === true
     f.wouldConfirm = f.confidence === 'unconfirmed' && typeof f.wouldConfirm === 'string' ? f.wouldConfirm.trim() : ''
     if (f.confidence === 'unconfirmed' && !f.wouldConfirm) {
       warnings.push(`round ${round}: the reviewer could not confirm ${f.id} and did not say what would confirm it`)
@@ -3725,6 +3748,10 @@ async function revise(record, inScope, reviewedKind) {
   // The snapshot's plan_paths is every path approved so far in this run: the git block
   // measures from start_sha, so earlier rounds' files are still changed in later rounds.
   const planPaths = plan.planPaths.map((path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path))
+  // The round keeps the paths its own plan named (#95): the next round's fix diff is this round's
+  // fixes, and a finding the verifier places in it must sit under one of them. The run's list
+  // below is every round's, so it cannot say which round touched a file.
+  record.planPaths = planPaths.slice()
   approvedPaths = unique(approvedPaths.concat(planPaths, [`${specFolder}/`]))
   const snapshotPath = abs(`${specFolder}/redline/snapshot.json`)
   // round_sha is the commit this round starts from (#68): the newest one an earlier round's check
@@ -3906,7 +3933,10 @@ async function revise(record, inScope, reviewedKind) {
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
   const shaperMitigated = (id) => shaped.deferred.some((d) => d.id === id && hasMitigation(d))
   const buys = (own, shipped) => own === 'fix' || (own === 'defer' && shipped)
-  const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || shaperOwn[f.id] === 'ask' || buys(shaperOwn[f.id], shaperMitigated(f.id)) || buys(finalOwn[f.id], mitigated(f.id))))
+  // A low-severity correctness finding from the previous round's fix diff is fixed like a nit
+  // (#95): whatever became of it, a call included, it buys nothing, as a nit buys nothing.
+  const likeNit = new Set(record.minor || [])
+  const bought = inScope.some((f) => f.category === 'correctness' && !likeNit.has(f.id) && (calls.some((call) => call.id === f.id) || shaperOwn[f.id] === 'ask' || buys(shaperOwn[f.id], shaperMitigated(f.id)) || buys(finalOwn[f.id], mitigated(f.id))))
   const fixed = inScope.filter((f) => !['declined', 'none'].includes(outcomes[f.id].kind) && outcomes[f.id].commits.length > 0).map((f) => f.id)
   return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
@@ -3933,16 +3963,19 @@ function handoffComment(ending, prBody, threads) {
   const end = ending && typeof ending === 'object' ? ending : {}
   const final = end.final || null
   const ran = `Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}`
+  // What the final nit pass read (#95): the nit fixes, or the fixes of a round that fixed a
+  // low-severity correctness finding like a nit.
+  const read = last && last.reviewed === 'final-nit-pass' ? fixesRead(last.round) : 'the nit fixes'
   if (final && final.fixed === final.found) {
     lines.push(final.found === 1
-      ? `${ran}. The final nit pass found a correctness bug in the nit fixes; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
-      : `${ran}. The final nit pass found ${final.found} correctness bugs in the nit fixes; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
+      ? `${ran}. The final nit pass found a correctness bug in ${read}; it was fixed in one more pass, which was not re-reviewed. Please look at that commit first. ${wholePr}`
+      : `${ran}. The final nit pass found ${final.found} correctness bugs in ${read}; they were fixed in one more pass, which was not re-reviewed. Please look at those commits first. ${wholePr}`)
   } else if (final && final.fixed === 0) {
-    lines.push(`${ran}. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in the nit fixes; none was changed, and each is listed below. ${wholePr}`)
+    lines.push(`${ran}. The final nit pass found ${final.found} correctness item${final.found === 1 ? '' : 's'} in ${read}; none was changed, and each is listed below. ${wholePr}`)
   } else if (final) {
-    lines.push(`${ran}. The final nit pass found ${final.found} correctness items in the nit fixes: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
+    lines.push(`${ran}. The final nit pass found ${final.found} correctness items in ${read}: ${final.fixed} fixed in one more pass, which was not re-reviewed (please look at ${final.fixed === 1 ? 'that commit' : 'those commits'} first); ${final.found - final.fixed} not changed, listed below. ${wholePr}`)
   } else if (last && last.reviewed === 'final-nit-pass') {
-    lines.push(`${ran}. The last was a final nit pass over the fix diff only, which found no correctness bugs in the nit fixes. ${wholePr}`)
+    lines.push(`${ran}. The last was a final nit pass over the fix diff only, which found no correctness bugs in ${read}. ${wholePr}`)
   } else if (end.noRecheck) {
     lines.push(`${ran}; the last one changed no code, and with the coverage pass off there was nothing further to review.`)
   } else if (end.notPicked) {
@@ -4611,6 +4644,27 @@ try {
     if (scoped.length) {
       log(`round ${round}: ${scoped.length} item(s) declined under ${scopeName(reviewed === 'final-nit-pass')} (correctness only): ${scoped.map((f) => f.id).join(', ')}`)
     }
+    // The fix-diff rule (#95). The verifier states that a finding's cause is in the previous
+    // round's fixes; the workflow honours that only where it can be true: on a round that read a
+    // fix diff, for a file the previous round's plan named. A claim it cannot honour is cleared
+    // with a warning before the review is posted, so the finding buys a round like any other. A
+    // final nit pass reads nothing else and buys nothing, so its findings are left as stated.
+    if (reviewed !== 'final-nit-pass') {
+      const before = rounds.find((earlier) => earlier.round === round - 1)
+      for (const f of active.filter((x) => x.inFixDiff)) {
+        const why = reviewed !== 'fix-diff'
+          ? 'this round reviewed the whole pull request, not a fix diff'
+          : range.empty
+            ? `round ${round - 1} changed no code, so this round had no fix diff`
+            : underPaths(f.file, (before && before.planPaths) || [])
+              ? ''
+              : `\`${f.file}\` is not among the paths round ${round - 1}'s plan named`
+        if (why) {
+          warnings.push(`round ${round}: the reviewer placed ${f.id} in the fix diff, but ${why}; it is treated as a finding in the pull request's own code, which buys a round`)
+          f.inFixDiff = false
+        }
+      }
+    }
     const coverageNote = reviewOut.coverage
       ? `, coverage ${reviewOut.coverage.candidates} candidates: ${reviewOut.coverage.counts.verified} verified, ${reviewOut.coverage.counts.unconfirmed} unconfirmed, ${reviewOut.coverage.counts.refuted} refuted, ${reviewOut.coverage.counts.duplicate + reviewOut.coverage.counts.settled} collapsed, ${reviewOut.coverage.counts.known} tracked`
       : ''
@@ -4654,6 +4708,12 @@ try {
     }
     const correctness = active.filter((f) => f.category === 'correctness')
     const nits = active.filter((f) => f.category === 'nit')
+    // Fixed like a nit (#95): a correctness finding of low severity whose cause is in the previous
+    // round's fix diff, the claim checked above. It is shaped and fixed with the round's other
+    // correctness findings, buys no round, and is left out of the cap test below.
+    const minor = reviewed === 'fix-diff' ? correctness.filter((f) => f.inFixDiff && f.severity === 'low') : []
+    record.minor = minor.map((f) => f.id)
+    const buying = correctness.filter((f) => !minor.includes(f))
 
     if (reviewed === 'final-nit-pass') {
       if (correctness.length === 0) {
@@ -4678,8 +4738,10 @@ try {
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody })
     }
 
-    // The cap counts this run's rounds, from its first.
-    if (correctness.length && round - firstRound + 1 > maxRounds) {
+    // The cap counts this run's rounds, from its first. A round past it whose only correctness
+    // findings are fixed like a nit goes on to its fixes and its final nit pass, as a round of
+    // nits does (#95); the comment of a capped run lists every open correctness finding.
+    if (buying.length && round - firstRound + 1 > maxRounds) {
       const finished = await finish('cap-hit', record, () => capComment(correctness))
       return result('capped', { openFindings: correctness.map(compactFinding), capCommentPosted: finished.posted })
     }

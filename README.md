@@ -54,7 +54,7 @@ Six settings shape a run besides the PR number, typed on the command line or rem
 | Setting | Words | Default |
 | --- | --- | --- |
 | `interrupt` | as above | `guided` |
-| `scope` | `correctness only`: anything that is not a correctness item is declined with the scope as its reason, listed once, and there is no final nit pass; otherwise every verified item is decided, and a round that fixed only nits ends in one final nit pass | `all` |
+| `scope` | `correctness only`: anything that is not a correctness item is declined with the scope as its reason, listed once, and there is no final nit pass, except after a round that fixed a low-severity bug in the previous round's fixes; otherwise every verified item is decided, and a round that committed fixes and bought no further round (nits, or such a low-severity bug) ends in one final nit pass | `all` |
 | rounds | `max N rounds`: the revise rounds before the run stops with a cap-hit comment | `3` |
 | `revise` | `revise fable` or `revise opus`: the model that shapes and implements the fixes; the other roles' models are in `.claude/redline.json` | Opus 5.5 |
 | deferred items, when | `defer each round` or `defer at end`: when a deferred item's drafted issue is put to you before it is filed. Each round: at the round's stop after shaping, with its judgment calls, and a round with only deferred items stops too. At the end: no stop inside the rounds, and one stop before the handoff, only when the run deferred something. `autopilot` asks nothing and files each draft in its round | each round |

@@ -48,6 +48,7 @@ function mock(scenario) {
   // The highest round a post call put on GitHub, which is what last-round reads at Finish (#81).
   let postedRound = 0
   let planN = 0
+  let approvedN = 0
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
     // scenario.nothing (#94, R6-10): the labels whose call returns nothing, as an agent that was
@@ -255,7 +256,11 @@ function mock(scenario) {
       if (scenario.planBounce && planN++ < scenario.planBounce) {
         return { approved: false, adjustments: [{ task: 2, problem: 'p', change: 'c' }], planPaths: [], notes: '' }
       }
-      return { approved: true, adjustments: [], planPaths: ['app/x.php'], notes: '' }
+      // scenario.planPaths (#95) is the list an approved plan names, 'app/x.php' when absent; a
+      // list of lists gives each approval its own, in order.
+      const named = scenario.planPaths ? (Array.isArray(scenario.planPaths[0]) ? scenario.planPaths[approvedN] || ['app/x.php'] : scenario.planPaths) : ['app/x.php']
+      approvedN += 1
+      return { approved: true, adjustments: [], planPaths: named.slice(), notes: '' }
     }
     if (t === 'redline:redline-standards-approver') {
       return { approved: [], rejected: [], deferred: [], noChanges: true }
@@ -3118,6 +3123,122 @@ function samePrefix(name, first, second, n) {
     const refused = await go(`stop: deferrals with ${name}`, { ...baseArgs, deferrals: bad }, only)
     check(`stop: deferrals with ${name} are refused before any agent runs`, Boolean(refused.thrown) && /args\.deferrals must map a finding id to/.test(refused.thrown.message) && refused.calls.length === 0, refused.thrown && refused.thrown.message)
   }
+}
+
+// ---------------------------------------------------------------------------
+// #95, the fix-diff rule: a new correctness finding that is low severity and whose cause is in the
+//     previous round's fix diff is fixed like a nit. It buys no round and is left out of the cap
+//     test, so its round ends in the final nit pass. The verifier states the fact (inFixDiff), and
+//     the workflow honours it only on a round that read a fix diff and for a file the previous
+//     round's plan named; a claim it cannot honour is a warning, and the finding buys as before.
+// ---------------------------------------------------------------------------
+{
+  const promptOf = (calls, label) => (pick(calls, label) || { prompt: '' }).prompt
+  const bodyOf = (calls, label) => {
+    const p = promptOf(calls, label)
+    if (!p.includes('{\n  "body"')) {
+      return ''
+    }
+    return JSON.parse(p.slice(p.indexOf('{\n  "body"'), p.indexOf('\n}\n', p.indexOf('{\n  "body"')) + 2)).body
+  }
+  const handoffOf = (calls) => (pick(calls, 'handoff comment') ? comment(calls, 'handoff comment') : '')
+  const minorOf = (res, i) => ((res.rounds || [])[i] || {}).minor || []
+  const about = (res, id) => (res.warnings || []).filter((w) => w.includes(id) && w.includes('fix diff'))
+  const low = (id, extra) => f(id, 'correctness', { severity: 'low', inFixDiff: true, ...extra })
+  const two = (second, extra) => ({ reviews: [[f('R1-1', 'correctness')], second, []], commitIds: [['R1-1'], second.map((x) => x.id)], ...extra })
+
+  // Low, and in the previous round's fix diff: fixed like a nit.
+  const minor = await go('fix-diff: a low finding in the fix diff', baseArgs, two([low('R2-1')]))
+  check('fix-diff: a low correctness finding in the previous round\'s fix diff is fixed and buys no round: its round ends in the final nit pass', minor.res.status === 'done' && minor.res.rounds.length === 3 && labels(minor.calls).includes('implement r2') && labels(minor.calls).includes('final nit pass r3') && !labels(minor.calls).includes('re-review r3') && about(minor.res, 'R2-1').length === 0, [minor.res.status, labels(minor.calls), minor.res.warnings])
+  check('fix-diff: the round records which of its findings were fixed like a nit, and no other round does', minorOf(minor.res, 1).join(',') === 'R2-1' && minorOf(minor.res, 0).length === 0 && minorOf(minor.res, 2).length === 0, (minor.res.rounds || []).map((r) => r.minor))
+  check('fix-diff: its fix is still a commit and a reply of its own', replyFor(minor.calls, 'push and reply r2', 'R2-1').startsWith('Redline round 2: fixed in ') && minor.res.decided.some((d) => d.id === 'R2-1' && d.kind === 'fixed'), replyFor(minor.calls, 'push and reply r2', 'R2-1'))
+  // The final nit pass after it read correctness fixes, so no sentence calls them nit fixes.
+  check('fix-diff: the final nit pass after it says whose fixes it read, in its review and in the handoff', bodyOf(minor.calls, 'post r3').startsWith('Redline round 3\n\nFinal nit pass: reviewed only round 2\'s fixes (') && handoffOf(minor.calls).includes('The last was a final nit pass over the fix diff only, which found no correctness bugs in round 2\'s fixes.') && !handoffOf(minor.calls).includes('nit fixes') && !bodyOf(minor.calls, 'post r3').includes('nit fixes'), [bodyOf(minor.calls, 'post r3').slice(0, 200), handoffOf(minor.calls).slice(0, 300)])
+  const nitsOnly = await go('fix-diff: a round of nits still reads as nit fixes', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
+  check('fix-diff: after a round that fixed only nits the two sentences are as before', bodyOf(nitsOnly.calls, 'post r2').startsWith('Redline round 2\n\nFinal nit pass: reviewed only the nit fixes (') && handoffOf(nitsOnly.calls).includes('which found no correctness bugs in the nit fixes.'), [bodyOf(nitsOnly.calls, 'post r2').slice(0, 200), handoffOf(nitsOnly.calls).slice(0, 300)])
+  const minorThenBug = await go('fix-diff: the final nit pass after it finds a bug', baseArgs, { reviews: [[f('R1-1', 'correctness')], [low('R2-1')], [f('R3-1', 'correctness')]], commitIds: [['R1-1'], ['R2-1'], ['R3-1']] })
+  check('fix-diff: a bug the final nit pass finds in those fixes gets its one more pass, named the same way', minorThenBug.res.status === 'done' && minorThenBug.res.lastFixUnreviewed === true && handoffOf(minorThenBug.calls).includes('The final nit pass found a correctness bug in round 2\'s fixes; it was fixed in one more pass, which was not re-reviewed.') && labels(minorThenBug.calls).filter((l) => /^(re-review|final nit pass) r4$/.test(l)).length === 0, [minorThenBug.res.status, handoffOf(minorThenBug.calls).slice(0, 300)])
+
+  // A final nit pass reads only fixes, so the fact means nothing there: no warning, nothing recorded.
+  const inFinal = await go('fix-diff: a final nit pass finding that states it', baseArgs, { reviews: [[f('R1-1', 'nit')], [low('R2-1')]], commitIds: [['R1-1'], ['R2-1']] })
+  check('fix-diff: a final nit pass finding that states inFixDiff gets its one more pass, with no warning and nothing recorded', inFinal.res.status === 'done' && inFinal.res.lastFixUnreviewed === true && about(inFinal.res, 'R2-1').length === 0 && minorOf(inFinal.res, 1).length === 0 && handoffOf(inFinal.calls).includes('found a correctness bug in the nit fixes'), [inFinal.res.status, inFinal.res.warnings, (inFinal.res.rounds || []).map((r) => r.minor)])
+  // Only the boolean is the fact.
+  const worded = await go('fix-diff: a claim that is not a boolean', baseArgs, two([low('R2-1', { inFixDiff: 'true' })]))
+  check('fix-diff: an inFixDiff that is not the boolean true is not the fact, and the finding buys the next round', labels(worded.calls).includes('re-review r3') && minorOf(worded.res, 1).length === 0, labels(worded.calls))
+
+  // Each condition on its own: without it the finding buys the next round, as before.
+  const unstated = await go('fix-diff: a low finding that states nothing', baseArgs, two([f('R2-1', 'correctness')]))
+  check('fix-diff: a low finding of a fix-diff round that does not state inFixDiff buys the next round, as before', unstated.res.status === 'done' && labels(unstated.calls).includes('re-review r3') && !labels(unstated.calls).includes('final nit pass r3') && minorOf(unstated.res, 1).length === 0 && about(unstated.res, 'R2-1').length === 0, [labels(unstated.calls), unstated.res.warnings])
+  const own = await go('fix-diff: a low finding in the pull request\'s own code', baseArgs, two([low('R2-1', { inFixDiff: false })]))
+  check('fix-diff: a low finding the verifier places in the pull request\'s own code buys the next round', labels(own.calls).includes('re-review r3') && !labels(own.calls).includes('final nit pass r3') && minorOf(own.res, 1).length === 0, labels(own.calls))
+  for (const severity of ['medium', 'high']) {
+    const run = await go(`fix-diff: a ${severity} finding in the fix diff`, baseArgs, two([low('R2-1', { severity })]))
+    check(`fix-diff: a ${severity} finding in the fix diff buys the next round, with no warning`, labels(run.calls).includes('re-review r3') && !labels(run.calls).includes('final nit pass r3') && minorOf(run.res, 1).length === 0 && about(run.res, 'R2-1').length === 0, [labels(run.calls), run.res.warnings])
+  }
+  const lowNit = await go('fix-diff: a nit in the fix diff', baseArgs, two([f('R2-1', 'nit', { inFixDiff: true })]))
+  check('fix-diff: a nit that states inFixDiff is a nit: not recorded as one of these, and its round ends as a nit round does', minorOf(lowNit.res, 1).length === 0 && labels(lowNit.calls).includes('final nit pass r3'), [labels(lowNit.calls), (lowNit.res.rounds || []).map((r) => r.minor)])
+  const mixed = await go('fix-diff: a low one beside a medium one', baseArgs, two([low('R2-1'), low('R2-2', { severity: 'medium' })]))
+  check('fix-diff: beside a finding that buys, the round is bought and the low one is still recorded', labels(mixed.calls).includes('re-review r3') && minorOf(mixed.res, 1).join(',') === 'R2-1', [labels(mixed.calls), minorOf(mixed.res, 1)])
+
+  // The claim is checked: the file must be one the previous round's plan named.
+  const elsewhere = await go('fix-diff: a claim on a file the plan did not name', baseArgs, two([low('R2-1', { file: 'app/other.php' })]))
+  check('fix-diff: a claim on a file outside the previous round\'s plan paths is a warning, and the finding buys the next round', labels(elsewhere.calls).includes('re-review r3') && !labels(elsewhere.calls).includes('final nit pass r3') && minorOf(elsewhere.res, 1).length === 0 && about(elsewhere.res, 'R2-1').length === 1 && about(elsewhere.res, 'R2-1')[0] === 'round 2: the reviewer placed R2-1 in the fix diff, but `app/other.php` is not among the paths round 1\'s plan named; it is treated as a finding in the pull request\'s own code, which buys a round', [labels(elsewhere.calls), elsewhere.res.warnings])
+  const folder = await go('fix-diff: a plan path that is a folder', baseArgs, two([low('R2-1', { file: 'app/Services/Retry.php' })], { planPaths: ['app/Services/', 'tests/'] }))
+  check('fix-diff: a plan path ending in a slash covers the files under it', labels(folder.calls).includes('final nit pass r3') && minorOf(folder.res, 1).join(',') === 'R2-1' && about(folder.res, 'R2-1').length === 0, [labels(folder.calls), folder.res.warnings])
+  const sibling = await go('fix-diff: a file beside a named one', baseArgs, two([low('R2-1', { file: 'app/Services.php' })], { planPaths: ['app/Services/', 'app/Service'] }))
+  check('fix-diff: a folder path covers nothing beside it, and a file path only itself', labels(sibling.calls).includes('re-review r3') && about(sibling.res, 'R2-1').length === 1, [labels(sibling.calls), sibling.res.warnings])
+  // The previous round's plan, never the run's: round 1 named app/a.php, round 2 app/b.php, and a
+  // round 3 finding on app/a.php is not in round 2's fix diff.
+  const perRound = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], [low('R3-1', { file: 'app/a.php' })], []], commitIds: [['R1-1'], ['R2-1'], ['R3-1']], planPaths: [['app/a.php'], ['app/b.php'], ['app/a.php']] }
+  const stale = await go('fix-diff: a file only an earlier round\'s plan named', { ...baseArgs, maxRounds: 5 }, perRound)
+  check('fix-diff: the paths checked are the previous round\'s own, not every path the run approved', labels(stale.calls).includes('re-review r4') && about(stale.res, 'R3-1').length === 1 && about(stale.res, 'R3-1')[0].includes('`app/a.php` is not among the paths round 2\'s plan named'), [labels(stale.calls), stale.res.warnings])
+  const current = await go('fix-diff: a file the previous round\'s plan named', { ...baseArgs, maxRounds: 5 }, { ...perRound, reviews: [perRound.reviews[0], perRound.reviews[1], [low('R3-1', { file: 'app/b.php' })], []] })
+  check('fix-diff: and a file the previous round\'s plan named is honoured', labels(current.calls).includes('final nit pass r4') && minorOf(current.res, 2).join(',') === 'R3-1' && about(current.res, 'R3-1').length === 0, [labels(current.calls), current.res.warnings])
+
+  // A round that read no fix diff cannot hold such a finding.
+  const first = await go('fix-diff: a claim in the whole-PR round', baseArgs, { reviews: [[low('R1-1')], []], commitIds: [['R1-1']] })
+  check('fix-diff: a claim in the whole-pull-request round is a warning, and the finding buys the next round', labels(first.calls).includes('re-review r2') && !labels(first.calls).includes('final nit pass r2') && minorOf(first.res, 0).length === 0 && about(first.res, 'R1-1').length === 1 && about(first.res, 'R1-1')[0].includes('this round reviewed the whole pull request, not a fix diff'), [labels(first.calls), first.res.warnings])
+  const covArgs = { ...baseArgs, models: { ...baseArgs.models, coverage: { model: 'm-cov', effort: 'xhigh' } } }
+  const one = 'Reviewed.\n\n```json\n' + JSON.stringify([{ file: 'app/x.php', line: 3, summary: 'the real one', failure_scenario: 'f' }]) + '\n```\n'
+  const acct = (ref, outcome = 'verified') => [{ index: 1, outcome, ref }]
+  const keep = { 'R1-1': { choice: 'Accept', notes: 'The author accepts it as it is.', date: '2026-11-16' } }
+  const noDiff = await go('fix-diff: a claim in a round with no fix diff', { ...covArgs, decisions: keep }, { reviews: [[f('R1-1', 'correctness')], [low('R2-1')], []], ask: ['R1-1'], acceptedCalls: ['R1-1'], commitIds: [[], ['R2-1']], coverage: [one, one, one], coverageOut: [acct('R1-1'), acct('R2-1'), acct('R2-1', 'settled')] })
+  check('fix-diff: a claim in a round whose previous round changed no code is a warning, and the finding buys the next round', noDiff.res.status === 'done' && labels(noDiff.calls).includes('re-review r3') && !labels(noDiff.calls).includes('final nit pass r3') && about(noDiff.res, 'R2-1').length === 1 && about(noDiff.res, 'R2-1')[0].includes('round 1 changed no code, so this round had no fix diff'), [noDiff.res.status, labels(noDiff.calls), noDiff.res.warnings])
+  const covered = await go('fix-diff: with the coverage pass on', covArgs, { reviews: [[f('R1-1', 'correctness')], [low('R2-1')], []], commitIds: [['R1-1'], ['R2-1']], coverage: [one, one], coverageOut: [acct('R1-1'), acct('R2-1')] })
+  check('fix-diff: with the coverage pass on, a low finding in the fix diff still ends its round in the final nit pass, which runs no coverage pass', covered.res.status === 'done' && labels(covered.calls).includes('coverage r2') && labels(covered.calls).includes('final nit pass r3') && !labels(covered.calls).includes('coverage r3') && minorOf(covered.res, 1).join(',') === 'R2-1', [covered.res.status, labels(covered.calls)])
+
+  // The cap: such a finding is left out of it, as a nit is.
+  const capArgs = { ...baseArgs, maxRounds: 1 }
+  const pastCap = await go('fix-diff: past the cap, only low fix-diff findings', capArgs, two([low('R2-1')]))
+  check('fix-diff: past the cap a round whose only correctness findings are low ones from the fix diff is fixed, with no cap-hit comment', pastCap.res.status === 'done' && labels(pastCap.calls).includes('implement r2') && labels(pastCap.calls).includes('final nit pass r3') && !labels(pastCap.calls).includes('cap-hit comment') && labels(pastCap.calls).includes('handoff comment'), [pastCap.res.status, labels(pastCap.calls)])
+  const capped = await go('fix-diff: past the cap, a low finding that states nothing', capArgs, two([f('R2-1', 'correctness')]))
+  check('fix-diff: past the cap a low finding that does not state inFixDiff still caps the run, as before', capped.res.status === 'capped' && labels(capped.calls).includes('cap-hit comment') && !labels(capped.calls).includes('implement r2'), [capped.res.status, labels(capped.calls)])
+  const cappedMixed = await go('fix-diff: past the cap, a low one beside one that buys', capArgs, two([low('R2-1'), low('R2-2', { severity: 'high' })]))
+  check('fix-diff: past the cap a finding that buys still caps the run, and the comment lists every open correctness finding', cappedMixed.res.status === 'capped' && cappedMixed.res.openFindings.map((x) => x.id).join(',') === 'R2-1,R2-2' && !labels(cappedMixed.calls).includes('implement r2'), [cappedMixed.res.status, (cappedMixed.res.openFindings || []).map((x) => x.id)])
+  const cappedClaim = await go('fix-diff: past the cap, a claim that is not honoured', capArgs, two([low('R2-1', { file: 'app/other.php' })]))
+  check('fix-diff: past the cap a claim the workflow does not honour caps the run', cappedClaim.res.status === 'capped' && about(cappedClaim.res, 'R2-1').length === 1, [cappedClaim.res.status, cappedClaim.res.warnings])
+
+  // Correctness only: no nit is fixed under that scope, so it has no final nit pass; these fixes are
+  // unreviewed code, so their round gets one.
+  const scopedRun = await go('fix-diff: correctness only', { ...baseArgs, scope: 'correctness' }, two([low('R2-1'), f('R2-2', 'nit')]))
+  check('fix-diff: under correctness only a round whose only fix is a low fix-diff finding gets its final nit pass', scopedRun.res.status === 'done' && labels(scopedRun.calls).includes('final nit pass r3') && !labels(scopedRun.calls).includes('re-review r3') && scopedRun.res.rounds[1].scoped.map((x) => x.id).join(',') === 'R2-2', [scopedRun.res.status, labels(scopedRun.calls)])
+
+  // Like a nit whatever the shaper does with it: put to the person, it stops the run and buys nothing.
+  const askedScenario = { ...two([low('R2-1')]), ask: ['R2-1'] }
+  const askedStop = await go('fix-diff: the shaper asks about one', baseArgs, askedScenario)
+  const askedOn = await go('fix-diff: the person answers', { ...baseArgs, decisions: { 'R2-1': { choice: 'Change it', notes: 'The author wants the retry count logged.', date: '2026-11-16' } } }, askedScenario)
+  check('fix-diff: one the shaper puts to the person stops a guided run as any call does, and once answered buys no round', askedStop.res.status === 'handoff' && askedStop.res.decisionsNeeded.join(',') === 'R2-1' && askedOn.res.status === 'done' && labels(askedOn.calls).includes('final nit pass r3') && !labels(askedOn.calls).includes('re-review r3'), [askedStop.res.status, askedOn.res.status, labels(askedOn.calls)])
+  samePrefix('fix-diff: the relaunch replays every prompt before the stop', askedStop.calls, askedOn.calls, askedStop.calls.length)
+
+  // What the verifier is asked, and where.
+  const asks = 'state inFixDiff'
+  const fixDiffPrompt = promptOf(minor.calls, 're-review r2')
+  check('fix-diff: the fix-diff review is asked to state inFixDiff for each finding, naming the round whose fixes it means', fixDiffPrompt.includes('For each finding, state inFixDiff: true when its cause is in the fix diff named above, in code round 1\'s fixes added or changed, and false when it is in the pull request\'s own code or anywhere else.') && fixDiffPrompt.includes('never set it because a finding is small'), fixDiffPrompt.slice(-1800))
+  check('fix-diff: the whole-PR review, the final nit pass and a round with no fix diff are not asked', !promptOf(minor.calls, 'review r1').includes(asks) && !promptOf(minor.calls, 'final nit pass r3').includes(asks) && promptOf(noDiff.calls, 're-review r2') !== '' && !promptOf(noDiff.calls, 're-review r2').includes(asks) && promptOf(covered.calls, 're-review r2').includes(asks), [promptOf(minor.calls, 'review r1').includes(asks), promptOf(minor.calls, 'final nit pass r3').includes(asks), promptOf(noDiff.calls, 're-review r2').includes(asks)])
+  const schemaOf = (calls, label) => (((((pick(calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}).properties || {}
+  check('fix-diff: the reviewer\'s schema takes inFixDiff as a boolean and does not require it', (schemaOf(minor.calls, 're-review r2').inFixDiff || {}).type === 'boolean' && !((((pick(minor.calls, 're-review r2') || { opts: {} }).opts.schema || {}).properties || {}).findings.items.required || []).includes('inFixDiff'), schemaOf(minor.calls, 're-review r2').inFixDiff)
+  check('fix-diff: the agent file states the same fact and returns it', reviewerAgent.includes('`inFixDiff: true` when its cause is in the fix diff the prompt names') && reviewerAgent.includes('"inFixDiff": false') && reviewerAgent.includes('never set it because a finding is small'), 'agents/redline-reviewer.md')
+  check('fix-diff: the agent file\'s sentence on what a correctness finding buys names the exception', reviewerAgent.includes('a low-severity one whose cause is in the previous round\'s fixes is fixed like a nit and buys none'), 'agents/redline-reviewer.md, "The kind"')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
