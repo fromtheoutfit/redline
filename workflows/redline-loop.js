@@ -3407,7 +3407,10 @@ async function settleHeld() {
     }
     const findings = held.map((d) => d.f)
     const replies = findings.map((f) => replyEntry(pass, f, outcomes[f.id], record.commentIds[f.id] || 0, record.reviewPosted)).concat(carriedReplies(pass, record, findings, outcomes))
-    const pushed = await run('push-and-reply', pushReplyPrompt(pass, record.specFolder, replies, false, 'the round pushed its commits when it ended; these are the replies its deferred items waited for'), {
+    // Step 1's reason for not pushing (#97, R1-12): the round pushed what it committed, or push is
+    // off for the run, which these replies must not contradict.
+    const why = push ? 'the round pushed its commits when it ended; these are the replies its deferred items waited for' : 'push is off for this run; these are the replies its deferred items waited for'
+    const pushed = await run('push-and-reply', pushReplyPrompt(pass, record.specFolder, replies, false, why), {
       agentType: 'redline:redline-github', ...modelOpts('github'), label: `deferred replies ${pass.tag}`, phase: 'Finish', schema: PUSH_REPLY_SCHEMA,
     })
     if (pushed.error) {
