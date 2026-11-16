@@ -223,6 +223,13 @@ same "a different reviewer: the file is untouched" "$C1/.claude/redline.json" "$
 C4="$WORK/c4"; mkdir -p "$C4/.claude"; jq 'del(.checker)' "$WORK/c1-5-ll.json" > "$C4/.claude/redline.json"; cp "$C4/.claude/redline.json" "$WORK/c4-before.json"
 expect_exit "a derived key that cannot be updated in place: exit 1" 1 config --reviewer marcamos --baseline-seconds 29 "$C4"
 same "a derived key that cannot be updated in place: untouched" "$C4/.claude/redline.json" "$WORK/c4-before.json"
+# #95: a redline.json from before deferTo. A rerun names the key under differs and writes nothing;
+# the team adds it by hand, and until then the drafts go to GitHub.
+C6="$WORK/c6"; mkdir -p "$C6/.claude"; jq 'del(.deferTo)' "$WORK/c1-want.json" > "$C6/.claude/redline.json"; cp "$C6/.claude/redline.json" "$WORK/c6-before.json"
+expect_json "a redline.json without deferTo: differs names it" '.differs.deferTo | "\(.have)->\(.want)"' "null->github" config --reviewer marcamos --baseline-seconds 29 "$C6"
+expect_json "a redline.json without deferTo: nothing to update, nothing written" '[(.changed|tostring), (.written|tostring), (.updated|tojson)] | join(",")' "false,false,{}" config --reviewer marcamos --baseline-seconds 29 "$C6"
+same "a redline.json without deferTo: untouched" "$C6/.claude/redline.json" "$WORK/c6-before.json"
+expect_json "a fresh redline.json sends deferred drafts to GitHub" '.config.deferTo' "github" config --reviewer sam --baseline-seconds 29
 expect_json "--force: rewritten" '[.changed, .written] | join(",")' "true,true" config --reviewer marcamos --baseline-seconds 29 "$C1" --force
 same "--force: the template's values again" "$C1/.claude/redline.json" "$WORK/c1-want.json"
 C3="$WORK/c3"; mkdir -p "$C3"

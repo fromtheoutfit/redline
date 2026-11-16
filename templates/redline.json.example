@@ -5,6 +5,7 @@
   "checker": "full",
   "checkerStallMs": 300000,
   "push": true,
+  "deferTo": "github",
   "models": {
     "reviewerFirstRound": { "model": "claude-opus-5-5", "effort": "xhigh" },
     "coverage": { "model": "claude-opus-5-5", "effort": "xhigh" },

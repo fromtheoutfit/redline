@@ -33,6 +33,7 @@ claude plugin install redline@redline --scope project
 /redline 21 dry run review only
 /redline 21 autopilot
 /redline:redline 21 max 2 rounds correctness only
+/redline 21 defer at end defer to spec
 /redline-revise 21 review @sam
 ```
 
@@ -40,7 +41,7 @@ claude plugin install redline@redline --scope project
 
 ## Dials
 
-Four settings shape a run besides the PR number, typed on the command line or remembered from the last run, and one word, `coverage off`, is typed per run and never remembered. `interrupt` says where the run stops for you:
+Six settings shape a run besides the PR number, typed on the command line or remembered from the last run, and one word, `coverage off`, is typed per run and never remembered. `interrupt` says where the run stops for you:
 
 | Word | Stops | What you do there |
 | --- | --- | --- |
@@ -56,9 +57,11 @@ Four settings shape a run besides the PR number, typed on the command line or re
 | `scope` | `correctness only`: anything that is not a correctness item is declined with the scope as its reason, listed once, and there is no final nit pass; otherwise every verified item is decided, and a round that fixed only nits ends in one final nit pass | `all` |
 | rounds | `max N rounds`: the revise rounds before the run stops with a cap-hit comment | `3` |
 | `revise` | `revise fable` or `revise opus`: the model that shapes and implements the fixes; the other roles' models are in `.claude/redline.json` | Opus 5.5 |
+| deferred items, when | `defer each round` or `defer at end`: when a deferred item's drafted issue is put to you before it is filed. Each round: at the round's stop after shaping, with its judgment calls, and a round with only deferred items stops too. At the end: no stop inside the rounds, and one stop before the handoff, only when the run deferred something. `autopilot` asks nothing and files each draft in its round | each round |
+| deferred items, where | `defer to github`, `defer to spec` or `defer to print`: Redline opens a GitHub issue per deferred item (a project board that takes new issues gets a card for each), writes the draft into the round's spec folder, or writes it there and prints its title and body when the run ends | `deferTo` in `.claude/redline.json`, else a GitHub issue |
 | coverage | `coverage off`: every round runs the reviewer alone, without the coverage pass, under the same model (it reports what it verified, and the shaper decides); the fallback when the `code-review` skill is absent or its recipe has drifted, never the default | on, at `models.coverage` in `.claude/redline.json` |
 
-`reviewer @handle` overrides the configured teammate for one run; `no push` keeps the commits local. A fifth setting, the repository's ask rules (what a person is always brought in for), is declared in `.claude/redline.json` and never typed ([docs/contract.md](docs/contract.md)).
+`reviewer @handle` overrides the configured teammate for one run; `no push` keeps the commits local. A seventh setting, the repository's ask rules (what a person is always brought in for), is declared in `.claude/redline.json` and never typed ([docs/contract.md](docs/contract.md)).
 
 ## Files
 

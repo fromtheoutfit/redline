@@ -29,11 +29,13 @@ saved() {
 }
 
 echo "# no saved file"
-expect "no file: ask every field" '.ask | join(",")' "interrupt,revise,maxRounds,scope"
+expect "no file: ask every field" '.ask | join(",")' "interrupt,revise,maxRounds,scope,deferAt,deferTo"
 expect "no file: no confirm" '.confirm' "false"
 expect "no file: defaults" '[.effective.interrupt, .effective.revise, (.effective.maxRounds|tostring), .effective.scope] | join(" ")' "guided claude-opus-5-5 3 all"
 expect "no file: every source is default" '[.sources[]] | unique | join(",")' "default"
-expect "no file: command line fields are not asked" '.ask | join(",")' "revise,scope" --interrupt plan --max-rounds 2
+expect "no file: deferred items are raised each round and drafts go to GitHub" '[.effective.deferAt, .effective.deferTo] | join(" ")' "round github"
+expect "no file: no repository default for the drafts" '.repository.deferTo | tostring' "null"
+expect "no file: command line fields are not asked" '.ask | join(",")' "revise,scope,deferAt,deferTo" --interrupt plan --max-rounds 2
 expect "no file: command line words win" '[.effective.interrupt, (.effective.maxRounds|tostring)] | join(" ")' "plan 2" --interrupt plan --max-rounds 2
 expect "no file: revise fable maps to the model id" '.effective.revise' "claude-fable-5-1" --revise fable
 expect "no file: revise opus maps to the model id" '.effective.revise' "claude-opus-5-5" --revise opus
@@ -44,63 +46,126 @@ expect "no file: summary marks command line words" '.summary' "Run with: autopil
 expect "no file: 1 round reads singular" '.summary' "Run with: guided · Opus 5.5 · 1 round (command line) · all" --max-rounds 1
 expect "no file: savedFile path" '.savedFile' "$REPO/.claude/redline.local.json"
 
+echo "# the two deferral settings (#95)"
+expect "no file: every field applies to a guided run" '.applies | join(",")' "interrupt,revise,maxRounds,scope,deferAt,deferTo"
+expect "no file: autopilot asks where the drafts go, never when" '.ask | join(",")' "revise,maxRounds,scope,deferTo" --interrupt autopilot
+expect "no file: applies under autopilot" '.applies | join(",")' "interrupt,revise,maxRounds,scope,deferTo" --interrupt autopilot
+expect "no file: review only asks for neither" '[.ask[] | select(startswith("defer"))] | length' "0" --interrupt "review only"
+expect "no file: typed deferral words are not asked" '.ask | join(",")' "interrupt,revise,maxRounds,scope" --defer-at end --defer-to spec
+expect "no file: typed deferral words win" '[.effective.deferAt, .effective.deferTo, .sources.deferAt, .sources.deferTo] | join(",")' "end,spec,command line,command line" --defer-at end --defer-to spec
+expect "no file: the deferral words are normalised" '[.effective.deferAt, .effective.deferTo] | join(" ")' "end github" --defer-at END --defer-to GitHub
+expect "no file: the summary names a typed deferral word, and no asked one" '.summary' "Run with: guided · Opus 5.5 · 3 rounds · all · drafts printed (command line)" --defer-to print
+expect "no file: the summary's words for the end and the spec folder" '.summary' "Run with: guided · Opus 5.5 · 3 rounds · all · deferred at the end (command line) · drafts to the spec folder (command line)" --defer-at end --defer-to spec
+expect "no file: under review only a typed deferral word is left out of the summary" '.summary' "Run with: review only (command line) · Opus 5.5 · 3 rounds · all" --interrupt "review only" --defer-at end --defer-to spec
+expect "no file: under autopilot a typed when is left out of the summary" '.summary' "Run with: autopilot (command line) · Opus 5.5 · 3 rounds · all · drafts to GitHub (command line)" --interrupt autopilot --defer-at end --defer-to github
+
 echo "# redline.json supplies the round default"
 printf '{"maxRounds": 5}\n' > "$REPO/.claude/redline.json"
 expect "redline.json: maxRounds default" '.effective.maxRounds' "5"
 expect "redline.json: command line still wins" '.effective.maxRounds' "2" --max-rounds 2
+expect "redline.json without deferTo: drafts go to GitHub" '[.effective.deferTo, (.repository.deferTo | tostring)] | join(" ")' "github null"
+printf '{"maxRounds": 5, "deferTo": "spec"}\n' > "$REPO/.claude/redline.json"
+expect "redline.json: deferTo is the default, and is named as the repository's" '[.effective.deferTo, .defaults.deferTo, .repository.deferTo, .sources.deferTo] | join(" ")' "spec spec spec default"
+expect "redline.json: deferTo is still asked on a first launch" '.ask | join(",")' "interrupt,revise,maxRounds,scope,deferAt,deferTo"
+expect "redline.json: a typed word wins over deferTo" '[.effective.deferTo, .repository.deferTo] | join(" ")' "print spec" --defer-to print
+expect "redline.json: it holds no default for when" '.effective.deferAt' "round"
+printf '{"maxRounds": 5, "deferTo": "folder"}\n' > "$REPO/.claude/redline.json"
+"$PREFS" resolve "$REPO" >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "redline.json: a deferTo that is no destination exits 2" || bad "redline.json: a deferTo that is no destination exits 2" "$?"
+got="$("$PREFS" resolve "$REPO" 2>&1 >/dev/null)"
+[[ "$got" == *"deferTo in $REPO/.claude/redline.json must be github, spec or print; got \"folder\""* ]] && ok "redline.json: the line names the key, the file and the word" || bad "redline.json: the line names the key, the file and the word" "$got"
+printf '{"maxRounds": 5, "deferTo": null}\n' > "$REPO/.claude/redline.json"
+"$PREFS" resolve "$REPO" >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "redline.json: a null deferTo exits 2 (leave the key out for no default)" || bad "redline.json: a null deferTo exits 2" "$?"
 rm "$REPO/.claude/redline.json"
 
 echo "# bad arguments"
 "$PREFS" resolve "$REPO" --interrupt yolo >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "bad interrupt exits 2" || bad "bad interrupt exits 2" "$?"
 "$PREFS" resolve "$REPO" --scope nits >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "bad scope exits 2" || bad "bad scope exits 2" "$?"
 "$PREFS" resolve "$REPO" --max-rounds 0 >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "zero rounds exits 2" || bad "zero rounds exits 2" "$?"
+"$PREFS" resolve "$REPO" --defer-at sometimes >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "bad defer-at exits 2" || bad "bad defer-at exits 2" "$?"
+"$PREFS" resolve "$REPO" --defer-to jira >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "bad defer-to exits 2" || bad "bad defer-to exits 2" "$?"
 "$PREFS" save "$REPO" --interrupt guided >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "save without every field exits 2" || bad "save without every field exits 2" "$?"
+"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "save without the two deferral fields exits 2" || bad "save without the two deferral fields exits 2" "$?"
+"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all --defer-at round --defer-to jira >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "save with a bad defer-to exits 2" || bad "save with a bad defer-to exits 2" "$?"
 [[ ! -f "$REPO/.claude/redline.local.json" ]] && ok "a refused save writes nothing" || bad "a refused save writes nothing" "file exists"
 
 echo "# save, then confirm"
-"$PREFS" save "$REPO" --interrupt plan --revise fable --max-rounds 2 --scope all >/dev/null
+"$PREFS" save "$REPO" --interrupt plan --revise fable --max-rounds 2 --scope all --defer-at end --defer-to spec >/dev/null
 saved "save: interrupt" '.interrupt' "plan"
+saved "save: the two deferral settings" '[.deferAt, .deferTo] | join(" ")' "end spec"
 saved "save: revise as the model id" '.revise' "claude-fable-5-1"
 saved "save: maxRounds as a number" '.maxRounds' "2"
 saved "save: scope" '.scope' "all"
 expect "saved file: confirm, nothing asked" '[.confirm, (.ask|length|tostring)] | join(" ")' "true 0"
-expect "saved file: summary from the file" '.summary' "Run with: plan · Fable 5.1 · 2 rounds · all"
+expect "saved file: summary from the file, six values" '.summary' "Run with: plan · Fable 5.1 · 2 rounds · all · deferred at the end · drafts to the spec folder"
 expect "saved file: sources are saved" '[.sources[]] | unique | join(",")' "saved"
-expect "saved file: command line overrides and is marked" '.summary' "Run with: review (command line) · Fable 5.1 · 2 rounds · correctness (command line)" --interrupt review --scope correctness
+expect "saved file: command line overrides and is marked" '.summary' "Run with: review (command line) · Fable 5.1 · 2 rounds · correctness (command line) · deferred at the end · drafts to GitHub (command line)" --interrupt review --scope correctness --defer-to github
+expect "saved file: the saved deferral settings are the effective ones" '[.effective.deferAt, .effective.deferTo, .sources.deferAt, .sources.deferTo] | join(",")' "end,spec,saved,saved"
+expect "saved file: autopilot leaves when out of the confirm line" '.summary' "Run with: autopilot (command line) · Fable 5.1 · 2 rounds · all · drafts to the spec folder" --interrupt autopilot
+expect "saved file: review only leaves both out of the confirm line" '.summary' "Run with: review only (command line) · Fable 5.1 · 2 rounds · all" --interrupt "review only"
 expect "saved file: override sources" '[.sources.interrupt, .sources.revise] | join(",")' "command line,saved" --interrupt review
 expect "saved file: still a confirm with overrides" '.confirm' "true" --interrupt review
 expect "saved file: saved is echoed" '.saved.interrupt' "plan"
 
 echo "# per-run verbs are never saved"
-"$PREFS" save "$REPO" --interrupt autopilot --revise opus --max-rounds 4 --scope correctness >/dev/null
+"$PREFS" save "$REPO" --interrupt autopilot --revise opus --max-rounds 4 --scope correctness --defer-at round --defer-to print >/dev/null
 saved "autopilot: previous interrupt stays" '.interrupt' "plan"
+saved "autopilot: when does not apply, so its saved value stays; where is saved" '[.deferAt, .deferTo] | join(" ")' "end print"
 saved "autopilot: the other fields are saved" '[.revise, (.maxRounds|tostring), .scope] | join(" ")' "claude-opus-5-5 4 correctness"
-"$PREFS" save "$REPO" --interrupt "review only" --revise opus --max-rounds 4 --scope all >/dev/null
+"$PREFS" save "$REPO" --interrupt "review only" --revise opus --max-rounds 4 --scope all --defer-at round --defer-to github >/dev/null
 saved "review only: previous interrupt stays" '.interrupt' "plan"
+saved "review only: neither deferral setting applies, so both saved values stay" '[.deferAt, .deferTo] | join(" ")' "end print"
 saved "review only: scope saved" '.scope' "all"
-"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all >/dev/null
+"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all --defer-at round --defer-to github >/dev/null
 saved "guided: saved" '.interrupt' "guided"
-"$PREFS" save "$REPO" --interrupt review --revise opus --max-rounds 3 --scope all >/dev/null
+saved "guided: both deferral settings saved" '[.deferAt, .deferTo] | join(" ")' "round github"
+"$PREFS" save "$REPO" --interrupt review --revise opus --max-rounds 3 --scope all --defer-at end --defer-to spec >/dev/null
 saved "review: saved" '.interrupt' "review"
+saved "review: both deferral settings saved" '[.deferAt, .deferTo] | join(" ")' "end spec"
 
 echo "# a first save of a per-run verb leaves interrupt unset"
 rm "$REPO/.claude/redline.local.json"
-"$PREFS" save "$REPO" --interrupt "review only" --revise opus --max-rounds 3 --scope all >/dev/null
+"$PREFS" save "$REPO" --interrupt "review only" --revise opus --max-rounds 3 --scope all --defer-at round --defer-to github >/dev/null
 saved "first review only: no interrupt key" 'has("interrupt")' "false"
+saved "first review only: no deferral keys, since the run settled neither" '[has("deferAt"), has("deferTo")] | join(",")' "false,false"
 expect "first review only: next resolve falls back to guided, from the default" '[.effective.interrupt, .sources.interrupt] | join(" ")' "guided default"
 expect "first review only: next resolve is a confirm" '.confirm' "true"
 expect "first review only: summary" '.summary' "Run with: review only (command line) · Opus 5.5 · 3 rounds · all" --interrupt "review only"
+expect "first review only: the next full run is asked for the two the file lacks" '.ask | join(",")' "deferAt,deferTo"
+expect "first review only: the confirm line holds what is not asked" '.summary' "Run with: guided · Opus 5.5 · 3 rounds · all"
+expect "first review only: a later review only run is asked nothing" '.ask | length' "0" --interrupt "review only"
+"$PREFS" save "$REPO" --interrupt autopilot --revise opus --max-rounds 3 --scope all --defer-at round --defer-to spec >/dev/null
+saved "first autopilot: where is saved, when is not" '[has("deferAt"), .deferTo] | join(",")' "false,spec"
+expect "first autopilot: the next guided run is asked only when" '.ask | join(",")' "deferAt"
+expect "first autopilot: the confirm line holds where, not the asked when" '.summary' "Run with: guided · Opus 5.5 · 3 rounds · all · drafts to the spec folder"
+expect "first autopilot: a later autopilot run is asked nothing" '.ask | length' "0" --interrupt autopilot
+
+echo "# a saved file from before the deferral settings (#95)"
+printf '{"interrupt": "plan", "revise": "claude-fable-5-1", "maxRounds": 2, "scope": "all", "runs": {"7": {"kind": "error"}}}\n' > "$REPO/.claude/redline.local.json"
+expect "older file: a confirm, with the two it lacks asked beside it" '[(.confirm|tostring), (.ask | join(","))] | join(" ")' "true deferAt,deferTo"
+expect "older file: the confirm line is its four" '.summary' "Run with: plan · Fable 5.1 · 2 rounds · all"
+expect "older file: a typed word is not asked, and joins the line" '[(.ask | join(",")), .summary] | join(" | ")' "deferAt | Run with: plan · Fable 5.1 · 2 rounds · all · drafts printed (command line)" --defer-to print
+expect "older file: autopilot is asked only where" '.ask | join(",")' "deferTo" --interrupt autopilot
+expect "older file: review only is asked nothing" '.ask | length' "0" --interrupt "review only"
+printf '{"deferTo": "spec"}\n' > "$REPO/.claude/redline.json"
+expect "older file: the repository default does not settle it; it is still asked, with that default first" '[(.ask | join(",")), .effective.deferTo, .repository.deferTo] | join(" ")' "deferAt,deferTo spec spec"
+rm "$REPO/.claude/redline.json"
+"$PREFS" save "$REPO" --interrupt plan --revise fable --max-rounds 2 --scope all --defer-at round --defer-to github >/dev/null
+expect "older file: once saved, nothing is asked" '[(.confirm|tostring), (.ask|length|tostring)] | join(" ")' "true 0"
+expect "older file: once saved, the line has six values" '.summary' "Run with: plan · Fable 5.1 · 2 rounds · all · deferred each round · drafts to GitHub"
+saved "older file: the save keeps the run markers" '.runs."7".kind' "error"
 
 echo "# a damaged file"
 printf '{"interrupt": "yolo", "maxRounds": "two", "scope": "correctness"}\n' > "$REPO/.claude/redline.local.json"
 expect "damaged: bad values fall back to defaults, good ones hold" '[.effective.interrupt, (.effective.maxRounds|tostring), .effective.scope] | join(" ")' "guided 3 correctness"
+printf '{"interrupt": "plan", "revise": "claude-opus-5-5", "maxRounds": 3, "scope": "all", "deferAt": "sometimes", "deferTo": "jira"}\n' > "$REPO/.claude/redline.local.json"
+expect "damaged: a bad deferral word falls back to the default and is asked" '[.effective.deferAt, .effective.deferTo, (.ask | join(","))] | join(" ")' "round github deferAt,deferTo"
 printf 'not json\n' > "$REPO/.claude/redline.local.json"
 "$PREFS" resolve "$REPO" >/dev/null 2>&1; [[ $? -eq 2 ]] && ok "not JSON exits 2" || bad "not JSON exits 2" "$?"
 
 
 echo "# the run marker (#10)"
 printf '{"interrupt": "plan", "revise": "claude-opus-5-5", "maxRounds": 3, "scope": "all", "runs": {"7": {"kind": "error"}}}\n' > "$REPO/.claude/redline.local.json"
-"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all >/dev/null
+"$PREFS" save "$REPO" --interrupt guided --revise opus --max-rounds 3 --scope all --defer-at round --defer-to github >/dev/null
 saved "save keeps the runs key" '.runs."7".kind' "error"
 saved "save still writes its own fields" '.interrupt' "guided"
 

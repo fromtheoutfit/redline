@@ -129,6 +129,7 @@ The run's configuration, written by `redline-setup.sh config` from `templates/re
 | `checker` | `full` runs the whole gate on every round's check; `git-only` runs only the git block there (the baseline and the implementer's runs are always full). Setup derives it: `git-only` when the baseline is over five minutes | derived |
 | `checkerStallMs` | the stall watchdog's window for the checker: 1.7 times the baseline, rounded up to five minutes, never below 300000 | derived |
 | `push` | whether the GitHub agent pushes; `no push` on the command line overrides it for one run | `true` |
+| `deferTo` | where a deferred item's draft goes for a person who has typed and saved no choice of their own (#95): `github` (Redline opens an issue per item), `spec` (the draft stays a file in the round's spec folder) or `print` (the same, and its title and body are printed when the run ends). It is the first option of the launch question and what a headless run uses; the command line and the person's saved setting come before it. Any other value stops the launch with one line, since the key says where an issue is opened. Setup asks nothing about it: the template writes `github`, a team edits the key by hand, and a rerun on a file without the key lists it under `differs` and writes nothing. When a deferred item is raised with the person has no repository default; it is each person's setting | `github` |
 | `models` | one `{model, effort}` per role: `reviewerFirstRound`, `reviewerLaterRounds`, `planApprover`, `standardsApprover`, `checker`, `github`; the revise model is the saved launch setting, not this file. `coverage` is the coverage pass, the finder on every whole-PR and fix-diff round: the built-in `code-review` skill, run from a plain workflow agent over the whole PR at the round's head with every finding reported. `null` turns the pass off for every run (the reviewer alone, as before the pass existed); the key absent means on at `reviewerFirstRound`'s model and effort; `coverage off` on the command line is the per-run form and is never saved. Its `effort` is the level the skill is given, one of `low`, `medium`, `high`, `xhigh` or `max`: `xhigh` is the recipe the spike validated on Claude Code 2.1.318, and `max` runs as a single pass, since a workflow subagent has no Agent tool for the skill's fan-out. Configuration that selects a model is not attribution | the template's |
 | `maxFiles` | optional: the most changed files a PR may have before the launch refuses it with "split the PR" | none |
 | `askRules` | optional: what a person is always brought in for, below | none |
@@ -155,11 +156,13 @@ A malformed list (a bad id, a rule with both or neither kind, a reason that is n
 
 ## `redline.local.json`
 
-Each person's saved launch settings for the repository, ignored by git (`redline-setup.sh gitignore` adds the line), so per person per repository. It holds `interrupt`, `revise` (the model id), `maxRounds` and `scope`:
+Each person's saved launch settings for the repository, ignored by git (`redline-setup.sh gitignore` adds the line), so per person per repository. It holds `interrupt`, `revise` (the model id), `maxRounds`, `scope`, `deferAt` (when a deferred item's draft is raised with the person: `round` or `end`) and `deferTo` (where it goes: `github`, `spec` or `print`):
 
 ```json
-{"interrupt": "guided", "revise": "claude-opus-5-5", "maxRounds": 3, "scope": "all"}
+{"interrupt": "guided", "revise": "claude-opus-5-5", "maxRounds": 3, "scope": "all", "deferAt": "round", "deferTo": "github"}
 ```
+
+A file saved before the last two existed has neither, and the next launch asks for them once.
 
 and, under `runs`, one marker per PR for a run that stopped (a hand-off, the review dial, an error, a run the harness stopped), written from the harness's own record of the run so the next launch can offer to resume it. How the settings are asked and saved is in [running.md](running.md), "Saved launch settings"; the merge rules and the marker's checks live in `scripts/redline-prefs.sh` (header in [scripts.md](scripts.md)), pinned by `tests/prefs-test.sh`. The file is one of Redline's own: the guard refuses it for every role, and only the skill writes it, through the script.
 

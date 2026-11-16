@@ -2,19 +2,36 @@
 #
 # redline-prefs.sh: the saved launch preferences of /redline:redline, one file per person per
 # repository at <repoRoot>/.claude/redline.local.json (ignored by git; the guard refuses it for
-# every Redline role). It holds four settings: interrupt (the dial), revise (the revise model id),
-# maxRounds and scope. The skill calls this script so the merge rules live in one tested place.
+# every Redline role). It holds six settings: interrupt (the dial), revise (the revise model id),
+# maxRounds, scope, and the two for deferred items (#95): deferAt (when their drafted issues are
+# raised with the person: round or end) and deferTo (where a draft goes: github, spec or print).
+# The skill calls this script so the merge rules live in one tested place.
 #
 #   redline-prefs.sh resolve <repoRoot> [--interrupt <word>] [--revise <model>] [--max-rounds <n>] [--scope <word>]
+#                                       [--defer-at <word>] [--defer-to <word>]
 #       Merge: command line over the saved file over the defaults (guided, claude-opus-5-5,
-#       redline.json's maxRounds or 3, all). Prints JSON: the saved file (null when absent), the
-#       effective settings, where each came from, which fields the skill must ask for (no saved
-#       file: every field not on the command line that applies to the run), whether to show the
-#       one-question confirm instead (a saved file exists), and the confirm's summary line.
+#       redline.json's maxRounds or 3, all, round, redline.json's deferTo or github). Prints JSON:
+#       the saved file (null when absent), the defaults, what redline.json supplies of them
+#       (repository: {maxRounds, deferTo}, null for a key it does not set), the effective settings,
+#       where each came from (command line, saved or default), the fields that apply to the run
+#       (review only: the dial and the scope; autopilot: every field but deferAt, since it files
+#       each draft in its round and asks nothing), which fields the skill must ask for, whether to
+#       show the one-question confirm (a saved file exists), and the confirm's summary line.
+#       ask, with no saved file, is every field that applies and is not on the command line. With
+#       a saved file the confirm covers the first four, so ask holds only deferAt and deferTo, each
+#       when it applies and neither the command line nor the file gives it: a file saved before
+#       these two existed, or by runs they did not apply to, is asked for them once. The summary
+#       names the first four, then each deferral setting that applies and is not asked. A deferTo
+#       in redline.json that is not one of the three words is refused (exit 2): it says where an
+#       issue is opened, so it is never guessed.
 #   redline-prefs.sh save <repoRoot> --interrupt <word> --revise <model> --max-rounds <n> --scope <word>
+#                                    --defer-at <word> --defer-to <word>
 #       Write what the run uses as the new saved set, except that autopilot and review only are
-#       per-run verbs: the file keeps its previous interrupt (or none). Every other key of the
-#       file (the run markers under runs) is kept. Prints the file's JSON.
+#       per-run verbs: the file keeps its previous interrupt (or none). A deferral setting that
+#       did not apply to the run (both under review only, deferAt under autopilot) is not written
+#       either: the file keeps its previous value, or none, so the next run it applies to is
+#       asked. Every other key of the file (the run markers under runs) is kept. Prints the
+#       file's JSON.
 #
 # The same file holds, under runs, one marker per PR for a run that stopped (a hand-off, the
 # review dial, an error, a run the harness stopped), so the next /redline:redline <pr> can offer
@@ -69,12 +86,13 @@
 #       Removes the entry. Prints {cleared: true|false}.
 #
 # Interrupt words: autopilot | guided | plan | review | review only (also review-only). Scope
-# words: all | correctness. Exit 2 on a bad argument. Needs jq, and git for the run markers.
+# words: all | correctness. Defer-at words: round | end. Defer-to words: github | spec | print.
+# Exit 2 on a bad argument. Needs jq, and git for the run markers.
 
 set -euo pipefail
 
 usage() {
-    echo "usage: redline-prefs.sh resolve|save <repoRoot> [--interrupt <word>] [--revise <model>] [--max-rounds <n>] [--scope <word>]" >&2
+    echo "usage: redline-prefs.sh resolve|save <repoRoot> [--interrupt <word>] [--revise <model>] [--max-rounds <n>] [--scope <word>] [--defer-at <word>] [--defer-to <word>]" >&2
     exit 2
 }
 
@@ -330,13 +348,15 @@ shift 2
 [[ "$cmd" == "resolve" || "$cmd" == "save" ]] || usage
 [[ -d "$root" ]] || { echo "redline-prefs: $root is not a directory" >&2; exit 2; }
 
-interrupt="" revise="" rounds="" scope=""
+interrupt="" revise="" rounds="" scope="" defer_at="" defer_to=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --interrupt) interrupt="${2:-}"; shift 2 ;;
         --revise) revise="${2:-}"; shift 2 ;;
         --max-rounds) rounds="${2:-}"; shift 2 ;;
         --scope) scope="${2:-}"; shift 2 ;;
+        --defer-at) defer_at="${2:-}"; shift 2 ;;
+        --defer-to) defer_to="${2:-}"; shift 2 ;;
         *) echo "redline-prefs: unknown option $1" >&2; usage ;;
     esac
 done
@@ -351,6 +371,14 @@ fi
 if [[ -n "$scope" ]]; then
     scope="$(norm "$scope")"
     case "$scope" in all|correctness) ;; *) echo "redline-prefs: scope must be all or correctness; got '$scope'" >&2; exit 2 ;; esac
+fi
+if [[ -n "$defer_at" ]]; then
+    defer_at="$(norm "$defer_at")"
+    case "$defer_at" in round|end) ;; *) echo "redline-prefs: defer at must be round or end; got '$defer_at'" >&2; exit 2 ;; esac
+fi
+if [[ -n "$defer_to" ]]; then
+    defer_to="$(norm "$defer_to")"
+    case "$defer_to" in github|spec|print) ;; *) echo "redline-prefs: defer to must be github, spec or print; got '$defer_to'" >&2; exit 2 ;; esac
 fi
 if [[ -n "$rounds" && ! "$rounds" =~ ^[1-9][0-9]*$ ]]; then
     echo "redline-prefs: max rounds must be a positive integer; got '$rounds'" >&2
@@ -371,23 +399,32 @@ repo='{}'
 if [[ -f "$config" ]]; then
     repo="$(jq -c '.' "$config" 2>/dev/null)" || repo='{}'
 fi
-cli="$(jq -cn --arg i "$interrupt" --arg r "$revise" --arg n "$rounds" --arg s "$scope" '
+cli="$(jq -cn --arg i "$interrupt" --arg r "$revise" --arg n "$rounds" --arg s "$scope" --arg a "$defer_at" --arg t "$defer_to" '
     {interrupt: (if $i == "" then null else $i end),
      revise: (if $r == "" then null else $r end),
      maxRounds: (if $n == "" then null else ($n | tonumber) end),
-     scope: (if $s == "" then null else $s end)}')"
+     scope: (if $s == "" then null else $s end),
+     deferAt: (if $a == "" then null else $a end),
+     deferTo: (if $t == "" then null else $t end)}')"
 
 # The merge, as one jq program shared by both commands.
 MERGE='
-  def fields: ["interrupt", "revise", "maxRounds", "scope"];
-  def defaults: {interrupt: "guided", revise: "claude-opus-5-5", maxRounds: (($repo.maxRounds? // 3) | if type == "number" and . >= 1 then floor else 3 end), scope: "all"};
+  def fields: ["interrupt", "revise", "maxRounds", "scope", "deferAt", "deferTo"];
+  def deferToWord: if . == "github" or . == "spec" or . == "print" then . else null end;
+  # What redline.json supplies as a default: the round cap, and where a deferred draft goes (#95).
+  def repository: {maxRounds: (($repo.maxRounds? // null) | if type == "number" and . >= 1 then floor else null end),
+                   deferTo: (($repo.deferTo? // null) | deferToWord)};
+  def defaults: {interrupt: "guided", revise: "claude-opus-5-5", maxRounds: (repository.maxRounds // 3), scope: "all",
+                 deferAt: "round", deferTo: (repository.deferTo // "github")};
   def normWord: if type == "string" then (ascii_downcase | gsub("[-_]+"; " ") | gsub(" +"; " ")) else null end;
   def clean(s): if s == null then {} else
       (s.interrupt | normWord) as $i
       | {interrupt: (if $i != null and ($i | IN("autopilot", "guided", "plan", "review", "review only")) then $i else null end),
        revise: (s.revise | if type == "string" and . != "" then . else null end),
        maxRounds: (s.maxRounds | if type == "number" and . >= 1 then floor else null end),
-       scope: (s.scope | if . == "all" or . == "correctness" then . else null end)}
+       scope: (s.scope | if . == "all" or . == "correctness" then . else null end),
+       deferAt: (s.deferAt | if . == "round" or . == "end" then . else null end),
+       deferTo: (s.deferTo | deferToWord)}
       | with_entries(select(.value != null)) end;
   def modelName: if . == "claude-opus-5-5" then "Opus 5.5" elif . == "claude-fable-5-1" then "Fable 5.1" else . end;
   def merge($saved; $cli):
@@ -399,19 +436,38 @@ MERGE='
 '
 
 if [[ "$cmd" == "resolve" ]]; then
+    # redline.json's deferTo says where an issue is opened, so a word that is not one of the three
+    # stops the launch here instead of falling back to GitHub (#95).
+    bad_defer="$(jq -r 'if type == "object" and has("deferTo") and (.deferTo | IN("github", "spec", "print") | not) then (.deferTo | tojson) else "" end' <<<"$repo")"
+    if [[ -n "$bad_defer" ]]; then
+        echo "redline-prefs: deferTo in $config must be github, spec or print; got $bad_defer" >&2
+        exit 2
+    fi
     jq -n --argjson saved "$saved" --argjson cli "$cli" --argjson repo "$repo" --arg file "$file" "$MERGE"'
       merge($saved; $cli) as $m
-      | ($m.effective.interrupt == "review only") as $reviewOnly
+      | $m.effective.interrupt as $dial
       # A review-only run starts no revise agent: the model and the round cap do not apply, so
-      # they are neither asked for nor marked as chosen; scope still shapes the review.
-      | (if $reviewOnly then ["interrupt", "scope"] else fields end) as $applies
+      # they are neither asked for nor marked as chosen; scope still shapes the review. It defers
+      # nothing either, so neither deferral setting applies. Autopilot files each draft in its
+      # round and asks nothing, so when the drafts are raised does not apply to it (#95).
+      | (if $dial == "review only" then ["interrupt", "scope"]
+         elif $dial == "autopilot" then fields - ["deferAt"]
+         else fields end) as $applies
       | ($saved != null) as $hasSaved
-      | (if $hasSaved then [] else [ $applies[] | select($m.sources[.] != "command line") ] end) as $ask
+      # With a saved file the confirm covers the first four, a default included, as before the
+      # deferral settings existed; those two are asked when neither the command line nor the file
+      # gives them, so a file saved before them is asked once.
+      | (if $hasSaved then [ $applies[] | select(. == "deferAt" or . == "deferTo") | select($m.sources[.] == "default") ]
+         else [ $applies[] | select($m.sources[.] != "command line") ] end) as $ask
       | def mark($f): if $m.sources[$f] == "command line" then " (command line)" else "" end;
+        def shown($f): ($applies | index($f)) != null and ($ask | index($f)) == null;
+        def atWords: if . == "end" then "deferred at the end" else "deferred each round" end;
+        def toWords: if . == "spec" then "drafts to the spec folder" elif . == "print" then "drafts printed" else "drafts to GitHub" end;
         {
           savedFile: $file,
           saved: $saved,
           defaults: defaults,
+          repository: repository,
           effective: $m.effective,
           sources: $m.sources,
           applies: $applies,
@@ -420,24 +476,31 @@ if [[ "$cmd" == "resolve" ]]; then
           summary: ("Run with: " + $m.effective.interrupt + mark("interrupt")
                     + " · " + ($m.effective.revise | modelName) + mark("revise")
                     + " · " + ($m.effective.maxRounds | tostring) + " round" + (if $m.effective.maxRounds == 1 then "" else "s" end) + mark("maxRounds")
-                    + " · " + $m.effective.scope + mark("scope"))
+                    + " · " + $m.effective.scope + mark("scope")
+                    + (if shown("deferAt") then " · " + ($m.effective.deferAt | atWords) + mark("deferAt") else "" end)
+                    + (if shown("deferTo") then " · " + ($m.effective.deferTo | toWords) + mark("deferTo") else "" end))
         }'
     exit 0
 fi
 
 # save: every field is required, since the skill passes what the run uses.
-for name in interrupt revise rounds scope; do
-    [[ -n "${!name}" ]] || { echo "redline-prefs: save needs --interrupt, --revise, --max-rounds and --scope" >&2; exit 2; }
+for name in interrupt revise rounds scope defer_at defer_to; do
+    [[ -n "${!name}" ]] || { echo "redline-prefs: save needs --interrupt, --revise, --max-rounds, --scope, --defer-at and --defer-to" >&2; exit 2; }
 done
 mkdir -p "$root/.claude"
-out="$(jq -n --argjson saved "$saved" --argjson cli "$cli" "$MERGE"'
+out="$(jq -n --argjson saved "$saved" --argjson cli "$cli" --argjson repo "$repo" "$MERGE"'
   (clean($saved)) as $s
   | {revise: $cli.revise, maxRounds: $cli.maxRounds, scope: $cli.scope}
   # autopilot and review only are per-run verbs, never saved: the previous interrupt stays.
   + (if ($cli.interrupt | IN("autopilot", "review only")) then (if $s.interrupt != null then {interrupt: $s.interrupt} else {} end) else {interrupt: $cli.interrupt} end)
-  | {interrupt: .interrupt, revise: .revise, maxRounds: .maxRounds, scope: .scope} | with_entries(select(.value != null))
+  # A deferral setting the run did not settle is not written (#95): neither applies under review
+  # only, and autopilot never asks when. The previous value stays, or none, so the next run the
+  # setting applies to is asked for it.
+  + {deferAt: (if ($cli.interrupt | IN("autopilot", "review only")) then $s.deferAt else $cli.deferAt end),
+     deferTo: (if $cli.interrupt == "review only" then $s.deferTo else $cli.deferTo end)}
+  | {interrupt: .interrupt, revise: .revise, maxRounds: .maxRounds, scope: .scope, deferAt: .deferAt, deferTo: .deferTo} | with_entries(select(.value != null))
   # Every other key of the file (the run markers under runs, #10) is kept.
-  | (($saved // {}) | del(.interrupt, .revise, .maxRounds, .scope)) + .')"
+  | (($saved // {}) | del(.interrupt, .revise, .maxRounds, .scope, .deferAt, .deferTo)) + .')"
 tmp="$(mktemp "$root/.claude/.redline.local.XXXXXX")"
 printf '%s\n' "$out" | jq '.' >"$tmp"
 mv "$tmp" "$file"

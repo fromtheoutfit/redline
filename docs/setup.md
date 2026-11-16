@@ -82,7 +82,7 @@ The skill suggests a reviewer from the repository's merged PRs (never the person
 <plugin>/scripts/redline-setup.sh config --reviewer <handle> --baseline-seconds <n> . --ask-rules <file>
 ```
 
-derives `checker` and `checkerStallMs` from the baseline time, takes the rest from the template, and writes the rules. On a rerun it updates only those two values (and the rules when a different list is given) and keeps every other value as yours, listing each that differs from the template under `differs`; `--force` is the full reset.
+derives `checker` and `checkerStallMs` from the baseline time, takes the rest from the template, and writes the rules. On a rerun it updates only those two values (and the rules when a different list is given) and keeps every other value as yours, listing each that differs from the template under `differs`; `--force` is the full reset. Setup asks nothing about `deferTo`, where a deferred item's draft goes: the template writes `github`, and a team that wants `spec` or `print` as its default edits the key by hand ([contract.md](contract.md), "`redline.json`"). A file written before the key existed shows it under `differs` and is left as it is; without the key the drafts go to GitHub issues.
 
 ### 8. `.claude/settings.json`
 
