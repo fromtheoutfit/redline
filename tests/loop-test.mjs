@@ -2819,15 +2819,19 @@ function samePrefix(name, first, second, n) {
   check('defer: with no mitigation the handoff line says where the item went and names no mitigation', handoffOf(bare).includes('### Deferred (1)\n\n- **R1-1** title R1-1: deferred to #301 · decided by: redline\n'), handoffOf(bare))
   check('defer: the implementer is told a deferral with an empty mitigation has no task', (pick(bare.calls, 'implement r1') || { prompt: '' }).prompt.includes('a deferred finding with an empty mitigation has no task and no commit'))
 
-  // "none" reads as no mitigation, and a commit that only names the finding is not its mitigation:
-  // nothing was fixed, so there is no final nit pass and the run ends at the handoff.
-  for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string']]) {
+  // "none", and the plain words for nothing (#97, R1-7), read as no mitigation, and a commit that
+  // only names the finding is not its mitigation: nothing was fixed, so there is no final nit pass
+  // and the run ends at the handoff.
+  for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string'], ['N/A', 'n/a'], ['Nothing ships now.', 'nothing ships now'], ['Nothing.', 'nothing'], ['No mitigation (the client is replaced next quarter).', 'no mitigation with a note']]) {
     const named = await go(`defer: no mitigation as ${name}, and a commit that only names it`, { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': word }, commitIds: [['redline: standards edits for R1-1']] })
     check(`defer: ${name} is no mitigation, so a commit that names the finding earns no final nit pass and no round`, named.res.status === 'done' && named.res.rounds.length === 1 && !labels(named.calls).includes('gather r2') && !(replyFor(named.calls, 'push and reply r1', 'R1-1') || '').includes('itigated in'), [named.res.status, named.res.error, labels(named.calls).slice(-8), replyFor(named.calls, 'push and reply r1', 'R1-1')])
   }
   // The neighbour: a mitigation that only begins with the word is a mitigation.
   const noneOf = await go('defer: a mitigation that begins with the word none', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'None of the callers pass null, so a guard clause' }, commitIds: [['R1-1']] })
   check('defer: a mitigation that only begins with "none" still ships, is demanded and buys the round', noneOf.res.status === 'done' && noneOf.res.rounds.length === 2 && noneOf.res.rounds[1].reviewed === 'fix-diff', [noneOf.res.status, noneOf.res.rounds.map((r) => r.reviewed)])
+  // The neighbour of the words (#97, R1-7): a mitigation that only begins with them still ships.
+  const nothingBut = await go('defer: a mitigation that begins with the words nothing ships now', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'Nothing ships now but a log line with the retry count' }, commitIds: [['R1-1']] })
+  check('defer: a mitigation that only begins with "nothing ships now" still ships, is demanded and buys the round', nothingBut.res.status === 'done' && nothingBut.res.rounds.length === 2 && nothingBut.res.rounds[1].reviewed === 'fix-diff', [nothingBut.res.status, nothingBut.res.rounds.map((r) => r.reviewed)])
 
   // A deferral with no drafted issue is a result the run cannot use: the shaper is rerun.
   const undrafted = await go('defer: the shaper drafts no issue', baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], noDraft: ['R1-1'], commitIds: [[]] })

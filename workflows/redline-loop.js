@@ -763,11 +763,15 @@ const DEFERRED_SCHEMA = {
   type: 'array',
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str, title: str, found: str, why: str } },
 }
-// What ships now for a deferred item, or nothing (#95): an empty mitigation and the word "none",
-// with or without a note in parentheses, both mean no task, no commit and no round bought.
+// What ships now for a deferred item, or nothing (#95): an empty mitigation, or one that only says
+// nothing ships (none, n/a, nothing, nothing ships, nothing ships now, no mitigation, in any case,
+// with or without a note in parentheses and a full stop), means no task, no commit and no round
+// bought. The agents are asked for an empty string; the words are read as well because the shape
+// prompt asks the recommendation beside the field to say "that nothing ships now" (#97, R1-7).
+const NOTHING_SHIPS = /^(none|n\/a|nothing|nothing ships( now)?|no mitigation)(\s*\(.*\))?\.?$/i
 const hasMitigation = (item) => {
   const text = item && typeof item.mitigation === 'string' ? item.mitigation.trim() : ''
-  return text !== '' && !/^none(\s*\(.*\))?\.?$/i.test(text)
+  return text !== '' && !NOTHING_SHIPS.test(text)
 }
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || item[key].trim() === '')
