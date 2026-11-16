@@ -437,8 +437,9 @@ MERGE='
 
 if [[ "$cmd" == "resolve" ]]; then
     # redline.json's deferTo says where an issue is opened, so a word that is not one of the three
-    # stops the launch here instead of falling back to GitHub (#95).
-    bad_defer="$(jq -r 'if type == "object" and has("deferTo") and (.deferTo | IN("github", "spec", "print") | not) then (.deferTo | tojson) else "" end' <<<"$repo")"
+    # stops the launch here instead of falling back to GitHub (#95). It tests the word with the
+    # merge's own `deferToWord`, so the two read one list (#97, R1-5).
+    bad_defer="$(jq -rn --argjson repo "$repo" "$MERGE"'$repo | if type == "object" and has("deferTo") and ((.deferTo | deferToWord) == null) then (.deferTo | tojson) else "" end')"
     if [[ -n "$bad_defer" ]]; then
         echo "redline-prefs: deferTo in $config must be github, spec or print; got $bad_defer" >&2
         exit 2
