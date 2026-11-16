@@ -3274,6 +3274,9 @@ function samePrefix(name, first, second, n) {
     check(`statements: the README's Known limits says ${name}`, limits.some((line) => line.startsWith(opening)), opening)
   }
   check('statements: the README states the title\'s unmeasured case as expected, never as fact', limits.some((line) => line.includes('Whether an `@word` in a title notifies by some path other than a link was not measured; it is expected not to.')), 'README.md, Known limits')
+  // Drafts to GitHub need the repository's Issues on (#97, R1-4): whatever gh does where they are
+  // off, no issue can be opened there, so the docs that describe the setting say so.
+  check('statements: the docs say drafts to GitHub need the repository\'s Issues turned on', read('docs', 'contract.md').includes('`github` needs GitHub Issues turned on in the repository') && read('docs', 'running.md').includes('`defer to github` needs GitHub Issues turned on in the repository'), 'docs/contract.md, redline.json; docs/running.md, Where a draft goes')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
