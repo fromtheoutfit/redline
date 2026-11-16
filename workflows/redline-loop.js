@@ -698,10 +698,22 @@ function judgmentCallSchema(reasons) {
   }
 }
 
+// A deferred item (#95): worth doing, not in this pull request. `mitigation` is what ships now, an
+// empty string when nothing does; `title`, `found`, `why` and `fullFix` are its drafted issue, which
+// stands on its own. The draft fields are checked by the workflow, not required here, since the
+// resolve agent's entry for a finding left to the person under a repository rule carries none.
 const DEFERRED_SCHEMA = {
   type: 'array',
-  items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str } },
+  items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str, title: str, found: str, why: str } },
 }
+// What ships now for a deferred item, or nothing (#95): an empty mitigation and the word "none",
+// with or without a note in parentheses, both mean no task, no commit and no round bought.
+const hasMitigation = (item) => {
+  const text = item && typeof item.mitigation === 'string' ? item.mitigation.trim() : ''
+  return text !== '' && !/^none(\s*\(.*\))?\.?$/i.test(text)
+}
+const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
+const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || item[key].trim() === '')
 
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
 // and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
@@ -1347,7 +1359,10 @@ function replyBody(pass, outcome) {
     case 'fixed':
       return `${pass.title}: fixed in ${commits}.${local}${owner}`
     case 'deferred':
-      return `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
+      // A deferral that ships nothing says so (#95), and is never called mitigated.
+      return outcome.mitigation
+        ? `${pass.title}: ${commits ? `mitigated in ${commits}` : `mitigated: ${outcome.mitigation}`}. ${pass.deferredNote}${outcome.fullFix}${commits ? local : ''}${owner}`
+        : `${pass.title}: deferred, with no mitigation. ${pass.deferredNote}${outcome.fullFix}${owner}`
     case 'decided':
       return `${pass.title}: ${decisionSentence(outcome, pass.human)}${commits ? ` Applied in ${commits}.${local}` : ' No code change.'}${owner}`
     case 'declined':
@@ -1765,9 +1780,9 @@ ${description}
 Findings for this round, as JSON:
 ${json(inScope)}
 
-Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task. Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
+Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer, the option you recommend for an ask; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -1824,7 +1839,7 @@ ${json(inScope)}
 
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -1862,7 +1877,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   if (overrides.length) {
     lines.push(
       '',
-      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task and add the finding under Deferred in shape.md with the full fix left open; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner${pass.human ? '' : '; a finding the shaper declined is overruled the same way, its Decisions entry keeping the shaper\'s reason as the record of what the person saw'}:`,
+      `Disposition overrides, as JSON: findings that were not judgment calls, whose disposition the person changed after seeing the shaper's plan. Each carries the new disposition (fix: plan the full fix as a task, files by path and the test that proves it; defer: plan the mitigation the notes describe as a task, or no task when they name none, add the finding under Deferred in shape.md with its drafted issue, and return it in deferred with its mitigation (an empty string when nothing ships now) and the draft as title, found, why and fullFix; accept: no change, the finding's task becomes "Accepted, no change: <id>"), with notes (the person's reasoning, one sentence) and the owner${pass.human ? '' : '; a finding the shaper declined is overruled the same way, its Decisions entry keeping the shaper\'s reason as the record of what the person saw'}:`,
       json(overrideDecisions),
     )
   }
@@ -1968,7 +1983,7 @@ ${gateLine(ctx, label)}
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(ctx.inScope)}
 
-Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a declined finding has no task and no commit'}), as JSON:
+Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a deferred finding with an empty mitigation has no task and no commit; a declined finding has no task and no commit'}), as JSON:
 ${json({ findings: ctx.shaped.findings, deferred: ctx.deferred })}
 
 Decisions made outside the shaper (already in the spec; decidedBy names the owner, the person or the autopilot): ${Object.keys(ctx.roundDecisions).length ? json(ctx.roundDecisions) : 'none'}
@@ -2701,15 +2716,20 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const named = commits.filter((c) => c.finding === f.id || mentions(c.message, f.id))
     const decision = roundDecisions[f.id]
     const deferredItem = deferred.find((d) => d.id === f.id)
+    // A deferral that ships nothing has no commits of its own (#95): a commit that only names its
+    // id, the standards commit say, is not its mitigation, so it is never called mitigated and
+    // never earns a final nit pass.
+    const shipsNothing = Boolean(deferredItem) && !hasMitigation(deferredItem)
+    const shipped = shipsNothing ? [] : named
     const owner = owners[f.id] || REDLINE
     const left = (forced || {})[f.id]
     if (left) {
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
       outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
-      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: named, decidedBy: decision.decidedBy || personLabel }
+      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel }
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
-      outcomes[f.id] = { kind: 'deferred', commits: named, fullFix: deferredItem.fullFix, mitigation: deferredItem.mitigation, decidedBy: owner }
+      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner }
     } else if (dispositions[f.id] === 'decline') {
       // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
       outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
@@ -2732,7 +2752,9 @@ function describeOutcome(outcome, human) {
     case 'fixed':
       return `fixed in ${andList(outcome.commits.map((c) => short(c.sha)))}${owner}`
     case 'deferred':
-      return `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
+      return outcome.mitigation
+        ? `deferred; mitigated${outcome.commits.length ? ` in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}: ${outcome.mitigation}${owner}`
+        : `deferred, with no mitigation: ${outcome.fullFix}${owner}`
     case 'decided':
       return `${decisionSentence(outcome, human)}${human ? '' : outcome.commits && outcome.commits.length ? ` Applied in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ' No code change.'}${owner}`
     case 'declined':
@@ -2862,10 +2884,36 @@ function checkWhy(pass, shaped, known, shaperLabel) {
 // checkWhy does, so a decline a repository rule turns into an ask, which needs no reason, never
 // stops the round (#94, R1-13, R5-6); it runs after the `spec status` call, so it names the
 // shaper's label itself (#94, R2-9).
-function checkDeclineReasons(shaped, shaperLabel) {
+function checkDeclineReasons(pass, shaped, shaperLabel) {
   const noReason = shaped.findings.filter((f) => f.disposition === 'decline' && (typeof f.reason !== 'string' || f.reason.trim() === '')).map((f) => f.id)
   if (noReason.length) {
     throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`, {}, shaperLabel)
+  }
+  // A decline never points at follow-up work (#95): an item worth doing somewhere is a defer, with
+  // a drafted issue. A warning, since a Redline round's shape stops only on what the run cannot
+  // use; the plan approver bounces such a decline. A reason that says what would confirm a claim
+  // may name a later test, so `could not confirm` is left alone.
+  for (const f of shaped.findings) {
+    const reason = f.disposition === 'decline' ? f.reason.trim() : ''
+    const points = /^could not confirm/i.test(reason) ? null : FOLLOW_UP.exec(reason)
+    if (points) {
+      warnings.push(`${pass.name}: the shaper declined ${f.id} with a reason that points at follow-up work (${JSON.stringify(points[0])}); an item worth doing elsewhere is a defer`)
+    }
+  }
+}
+// The words a decline's reason uses when it points at work to be done elsewhere.
+const FOLLOW_UP = /\bfollow[- ]?up\b|\bseparate (?:issue|pull request|PR)\b|\banother pull request\b|\bbelongs elsewhere\b/i
+
+// A deferred finding carries its drafted issue (#95): a title, what was found, why it is not fixed
+// here and the fix proposed. One without is a result the run cannot use, as a decline with no
+// reason is. Runs after forceAskRules, which turns a rule-covered deferral into an ask and drops
+// its entry, and names the shaper's label itself, since the spec check ran after the shaper.
+function checkDrafts(shaped, shaperLabel) {
+  for (const f of shaped.findings.filter((s) => s.disposition === 'defer')) {
+    const missing = draftMissing(shaped.deferred.find((d) => d.id === f.id))
+    if (missing.length) {
+      throw stageError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
+    }
   }
 }
 
@@ -3136,7 +3184,8 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix) {
   checkCalls(shaped, known)
   await checkSpec(pass, record.specFolder, label, suffix)
   forceAskRules(record, pass, inScope, shaped)
-  checkDeclineReasons(shaped, label)
+  checkDeclineReasons(pass, shaped, label)
+  checkDrafts(shaped, label)
   checkWhy(pass, shaped, known, label)
   record.dispositions = shaped.findings
 }
@@ -3236,6 +3285,11 @@ async function revise(record, inScope, reviewedKind) {
     // in place, so a deferral the person restated with their own mitigation is the one planned and
     // posted (#94, R5-9). A finding a repository ask rule covers keeps none (#49).
     const fresh = out.deferred.filter((item) => !record.forced[item.id])
+    // A deferral the resolve agent planned carries its drafted issue, as the shaper's does (#95).
+    const undrafted = fresh.filter((item) => draftMissing(item).length)
+    if (undrafted.length) {
+      throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
+    }
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
@@ -3342,8 +3396,10 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const accepted = new Set(finalDispositions.filter((f) => f.disposition === 'accept').map((f) => f.id))
+  // A deferral demands a commit only when it ships a mitigation (#95): one with none has no task.
+  const mitigated = (id) => deferred.some((d) => d.id === id && hasMitigation(d))
   const needCommits = finalDispositions
-    .filter((f) => f.disposition === 'fix' || f.disposition === 'defer')
+    .filter((f) => f.disposition === 'fix' || (f.disposition === 'defer' && mitigated(f.id)))
     .map((f) => f.id)
     .concat(resolved ? resolved.tasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding]).map((task) => task.finding) : [])
   const ctx = {
@@ -3467,8 +3523,13 @@ async function revise(record, inScope, reviewedKind) {
   // mention them (#94, R2-12): the round's spec and standards commits are no fix diff. A deferral's
   // mitigation counts, since its commit is unreviewed code the final nit pass must read; the final
   // nit pass's sentences still call such an item fixed (R2-12, deferred).
+  // A deferral buys the next round only through its mitigation, which is new code (#95): one that
+  // ships nothing changes nothing here and, like a decline, buys nothing. The shaper's own entry is
+  // read for its own disposition, as shaperOwn is, and the round's final list for the final one.
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
-  const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || ['fix', 'defer', 'ask'].includes(shaperOwn[f.id]) || ['fix', 'defer'].includes(finalOwn[f.id])))
+  const shaperMitigated = (id) => shaped.deferred.some((d) => d.id === id && hasMitigation(d))
+  const buys = (own, shipped) => own === 'fix' || (own === 'defer' && shipped)
+  const bought = inScope.some((f) => f.category === 'correctness' && (calls.some((call) => call.id === f.id) || shaperOwn[f.id] === 'ask' || buys(shaperOwn[f.id], shaperMitigated(f.id)) || buys(finalOwn[f.id], mitigated(f.id))))
   const fixed = inScope.filter((f) => !['declined', 'none'].includes(outcomes[f.id].kind) && outcomes[f.id].commits.length > 0).map((f) => f.id)
   return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
@@ -3589,7 +3650,7 @@ function handoffComment(ending, prBody, threads) {
   if (deferredAll.length) {
     lines.push('', '### Deferred (mitigated now, full fix left open)', '', ...deferredAll.map((d) => (d.rule
       ? `- **${d.id}** ${postedText(d.title)}: left to ${personLabel} under ${leftUnder(d)}; ${d.declined ? '' : 'open: '}${d.fullFix}`
-      : `- **${d.id}** ${postedText(d.title)}: shipped ${d.mitigation}; open: ${d.fullFix}`)))
+      : `- **${d.id}** ${postedText(d.title)}: ${hasMitigation(d) ? `shipped ${d.mitigation}; ` : ''}open: ${d.fullFix}`)))
   }
   const left = leftToYou()
   if (left.length) {

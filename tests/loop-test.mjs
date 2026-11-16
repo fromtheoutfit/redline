@@ -198,8 +198,15 @@ function mock(scenario) {
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
         })),
-        // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding.
-        deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: scenario.mitigation || 'a guard clause', fullFix: 'a lock' })),
+        // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding, and
+        // scenario.mitigations[id] (#95) one finding's own, '' or 'none' for a deferral that ships
+        // nothing. Each entry carries its drafted issue (title, found, why, fullFix), which the
+        // shape and reshape prompts ask for, unless scenario.noDraft names the finding, a
+        // shape-stage error.
+        deferred: ids.filter((id) => defer.includes(id)).map((id) => ({
+          id, mitigation: scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause', fullFix: 'a lock',
+          ...((scenario.noDraft || []).includes(id) ? {} : { title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}` }),
+        })),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
         judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
@@ -2456,7 +2463,7 @@ function samePrefix(name, first, second, n) {
   const changedBounced = await go('defer: changed to fix on the plan dial, then a reshape', deferToFix, { ...deferScenario, planBounce: 1 })
   const noDeferral = (x) => x.res.status === 'done' && (x.res.deferred || []).length === 0 && !(comment(x.calls, 'handoff comment') || '').includes('### Deferred') && !(pick(x.calls, 'implement r1') || { prompt: '' }).prompt.includes('"mitigation": "a guard clause"')
   check('defer: a deferral the person changes to fix on the plan dial is never listed under Deferred nor given to the implementer, with or without a reshape', noDeferral(changedPlain) && noDeferral(changedBounced), [changedPlain.res.status, changedPlain.res.deferred, changedBounced.res.status, changedBounced.res.deferred])
-  const restated = await go('defer: restated with the person\'s mitigation on the plan dial', { ...planArgs, approvedPlans: [1], decisions: { 'R1-4': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-14', disposition: 'defer' } } }, { ...deferScenario, resolveDeferred: [{ id: 'R1-4', mitigation: 'a log line', fullFix: 'a lock' }] })
+  const restated = await go('defer: restated with the person\'s mitigation on the plan dial', { ...planArgs, approvedPlans: [1], decisions: { 'R1-4': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-14', disposition: 'defer' } } }, { ...deferScenario, resolveDeferred: [{ id: 'R1-4', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-4', found: 'found R1-4', why: 'why R1-4' }] })
   check('defer: a deferral restated on the plan dial lists the resolve agent\'s mitigation, not the shaper\'s', restated.res.status === 'done' && (restated.res.deferred || []).length === 1 && restated.res.deferred[0].mitigation === 'a log line' && (comment(restated.calls, 'handoff comment') || '').includes('- **R1-4** title R1-4: shipped a log line; open: a lock'), [restated.res.status, restated.res.deferred])
 
   // An earlier run's decline is a disposition: handled, never carried into the new run.
@@ -2733,6 +2740,77 @@ function samePrefix(name, first, second, n) {
   // With no login the fallback opens the sentence, so it is capitalised (#94, R1-17).
   const cappedAnon = await go('layout: the cap-hit comment with no login', { ...covArgs, maxRounds: 1, login: '' }, { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')]], commitIds: [['R1-1']], coverage: [one, one], coverageOut: [[{ index: 1, outcome: 'verified', ref: 'R1-1' }], [{ index: 1, outcome: 'verified', ref: 'R2-1' }]] })
   check('layout: with no login the cap-hit comment opens its sentence with a capital', cappedAnon.res.status === 'capped' && comment(cappedAnon.calls, 'cap-hit comment').includes('so it has not requested a review. The person running Redline will pick these up.'), comment(cappedAnon.calls, 'cap-hit comment'))
+}
+
+// ---------------------------------------------------------------------------
+// #95, the model: a deferred item is worth doing and not here, of any kind; its mitigation is
+// optional and it always carries a drafted issue; a decline never points at follow-up work.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const template = read('templates', 'shape-spec-unattended.md')
+  const section = read('.claude', 'commands', 'agent-os', 'shape-spec.md')
+  for (const phrase of ['drafted issue that stands on its own', 'A decline never points at follow-up work', 'A mitigation is optional', 'ships a mitigation', 'Deferring is your decision, never a question']) {
+    check(`defer: the shaper's file, the template and this repository's section all say "${phrase}"`, shaperAgent.includes(phrase) && template.includes(phrase) && section.includes(phrase), [shaperAgent.includes(phrase), template.includes(phrase), section.includes(phrase)])
+  }
+  // The rule #95 retired is gone from all three: a decline that names where the work belongs.
+  for (const phrase of ['where it belongs (a follow-up issue)', 'the fix belongs elsewhere (say where)', 'no cheap mitigation exists']) {
+    check(`defer: none of the three still says "${phrase}"`, !shaperAgent.includes(phrase) && !template.includes(phrase) && !section.includes(phrase), [shaperAgent.includes(phrase), template.includes(phrase), section.includes(phrase)])
+  }
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  check('defer: the plan approver\'s file asks for a task only of a deferral that ships a mitigation, and bounces a decline that points at follow-up work', approverAgent.includes('ships a mitigation') && approverAgent.includes('points at follow-up work'), [approverAgent.includes('ships a mitigation'), approverAgent.includes('points at follow-up work')])
+  check('defer: the resolve agent\'s file has it draft the issue for a deferral the person chose', read('agents', 'redline-resolve.md').includes('drafted issue'))
+
+  // A deferral with a mitigation is as before: its commit is demanded, and a correctness one buys the next round.
+  const mitigated = await go('defer: a correctness deferral that ships a mitigation', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
+  check('defer: with a mitigation, a correctness deferral buys the next round', mitigated.res.status === 'done' && mitigated.res.rounds.length === 2 && mitigated.res.rounds[1].reviewed === 'fix-diff', [mitigated.res.status, mitigated.res.rounds.map((r) => r.reviewed)])
+  const shape = (pick(mitigated.calls, 'shape r1') || { prompt: '' }).prompt
+  check('defer: the shape prompt asks for the drafted issue and says a deferral with no mitigation has no task', shape.includes('it always carries a drafted issue that stands on its own') && shape.includes('neither has a deferred one that ships no mitigation') && shape.includes('its drafted issue as title, found, why and fullFix'), shape.slice(-1800))
+  check('defer: the plan approver and the implementer are shown the entry with its draft', [(pick(mitigated.calls, 'plan approver r1') || { prompt: '' }).prompt, (pick(mitigated.calls, 'implement r1') || { prompt: '' }).prompt].every((p) => p.includes('"title": "Lock R1-1"') && p.includes('"why": "why R1-1"')))
+
+  // No mitigation: no task, no commit demanded, nothing bought. The nit fixed beside it earns the
+  // final nit pass, as any fix does; the deferral itself earns nothing.
+  const bare = await go('defer: a correctness deferral that ships nothing, beside a nit', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], defer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [['R1-2']] })
+  check('defer: with no mitigation the gate passes without a commit for it, and it buys no round', bare.res.status === 'done' && bare.res.rounds.length === 2 && bare.res.rounds[1].reviewed === 'final-nit-pass', [bare.res.status, bare.res.error, bare.res.rounds.map((r) => r.reviewed)])
+  check('defer: with no mitigation the reply says so and is not called mitigated', replyFor(bare.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred, with no mitigation. The full fix is deferred and listed in the Redline handoff: a lock · decided by: redline', replyFor(bare.calls, 'push and reply r1', 'R1-1'))
+  // A handoff that may be absent reads as '', so a run that took another path fails the check and does not throw.
+  const handoffOf = (r) => (pick(r.calls, 'handoff comment') ? comment(r.calls, 'handoff comment') : '')
+  check('defer: with no mitigation the handoff line names only what is open', handoffOf(bare).includes('\n- **R1-1** title R1-1: open: a lock\n'), handoffOf(bare))
+  check('defer: the implementer is told a deferral with an empty mitigation has no task', (pick(bare.calls, 'implement r1') || { prompt: '' }).prompt.includes('a deferred finding with an empty mitigation has no task and no commit'))
+
+  // "none" reads as no mitigation, and a commit that only names the finding is not its mitigation:
+  // nothing was fixed, so there is no final nit pass and the run ends at the handoff.
+  for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string']]) {
+    const named = await go(`defer: no mitigation as ${name}, and a commit that only names it`, baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': word }, commitIds: [['redline: standards edits for R1-1']] })
+    check(`defer: ${name} is no mitigation, so a commit that names the finding earns no final nit pass and no round`, named.res.status === 'done' && named.res.rounds.length === 1 && !labels(named.calls).includes('gather r2') && !(replyFor(named.calls, 'push and reply r1', 'R1-1') || '').includes('itigated in'), [named.res.status, named.res.error, labels(named.calls).slice(-8), replyFor(named.calls, 'push and reply r1', 'R1-1')])
+  }
+  // The neighbour: a mitigation that only begins with the word is a mitigation.
+  const noneOf = await go('defer: a mitigation that begins with the word none', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'None of the callers pass null, so a guard clause' }, commitIds: [['R1-1']] })
+  check('defer: a mitigation that only begins with "none" still ships, is demanded and buys the round', noneOf.res.status === 'done' && noneOf.res.rounds.length === 2 && noneOf.res.rounds[1].reviewed === 'fix-diff', [noneOf.res.status, noneOf.res.rounds.map((r) => r.reviewed)])
+
+  // A deferral with no drafted issue is a result the run cannot use: the shaper is rerun.
+  const undrafted = await go('defer: the shaper drafts no issue', baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], noDraft: ['R1-1'], commitIds: [[]] })
+  check('defer: a deferral with no drafted issue stops at shape, resumable at the shaper', undrafted.res.status === 'error' && undrafted.res.stage === 'shape' && undrafted.res.error === 'the shaper deferred R1-1 with no drafted issue (missing title, found, why); a deferred item always carries one' && undrafted.res.resumeFrom && undrafted.res.resumeFrom.label === 'shape r1', [undrafted.res.status, undrafted.res.error, undrafted.res.resumeFrom])
+  // The same holds for a deferral the person chose, which the resolve agent drafts.
+  const override = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } }
+  const resolved = await go('defer: the resolve agent drafts no issue', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: override }, { reviews: [[f('R1-1', 'correctness')]], commitIds: [[]], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock' }] })
+  check('defer: a deferral the resolve agent returns with no drafted issue stops at resolve, resumable there', resolved.res.status === 'error' && resolved.res.stage === 'resolve' && resolved.res.error === 'the resolve agent deferred R1-1 with no drafted issue (title, found, why, fullFix); a deferred item always carries one' && resolved.res.resumeFrom && resolved.res.resumeFrom.label === 'resolve r1', [resolved.res.status, resolved.res.error, resolved.res.resumeFrom])
+  check('defer: the resolve prompt asks for the draft of a deferral the person chose', (pick(resolved.calls, 'resolve r1') || { prompt: '' }).prompt.includes('the draft as title, found, why and fullFix'))
+  // A reshape is asked for every field the checks read.
+  const bounced = await go('defer: a bounced plan reshapes a deferral', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], planBounce: 1, commitIds: [['R1-1']] })
+  check('defer: the reshape prompt asks for the mitigation and the drafted issue', bounced.res.status === 'done' && (pick(bounced.calls, 'reshape r1 #1') || { prompt: '' }).prompt.includes('its drafted issue as title, found, why and fullFix'), [bounced.res.status, bounced.res.error])
+
+  // A decline that points at follow-up work is warned about, one case per form, beside the
+  // reasons that stand and a "could not confirm" that names a later test.
+  const points = { 'R1-1': ['it belongs in a follow-up issue', 'follow-up'], 'R1-2': ['someone can follow up after the release', 'follow up'], 'R1-3': ['a followup should rename it', 'followup'], 'R1-4': ['a separate issue should track it', 'separate issue'], 'R1-5': ['a separate pull request should do this', 'separate pull request'], 'R1-6': ['a separate PR is the place', 'separate PR'], 'R1-7': ['another pull request owns that file', 'another pull request'], 'R1-8': ['the fix belongs elsewhere', 'belongs elsewhere'] }
+  const stands = { 'R1-9': 'the spec keeps R1-9 as it is on purpose', 'R1-10': 'could not confirm: needs a follow-up load test on two workers', 'R1-11': 'a separate process already retries it, so the row is never read twice', 'R1-12': 'the job follows up to three redirects, so the loop the claim needs cannot form' }
+  const ids = Object.keys(points).concat(Object.keys(stands))
+  const warned = await go('defer: declines that point at follow-up work', baseArgs, { reviews: [ids.map((id) => f(id, 'nit')).concat([f('R1-13', 'nit')]), []], decline: ids, reason: { ...Object.fromEntries(Object.entries(points).map(([id, [reason]]) => [id, reason])), ...stands }, commitIds: [['R1-13']] })
+  for (const [id, [, match]] of Object.entries(points)) {
+    check(`defer: a decline whose reason says "${match}" is warned about as a defer`, warned.res.warnings.includes(`round 1: the shaper declined ${id} with a reason that points at follow-up work (${JSON.stringify(match)}); an item worth doing elsewhere is a defer`), warned.res.warnings)
+  }
+  check('defer: a decline for a reason that stands, or for want of confirmation, is not warned about, and the run goes on', warned.res.status === 'done' && !warned.res.warnings.some((w) => Object.keys(stands).some((id) => w.includes(`declined ${id} `))), warned.res.warnings)
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
