@@ -265,7 +265,7 @@ Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-prefs.sh run clear <repoRoot> <n>` fi
 
 ### `capped`
 
-Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-prefs.sh run clear <repoRoot> <n>` first. The round cap was hit with correctness bugs open: the cap-hit comment was posted (or written), the run record was committed (`recordCommit`), and no review was requested. List `openFindings` one line each and stop. The person picks them up by hand or with another `/redline:redline`.
+Run `${CLAUDE_PLUGIN_ROOT}/scripts/redline-prefs.sh run clear <repoRoot> <n>` first. The round cap was hit with correctness bugs open: the cap-hit comment was posted (or written), the run record was committed (`recordCommit`), and no review was requested. List `openFindings` one line each. Then the deferred items (`deferred`), as the `done` section lists them: one line each with the ID, the title, where it went (`deferred to #<number>`, with its `url`, or the draft's `path`) and the mitigation that shipped, when one did; when `deferTo` is `print`, print each draft after the list as that section says, `draft.title` on a line of its own, then `draft.body` in a fenced block, both exactly as given. Then stop. The person picks them up by hand or with another `/redline:redline`.
 
 ### `error`
 

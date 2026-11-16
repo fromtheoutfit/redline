@@ -3277,6 +3277,10 @@ function samePrefix(name, first, second, n) {
   // Drafts to GitHub need the repository's Issues on (#97, R1-4): whatever gh does where they are
   // off, no issue can be opened there, so the docs that describe the setting say so.
   check('statements: the docs say drafts to GitHub need the repository\'s Issues turned on', read('docs', 'contract.md').includes('`github` needs GitHub Issues turned on in the repository') && read('docs', 'running.md').includes('`defer to github` needs GitHub Issues turned on in the repository'), 'docs/contract.md, redline.json; docs/running.md, Where a draft goes')
+  // A capped run reports its deferred items as a finished one does (#97, R1-6): the docs promise
+  // a print-mode draft is printed when the run ends, and the cap is an ending too.
+  const capped = ((read('skills', 'redline', 'SKILL.md').split('### `capped`')[1] || '').split('### `error`')[0]) || ''
+  check('statements: the skill\'s capped section lists the deferred items and prints the print-mode drafts', capped.includes('Then the deferred items (`deferred`), as the `done` section lists them') && capped.includes('when `deferTo` is `print`, print each draft after the list'), capped)
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
