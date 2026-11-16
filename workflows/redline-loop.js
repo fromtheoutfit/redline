@@ -3277,8 +3277,9 @@ function knownCarriedReplies(record) {
 // GitHub-agent call, which a round with nothing to file never makes. The mode is the run's: an
 // issue when the setting is github and the run posts, else the draft's path alone. The number is
 // the agent's relay of what the script printed; the path is the workflow's own, so no posted line
-// depends on how an agent spelled it.
-async function fileDeferred(pass, record, drafts) {
+// depends on how an agent spelled it. The caller names the phase: the round's own filing is part
+// of Push and reply, the end-of-run filing part of Finish (#97, R1-11).
+async function fileDeferred(pass, record, drafts, phaseName) {
   const mode = deferTo === 'github' && postToGitHub ? 'issue' : 'draft'
   const recordFile = abs(pass.deferredFile)
   const entries = drafts.map(({ item, f, title }) => {
@@ -3286,7 +3287,7 @@ async function fileDeferred(pass, record, drafts) {
     return { finding: item.id, mode, file, command: `${GH} defer ${mode} ${item.id} ${file} ${recordFile}`, content: issueDraft(pass, f, item, title) }
   })
   const out = await run('defer', deferPrompt(pass, record.specFolder, entries), {
-    agentType: 'redline:redline-github', ...modelOpts('github'), label: `file deferred ${pass.tag}`, phase: 'Push and reply', schema: DEFER_SCHEMA,
+    agentType: 'redline:redline-github', ...modelOpts('github'), label: `file deferred ${pass.tag}`, phase: phaseName, schema: DEFER_SCHEMA,
   })
   if (out.error) {
     throw stageError('defer', `filing the deferred drafts failed in ${pass.name}: ${out.error}`)
@@ -3384,7 +3385,7 @@ async function settleHeld() {
     }
     const pass = passOf(record)
     const toFile = held.filter((d) => deferrals[d.item.id].action !== 'drop').map((d) => ({ ...d, title: deferrals[d.item.id].title }))
-    const filed = toFile.length ? await fileDeferred(pass, record, toFile) : {}
+    const filed = toFile.length ? await fileDeferred(pass, record, toFile, 'Finish') : {}
     const outcomes = {}
     for (const d of held) {
       const id = d.item.id
@@ -3895,7 +3896,7 @@ async function revise(record, inScope, reviewedKind) {
   const toFile = holdsDrafts ? [] : roundDeferrals.filter((d) => !dropped[d.item.id]).map((d) => ({ ...d, title: raisesDrafts && deferrals[d.item.id] ? deferrals[d.item.id].title : '' }))
   // They are filed once the gate has passed and before the replies, so each reply and the handoff
   // say where its item went: the issue's number, or the draft's path.
-  const filed = toFile.length ? await fileDeferred(pass, record, toFile) : {}
+  const filed = toFile.length ? await fileDeferred(pass, record, toFile, 'Push and reply') : {}
   const heldIds = new Set(held.map((d) => d.item.id))
   const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds, planned: new Set(inScope.map((f) => f.id).filter(plannedTask)) })
   for (const d of toFile) {
