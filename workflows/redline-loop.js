@@ -1600,6 +1600,12 @@ function leadingId(ref, ids) {
   return [...ids].filter((id) => typeof id === 'string' && id !== '' && ref.startsWith(id) && !/^[\w-]/.test(ref.slice(id.length))).sort((a, b) => b.length - a.length)[0] || ''
 }
 
+// The candidate index a duplicate's ref opens with (`3`, `candidate 3` or `index 3`, any case,
+// with any note after it), or 0 when it opens with none. accountCoverage reads what a collapse
+// names by it and review()'s set-aside block reads `into` by it, so the two never read one ref's
+// target two ways (#86, R4-1; #94, R8-2, R9-2).
+const duplicateTarget = (ref) => Number((/^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(ref || '') || [])[1]) || 0
+
 function accountCoverage(round, out, candidates) {
   const byId = new Map(out.findings.map((f) => [f.id, f]))
   const seen = new Map()
@@ -1658,7 +1664,7 @@ function accountCoverage(round, out, candidates) {
   // with a warning, as a verified ref naming no finding is. A ref that opens with neither, a note
   // in words, names something and is shown as written in the set-aside block (#86, R4-1, R5-2).
   const named = new Set([...byId.keys(), ...Object.keys(priorById), ...rounds.flatMap((r) => (r.findings || []).map((x) => x.id))])
-  const targetOf = (e) => (e.outcome === 'duplicate' ? Number((/^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(e.ref) || [])[1]) || 0 : 0)
+  const targetOf = (e) => (e.outcome === 'duplicate' ? duplicateTarget(e.ref) : 0)
   const namesNothing = (e) => {
     if (e.outcome !== 'duplicate' && e.outcome !== 'settled') {
       return false
@@ -1818,11 +1824,14 @@ ${json(inScope)}
 
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', and reason for a decline'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   const callDecisions = Object.fromEntries(calls.map((call) => [call.id, roundDecisions[call.id]]).filter(([, d]) => d))
+  // A decision on Redline's own files carries `rule` as well as `own`, so the rule bullet sends it
+  // to the own-file bullet, and the resolve agent gets one wording for it (#94, R9-4).
+  const anyOwn = Object.values(callDecisions).some((d) => d && d.own)
   const overrideDecisions = Object.fromEntries(overrides.map((f) => [f.id, roundDecisions[f.id]]))
   const lines = [
     RUN_LINE,
@@ -1834,9 +1843,9 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
     `- Each decision carries its owner (decidedBy): \`${personLabel}\` for the person, \`${AUTOPILOT}\` for a recommendation taken on autopilot. Every decided entry you write under Decisions in shape.md ends with the line \`Decided by: <that value>\`, verbatim.`,
     `- A decision whose decidedBy is \`${AUTOPILOT}\` carries the shaper's own recommendation as its choice: apply the option that recommendation names (it may paraphrase the label), with the notes as its reasoning.`,
     ...(askRules.length
-      ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (repository rule <rule>)" and the shaper's recommendation as the full fix.`]
+      ? [`- A decision carrying \`rule\` is on a finding a repository ask rule covers${anyOwn ? " (one that also carries `own` is on one of Redline's own files and follows the next bullet instead)" : ''}, left to the person (#49): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (repository rule <rule>)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (repository rule <rule>)" and the shaper's recommendation as the full fix.`]
       : []),
-    ...(Object.values(callDecisions).some((d) => d && d.own)
+    ...(anyOwn
       ? [`- A decision carrying \`own\` is on a finding on one of Redline's own files, which no Redline role may write, left to the person the same way (#94, R8-4): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (Redline's own files)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding goes under Deferred in shape.md with the mitigation "none (the rule on Redline's own files)" and the shaper's recommendation as the full fix.`]
       : []),
   ]
@@ -2548,8 +2557,7 @@ async function review(round, reviewed, range, facts, source) {
         if (!e.ref) {
           warnings.push(`round ${round}: the reviewer set aside coverage candidate ${e.index} as ${e.outcome} with no reason; listed as "no reason given"`)
         }
-        const target = e.outcome === 'duplicate' ? /^(?:(?:candidate|index)\s+)?(\d+)\b/i.exec(e.ref) : null
-        const to = target ? Number(target[1]) : 0
+        const to = e.outcome === 'duplicate' ? duplicateTarget(e.ref) : 0
         const into = to !== e.index && byIndex.has(to) ? { index: to, file: candidates[to - 1].file, line: candidates[to - 1].line, outcome: byIndex.get(to).outcome, id: LISTED_ELSEWHERE.includes(byIndex.get(to).outcome) ? byIndex.get(to).ref : '' } : null
         return { index: e.index, file: c.file, line: c.line, summary: c.summary, outcome: e.outcome, ref: e.ref, into }
       })
@@ -3586,8 +3594,10 @@ function handoffComment(ending, prBody, threads) {
   const left = leftToYou()
   if (left.length) {
     // The heading names what the findings are left under: repository rules, Redline's own files
-    // (#94, R8-4), or both.
-    const under = unique(rounds.flatMap((record) => Object.values(record.forced || {}).map((x) => (x.own ? "Redline's own files" : 'repository rules'))))
+    // (#94, R8-4), or both, always in that order, as docs/running.md gives it, whichever forced
+    // finding came first (#94, R9-7).
+    const forced = rounds.flatMap((record) => Object.values(record.forced || {}))
+    const under = [forced.some((x) => !x.own) && 'repository rules', forced.some((x) => x.own) && "Redline's own files"].filter(Boolean)
     lines.push('', `### Left to ${personLabel} (${under.join(' and ')})`, '', ...left)
   }
   if (notPicked.length) {

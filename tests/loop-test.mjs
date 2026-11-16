@@ -180,7 +180,7 @@ function mock(scenario) {
       // A reshape answers what the reshape prompt asks for (#61, R1-2), and only when scripted: the
       // ids whose call it leaves out (reshapeOmitCall), sorts fix with the call kept (reshapeFix),
       // newly sorts ask (reshapeAsk) or gives a call while sorting as before (reshapeExtraCall), or
-      // declines (reshapeDecline).
+      // declines (reshapeDecline). It gives a second look only when its prompt asks for one (#94, R9-3).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
@@ -196,7 +196,7 @@ function mock(scenario) {
           ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
-          ...(scenario.secondLook && scenario.secondLook[id] ? { secondLook: scenario.secondLook[id] } : {}),
+          ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding.
         deferred: ids.filter((id) => defer.includes(id)).map((id) => ({ id, mitigation: scenario.mitigation || 'a guard clause', fullFix: 'a lock' })),
@@ -1261,6 +1261,8 @@ function samePrefix(name, first, second, n) {
   samePrefix('rules', first.calls, second.calls, 5)
   const resolve = pick(second.calls, 'resolve r1').prompt
   check('rules: the resolve prompt carries the rule on the decision and the left-to-the-person sentence', resolve.includes('"rule": "craft-config"') && resolve.includes('"rule": "billing"') && resolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers'), resolve)
+  // With no decision on Redline's own files, the rule bullet names no exception (#94, R9-4).
+  check('rules: with no decision on Redline\'s own files, the resolve prompt\'s rule bullet names no exception', resolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers, left to the person (#49)') && !resolve.includes('also carries `own`'), resolve)
   check('rules: the plan approver sees the rules and the asks', pick(second.calls, 'plan approver r1').prompt.includes('"id": "craft-config"') && pick(second.calls, 'plan approver r1').prompt.includes('"askRule": "craft-config"'), pick(second.calls, 'plan approver r1').prompt)
   // The ask-rules block names decline beside fix and defer, and the approver bounces a decline of a
   // finding a prose rule covers, in its prompt and in its agent file (#94, R4-2).
@@ -2361,6 +2363,17 @@ function samePrefix(name, first, second, n) {
   check('ask: on autopilot a finding on Redline\'s own files is left to the person, never decided: its reply opens "left to", and it is listed under Deferred with no mitigation and under Left to', ownFile.res.status === 'done' && ownReply.startsWith('Redline round 1: left to @author under the rule on Redline\'s own files (no Redline role may write them).') && ownReply.endsWith(' · decided by: redline (autopilot)') && ownHandoff.includes('- **R1-2** title R1-2: left to @author under the rule on Redline\'s own files; open: Keep it') && ownHandoff.includes('### Left to @author (Redline\'s own files)') && !ownHandoff.includes('Autopilot took the shaper\'s recommendation: Keep it'), [ownFile.res.status, ownReply, ownHandoff])
   check('ask: the result names a finding on Redline\'s own files as left to the person, and the resolve agent is told no task writes anything for it', JSON.stringify((ownFile.res.forced || []).map((x) => [x.id, x.own === true])) === '[["R1-2",true]]' && ((ownFile.res.deferred || []).find((d) => d.id === 'R1-2') || {}).mitigation === 'none (the rule on Redline\'s own files)' && (pick(ownFile.calls, 'resolve r1') || { prompt: '' }).prompt.includes('A decision carrying `own` is on a finding on one of Redline\'s own files'), [ownFile.res.forced, ownFile.res.deferred])
 
+  // With repository ask rules declared, a decided call on Redline's own files carries `rule` and
+  // `own`, so the resolve prompt's rule bullet sends a decision with `own` to the own-file bullet
+  // and the resolve agent never gets two wordings for one decision (#94, R9-4). The Left-to heading
+  // names its groups in the order docs/running.md gives, repository rules first, whichever forced
+  // finding comes first: here the own-file finding does (#94, R9-7).
+  const ownAndRule = await go('ask: redline\'s own file beside a repository rule, on autopilot', { ...baseArgs, interrupt: 'autopilot', askRules: [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }] }, { reviews: [[f('R1-1', 'correctness', { file: '.claude/redline.json', line: 3 }), f('R1-2', 'correctness', { file: 'config/project/project.yaml', line: 3 }), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], whyHuman: { 'R1-1': 'redline\'s own file' }, commitIds: [['R1-3']] })
+  const bothResolve = (pick(ownAndRule.calls, 'resolve r1') || { prompt: '' }).prompt
+  const bothHandoff = comment(ownAndRule.calls, 'handoff comment') || ''
+  check('ask: with ask rules declared, the resolve prompt\'s rule bullet sends a decision that also carries `own` to the own-file bullet', ownAndRule.res.status === 'done' && bothResolve.includes('A decision carrying `rule` is on a finding a repository ask rule covers (one that also carries `own` is on one of Redline\'s own files and follows the next bullet instead), left to the person') && bothResolve.includes('A decision carrying `own` is on a finding on one of Redline\'s own files'), [ownAndRule.res.status, ownAndRule.res.error, bothResolve])
+  check('ask: the Left-to heading names repository rules before Redline\'s own files when the own-file finding comes first', ownAndRule.res.status === 'done' && JSON.stringify((ownAndRule.res.forced || []).map((x) => x.id)) === '["R1-1","R1-2"]' && bothHandoff.includes('### Left to @author (repository rules and Redline\'s own files)\n'), [ownAndRule.res.forced, bothHandoff])
+
   // A human review pass is unchanged: it keeps its own reasons and its own wording, and it gains
   // no decline.
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
@@ -2396,6 +2409,11 @@ function samePrefix(name, first, second, n) {
   // each leave a warning; a decline as could not confirm whose second look stayed unconfirmed, none.
   const looks = await go('second look: read and checked', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'a browser' }), f('R1-3', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'a queue' }), f('R1-4', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'a cron' })], []], decline: ['R1-2', 'R1-3', 'R1-4'], reason: { 'R1-2': 'could not confirm: needs a browser', 'R1-3': 'could not confirm: needs a queue', 'R1-4': 'could not confirm: needs a cron' }, secondLook: { 'R1-3': 'refuted', 'R1-4': 'unconfirmed' }, commitIds: [['R1-1']] })
   check('second look: a missing one and a refuted one declined as could not confirm each leave a warning, and a consistent one none', looks.res.status === 'done' && looks.res.warnings.includes('round 1: the shaper gave no second look (secondLook) for R1-2, which the verifier could not confirm') && looks.res.warnings.includes('round 1: the shaper declined R1-3 as could not confirm, but its second look says refuted') && !looks.res.warnings.some((w) => w.includes('R1-4')), looks.res.warnings)
+  // A reshape is vetted as the shape is (#94, R8-5), so its prompt asks for the second look as the
+  // shape prompt does, and a reshape that returns what its prompt asks for raises no second-look
+  // warning for a finding the verifier could not confirm (#94, R9-3).
+  const bounced = await go('second look: on a reshape', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit', { confidence: 'unconfirmed', wouldConfirm: 'a browser' })], []], secondLook: { 'R1-2': 'confirmed' }, planBounce: 1, commitIds: [['R1-1', 'R1-2']] })
+  check('second look: the reshape prompt asks for secondLook, and a reshape that returns it raises no second-look warning', bounced.res.status === 'done' && (pick(bounced.calls, 'reshape r1 #1') || { prompt: '' }).prompt.includes('secondLook for a finding the verifier could not confirm') && !(bounced.res.warnings || []).some((w) => w.includes('gave no second look')), [bounced.res.status, bounced.res.error, bounced.res.warnings])
   // A reshape after autopilot settled the call keeps what Redline would have declined (#94, R7-7):
   // the reshape returns the rule-covered finding as an ask with no call, as it is told to, and the
   // forced entry the decided call rests on stands.
