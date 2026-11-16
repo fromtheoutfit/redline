@@ -592,3 +592,27 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 - `agent-os/standards/workflow/agents.md` (step 12, only the approved edits)
 - `agent-os/specs/2026-11-16-1358-97-review-round-1/plan.md` (step 13)
 - `agent-os/specs/2026-11-16-1358-97-review-round-1/shape.md` (step 13)
+
+## As built
+
+Counts are read off each gate run's kept result (`checks.sh` names the file under `kept`), red before the change and green after it. Every count matched the plan's arithmetic.
+
+- **Task 1**, `de6eecf`: the spec folder.
+- **Task 2 (R1-2)**, `aac9c49`. Red: gh `174 passed, 2 failed`, the record held `["R2-8"]` alone. Green: gh 176. Proof: `0`.
+- **Task 3 (R1-4, its mitigation)**, `a25778b`. Red: loop `1228 checks passed, 1 failed`. Green: 1229.
+- **Task 4 (R1-6)**, `c36caac`. Red: `1229 checks passed, 1 failed`. Green: 1230.
+- **Task 5 (R1-7)**, `96acb0c`. Red: `1236 checks passed, 4 failed`, the four new spellings; the neighbour passed. Green: 1240.
+- **Task 6 (R1-8)**, `7b6888c`. Red: `1241 checks passed, 2 failed`: the person's title of spaces filed `# `, and the control-character title stopped the run at a hand-off. Green: 1243. The title reached `tests/loop-test.mjs` as the escape text `\u0001\u0002`, checked byte by byte.
+- **Task 7 (R1-10)**, `c9b4979`. Red: `1246 checks passed, 2 failed` (1248 in all: the reshape run stopped at a hand-off, so its run-record check did not run). The resolve run filed R1-1 and replied `No code change. Deferred to #301.`, and the reshape run raised a draft; the neighbour passed. Green: 1249, with both reply texts as the plan wrote them. No existing check moved.
+- **Task 8 (R1-1)**, `0a6a937`. Red: `1249 checks passed, 1 failed`. Green: 1250.
+- **Task 9 (R1-3)**, `4430429`. Red: gh `176 passed, 2 failed`: exit 5 with no URL on stderr, and one temp file left. Green: gh 178. Proof: `1`.
+- **Task 10 (R1-5)**, `3e15e04`: a refactor, gate green, prefs 172, its `deferTo` cases passing as before. Proof: `0`.
+- **Task 11 (R1-11)**, `0bf43dd`. Red: `1251 checks passed, 1 failed`, the end-of-run filing was grouped under `Push and reply`; the neighbour passed. Green: 1252. Proof: `0`.
+- **Task 12 (R1-12)**, `0c52f43`. Red: `1253 checks passed, 1 failed`. Green: 1254.
+- **Standards retrospective**, `0aff54e`: the five approved edits, two to `agent-os/standards/scripts/bash-conventions.md` (line 12 and a new bullet after it) and three to `agent-os/standards/workflow/agents.md` (lines 39 and 47 and a new last bullet). They are lessons; no finding's fix runs through them, so the message names none.
+- Final counts: loop 1254, guard 601, prefs 172, gate 117, setup 512, gh 178, background 39.
+- Task 5's comment above the word loop keeps the plan's words, wrapped over three lines to the file's comment width.
+
+Deviation, recorded under Decisions in `shape.md`:
+
+1. Task 9's header sentence for `defer` ends without the plan's full stop (`... the issue opened by then included`), as the last line of every other entry in `redline-gh.sh`'s header does. `docs/scripts.md` quotes it byte for byte.

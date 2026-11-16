@@ -67,6 +67,8 @@ The round's fourteen findings, nothing more. Six are correctness (R1-2, R1-4, R1
     Decided by: redline
 14. **R1-14: decline.** Unattended answer 8. Reason: the pull request's spec checks the claim against the previous round's approved plan paths on purpose (decision 20 in its `plan.md` and `shape.md`), and `docs/running.md`, Rounds, step 7, already tells the reader the claim is honoured only for a file the previous round's plan named.
     Decided by: redline
+15. **As built: Task 9's header sentence ends as the header's other entries do.** The plan gives the new last sentence of `defer`'s header entry with a full stop; it was written without one (`... the issue opened by then included`), since the last line of every other entry in `scripts/redline-gh.sh`'s header ends without one. The words are the plan's, and `docs/scripts.md` quotes them byte for byte. `plan.md`, As built, deviation 1.
+    Decided by: redline
 
 ### Proportionality
 
