@@ -453,6 +453,13 @@ GH_FAKE_CREATE_WRITES="$D/overlap.json" GH_FAKE_CREATE_TEXT='{"R2-5":{"where":"i
 is "defer issue, another finding recorded meanwhile: the record keeps both entries" "$(jq -c 'keys' "$D/overlap.json")" '["R2-5","R2-8"]'
 is "defer issue, another finding recorded meanwhile: this finding's entry is the issue it opened" "$(jq -c '[.["R2-8"].number, .["R2-5"].number]' "$D/overlap.json")" '[123,90]'
 rm -f "$LOG"
+# A record that is no JSON object when the entry is written (#97, R1-3): exit 1, naming the entry
+# with the issue it opened, and no temp file left beside the record.
+mkdir -p "$D/corrupt"
+GH_FAKE_CREATE_WRITES="$D/corrupt/round-2-deferred.json" GH_FAKE_CREATE_TEXT='not json' gh defer issue R2-8 "$D/issue-R2-3.md" "$D/corrupt/round-2-deferred.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a record that is no JSON object when the entry is written: exits 1, naming the issue opened" "$code $(grep -c 'https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
+is "defer issue, a record that is no JSON object when the entry is written: no temp file is left beside it" "$(ls -A "$D/corrupt" | grep -c '^\.redline-deferred\.')" "0"
+rm -f "$LOG"
 cp "$D/issue-R2-3.md" "$WORK/pages/loose.md"
 is "defer draft: a draft outside any repository keeps its path as given" "$(gh defer draft R2-9 "$WORK/pages/loose.md" "$WORK/pages/loose.json" | jq -r .path)" "$WORK/pages/loose.md"
 gh defer open R2-3 "$D/issue-R2-3.md" "$REC" 2>/dev/null; is "defer: a mode other than issue or draft exits 2" "$?" "2"

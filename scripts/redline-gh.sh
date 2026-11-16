@@ -125,7 +125,10 @@
 #                                  Prints {finding, where, number, url, path, reused}: path is the
 #                                  draft's, relative to its repository; number 0 and url "" for a
 #                                  draft; reused true when the issue was already there. A failed
-#                                  lookup or create exits 1 and writes no record
+#                                  lookup or create exits 1 and writes no record; so does a record
+#                                  that is no JSON object when the entry is written, which names
+#                                  the entry it could not record, the issue opened by then
+#                                  included
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
@@ -170,19 +173,32 @@ need_int() {
     fi
 }
 
+# The temp files `defer` makes, removed on every way out (#97, R1-3): the issue body, and the
+# record's next version beside it until it is moved into place. One EXIT trap names both, since a
+# later `trap ... EXIT` replaces an earlier one.
+defer_body='' defer_tmp=''
+defer_cleanup() {
+    if [[ -n "$defer_body" ]]; then rm -f "$defer_body"; fi
+    if [[ -n "$defer_tmp" ]]; then rm -f "$defer_tmp"; fi
+}
+
 # defer_record <record file> <finding> <entry>: the record with the finding's entry set, merged
 # into the record as the file stands now, not as `defer` read it before the lookup and the create
 # on GitHub, so an entry another defer recorded in between is kept (#97, R1-2); written beside
 # itself and moved into place, so a reader never sees half a file.
 defer_record() {
-    local tmp current='{}'
+    local current='{}'
     mkdir -p "$(dirname "$1")"
     if [[ -f "$1" ]]; then
         current="$(cat "$1")"
     fi
-    tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"
-    jq --arg id "$2" --argjson e "$3" '. + {($id): $e}' <<<"$current" > "$tmp"
-    mv "$tmp" "$1"
+    defer_tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"
+    if ! jq -e --arg id "$2" --argjson e "$3" 'if type == "object" then . + {($id): $e} else error("not an object") end' <<<"$current" > "$defer_tmp" 2>/dev/null; then
+        echo "redline-gh.sh: $1 is no JSON object when $2's entry is written; not recorded: $3" >&2
+        exit 1
+    fi
+    mv "$defer_tmp" "$1"
+    defer_tmp=''
 }
 
 # defer_print <finding> <entry> <reused>: what `defer` prints for one finding.
@@ -550,6 +566,9 @@ case "$cmd" in
 
     defer)
         [[ $# -eq 4 ]] || usage
+        trap defer_cleanup EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
         mode="$1" finding="$2" draft="$3" record="$4"
         case "$mode" in
             issue|draft) ;;
@@ -605,10 +624,9 @@ case "$cmd" in
             defer_print "$finding" "$entry" true
             exit 0
         fi
-        body="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$body"' EXIT
-        tail -n +3 "$draft" > "$body"
-        url="$(gh issue create --title "$title" --body-file "$body")"
+        defer_body="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        tail -n +3 "$draft" > "$defer_body"
+        url="$(gh issue create --title "$title" --body-file "$defer_body")"
         number="${url##*/}"
         if ! [[ "$number" =~ ^[0-9]+$ ]]; then
             echo "redline-gh.sh: gh issue create printed no issue URL: $url" >&2

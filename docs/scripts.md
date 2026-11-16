@@ -135,7 +135,10 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  Prints {finding, where, number, url, path, reused}: path is the
 #                                  draft's, relative to its repository; number 0 and url "" for a
 #                                  draft; reused true when the issue was already there. A failed
-#                                  lookup or create exits 1 and writes no record
+#                                  lookup or create exits 1 and writes no record; so does a record
+#                                  that is no JSON object when the entry is written, which names
+#                                  the entry it could not record, the issue opened by then
+#                                  included
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
