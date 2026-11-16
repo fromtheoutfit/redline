@@ -774,7 +774,9 @@ const hasMitigation = (item) => {
   return text !== '' && !NOTHING_SHIPS.test(text)
 }
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
-const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || item[key].trim() === '')
+// A draft field is missing when it is no string or holds nothing; the title is read as it will be
+// filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
+const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || (key === 'title' ? draftTitle(item[key]) : item[key].trim()) === '')
 
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
 // and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
@@ -1269,10 +1271,11 @@ function draftTitle(text) {
 // posted text GitHub renders: no tag in it can break the body and no @word notifies, while a
 // code span stays as written. The place and the last line are the workflow's own. The last line
 // names the pull request, the pass and the finding, text only this issue carries: the script
-// looks an issue up by it before it opens one.
+// looks an issue up by it before it opens one. Each title is cleaned before one is chosen, so a
+// title of the person's that cleans to nothing gives way to the shaper's (#97, R1-8).
 function issueDraft(pass, f, item, title) {
   return [
-    `# ${draftTitle(title || item.title)}`,
+    `# ${draftTitle(title) || draftTitle(item.title)}`,
     '',
     postedText(item.found.trim()),
     '',
