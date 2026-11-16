@@ -233,3 +233,71 @@ Each slice ends with the harnesses it touched red then green and `.claude/redlin
 `workflow/replay`, `workflow/agents`, `testing/tests`, `process/docs-gate`, `process/release`, `process/standards-retrospective`, `process/internal-notes`, `prompts/attribution`, `scripts/bash-conventions`, `scripts/guard` (rows only; the guard script is unchanged).
 
 Shape-spec steps 2 to 5, answered from the repository: no visuals; references are the code named above and the #93 spec folder for the layout of `plan.md` and `shape.md`; product alignment is `agent-os/product/mission.md` ("Every verified item is decided", "Nothing is parked", "Honest about its reach"), which task 7 rewords for the fourth ending.
+
+## As built
+
+Built 2026-11-16, one slice per commit, each commit made by the owner.
+
+**The gate.** `.claude/redline/checks.sh --baseline` exits 0 with all nine checks green: guard 601 passed, 0 mismatched (596 before this spec); loop 1228 checks passed, 0 failed (982 before); prefs 172 (121 before); gate 117; setup 512 (506 before); gh 174 (136 before); background 39. `claude plugin validate .` passes with the known icon warning. `scripts/redline-gate.sh check .` reports a match, since the gate's backticked text did not move, and `scripts/redline-setup.sh version .` exits 0 with the unattended section at v5 in the template and in this checkout. Nothing in the harnesses reaches GitHub. shellcheck was not run on the build machine, which does not have it; CI runs it.
+
+**The slices, red then green.**
+
+| Commit | Slice | Harness, red then green |
+| --- | --- | --- |
+| `25dc3ea` | 1, the spec folder | none (documents) |
+| `bcf1597` | 2, the model | `node tests/loop-test.mjs` red on the new checks, then 1024 passed, 0 failed; `tests/setup-test.sh` red on the v5 pin, then 508, 0 |
+| `b0063d8` | 3, filing | `tests/gh-test.sh`: 26 failed against the committed script, then 174 passed, 0 failed. `node tests/loop-test.mjs`: red, with 14 pinned texts moved by the new layout, then 1081, 0. Five guard rows added and one replaced |
+| `6db7fc3` | 4, the stops | `node tests/loop-test.mjs`: red when every guided scenario that defers stopped, then 1155 passed, 0 failed |
+| `5e9134c` | 5, the two settings | `tests/prefs-test.sh`: 113 passed, 59 failed; then 172, 0. `tests/setup-test.sh`: 509 passed, 3 failed; then 512, 0 |
+| `80e838f` | 6, the fix-diff rule | `node tests/loop-test.mjs`: 1188 passed, 22 failed; then 1214, 0 |
+| `b3be32b` | 7, the statements a reader meets | `node tests/loop-test.mjs`: 1215 passed, 13 failed; then 1228, 0 |
+| slice 8 | the standards retrospective, and this record | none reads the standards or the spec folder |
+
+Slices 2 to 4 record that their harness went red first and the count it reached; the failing counts of their red runs were not kept, except the gh harness's.
+
+**Each clause was seen red under a mutation of the code it pins.** Slice 2: the shipped test, the word `none`, the commits a deferral needs, what buys, the draft check at shape and at resolve, the follow-up warning and its exemption. Slice 3: the filing call, each field's escaping, the title as written with its three cuts, the two modes, an unfiled item, the cap-hit section, the human summary, a decided item's reply, the left-open text. Slice 4: who raises drafts (a human pass, autopilot), the override filter, each stop, the version bump and its cover, a drop, a title, the held replies, the end-of-run stop and its settlement, the hand-off caught, `canFix`, the bad words. Slice 5: twenty rules of `redline-prefs.sh` (what applies, what is asked, what the summary shows, what `save` keeps, the repository default, the refusals). Slice 6: twenty-three clauses of the fix-diff rule (the three conditions, the three reasons a claim is not honoured, the path matcher both ways, the round's own paths, the cap, what buys, the prompt on each kind of round, the wording both ways, the result, the schema). One of them, every low finding of a fix-diff round ceasing to buy, crashed the harness instead of printing a count; that is a red run, and the scenario that threw was not traced.
+
+**Deviations from the plan above.** Each is recorded under Decisions in `shape.md` (39 to 53), with its reason: where the skill's changes landed (39, 42), how the title was measured (40), how the end-of-run stop is built (43), what a saved file is asked for (46), the `deferTo` refusal (48), the final nit pass's wording (50), and the statements found beyond the plan's list (52).
+
+### Docs (gate step 10)
+
+| File | Section | Commit |
+| --- | --- | --- |
+| `workflows/redline-loop.js` | `docs/running.md`: Rounds (steps 2, 6 and 7, and the cap), Dispositions, Deferred items, Hand-off and relaunch, The handoff comment, How the review is posted; `README.md`: the opening, the loop paragraph, Dials, Known limits | `bcf1597`, `b0063d8`, `6db7fc3`, `80e838f`, `b3be32b`, each for its slice |
+| `agents/redline-shaper.md`, `agents/redline-plan-approver.md`, `agents/redline-resolve.md`, `agents/redline-implementer.md`, `templates/shape-spec-unattended.md`, `templates/history/shape-spec-unattended.v4.md` | `docs/running.md`, "Dispositions"; `docs/contract.md`, "The unattended section"; `docs/upgrading.md`, the unattended section's versions | `bcf1597` |
+| `agents/redline-github.md` | `docs/running.md`, "Deferred items" and step 6 of "Rounds"; `docs/scripts.md` | `b0063d8`; its reply sentence, `b3be32b` |
+| `agents/redline-reviewer.md` | `docs/running.md`, steps 1 and 7 of "Rounds" ("A small bug in the last fixes") | `80e838f`; its opening sentence, `b3be32b` |
+| `scripts/redline-gh.sh` | `docs/scripts.md`, its header; `docs/running.md`, "Deferred items" | `b0063d8` |
+| `scripts/redline-prefs.sh` | `docs/scripts.md`, its header; `docs/running.md`, "Saved launch settings"; `docs/contract.md`, "`redline.local.json`" | `5e9134c` |
+| `skills/redline/SKILL.md` | `docs/running.md`, "Launching a run", "Deferred items", "Hand-off and relaunch" and "Saved launch settings"; `README.md`, Quick start and Dials | `b0063d8`, `6db7fc3`, `5e9134c`, `80e838f`, `b3be32b`, each for its slice |
+| `skills/redline-revise/SKILL.md` | `docs/running.md`, "Deferred items" (a human review pass raises its drafts in the pass) and "Launching a run" | `b0063d8`, `5e9134c` |
+| `skills/setup/SKILL.md` | `docs/setup.md`, step 7 | `5e9134c` |
+| `templates/redline.json.example` | `docs/contract.md`, "`redline.json`"; `docs/setup.md`, step 7; `docs/upgrading.md`, "What a template bump means" | `5e9134c` |
+| `templates/command-redline.md`, `templates/command-redline-revise.md` | the `argument-hint` alone changed; the words are listed in `docs/running.md`, "Launching a run", and the README's Dials | `5e9134c` |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | the version has no reader-facing change beyond the number, and the `CHANGELOG.md` entry is the owner's step after the merge (`bcf1597`); the descriptions state the endings and were reworded with the README's opening, the skill's description and `agent-os/product/mission.md` (`b3be32b`) | as named |
+
+New this spec, each with its section: the config key `deferTo` (`docs/contract.md`, "`redline.json`"); the saved keys `deferAt` and `deferTo` (`docs/contract.md`, "`redline.local.json`"); the launch words `defer each round`, `defer at end` and `defer to github|spec|print` (the skill's grammar table, its hint and description, both alias templates with this checkout's copies, the README's Dials); the subcommand `redline-gh.sh defer`, in place of `issue-create` (`docs/scripts.md`; guard rows in `tests/guard-cases.tsv`); exit 2 from `redline-prefs.sh resolve` on a `deferTo` that is not one of its words (its header, in `docs/scripts.md`). No new allow rule. `scripts/redline-guard.sh` and `hooks/hooks.json` were not touched. README Known limits gained four entries (a deferred item opens an issue and a board gets a card; an issue is opened once per finding within one run; at the end setting a run that never finishes leaves threads unanswered; a draft is the shaper's judgment and its title is posted as written) and "What a clean run means" was reworded.
+
+### Version (gate step 11)
+
+0.4.0 in `.claude-plugin/plugin.json` and in the marketplace entry (`bcf1597`), a minor bump: the unattended section's body changed, `templates/redline.json.example` gained a key and both alias templates a hint, so a setup rerun carries them. The marker is `<!-- redline-unattended: v5 -->`, the previous body is frozen as `templates/history/shape-spec-unattended.v4.md`, and its hash and the v5 hash are pinned in `tests/setup-test.sh`. A rerun does not add `deferTo` to an existing `redline.json`; it lists the key under `differs`.
+
+### Standards retrospective (gate step 12)
+
+Done mechanically on 2026-11-16 over decisions 1 to 53 in `shape.md`, the deviations above and the red runs that taught something, and put to the owner as one question: all seventeen proposed edits were approved (`shape.md`, decision 54) and are applied in their own commit, separate from the spec's code.
+
+| File | Edits |
+| --- | --- |
+| `agent-os/standards/workflow/agents.md` | the four endings and what `defer` and `decline` now mean; the done rule, which the spec had made wrong (a deferral buys only with a mitigation, and a low-severity bug in the previous round's fix diff is fixed like a nit); a fact an agent states is checked against what the run recorded; text is made safe for the surface that renders it, from a measurement; a write that must not happen twice keeps its own record; an outcome that changes after its round is rewritten before Finish composes anything |
+| `agent-os/standards/workflow/replay.md` | `args.deferrals` joins the answers that enter after their prompt, and an override is taken only before the round's first resolve, which the spec had made wrong as stated; an answer names the version it saw; the end-of-run stop and what it holds; the skill section for a stop's new field lands with the stop |
+| `agent-os/standards/testing/tests.md` | an absent list reads as `[]`, and a mutation run that prints no count is a crash; the statements of the endings and the done rule are pinned by key phrase |
+| `agent-os/standards/scripts/bash-conventions.md` | a saved setting added later, and one that did not apply to a run; a config key that says where an outward write goes is refused, never defaulted; a removed subcommand takes its callers with it |
+| `agent-os/standards/process/docs-gate.md` | where a new saved setting lands; the done rule's list of statements gains the workflow's `meta.description`, the reviewer file's opening and the review prompts' facts-only sentence, and a change to what a pass reads rewords the sentences that name it |
+
+Already in a standard, so no edit: the template bump and the frozen body (`process/release`, `scripts/bash-conventions`), guard rows for a new agent operation, escaped text pinned as written and an invisible character written as its escape (`testing/tests`), a stop's new field named in `relaunch.how` (`workflow/replay`), a cost and an unmeasured behaviour named in Known limits, a new launch word in the grammar, the hints and the alias templates (`process/docs-gate`), a rerun's `differs` (`scripts/bash-conventions`), and no model or vendor name in anything posted (`prompts/attribution`).
+
+Four patterns were invented during the build and reached a standard only here, not before use as the gate asks: an answer keyed by the version it saw, replies held for a stop and posted inside Finish, a record plus a lookup for a write that must not repeat, and a stated fact the workflow checks before honouring it. No code follows in a commit of its own: each rule that code can enforce is already pinned by the checks its slice added (the prefs refusal and the settings cases, the version and end-of-run scenarios, the gh harness's reuse cases, the fix-diff claim's cases, the statements block).
+
+### Left to the owner
+
+As "After the gate (yours)" above lists: the pull request and its own Redline run from `claude --plugin-dir`, the tag and the `CHANGELOG.md` entry (under Setup and templates: a rerun merges the v5 section and writes the two alias hints, and `deferTo` is added to an existing `redline.json` by hand), a `/redline:setup` rerun in Losers League and Chalkboard, and the rerun on Losers League #829.
