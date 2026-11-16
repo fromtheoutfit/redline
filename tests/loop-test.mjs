@@ -3302,6 +3302,8 @@ function samePrefix(name, first, second, n) {
   // a print-mode draft is printed when the run ends, and the cap is an ending too.
   const capped = ((read('skills', 'redline', 'SKILL.md').split('### `capped`')[1] || '').split('### `error`')[0]) || ''
   check('statements: the skill\'s capped section lists the deferred items and prints the print-mode drafts', capped.includes('Then the deferred items (`deferred`), as the `done` section lists them') && capped.includes('when `deferTo` is `print`, print each draft after the list'), capped)
+  // The after-run filing is gone (#95), so the guard's docs no longer name it (#97, R1-1).
+  check('statements: docs/guard.md no longer names a deferred issue filed after the run as the main session\'s prompt', !read('docs', 'guard.md').includes('filing a deferred issue after a run') && read('docs', 'guard.md').includes('The main session itself runs no `redline-gh.sh` write'), 'docs/guard.md, The hook')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
