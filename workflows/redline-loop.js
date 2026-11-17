@@ -4273,10 +4273,11 @@ function humanSummary(record, nitPass, threads) {
     parts.push(`${andList(decided)} ${plural(decided, 'was a question', 'were questions')} for ${personLabel}, answered in ${plural(decided, 'its thread', 'their threads')}`)
   }
   // What the pass deferred is read off what was filed, never off the outcome kind (#95): in a
-  // human review pass a deferral is the author's decision, so no finding has the kind.
+  // human review pass a deferral is the author's decision, so no finding has the kind. Each part
+  // reads as the replies and the handoff say where an item went (deferredTo; #97, R3-7).
   const filed = record.findings.map((f) => f.id).filter((id) => (record.filed || {})[id])
   if (filed.length) {
-    parts.push(andList(filed.map((id) => (record.filed[id].where === 'issue' ? `${id} deferred to #${record.filed[id].number}` : `${id} deferred to the draft at \`${record.filed[id].path}\``))))
+    parts.push(andList(filed.map((id) => `${id} ${deferredTo(record.filed[id])}`)))
   }
   const none = ids('none')
   if (none.length) {
