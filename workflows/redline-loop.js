@@ -845,8 +845,8 @@ function shapeSchema(reasons, dispositions) {
             // it to the person.
             recommendation: str,
             // A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does
-            // not act, and where the finding belongs when it belongs somewhere. Required for a
-            // decline, which checkDispositions holds the shaper to.
+            // not act. It never points at follow-up work, which is a defer (#95). Required for a
+            // decline, which checkDeclineReasons holds the shaper to.
             reason: str,
             // What the shaper's second look made of a finding the verifier could not confirm (#93).
             secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
