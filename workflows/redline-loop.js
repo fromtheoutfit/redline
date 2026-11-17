@@ -777,6 +777,23 @@ const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
 const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || (key === 'title' ? draftTitle(item[key]) : item[key].trim()) === '')
+// One deferred entry per finding (#97, R2-12): the first an agent returned, which checkDrafts and
+// outcomesFor read (both take the first with find), and the ids it returned more than once. A
+// second entry would be a second draft, a second filing over the first's file and a second line
+// under Deferred.
+function firstPerId(list) {
+  const seen = new Set()
+  const repeated = []
+  const kept = (list || []).filter((item) => {
+    if (seen.has(item.id)) {
+      repeated.push(item.id)
+      return false
+    }
+    seen.add(item.id)
+    return true
+  })
+  return { kept, repeated: unique(repeated) }
+}
 
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
 // and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
@@ -3002,6 +3019,12 @@ function checkDispositions(pass, shaped) {
     warnings.push(`${pass.name}: the shaper listed ${stray.map((d) => d.id).join(', ')} as deferred, but its disposition is not defer; the entry is dropped`)
     shaped.deferred = shaped.deferred.filter((d) => deferredIds.has(d.id))
   }
+  // One entry per deferred finding (#97, R2-12): the first, with a warning.
+  const once = firstPerId(shaped.deferred)
+  if (once.repeated.length) {
+    warnings.push(`${pass.name}: the shaper listed ${once.repeated.join(', ')} as deferred more than once; the first entry is kept`)
+    shaped.deferred = once.kept
+  }
 }
 
 // The second look (#93; #94, R7-5): a finding the verifier could not confirm carries the shaper's
@@ -3658,7 +3681,11 @@ async function revise(record, inScope, reviewedKind) {
     // The resolve agent's entry for a decision it planned replaces an earlier one for the same id,
     // in place, so a deferral the person restated with their own mitigation is the one planned and
     // posted (#94, R5-9). A finding a repository ask rule covers keeps none (#49).
-    const fresh = out.deferred.filter((item) => !record.forced[item.id])
+    const once = firstPerId(out.deferred.filter((item) => !record.forced[item.id]))
+    if (once.repeated.length) {
+      warnings.push(`${pass.name}: the resolve agent listed ${once.repeated.join(', ')} as deferred more than once; the first entry is kept`)
+    }
+    const fresh = once.kept
     // A deferral the resolve agent planned carries its drafted issue, as the shaper's does (#95).
     const undrafted = fresh.filter((item) => draftMissing(item).length)
     if (undrafted.length) {

@@ -229,13 +229,14 @@ function mock(scenario) {
         // scenario.mitigations[id] (#95) one finding's own, '' or 'none' for a deferral that ships
         // nothing. Each entry carries its drafted issue (title, found, why, fullFix), which the
         // shape and reshape prompts ask for, unless scenario.noDraft names the finding, a
-        // shape-stage error.
+        // shape-stage error. scenario.deferTwice (#97, R2-12) returns a finding's entry twice, the
+        // second with another found.
         deferred: ids.filter((id) => defer.includes(id) || onReshape('reshapeDefer').includes(id)).map((id) => ({
           id, mitigation: scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause', fullFix: 'a lock',
           // scenario.drafts[id] (#95) replaces fields of one finding's draft, fullFix included.
           // scenario.reshapeDrafts[id] (#95) does the same on a reshape alone: a draft the reshape changed.
           ...((scenario.noDraft || []).includes(id) ? {} : { title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}`, ...((scenario.drafts || {})[id] || {}), ...((reshape && (scenario.reshapeDrafts || {})[id]) || {}) }),
-        })),
+        })).flatMap((entry) => ((scenario.deferTwice || []).includes(entry.id) ? [entry, { ...entry, found: `${entry.found} again` }] : [entry])),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
         judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
@@ -2896,6 +2897,12 @@ function samePrefix(name, first, second, n) {
   const controls = await go('filing: a shaper title of control characters only', baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], drafts: { 'R1-1': { title: '\u0001\u0002' } }, commitIds: [[]] })
   check('filing: a shaper title that cleans to nothing is no title, so the run stops at shape, resumable at the shaper', controls.res.status === 'error' && controls.res.stage === 'shape' && controls.res.error === 'the shaper deferred R1-1 with no drafted issue (missing title); a deferred item always carries one' && controls.res.resumeFrom && controls.res.resumeFrom.label === 'shape r1', [controls.res.status, controls.res.error, controls.res.resumeFrom])
   check('filing: no draft carries a model or vendor name', entry && !/claude|anthropic|generated (with|by)|co-authored/i.test(entry.content), entry && entry.content)
+  // One deferred entry per finding (#97, R2-12): a second entry the shaper or the resolve agent
+  // returns for the same id is dropped with a warning, so one draft, the first, is filed and listed.
+  const twice = await go('filing: the shaper returns two entries for one deferral', filedArgs, { ...scenario, deferTwice: ['R1-1'] })
+  check('filing: two shaper entries for one finding file one draft, the first, listed once, with a warning', twice.res.status === 'done' && draftsOf(twice).length === 1 && (draftsOf(twice)[0] || {}).content === (entry || {}).content && (twice.res.deferred || []).length === 1 && handoffOf(twice).includes('### Deferred (1)\n') && (twice.res.warnings || []).includes('round 1: the shaper listed R1-1 as deferred more than once; the first entry is kept'), [twice.res.status, twice.res.handoffKind, draftsOf(twice).length, twice.res.warnings])
+  const twiceResolved = await go('filing: the resolve agent returns two entries for one deferral the person chose', { ...filedArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }, { id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1 again', why: 'why R1-1' }] })
+  check('filing: two resolve entries for one finding file one draft, the first, with a warning', twiceResolved.res.status === 'done' && draftsOf(twiceResolved).length === 1 && ((draftsOf(twiceResolved)[0] || {}).content || '').includes('\nfound R1-1\n') && (twiceResolved.res.deferred || []).length === 1 && (twiceResolved.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred more than once; the first entry is kept'), [twiceResolved.res.status, twiceResolved.res.handoffKind, draftsOf(twiceResolved).length, twiceResolved.res.warnings])
   check('filing: the reply says the issue\'s number, then the mitigation\'s commit', replyFor(run.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline', replyFor(run.calls, 'push and reply r1', 'R1-1'))
   check('filing: the handoff lists it under Deferred with its number', handoffOf(run).includes('### Deferred (1)\n\n- **R1-1** title R1-1: deferred to #301; mitigated in 1bbbbbb · decided by: redline\n'), handoffOf(run))
   check('filing: the next round\'s reviewer is shown it as deferred, with its number', (pick(run.calls, 're-review r2') || { prompt: '' }).prompt.includes('"outcome": "deferred to #301; mitigated in 1bbbbbb · decided by: redline"'))
