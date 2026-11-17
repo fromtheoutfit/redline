@@ -625,3 +625,26 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 - `agent-os/standards/process/docs-gate.md` (step 12, only the approved edits)
 - `agent-os/specs/2026-11-16-1358-97-review-round-2/plan.md` (step 13)
 - `agent-os/specs/2026-11-16-1358-97-review-round-2/shape.md` (step 13)
+
+## As built
+
+Counts are read off each gate run's kept result (`checks.sh` names the file under `kept`), red before the change and green after it. Every count matched the plan's arithmetic.
+
+- **Task 1**, `254f5d4`: the spec folder.
+- **Task 2 (R2-1)**, `22e25be`. Red: gh `178 passed, 1 failed`, the new case reading `1 0`. Green: gh 179. Proof: `4` and `1`.
+- **Task 3 (R2-6)**, `e622f6c`. Red: loop `1255 checks passed, 1 failed`: the reply read `Redline round 1: deferred to #301. · decided by: redline` and the run handed off after round 1; the word loop passed. Green: 1256. Proof: `1`.
+- **Task 4 (R2-12)**, `c43ab02`. Red: `1256 checks passed, 2 failed`: both runs stopped at a `decisions` hand-off for the second version of the draft, with no warning. Green: 1260.
+- **Task 5 (R2-13)**, `233693a`. Red: `1261 checks passed, 1 failed`: the run finished, so its run-record check ran too. Green: 1261, the run now ending in an error at `resolve`, resumable at `resolve r1`, so its run-record check no longer runs; the filing run with an entry passed on both. Proof: `1`.
+- **Task 6 (R2-14)**, `b268a6b`. Red: `1263 checks passed, 2 failed`: the first run filed R1-1 and replied `... Keep it. No code change. Deferred to #301.`, and the second finished with no commit for R1-1 demanded; R1-10's runs passed. Green: 1264, the second run now stopping at `check` naming R1-1. No existing check moved. Proof: `0`.
+- **Task 7 (R2-3)**, `07f2d76`. Red: `1264 checks passed, 1 failed`. Green: 1265. Proof: `0`.
+- **Task 8 (R2-4)**, `542bb54`. Red: `1265 checks passed, 1 failed`. Green: 1266.
+- **Task 9 (R2-5)**, `478cee7`. Red: `1268 checks passed, 2 failed`: the drafts read `` `(no file):0` `` and `` `app/x.php:0` ``; the filing check with a file and a line passed. Green: 1270. Proof: `1`.
+- **Task 10 (R2-11)**, `e3c7ab8`: a comment. Proof: `0` and `1`. Its gate run was also Task 11's red run: every check passed but Task 11's new one, which sat uncommitted in `tests/loop-test.mjs`, a file this commit does not hold; the gate on the finished round, below, is green with it.
+- **Task 11 (R2-16)**, `5fe58e9`. Red: `1271 checks passed, 1 failed`: the handoff opened with the generic sentence; the generic sentence's checks passed. Green: 1272. Proof: `4`.
+- **Task 12 (R2-15, its mitigation)**, `1825a93`. Red: `1272 checks passed, 1 failed`; the two neighbours passed. Green: 1273. Proof: `1`.
+- **Standards retrospective**, `6c5f2ef`: the seven approved edits, five to `agent-os/standards/workflow/agents.md` (line 37, line 39 twice, in the approved order, R2-15's clause right after R1-10's and R2-6 and R2-12's after it, line 40 and line 47), one to `agent-os/standards/scripts/bash-conventions.md` (line 13) and one to `agent-os/standards/process/docs-gate.md` (line 15). They are lessons; no finding's fix runs through them, so the message names none.
+- Final counts, the gate at `6c5f2ef` (`ok` true, no unexpected or uncommitted file): loop 1273, guard 601, prefs 172, gate 117, setup 512, gh 179, background 39.
+- Two gate runs served two tasks each, since the next task's test sat in a file the commit before it does not hold: Task 2's green run was Task 3's red run, and Task 10's run was Task 11's red run. Each commit staged its own task's files by name.
+- Tasks 5 and 9 both edit The draft bullet of `docs/running.md`, as the plan approver noted; their edits are separate text and both landed as written.
+
+No deviation from the plan, so `shape.md` gains no Decision.
