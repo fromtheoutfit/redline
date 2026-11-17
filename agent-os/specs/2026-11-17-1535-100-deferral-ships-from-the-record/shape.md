@@ -36,6 +36,21 @@ Behaviour that changes on purpose:
 - A mitigation committed under a subject that does not open with its id, and not reported for the finding, is not counted. When a task was planned the warning says no commit of its own landed; when none was planned nothing warns.
 - A deferral whose words describe a mitigation, with no files listed and only a commit that mentions its id, is posted as shipping nothing. Before, the mention was posted as its mitigation.
 
+Deviations from the shaped plan, as built:
+
+15. **`outcomesFor` moved from Task 4 to Task 3.** The pinned case's reply depends on the outcome reading the commit: with the commit demand gone and the words still read, it was posted as `Mitigation: No code ships in this pull request.`
+16. **The draft view carries a `ships` boolean beside `files`.** The plan had the view say what ships through `files` alone. At the end-of-run stop the build is over, so a file list no longer says what shipped: `ships` is a planned task with files before the build and a commit of the finding's own after it, and `files` is the planned task's paths at both stops.
+17. **The skill's sentences on the drafts stop landed with the field, in Task 5.** `workflow/replay` has the skill section that presents a stop's new field land in the same commit.
+18. **What buys a round is checked off the handoff's `changed no code` sentence.** With the coverage pass off, a bought round with no fix and a round that bought nothing both end after one round.
+
+Standards retrospective: four edits, approved on 2026-11-17 and applied in their own commit.
+
+- `workflow/agents.md`, line 49: contradicted. It described `hasMitigation` and its phrase list as the one reader of the field. Rewritten: whether an optional step happened is read from the run's record, the check never demands it, and a list the record is read from is required and always asked for. The `FOLLOW_UP` half of the bullet is unchanged.
+- `workflow/agents.md`, line 39, R1-10's clause: contradicted ("when that entry ships a mitigation"). Now: when its mitigation field is filled, read as filled or empty, a test #99 replaces.
+- `workflow/agents.md`, line 39, R2-6's and R3-5's clauses: contradicted in part. A planned task is what a stop shows and what the planned-and-unbuilt warning reads; the commit of the finding's own holds for every deferral and decides its reply, the final nit pass and the next round.
+- `testing/tests.md`, lines 7 and 31: missing. A mock returns every key the agent's schema requires; what buys a round is read off an output only a bought round produces.
+- Already in a standard: the skill section landing with a stop's new field (`workflow/replay.md`, line 10); a cost named in README Known limits and the done rule's statements reworded (`process/docs-gate.md`); the patch bump (`process/release.md`); red before green and a neighbour beside each case (`testing/tests.md`, lines 28 and 33). No pattern was used that the standards do not hold.
+
 Why the template is not touched: its section says a mitigation "becomes a plan task, and otherwise the finding has no task" and asks for `mitigation` as "an empty string when nothing ships now". Both stay true and are still what the agents are asked to write. `files` is asked for by the workflow's prompt and the shaper's agent file, which ship with the plugin, so a setup rerun has nothing to carry.
 
 ## For you to add to #99
