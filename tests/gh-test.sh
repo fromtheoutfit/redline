@@ -62,6 +62,12 @@ bad() { fail=$((fail+1)); printf 'FAIL %s\n     got: %s\n' "$1" "$2"; }
 is() { [[ "$2" == "$3" ]] && ok "$1" || bad "$1" "$2"; }
 # has <name> <haystack> <needle>: a fixed-string containment check
 has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -c 400)"; }
+# leftover <dir>: how many of defer's temp files are left in the folder, 0 when none is.
+leftover() {
+    local f n=0
+    for f in "$1"/.redline-deferred.*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
 
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
@@ -458,7 +464,7 @@ rm -f "$LOG"
 mkdir -p "$D/corrupt"
 GH_FAKE_CREATE_WRITES="$D/corrupt/round-2-deferred.json" GH_FAKE_CREATE_TEXT='not json' gh defer issue R2-8 "$D/issue-R2-3.md" "$D/corrupt/round-2-deferred.json" >/dev/null 2>"$WORK/err"; code=$?
 is "defer issue, a record that is no JSON object when the entry is written: exits 1, naming the issue opened" "$code $(grep -c 'https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
-is "defer issue, a record that is no JSON object when the entry is written: no temp file is left beside it" "$(ls -A "$D/corrupt" | grep -c '^\.redline-deferred\.')" "0"
+is "defer issue, a record that is no JSON object when the entry is written: no temp file is left beside it" "$(leftover "$D/corrupt")" "0"
 rm -f "$LOG"
 # A record that cannot be written once the issue is open (#97, R2-1): its folder is a file, so
 # making it fails after the create; exit 1, naming the entry with the issue it opened.
