@@ -3638,6 +3638,10 @@ async function revise(record, inScope, reviewedKind) {
   const awayFromDefer = (id) => Boolean(roundDecisions[id] && roundDecisions[id].disposition && roundDecisions[id].disposition !== 'defer')
   let deferred = shaped.deferred.slice()
   let resolved = null
+  // Every task the round's resolves planned (#97, R2-14): a reshape that raises a call runs a
+  // resolve for that call alone and `resolved` becomes it, so what the round planned is read from
+  // every resolve's tasks, never from the latest one's.
+  const resolvedTasks = []
   // The findings whose deferred entry the round's resolve agent returned (#97, R1-10): how a call's
   // answer shows a deferral. A reshape's entry never does, since the person's decision stays
   // whatever disposition a reshape gives its finding (#94, R8-6).
@@ -3699,6 +3703,7 @@ async function revise(record, inScope, reviewedKind) {
     if (unentered.length) {
       throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((f) => f.id).join(', ')}, which a disposition override deferred; a deferred item always carries a drafted issue`)
     }
+    resolvedTasks.push(...out.tasks)
     for (const item of fresh) {
       resolveDeferred.add(item.id)
     }
@@ -3710,8 +3715,8 @@ async function revise(record, inScope, reviewedKind) {
     const decision = roundDecisions[f.id]
     return decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
   })
-  // A task the round's resolve planned with files for a finding: what needCommits demands.
-  const plannedTask = (id) => Boolean(resolved) && resolved.tasks.some((task) => task.finding === id && task.files.length > 0)
+  // A task one of the round's resolves planned with files for a finding: what needCommits demands.
+  const plannedTask = (id) => resolvedTasks.some((task) => task.finding === id && task.files.length > 0)
   // A task the shaper planned with files for one of its own deferrals (#97, R2-6): a finding's
   // `files` are the paths its task touches (the shaper's schema), so a deferral listed with files
   // has a task whatever its mitigation says, and the commit that task makes is the item's, never
@@ -3866,7 +3871,7 @@ async function revise(record, inScope, reviewedKind) {
   const needCommits = finalDispositions
     .filter((f) => f.disposition === 'fix' || (f.disposition === 'defer' && mitigated(f.id)))
     .map((f) => f.id)
-    .concat(resolved ? resolved.tasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding]).map((task) => task.finding) : [])
+    .concat(resolvedTasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding]).map((task) => task.finding))
   const ctx = {
     specFolder, snapshotPath, octane, baselineFailing, inScope, shaped: { ...shaped, findings: finalDispositions }, deferred, roundDecisions, plan, standards,
     allowed: unique(prFiles.concat(approvedPaths, ['agent-os/specs/', 'agent-os/standards/', 'openapi.json'])),
