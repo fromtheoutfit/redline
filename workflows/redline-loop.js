@@ -3143,8 +3143,9 @@ function checkDeclineReasons(pass, shaped, shaperLabel) {
     }
   }
 }
-// The words a decline's reason uses when it points at work to be done elsewhere.
-const FOLLOW_UP = /\bfollow[- ]?up\b|\bseparate (?:issue|pull request|PR)\b|\banother pull request\b|\bbelongs elsewhere\b/i
+// The words a decline's reason uses when it points at work to be done elsewhere. A spec named "the
+// ... follow-up spec" is one a decline may cite, so the word before "spec" is no pointer (#97, R4-5).
+const FOLLOW_UP = /\bfollow[- ]?up\b(?!\s+spec)|\bseparate (?:issue|pull request|PR)\b|\banother pull request\b|\bbelongs elsewhere\b/i
 
 // A deferred finding carries its drafted issue (#95): a title, what was found, why it is not fixed
 // here and the fix proposed. One without is a result the run cannot use, as a decline with no
