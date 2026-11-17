@@ -589,6 +589,14 @@ function mentions(message, id) {
   return new RegExp(`(^|[^A-Za-z0-9-])${id.replace(/[-]/g, '\\-')}([^0-9]|$)`).test(message || '')
 }
 
+// A commit that is a finding's own (#97, R3-5): the one the implementer reported for it, or one
+// whose subject opens with its id, as a finding's own commit does (`redline: R1-2 reject ...`). A
+// commit that names the id later, as the standards commit does when it finishes a finding, only
+// mentions it.
+function ownCommit(commit, id) {
+  return commit.finding === id || new RegExp(`^redline: ${id.replace(/[-]/g, '\\-')}([^0-9]|$)`).test(commit.message || '')
+}
+
 // ---------------------------------------------------------------------------
 // Schemas. Every agent returns through one.
 // ---------------------------------------------------------------------------
@@ -2919,8 +2927,10 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     // id, the standards commit say, is not its mitigation, so it is never called mitigated and
     // never earns a final nit pass. A task the round planned with files for the finding is never
     // one that ships nothing: needCommits demands its commit, and the commit is its own (#97, R1-10).
+    // Such a task's commit is its own alone: one the implementer reported for the finding or whose
+    // subject opens with its id, never one that only mentions it (#97, R3-5).
     const shipsNothing = Boolean(deferredItem) && !hasMitigation(deferredItem) && !planned.has(f.id)
-    const shipped = shipsNothing ? [] : named
+    const shipped = shipsNothing ? [] : deferredItem && !hasMitigation(deferredItem) ? named.filter((c) => ownCommit(c, f.id)) : named
     const owner = owners[f.id] || REDLINE
     const left = (forced || {})[f.id]
     if (left) {
