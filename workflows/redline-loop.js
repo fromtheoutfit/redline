@@ -4057,8 +4057,9 @@ async function revise(record, inScope, reviewedKind) {
   // returned (#94, R2-11).
   // `fixed` is the items a commit names, never a declined item or a none, whose `commits` only
   // mention them (#94, R2-12): the round's spec and standards commits are no fix diff. A deferral's
-  // mitigation counts, since its commit is unreviewed code the final nit pass must read; the final
-  // nit pass's sentences still call such an item fixed (R2-12, deferred).
+  // mitigation counts, since its commit is unreviewed code the final nit pass must read; the
+  // handoff's final nit pass sentence still calls such an item fixed (R2-12, deferred), while a
+  // human review pass's summary names it with where it went (#97, R4-7).
   // A deferral buys the next round only through its mitigation, which is new code (#95): one that
   // ships nothing changes nothing here and, like a decline, buys nothing. The shaper's own entry is
   // read for its own disposition, as shaperOwn is, and the round's final list for the final one.
@@ -4300,10 +4301,25 @@ function humanSummary(record, nitPass, threads) {
   if (rest.length) {
     parts.push(`${andList(rest)} not changed`)
   }
+  // The final nit pass's deferrals (#97, R4-7): filed into its own round's record, or of the kind,
+  // named with where each went and never counted as fixed.
+  const nitRecord = (nitPass && nitPass.record) || { findings: [] }
+  const nitFiled = nitRecord.filed || {}
+  const nitKinds = nitRecord.outcomeKinds || {}
+  const nitDeferred = nitRecord.findings.map((f) => f.id).filter((id) => nitFiled[id] || nitKinds[id] === 'deferred')
+  const nitFixed = nitPass ? (nitPass.fixedIds || []).filter((id) => !nitDeferred.includes(id)).length : 0
+  const nitRest = nitPass ? nitPass.found - nitFixed - nitDeferred.length : 0
+  const nitClauses = [
+    nitFixed > 0 && `${nitFixed} fixed in one more pass that was not re-reviewed`,
+    nitDeferred.length > 0 && andList(nitDeferred.map((id) => `${id} ${nitFiled[id] ? deferredTo(nitFiled[id]) : 'deferred'}`)),
+    nitRest > 0 && `${nitRest} not changed, answered in ${nitRest === 1 ? 'its thread' : 'their threads'}`,
+  ].filter(Boolean)
   const nit = !nitPass
     ? 'No fix was committed, so no final nit pass.'
     : nitPass.found === 0
       ? `Final nit pass (Redline round ${nitPass.round}): no correctness bugs.`
+      : nitDeferred.length
+        ? `Final nit pass (Redline round ${nitPass.round}): ${nitPass.found} correctness item${nitPass.found === 1 ? '' : 's'} in the fixes: ${nitClauses.join('; ')}.`
       // What the pass found is counted, and only what a commit fixed is called fixed (#93): the
       // round's shaper may decline one.
       : nitPass.fixed === nitPass.found
@@ -4704,13 +4720,17 @@ try {
       const { posted, commentIds, files } = await post(round, 'final-nit-pass', range, roundFolder, { ...reviewOut, findings: considered, scoped }, active, known, source)
       const roundRecord = { round, reviewed: 'final-nit-pass', specFolder: roundFolder, range, findings: considered, scoped, outcomes: Object.fromEntries(scoped.map((f) => [f.id, declinedUnder(true)])), post: { dryRun: posted.dryRun, posted: posted.posted, skipped: posted.skipped, reviewId: posted.review.id, url: posted.review.html_url, movedToBody: posted.review.movedToBody }, reviewPosted: posted.posted || Boolean(posted.skipped), commentIds, files: files.slice(), prBody: facts.body || '', prUrl: facts.url || '' }
       rounds.push(roundRecord)
-      nitPass = { round, found: active.length, fixed: 0 }
+      // The pass's record and the items a commit named are kept for the summary, which reads them
+      // once Finish has settled any held draft (#97, R4-7). A deferral's mitigation is unreviewed
+      // code, so it still flags the fix; the summary names it with where it went, never as fixed.
+      nitPass = { round, found: active.length, fixed: 0, record: roundRecord, fixedIds: [] }
       if (active.length) {
         const fix = await revise(roundRecord, active, 'correctness')
         if (fix.handoff) {
           return handoffResult(roundRecord, fix)
         }
         nitPass.fixed = fix.fixed.length
+        nitPass.fixedIds = fix.fixed
         lastFixUnreviewed = nitPass.fixed > 0
       }
     }
