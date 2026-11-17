@@ -3528,7 +3528,7 @@ async function checker(flag, snapshot, octane, label, prefix) {
 
 // The checks on the shaper's output, after the shape and after each reshape, in one order (#94,
 // R8-5): the spec folder it reports, a disposition for every finding (the reshape prompt asks for
-// every finding, as the shape prompt does), then the seven checks, forceAskRules among them, and
+// every finding, as the shape prompt does), then the eight checks, forceAskRules among them, and
 // the round's dispositions. `known` is the round's calls so far, [] on the shape; `label` names
 // the shaper call for the checks that stop on it, and `suffix` its spec-status call.
 async function vetShape(pass, record, inScope, shaped, known, label, suffix) {
