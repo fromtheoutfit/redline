@@ -3691,6 +3691,14 @@ async function revise(record, inScope, reviewedKind) {
     if (undrafted.length) {
       throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
     }
+    // A deferral the person chose by a disposition override comes back with its entry (#97,
+    // R2-13): one the resolve agent left out would be neither drafted nor filed, and its reply would
+    // close the person's deferral with no issue and no warning. An entry the round already holds
+    // for it (the shaper's own deferral) stands in, as it does when the resolve returns none.
+    const unentered = newOverrides.filter((f) => roundDecisions[f.id].disposition === 'defer' && !fresh.some((item) => item.id === f.id) && !deferred.some((d) => d.id === f.id))
+    if (unentered.length) {
+      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((f) => f.id).join(', ')}, which a disposition override deferred; a deferred item always carries a drafted issue`)
+    }
     for (const item of fresh) {
       resolveDeferred.add(item.id)
     }
