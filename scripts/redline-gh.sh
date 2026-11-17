@@ -629,8 +629,9 @@ case "$cmd" in
         # The second layer under the record: an issue opened by a run that died before it wrote
         # the record is found by the draft's last line, matched as a whole line of the body, never
         # by the search's own idea of a match. GitHub's search can lag by seconds, so this is best
-        # effort; the record is what makes a repeat safe.
-        found="$(gh issue list --state all --search "\"$marker\" in:body" --json number,url,body --limit 20)"
+        # effort; the record is what makes a repeat safe. A failed call exits 1, as the header says,
+        # whatever status gh gave it: 4 when it needs a login (#97, R4-1).
+        found="$(gh issue list --state all --search "\"$marker\" in:body" --json number,url,body --limit 20)" || { echo 'redline-gh.sh: the lookup on GitHub failed' >&2; exit 1; }
         match="$(jq -c --arg m "$marker" '[.[] | select((.body // "") | split("\n") | map(sub("\r$"; "")) | index($m) != null)] | sort_by(.number) | first // null' <<<"$found")"
         if [[ "$match" != "null" ]]; then
             entry="$(jq -c --arg path "$path" '{where: "issue", number: .number, url: .url, path: $path}' <<<"$match")"
@@ -640,7 +641,7 @@ case "$cmd" in
         fi
         defer_body="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         tail -n +3 "$draft" > "$defer_body"
-        url="$(gh issue create --title "$title" --body-file "$defer_body")"
+        url="$(gh issue create --title "$title" --body-file "$defer_body")" || { echo 'redline-gh.sh: the create on GitHub failed' >&2; exit 1; }
         number="${url##*/}"
         if ! [[ "$number" =~ ^[0-9]+$ ]]; then
             echo "redline-gh.sh: gh issue create printed no issue URL: $url" >&2

@@ -91,7 +91,8 @@ if [[ "${1:-}" == "pr" && "${2:-}" == "diff" ]]; then echo "could not find pull 
 # gh issue (#95), the one write besides the thread mutation that is answered rather than refused.
 # `list` is logged with its search and served from $PAGES/issues-list.json ([] when absent);
 # `create` is logged with its title and its body (as one JSON string) and answered with an issue
-# URL, numbered from 123. GH_FAKE_LIST_FAIL=1 and GH_FAKE_CREATE_FAIL=1 fail them as GitHub would.
+# URL, numbered from 123. GH_FAKE_LIST_FAIL=1 and GH_FAKE_CREATE_FAIL=1 fail them as GitHub would,
+# with GH_FAKE_FAIL_CODE as the exit status (1 when unset; gh's own is 4 when it needs a login).
 # GH_FAKE_CREATE_WRITES=<file> writes GH_FAKE_CREATE_TEXT into that file before the create answers,
 # as a defer for another finding finishing while this one is on GitHub would (#97).
 if [[ "${1:-}" == "issue" ]]; then
@@ -109,10 +110,10 @@ if [[ "${1:-}" == "issue" ]]; then
     case "$sub" in
         list)
             printf 'list\t%s\n' "$search" >> "$PAGES/issue.log"
-            if [[ "${GH_FAKE_LIST_FAIL:-0}" == 1 ]]; then echo "HTTP 503: the search is unavailable" >&2; exit 1; fi
+            if [[ "${GH_FAKE_LIST_FAIL:-0}" == 1 ]]; then echo "HTTP 503: the search is unavailable" >&2; exit "${GH_FAKE_FAIL_CODE:-1}"; fi
             if [[ -f "$PAGES/issues-list.json" ]]; then cat "$PAGES/issues-list.json"; else echo '[]'; fi ;;
         create)
-            if [[ "${GH_FAKE_CREATE_FAIL:-0}" == 1 ]]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit 1; fi
+            if [[ "${GH_FAKE_CREATE_FAIL:-0}" == 1 ]]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit "${GH_FAKE_FAIL_CODE:-1}"; fi
             n=$(( $(grep -c '^create' "$PAGES/issue.log" 2>/dev/null || true) + 123 ))
             printf 'create\t%s\t%s\n' "$title" "$(jq -Rs . "$body")" >> "$PAGES/issue.log"
             if [[ -n "${GH_FAKE_CREATE_WRITES:-}" ]]; then printf '%s\n' "${GH_FAKE_CREATE_TEXT:-}" > "$GH_FAKE_CREATE_WRITES"; fi
@@ -447,11 +448,19 @@ jq -n --arg last "$LAST" '[{number: 78, url: "https://github.com/o/r/issues/78",
 is "defer issue: a body that only quotes the line inside another is no match, so the issue is opened" "$(gh defer issue R2-3 "$D/issue-R2-3.md" "$D/quoted.json" | jq -c '[.number, .reused]') $(cut -f1 "$LOG" | tr '\n' ' ')" '[123,false] list create '
 rm -f "$LOG" "$WORK/pages/issues-list.json"
 GH_FAKE_CREATE_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
-is "defer issue, a failed create: exits 1 with gh's error" "$code $(cat "$WORK/err")" "1 HTTP 403: Resource not accessible by integration"
+is "defer issue, a failed create: exits 1 with gh's error, then the call that failed" "$code $(cat "$WORK/err")" "1 HTTP 403: Resource not accessible by integration"$'\n''redline-gh.sh: the create on GitHub failed'
 is "defer issue, a failed create: writes no record" "$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "no"
 rm -f "$LOG"
 GH_FAKE_LIST_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>&1; code=$?
 is "defer issue, a failed lookup: exits 1, creates nothing and writes no record" "$code $(cut -f1 "$LOG" | tr '\n' ' ')$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 list no"
+rm -f "$LOG"
+# gh's own exit status is not the script's (#97, R4-1): a lookup or create that gh fails with 4,
+# as it does when it needs a login, still exits 1, names the call and writes no record.
+GH_FAKE_FAIL_CODE=4 GH_FAKE_LIST_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a lookup gh fails with status 4: exits 1, names the lookup, creates nothing and writes no record" "$code $(grep -c '^redline-gh.sh: the lookup on GitHub failed$' "$WORK/err") $(cut -f1 "$LOG" | tr '\n' ' ')$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 1 list no"
+rm -f "$LOG"
+GH_FAKE_FAIL_CODE=4 GH_FAKE_CREATE_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a create gh fails with status 4: exits 1, names the create and writes no record" "$code $(grep -c '^redline-gh.sh: the create on GitHub failed$' "$WORK/err") $([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 1 no"
 rm -f "$LOG"
 # A defer for another finding that finished while this one was on GitHub (#97, R1-2): the entry is
 # merged into the record as the file stands when it is written, so the other entry is kept.

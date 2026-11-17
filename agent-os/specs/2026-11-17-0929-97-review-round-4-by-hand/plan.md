@@ -99,3 +99,4 @@ The remaining gate steps:
   tests/gh-test.sh:461:112: warning: Don't use ls | grep. Use a glob or a for loop with a condition to allow non-alphanumeric filenames. [SC2010]
   ```
 - **Task 2** (SC2010): `leftover <dir>` sits beside the other helpers in `tests/gh-test.sh`. Red: CI's shellcheck command, above. Green: that command prints nothing and exits 0. The helper prints `1` on a scratch folder holding `.redline-deferred.AbC123` and a record, and `0` on an empty one. `tests/gh-test.sh` under `/bin/bash` (3.2): 179 passed, 0 failed.
+- **Task 3** (R4-1): both `gh` calls in `defer` exit 1 on failure and name the call. The fake gh reads `GH_FAKE_FAIL_CODE`. Red: 178 passed, 3 failed. The two new cases got `4 0 list no` and `4 0 no`, and the reworded failed-create case lacked the second line. Green: 181 passed, 0 failed, and shellcheck is clean. The header and `docs/scripts.md` are unchanged.
