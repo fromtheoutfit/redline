@@ -763,29 +763,24 @@ function judgmentCallSchema(reasons) {
   }
 }
 
-// A deferred item (#95): worth doing, not in this pull request. `mitigation` is what ships now, an
-// empty string when nothing does; `title`, `found`, `why` and `fullFix` are its drafted issue, which
+// A deferred item (#95): worth doing, not in this pull request. `mitigation` is the words for what
+// ships now, an empty string when nothing does, shown and never read to decide (#100); `title`, `found`, `why` and `fullFix` are its drafted issue, which
 // stands on its own. The draft fields are checked by the workflow, not required here, since the
 // resolve agent's entry for a finding left to the person under a repository rule carries none.
 const DEFERRED_SCHEMA = {
   type: 'array',
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str, title: str, found: str, why: str } },
 }
-// What ships now for a deferred item, or nothing (#95): an empty mitigation, or one that only says
-// nothing ships (none, n/a, nothing, nothing ships, nothing ships now, no mitigation, in any case,
-// with or without a note in parentheses and a full stop), means no task, no commit and no round
-// bought. The agents are asked for an empty string; the words are read as well because the shape
-// prompt asks the recommendation beside the field to say "that nothing ships now" (#97, R1-7).
-// So do those words followed by their reason after a full stop, a semicolon, a colon or a spaced
-// dash (`None; nothing ships here.`, `N/A - the full fix is deferred`): the value comes first and
-// its reason after (#97, R3-2). A comma or a word goes on into what ships, so `Nothing ships now,
-// but a log line` is a mitigation. Any other wording still reads as one; a reading that rests on
-// no free text is the drafted issue of #97, R3-2.
-const NOTHING_SHIPS = /^(none|n\/a|nothing|nothing ships( now)?|no mitigation)((\s*\(.*\))?\.?$|\s*[.;:]|\s+\p{Pd})/iu
-const hasMitigation = (item) => {
-  const text = item && typeof item.mitigation === 'string' ? item.mitigation.trim() : ''
-  return text !== '' && !NOTHING_SHIPS.test(text)
-}
+// Whether a deferred entry's mitigation field holds anything (#100). What a deferral ships is
+// never read from this field: before the build it is the task the round planned with files, and
+// after it the commit of the finding's own, so no wording here can stop a round or demand a
+// commit. The words are shown, at a stop and in the result, beside what the record says. This
+// test has one reader, isDeferral, which the record alone cannot serve: there a person's
+// "Mitigate" answer and a fix with a stray entry are both an entry beside a task with files, and
+// a filled field is what tells them apart until the resolve agent names the disposition (#99).
+// Until #100 a list of phrases for nothing (none, n/a, nothing ships now) was read here as well,
+// and a wording it missed demanded a commit the plan had no task for (#97, R1-7, R3-2).
+const filled = (item) => Boolean(item) && typeof item.mitigation === 'string' && item.mitigation.trim() !== ''
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
@@ -3396,14 +3391,20 @@ function deferredEntry(pass, record, d, filedTo, outcome) {
   }
 }
 
-// A draft as a stop shows it to the person (#95): the finding, what ships in the round, where the
-// draft goes, the title and body as they will be filed, and its version, which the answer names.
+// A draft as a stop shows it to the person (#95): the finding, what ships in the round (`ships`,
+// with the words and the planned files), where the draft goes, the title and body as they will be filed, and its version, which the answer names.
 // `canFix` says whether turning it back into a fix can still be built in this round: only at the
 // stop no resolve of the round has run before.
 function draftView(record, d, canFix) {
   const parts = draftParts(record.drafts[d.item.id].text)
+  // What ships is the round's record, never the words (#100): at a round's stop, before the
+  // build, a task planned with files; at the end-of-run stop, where the draft carries its
+  // round's outcome, a commit of the finding's own. `files` is the planned task's paths at both.
+  // The words are shown only beside a mitigation that ships.
+  const files = Array.isArray(d.files) ? d.files : []
+  const ships = d.outcome ? d.outcome.commits.length > 0 : files.length > 0
   return {
-    id: d.item.id, round: record.round, finding: compactFinding(d.f), mitigation: hasMitigation(d.item) ? d.item.mitigation : '',
+    id: d.item.id, round: record.round, finding: compactFinding(d.f), ships, mitigation: ships ? d.item.mitigation : '', files,
     goesTo: postToGitHub ? deferTo : 'spec', dryRun: !postToGitHub, title: parts.title, body: parts.body, draft: d.version, canFix,
   }
 }
@@ -3630,19 +3631,26 @@ async function revise(record, inScope, reviewedKind) {
   // so a draft that changed after it was answered is raised once more, and every body is shown
   // before anything is filed.
   record.drafts = record.drafts || {}
-  const draftsOf = (list) => list.map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id) })).filter((d) => d.f).map((d) => {
+  // The files the shaper listed for its own deferral (#100): its planned task's paths.
+  const shaperFiles = (id) => {
+    const s = shaped.findings.find((x) => x.id === id && x.disposition === 'defer')
+    return s && Array.isArray(s.files) ? s.files.slice() : []
+  }
+  // Each draft carries the files of the task planned for it, which the stop shows (#100):
+  // plannedFiles once the round's decisions are in, the shaper's own list at the stops before them.
+  const draftsOf = (list, filesOf = plannedFiles) => list.map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id) })).filter((d) => d.f).map((d) => {
     const text = issueDraft(pass, d.f, d.item, '')
     const seen = record.drafts[d.item.id]
     if (!seen || seen.text !== text) {
       record.drafts[d.item.id] = { text, version: seen ? seen.version + 1 : 1 }
     }
-    return { ...d, version: record.drafts[d.item.id].version }
+    return { ...d, version: record.drafts[d.item.id].version, files: filesOf(d.item.id) }
   })
   const openDrafts = (drafts) => (raisesDrafts ? drafts.filter((d) => !draftAnswered(d.item.id, d.version)) : [])
   // What the shaper deferred. A disposition the person changed at a stop replaces the draft that
   // stop showed, so that one is not asked about here: the round's resolve applies the change, and
   // a deferral it drafts is raised after it.
-  const shaperDrafts = draftsOf(shaped.deferred.filter((d) => shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')))
+  const shaperDrafts = draftsOf(shaped.deferred.filter((d) => shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')), shaperFiles)
     .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition))
   if (interrupt === 'plan' && !approvedPlans.includes(pass.planKey)) {
     const pendingCalls = shaped.judgmentCalls.filter((call) => !decisions[call.id])
@@ -3780,12 +3788,13 @@ async function revise(record, inScope, reviewedKind) {
   // one nobody decided (R2-6's split).
   const plannedFiles = (id) => (roundDecisions[id]
     ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files))
-    : shaperPlanned(id) ? shaped.findings.find((s) => s.id === id).files.slice() : [])
+    : shaperPlanned(id) ? shaperFiles(id) : [])
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
-  // when it ships a mitigation or the finding has no planned task with files, since a deferral
-  // that ships nothing has no task. A reshape's disposition or entry never makes a decided finding
+  // when its mitigation field is filled or the finding has no planned task with files, since a
+  // deferral that ships nothing has no task. The field is read as filled or empty, never by its
+  // words (#100); the resolve agent naming each decision's disposition replaces this test (#99). A reshape's disposition or entry never makes a decided finding
   // one (#94, R8-6). A decline or a fix beside a leftover entry is none (#94, R4-9), and neither is
   // a finding left to the person under a rule, which has no entry at all.
   const isDeferral = (d) => {
@@ -3794,7 +3803,7 @@ async function revise(record, inScope, reviewedKind) {
     }
     const decision = roundDecisions[d.id]
     if (decision) {
-      return decision.disposition === 'defer' || (resolveDeferred.has(d.id) && (hasMitigation(d) || !plannedTask(d.id)))
+      return decision.disposition === 'defer' || (resolveDeferred.has(d.id) && (filled(d) || !plannedTask(d.id)))
     }
     return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
   }
