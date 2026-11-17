@@ -782,6 +782,13 @@ const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
 const draftMissing = (item) => DRAFT_FIELDS.filter((key) => !item || typeof item[key] !== 'string' || (key === 'title' ? draftTitle(item[key]) : item[key].trim()) === '')
+// How a drafted issue's body fields are asked for (#97, R3-3): issueDraft passes each through
+// postedText as one text, and a text with a line break is escaped whole, its code spans included
+// (#87), so code in a field written over several lines would show its entities in the filed
+// issue. One paragraph a field, with code in inline code spans, keeps each span as written. A
+// rule that escapes a body by Markdown block waits on a measurement of GitHub's renderer, the
+// drafted issue of #97, R3-3.
+const DRAFT_FORM = 'Write a drafted issue\'s found, why and fullFix each as one paragraph with no line break, and quote code in inline code spans: a field with a line break is escaped whole, its code spans included, so a `<`, an `&` or an `@word` in its code would show as an entity in the filed issue.'
 // One deferred entry per finding (#97, R2-12): the first an agent returned, which checkDrafts and
 // outcomesFor read (both take the first with find), and the ids it returned more than once. A
 // second entry would be a second draft, a second filing over the first's file and a second line
@@ -1291,7 +1298,9 @@ function draftTitle(text) {
 // it (#95): the first line is the title, the second is empty, the rest is the body. The shaper's
 // (or the resolve agent's) fields each go through postedText as one text, since the body is
 // posted text GitHub renders: no tag in it can break the body and no @word notifies, while a
-// code span stays as written. The place and the last line are the workflow's own. The last line
+// code span stays as written in a field with no line break; a field with one is escaped whole,
+// its spans included (#87), so the prompts ask for each field as one paragraph (DRAFT_FORM; #97,
+// R3-3). The place and the last line are the workflow's own. The last line
 // names the pull request, the pass and the finding, text only this issue carries: the script
 // looks an issue up by it before it opens one. Each title is cleaned before one is chosen, so a
 // title of the person's that cleans to nothing gives way to the shaper's (#97, R1-8). The Where
@@ -1932,7 +1941,7 @@ ${description}
 Findings for this round, as JSON:
 ${json(inScope)}
 
-Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
+Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. ${DRAFT_FORM} Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
 Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
 }
@@ -1989,7 +1998,7 @@ ${json(adjustments)}
 The round's findings, as JSON:
 ${json(inScope)}
 
-Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}
+Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}
 
 Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy and recommendation${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
@@ -2038,6 +2047,8 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   lines.push(
     '',
     `${pass.human ? NEVER_DECIDE : RESOLVE_RULE} You apply the decisions verbatim. A decision that is missing, names an option that does not exist, or is too unclear to turn into a task stays pending and goes under unresolved. A standards retrospective item in shape.md that the shaper held for one of these decisions is drafted now, as your instructions say, for the standards approver to judge.`,
+    '',
+    DRAFT_FORM,
     '',
     'Return only the JSON your instructions specify.',
   )

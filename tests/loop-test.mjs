@@ -2863,6 +2863,11 @@ function samePrefix(name, first, second, n) {
   // A reshape is asked for every field the checks read.
   const bounced = await go('defer: a bounced plan reshapes a deferral', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], planBounce: 1, commitIds: [['R1-1']] })
   check('defer: the reshape prompt asks for the mitigation and the drafted issue', bounced.res.status === 'done' && (pick(bounced.calls, 'reshape r1 #1') || { prompt: '' }).prompt.includes('its drafted issue as title, found, why and fullFix'), [bounced.res.status, bounced.res.error])
+  // Each drafted issue's body field is asked for as one paragraph (#97, R3-3): a field with a line
+  // break is escaped whole, its code spans included, so the shape, reshape and resolve prompts ask
+  // for one paragraph with code in inline spans.
+  const oneParagraph = 'found, why and fullFix each as one paragraph with no line break'
+  check('defer: the shape, reshape and resolve prompts ask for each drafted issue field as one paragraph', [(pick(mitigated.calls, 'shape r1') || { prompt: '' }).prompt, (pick(bounced.calls, 'reshape r1 #1') || { prompt: '' }).prompt, (pick(resolved.calls, 'resolve r1') || { prompt: '' }).prompt].every((p) => p.includes(oneParagraph)), 'shape r1, reshape r1 #1, resolve r1')
 
   // A decline that points at follow-up work is warned about, one case per form, beside the
   // reasons that stand and a "could not confirm" that names a later test.
