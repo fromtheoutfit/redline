@@ -50,11 +50,34 @@ This is the drafted issue for decision 10. This spec does not open it (decision 
 
 **Title:** Run shellcheck in the gate when it is installed, so a round never pushes a warning CI fails on
 
-**What was found:** PR #97's round 1 fix for R1-3 (`4430429`) added `ls -A … | grep -c` to `tests/gh-test.sh`, which shellcheck reports as SC2010. `.claude/redline/checks.sh` does not run shellcheck, so the round's gate passed on the implementer's machine, the round pushed, and CI's required shellcheck job went red after the push. Three more rounds pushed on top of the red job before the run reached its cap.
+**What was found:** PR #97's round 1 fix for R1-3 (`4430429`) added `ls -A … | grep -c` to `tests/gh-test.sh`, which shellcheck reports as SC2010. `.claude/redline/checks.sh` does not run shellcheck, so the round's gate passed on the implementer's machine, the round pushed, and CI's required shellcheck job went red after the push. Rounds 2 and 3 pushed on top of the red job before the run reached its cap.
 
 **Why it is not fixed in #97:** A check in `scripts/checks-template.sh` changes what a setup rerun writes, so it bumps the minor version and the template marker, and #97 keeps 0.4.0. A check in this repository's `.claude/redline/checks.json` alone changes the Verification Gate's backticked text, so it needs a restamp, and every "nine commands" line moves with it.
 
 **Proposed fix:** Add a check that runs CI's command, `shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh`, when shellcheck is on PATH. When shellcheck is missing, the check should say so in its result (`skipped: shellcheck not installed`) rather than pass silently. Decide whether the check belongs in the template, so every repository gets it on its next setup rerun, or only in this repository's `checks.json`. Either way, regenerate `checks.sh`, restamp the gate, and move each "nine commands" line.
+
+## Standards retrospective (proposed)
+
+Gate step 12, done item by item. These are the decisions above, plus one As built deviation and one check that went red: CI's shellcheck job.
+
+**Already in a standard:**
+
+- Decision 1 (red first): `testing/tests.md`, red before green.
+- Decision 2 (#100 owns free-text reading): `workflow/agents.md:49`, "a reading that rests on no free text is that finding's deferred item".
+- Decision 4 (version kept): `process/release.md`, and the gate's step 11 ("except in a PR whose spec keeps the version on purpose").
+- Decision 5 (guard and hook untouched): `scripts/guard.md`, and CLAUDE.md.
+- Decision 6 (no attribution): `prompts/attribution.md`.
+- Decision 9 (replies in Redline's form): `workflow/agents.md:29`, "The evidence of a disposition is the Redline reply answering the finding".
+- Task 8's deviation (a redundant alternative dropped): no rule; nothing to add.
+
+**Missing**, each drafted as a clause appended to the line named. Nothing contradicts a standard, and no pattern was invented.
+
+- **E1**, `scripts/bash-conventions.md:38` (decisions 3, 7 and 10; the CI job that went red): "; and `checks.sh` does not run shellcheck, so a gate that passes on a developer's machine or in a Redline round can still push a warning CI fails on: R1-3's `ls -A … | grep -c` in `tests/gh-test.sh` kept CI's shellcheck job red from round 1 of #97 until the round 4 spec fixed it. Until the gate runs it (the issue drafted in that spec), run CI's command, `shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh`, before a push that changes a `.sh` file, and count files with a glob, never `ls | grep` (SC2010)"
+- **E2**, `scripts/bash-conventions.md:8` (decision 11, R4-1): ". Under `set -e` a command substitution that fails exits with its command's own status, so a documented exit code holds only where each such call is guarded (`found=\"$(gh issue list …)\" || { echo '…' >&2; exit 1; }`): `defer` exited 4 on a gh that needed a login, while its header said 1, until #97, R4-1"
+- **E3**, `workflow/agents.md:39` (decisions 8 and 14, R4-3 and R4-7): "; and a drop of a deferral the person chose keeps the call's decision and its commit, then gives the drop's own reason, and is listed as overruled, as a drop of Redline's deferral is: the reason was posted nowhere and the item was listed as put to the person until #97, R4-3; and a count a summary posts is read off final outcomes too: a human review pass's summary called a final nit pass's mitigated deferral fixed and never named its issue until #97, R4-7, while the handoff's own sentence still does (R2-12, deferred)"
+- **E4**, `workflow/agents.md:40` (decision 12, R4-4): "; and a check that reruns on every reshape says what it found once: the run's warnings are de-duplicated as `result()` returns them, since a kept decline repeated its follow-up warning after every bounce until #97, R4-4"
+- **E5**, `workflow/agents.md:49` (decision 13, R4-5 and R4-6): "; and a word list that backs a written rule reads the rule's own examples and leaves alone what the rule allows: `FOLLOW_UP` missed 'another PR', 'a new issue' and 'a later change', the forms of the three the decline rule names, and flagged a decline that cited 'the #85 follow-up spec', until #97, R4-5 and R4-6"
+- **E6**, `workflow/agents.md:16` (R4-2): "; and a comment in the workflow that restates the rule is changed with it: the shape schema's comment on `reason` still said a decline names where the finding belongs, the rule before #95, until #97, R4-2"
 
 ## Context
 
