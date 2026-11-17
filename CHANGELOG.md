@@ -2,6 +2,24 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.4.0 (2026-11-17)
+
+### Features
+
+- #94 The verifier states what is true and the shaper decides: every verified item is fixed, declined with a reason, or put to the person, each with its owner; the handoff is grouped by outcome, and the gate's printed result is sized for the workflow (#93, #68)
+- #97 Defer means tracked: a verified item worth doing outside the pull request ends in a drafted issue that Redline files, shown to the person first on every dial but `autopilot`, with two launch settings for when drafts are raised and where they go; a deferral that ships nothing and a low-severity bug in the previous round's fixes no longer buy a round (#95)
+
+### Fixes
+
+- #91 A relaunch on the plugin's own repository runs the script the run launched with, and a run is never finished from a re-run round (#81)
+
+### Setup and templates
+
+- The unattended section of `shape-spec.md` is at template v5: the shaper decides every verified item (#94) and `defer` means worth doing elsewhere, always with a drafted issue (#97). A rerun of `/redline:setup` merges the new section
+- The checks template is at v3: a passing check prints no output and the result is sized for the workflow (#94). A rerun regenerates `.claude/redline/checks.sh`
+- `redline.json.example` gains `deferTo` (`github`, `spec` or `print`), where a deferred item's draft goes. A rerun keeps an existing `redline.json` as it is and lists the key under differs; the key absent means GitHub issues, so add it by hand only to pick another
+- The `/redline` and `/redline-revise` alias hints name the two defer settings; a rerun offers the changed aliases
+
 ## 0.2.3 (2026-11-12)
 
 ### Features
