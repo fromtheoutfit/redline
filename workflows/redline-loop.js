@@ -2938,8 +2938,9 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
       outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
     } else if (decision) {
       // A deferral the person chose is their decision, and says where its drafted issue went, or
-      // that they dropped it, or that it waits for the end of the run (#95).
-      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel, filed: (deferredItem && filed[f.id]) || null, dropped: Boolean(deferredItem && dropped[f.id]), held: Boolean(deferredItem) && held.has(f.id) }
+      // that they dropped it, with the drop's own reason (#97, R4-3), or that it waits for the end
+      // of the run (#95).
+      outcomes[f.id] = { kind: 'decided', choice: decision.choice, notes: decision.notes || '', commits: shipped, decidedBy: decision.decidedBy || personLabel, filed: (deferredItem && filed[f.id]) || null, dropped: Boolean(deferredItem && dropped[f.id]), dropNotes: ((deferredItem && dropped[f.id] && dropped[f.id].notes) || '').trim(), held: Boolean(deferredItem) && held.has(f.id) }
     } else if (dispositions[f.id] === 'defer' && deferredItem && dropped[f.id]) {
       // A draft the person dropped (#95): nothing is filed and nothing else changes, so a planned
       // mitigation still ships. It is their decision, posted with their reason.
@@ -2970,8 +2971,9 @@ function droppedOutcome(answer, commits) {
 const HELD = `deferred; raised with ${personLabel} at the end of the run`
 const HELD_SENTENCE = ` Its drafted issue is raised with ${personLabel} at the end of the run.`
 // How a decision closes when it deferred something: where the draft went, that it was dropped, or
-// that it is still to be raised.
-const draftClose = (outcome) => (outcome.filed ? deferredSentence(outcome.filed) : outcome.dropped ? ' No issue was opened.' : outcome.held ? HELD_SENTENCE : '')
+// that it is still to be raised. A drop gives its own reason before saying no issue was opened, as
+// a drop of Redline's deferral does (#97, R4-3).
+const draftClose = (outcome) => (outcome.filed ? deferredSentence(outcome.filed) : outcome.dropped ? ` ${outcome.dropNotes || `${personLabelStart} does not want this tracked.`} No issue was opened.` : outcome.held ? HELD_SENTENCE : '')
 
 // `human` is a human-review pass, which keeps its own wording: "the author", and a decision's
 // sentence alone. A Redline round names the person by login and says whether a decision was applied.
@@ -3448,14 +3450,14 @@ async function settleHeld() {
       const answer = deferrals[id]
       const outcome = answer.action !== 'drop'
         ? { ...d.outcome, held: false, filed: filed[id] }
-        : d.outcome.kind === 'decided' ? { ...d.outcome, held: false, dropped: true } : droppedOutcome(answer, d.outcome.commits)
+        : d.outcome.kind === 'decided' ? { ...d.outcome, held: false, dropped: true, dropNotes: (answer.notes || '').trim() } : droppedOutcome(answer, d.outcome.commits)
       outcomes[id] = outcome
       const text = describeOutcome(outcome, pass.human)
       record.outcomes[id] = text
       record.outcomeKinds[id] = outcome.kind
       const entry = decidedAll.find((x) => x.id === id && x.round === record.round)
       if (entry) {
-        Object.assign(entry, { outcome: text, decidedBy: outcome.decidedBy, choice: outcome.choice || '', notes: outcome.notes || '', kind: outcome.kind, overruled: entry.overruled || Boolean(outcome.draftDropped) })
+        Object.assign(entry, { outcome: text, decidedBy: outcome.decidedBy, choice: outcome.choice || '', notes: outcome.notes || '', kind: outcome.kind, overruled: entry.overruled || Boolean(outcome.draftDropped || outcome.dropped) })
       }
       if (outcome.filed) {
         deferredAll.push(deferredEntry(pass, record, toFile.find((x) => x.item.id === id), filed[id], outcome))
@@ -4018,8 +4020,9 @@ async function revise(record, inScope, reviewedKind) {
   const keptDecline = (id) => shaperOwn[id] === 'decline' && Boolean(roundDecisions[id]) && roundDecisions[id].disposition === 'accept'
   for (const f of inScope) {
     // `kind` is what became of the item, `reason` a decline's reason, and `overruled` a decision the
-    // person made on an item that was not put to them: a disposition they changed at a stop (#93).
-    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && !calls.some((call) => call.id === f.id) && !keptDecline(f.id) })
+    // person made on an item that was not put to them: a disposition they changed at a stop (#93),
+    // or a draft they dropped, a deferral they chose at a call included (#97, R4-3).
+    decidedAll.push({ id: f.id, round, title: f.title, outcome: describeOutcome(outcomes[f.id], pass.human), decidedBy: outcomes[f.id].decidedBy, choice: outcomes[f.id].choice || '', notes: outcomes[f.id].notes || '', kind: outcomes[f.id].kind, reason: outcomes[f.id].kind === 'declined' ? outcomes[f.id].reason : '', overruled: outcomes[f.id].kind === 'decided' && (Boolean(outcomes[f.id].dropped) || (!calls.some((call) => call.id === f.id) && !keptDecline(f.id))) })
   }
 
   phase('Push and reply')
