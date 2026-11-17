@@ -2823,8 +2823,9 @@ function samePrefix(name, first, second, n) {
 
   // "none", and the plain words for nothing (#97, R1-7), read as no mitigation, and a commit that
   // only names the finding is not its mitigation: nothing was fixed, so there is no final nit pass
-  // and the run ends at the handoff.
-  for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string'], ['N/A', 'n/a'], ['Nothing ships now.', 'nothing ships now'], ['Nothing.', 'nothing'], ['No mitigation (the client is replaced next quarter).', 'no mitigation with a note']]) {
+  // and the run ends at the handoff. So do those words followed by their reason after a semicolon,
+  // a colon or a spaced dash (#97, R3-2).
+  for (const [word, name] of [['none', 'the word none'], ['None (nothing cheap exists).', 'none with a note'], ['', 'an empty string'], ['N/A', 'n/a'], ['Nothing ships now.', 'nothing ships now'], ['Nothing.', 'nothing'], ['No mitigation (the client is replaced next quarter).', 'no mitigation with a note'], ['None; nothing ships in this pull request.', 'none with its reason after a semicolon'], [`N/A ${String.fromCharCode(0x2014)} the full fix is deferred`, 'n/a with its reason after a dash'], ['No mitigation: the client is replaced next quarter.', 'no mitigation with its reason after a colon']]) {
     const named = await go(`defer: no mitigation as ${name}, and a commit that only names it`, { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': word }, commitIds: [['redline: standards edits for R1-1']] })
     check(`defer: ${name} is no mitigation, so a commit that names the finding earns no final nit pass and no round`, named.res.status === 'done' && named.res.rounds.length === 1 && !labels(named.calls).includes('gather r2') && !(replyFor(named.calls, 'push and reply r1', 'R1-1') || '').includes('itigated in'), [named.res.status, named.res.error, labels(named.calls).slice(-8), replyFor(named.calls, 'push and reply r1', 'R1-1')])
   }
@@ -2834,6 +2835,13 @@ function samePrefix(name, first, second, n) {
   // The neighbour of the words (#97, R1-7): a mitigation that only begins with them still ships.
   const nothingBut = await go('defer: a mitigation that begins with the words nothing ships now', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'Nothing ships now but a log line with the retry count' }, commitIds: [['R1-1']] })
   check('defer: a mitigation that only begins with "nothing ships now" still ships, is demanded and buys the round', nothingBut.res.status === 'done' && nothingBut.res.rounds.length === 2 && nothingBut.res.rounds[1].reviewed === 'fix-diff', [nothingBut.res.status, nothingBut.res.rounds.map((r) => r.reviewed)])
+  // A wording the list reads as no mitigation demands no commit (#97, R3-2): before, the gate
+  // demanded one the plan had no task for, and the round stopped at the check after its repair.
+  const worded = await go('defer: no mitigation worded as a sentence, and no commit', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': 'None; nothing ships in this pull request.' }, commitIds: [[]] })
+  check('defer: a no-mitigation word with its reason after a semicolon demands no commit, so the round ends with no stop at the check', worded.res.status === 'done' && !(worded.res.error || '').includes('no commit names') && replyFor(worded.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. · decided by: redline', [worded.res.status, worded.res.stage, worded.res.error, replyFor(worded.calls, 'push and reply r1', 'R1-1')])
+  // The neighbour (#97, R3-2): a comma goes on into what ships, so the words before it are a mitigation.
+  const nothingComma = await go('defer: a mitigation that begins with the words nothing ships now and a comma', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'Nothing ships now, but a log line with the retry count' }, commitIds: [['R1-1']] })
+  check('defer: a mitigation that begins with "nothing ships now" and a comma still ships, is demanded and buys the round', nothingComma.res.status === 'done' && nothingComma.res.rounds.length === 2 && nothingComma.res.rounds[1].reviewed === 'fix-diff', [nothingComma.res.status, nothingComma.res.rounds.map((r) => r.reviewed)])
   // A task the shaper planned with files for its own deferral is a task the round planned (#97,
   // R2-6): its commit is the item's, never zeroed as shipping nothing, so it is posted and the final
   // nit pass reads it. The runs above with no files keep the zeroing.

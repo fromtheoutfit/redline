@@ -768,7 +768,12 @@ const DEFERRED_SCHEMA = {
 // with or without a note in parentheses and a full stop), means no task, no commit and no round
 // bought. The agents are asked for an empty string; the words are read as well because the shape
 // prompt asks the recommendation beside the field to say "that nothing ships now" (#97, R1-7).
-const NOTHING_SHIPS = /^(none|n\/a|nothing|nothing ships( now)?|no mitigation)(\s*\(.*\))?\.?$/i
+// So do those words followed by their reason after a full stop, a semicolon, a colon or a spaced
+// dash (`None; nothing ships here.`, `N/A - the full fix is deferred`): the value comes first and
+// its reason after (#97, R3-2). A comma or a word goes on into what ships, so `Nothing ships now,
+// but a log line` is a mitigation. Any other wording still reads as one; a reading that rests on
+// no free text is the drafted issue of #97, R3-2.
+const NOTHING_SHIPS = /^(none|n\/a|nothing|nothing ships( now)?|no mitigation)((\s*\(.*\))?\.?$|\s*[.;:]|\s+\p{Pd})/iu
 const hasMitigation = (item) => {
   const text = item && typeof item.mitigation === 'string' ? item.mitigation.trim() : ''
   return text !== '' && !NOTHING_SHIPS.test(text)
