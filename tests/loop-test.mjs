@@ -3383,6 +3383,8 @@ function samePrefix(name, first, second, n) {
   // A headless run stops where its dial does, a draft's stop included (#97, R2-4).
   const headless = 'a headless run that must not stop uses `autopilot`'
   check('statements: the docs and the skill say a headless run that must not stop uses autopilot', read('docs', 'running.md').includes(headless) && read('skills', 'redline', 'SKILL.md').includes(headless), 'docs/running.md, Saved launch settings; skills/redline/SKILL.md, section 3')
+  // The defer operation runs at two times, and the GitHub agent's file names both (#97, R3-1).
+  check('statements: the GitHub agent\'s defer operation names the end-of-run filing at Finish', read('agents', 'redline-github.md').includes('or, with deferred items raised at the end of the run, at Finish, before the replies those items waited for'), 'agents/redline-github.md, defer')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
