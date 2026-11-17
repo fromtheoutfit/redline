@@ -1,0 +1,1 @@
+Redline round 1: declined: the clause and the sentence are worded apart on purpose, a clause that opens a reply, which prior-findings reads as deferred, and a sentence closing a person's decision, read as decided, and each pair is already defined on adjacent lines with a comment tying them, so one helper would hold the same two strings in the same place · decided by: redline

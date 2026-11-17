@@ -1,6 +1,6 @@
 ---
 description: "Short form of /redline:redline <pr> ...; written by /redline:setup from the Redline plugin's templates/command-redline.md"
-argument-hint: "<pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [reviewer @handle] [no push] [dry run] [coverage off]"
+argument-hint: "<pr> [autopilot|guided|plan|review|review only] [correctness only] [max N rounds] [revise fable|opus] [defer each round|defer at end] [defer to github|spec|print] [reviewer @handle] [no push] [dry run] [coverage off]"
 disable-model-invocation: true
 ---
 <!-- redline-alias: written by /redline:setup from the Redline plugin's templates/command-redline.md; a rerun compares this file with the template, so a change here is drift -->

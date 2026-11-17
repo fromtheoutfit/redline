@@ -1,0 +1,1 @@
+Redline round 1: fixed in 3e15e04 (redline: R1-5 test redline.json's deferTo with the merge's own word list (#95)). · decided by: redline

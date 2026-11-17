@@ -1,0 +1,1 @@
+Redline round 1: fixed in 96acb0c (redline: R1-7 read the plain words for nothing as no mitigation (#95)). · decided by: redline

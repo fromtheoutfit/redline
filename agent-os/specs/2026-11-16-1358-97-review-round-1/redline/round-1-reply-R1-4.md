@@ -1,0 +1,1 @@
+Redline round 1: deferred to #98. Mitigated in a25778b (redline: R1-4 say that drafts to GitHub need the repository's Issues turned on (#95)). · decided by: redline

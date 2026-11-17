@@ -172,6 +172,12 @@ redline:redline-checker	deny	Bash	PLUGIN/scripts/redline-gh.sh threads 42
 redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
 redline:redline-reviewer	deny	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
 redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh resolve-threads 42 901 903
+# #95: a deferred finding's drafted issue is filed by the GitHub agent through defer, the one subcommand that opens an issue; a role that only reads GitHub, or none of it, may not run it. The resolve-threads rows above must not change.
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh defer issue R1-4 REPO/agent-os/specs/x/redline/issue-R1-4.md REPO/agent-os/specs/x/redline/round-1-deferred.json
+redline:redline-github	allow	Bash	PLUGIN/scripts/redline-gh.sh defer draft R1-4 REPO/agent-os/specs/x/redline/issue-R1-4.md REPO/agent-os/specs/x/redline/round-1-deferred.json
+redline:redline-shaper	deny	Bash	PLUGIN/scripts/redline-gh.sh defer issue R1-4 REPO/agent-os/specs/x/redline/issue-R1-4.md REPO/agent-os/specs/x/redline/round-1-deferred.json
+redline:redline-reviewer	deny	Bash	PLUGIN/scripts/redline-gh.sh defer draft R1-4 REPO/agent-os/specs/x/redline/issue-R1-4.md REPO/agent-os/specs/x/redline/round-1-deferred.json
+redline:redline-implementer	deny	Bash	PLUGIN/scripts/redline-gh.sh defer issue R1-4 REPO/agent-os/specs/x/redline/issue-R1-4.md REPO/agent-os/specs/x/redline/round-1-deferred.json
 redline:redline-github	deny	Bash	gh api graphql -f query='mutation($threadId: ID!) { resolveReviewThread(input: {threadId: $threadId}) { thread { id isResolved } } }' -F threadId=PRRT_1
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh diff 42
 redline:redline-reviewer	allow	Bash	PLUGIN/scripts/redline-gh.sh login
@@ -395,8 +401,8 @@ redline:reviewer	allow	Bash	git status
 -	inert	Bash	PLUGIN/scripts/redline-gh.sh reply 1
 general-purpose	allow	Bash	PLUGIN/scripts/redline-gh.sh pr 1
 general-purpose	inert	Bash	PLUGIN/scripts/redline-gh.sh post-review 1 /tmp/r.json
-# Filing a deferred issue from the main session now meets the permission prompt once.
--	inert	Bash	PLUGIN/scripts/redline-gh.sh issue-create 1 /tmp/i.md
+# Filing a deferred issue is the GitHub agent's since #95 (defer); from the main session it meets the permission prompt.
+-	inert	Bash	PLUGIN/scripts/redline-gh.sh defer issue R1-4 /tmp/i.md /tmp/r.json
 -	inert	Bash	/tmp/x/scripts/redline-gh.sh pr 1
 -	allow	Bash	REDLINE_OCTANE=1 REPO/.claude/redline/checks.sh /tmp/s.json
 -	allow	Bash	.claude/redline/checks.sh --baseline

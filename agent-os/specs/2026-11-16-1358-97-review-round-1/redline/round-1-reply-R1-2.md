@@ -1,0 +1,1 @@
+Redline round 1: fixed in aac9c49 (redline: R1-2 merge a deferred entry into the record as it stands when it is written (#95)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 2: fixed in c43ab02 (redline: R2-12 keep one deferred entry per finding, the first (#95)). · decided by: redline

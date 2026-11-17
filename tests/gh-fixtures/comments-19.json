@@ -1,0 +1,106 @@
+[
+  {
+    "id": 1901,
+    "pull_request_review_id": 60,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "**R1-1** · correctness · medium · confirmed\n\n**Retry storm when the queue is down**\n\nThe job retries at once and without limit.",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-16T10:00:00Z"
+  },
+  {
+    "id": 1902,
+    "pull_request_review_id": 60,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/b.php",
+    "line": 9,
+    "side": "RIGHT",
+    "body": "**R1-2** · correctness · low · confirmed\n\n**OrderExporter does three jobs**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-16T10:00:00Z"
+  },
+  {
+    "id": 1903,
+    "pull_request_review_id": 60,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "**R1-3** · correctness · low · confirmed\n\n**The client swallows a timeout**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-16T10:00:00Z"
+  },
+  {
+    "id": 1904,
+    "pull_request_review_id": 60,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "**R1-4** · correctness · low · confirmed\n\n**The cache key leaves the tenant out**",
+    "in_reply_to_id": null,
+    "created_at": "2026-11-16T10:00:00Z"
+  },
+  {
+    "id": 1911,
+    "pull_request_review_id": 61,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/a.php",
+    "line": 5,
+    "side": "RIGHT",
+    "body": "Redline round 1: deferred to #123. Mitigated in 1bbbbbb (redline: R1-1 log the retry count). · decided by: redline",
+    "in_reply_to_id": 1901,
+    "created_at": "2026-11-16T12:00:00Z"
+  },
+  {
+    "id": 1912,
+    "pull_request_review_id": 61,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/b.php",
+    "line": 9,
+    "side": "RIGHT",
+    "body": "Redline round 1: deferred; the issue draft is at `agent-os/specs/2026-11-16-1026-19-review-round-1/redline/issue-R1-2.md`. · decided by: redline",
+    "in_reply_to_id": 1902,
+    "created_at": "2026-11-16T12:00:00Z"
+  },
+  {
+    "id": 1913,
+    "pull_request_review_id": 61,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/c.php",
+    "line": 3,
+    "side": "RIGHT",
+    "body": "Redline round 1: @author does not want this tracked: the client is replaced next quarter. No issue was opened. · decided by: @author",
+    "in_reply_to_id": 1903,
+    "created_at": "2026-11-16T12:00:00Z"
+  },
+  {
+    "id": 1914,
+    "pull_request_review_id": 61,
+    "user": {
+      "login": "author"
+    },
+    "path": "app/d.php",
+    "line": 2,
+    "side": "RIGHT",
+    "body": "Redline round 1: @author defers it behind a log line, since the cache is rebuilt next sprint. Applied in 2cccccc (redline: R1-4 log the tenant). Deferred to #124. · decided by: @author",
+    "in_reply_to_id": 1904,
+    "created_at": "2026-11-16T12:00:00Z"
+  }
+]

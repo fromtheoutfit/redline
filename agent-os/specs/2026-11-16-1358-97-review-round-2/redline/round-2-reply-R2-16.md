@@ -1,0 +1,1 @@
+Redline round 2: fixed in 5fe58e9 (redline: R2-16 open the handoff with the bugs in the last round's fixes when they bought nothing (#95)). · decided by: redline

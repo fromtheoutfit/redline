@@ -1,0 +1,1 @@
+Redline round 2: fixed in e622f6c (redline: R2-6 count a task the shaper planned for its own deferral as planned (#95)). · decided by: redline

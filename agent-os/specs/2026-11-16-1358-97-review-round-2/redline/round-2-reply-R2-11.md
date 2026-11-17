@@ -1,0 +1,1 @@
+Redline round 2: fixed in e3c7ab8 (redline: R2-11 count vetShape's eight checks in its comment (#95)). · decided by: redline

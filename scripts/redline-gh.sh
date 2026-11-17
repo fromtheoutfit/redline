@@ -41,7 +41,9 @@
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  words: "fixed in" fixed, "deferred" (since #95: "deferred to
+#                                  #<n>", "deferred; the issue draft is at") or, before it,
+#                                  "mitigated" deferred, "declined: "
 #                                  declined (Redline's own decision not to act, #93; a reply that
 #                                  only mentions a decline is decided), "not acted on in this
 #                                  run." dropped, "not changed in this round." not-changed,
@@ -106,7 +108,27 @@
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
-#   issue-create <title> <file>    open an issue; prints its URL
+#   defer <issue|draft> <finding> <draft-file> <record-file>
+#                                  file a deferred finding's drafted issue, safe to repeat (#95).
+#                                  The draft's first line is "# <title>", its second is empty and
+#                                  the rest is the body, so no title crosses the command line. The
+#                                  record is a JSON object of the round's filed drafts, by finding
+#                                  id. issue: a finding the record holds as an issue is printed
+#                                  again and nothing is called; else an issue whose body carries
+#                                  the draft's last line (the pull request, round and finding it
+#                                  came from, text only that issue has) is looked up, recorded and
+#                                  printed; else the issue is opened and recorded as {where:
+#                                  "issue", number, url, path}. Each entry is merged into the
+#                                  record as the file stands when it is written, so an entry
+#                                  another defer recorded meanwhile is kept. draft: the path is
+#                                  recorded as {where: "draft", path} and GitHub is not called.
+#                                  Prints {finding, where, number, url, path, reused}: path is the
+#                                  draft's, relative to its repository; number 0 and url "" for a
+#                                  draft; reused true when the issue was already there. A failed
+#                                  lookup or create exits 1 and writes no record; so does a record
+#                                  that cannot be read, written or moved into place, or is no JSON
+#                                  object, when the entry is written, which names the entry it
+#                                  could not record, the issue opened by then included
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
@@ -149,6 +171,54 @@ need_int() {
         echo "redline-gh.sh: $2 must be a number, got: $1" >&2
         exit 2
     fi
+}
+
+# The temp files `defer` makes, removed on every way out (#97, R1-3): the issue body, and the
+# record's next version beside it until it is moved into place. One EXIT trap names both, since a
+# later `trap ... EXIT` replaces an earlier one.
+defer_body='' defer_tmp=''
+defer_cleanup() {
+    if [[ -n "$defer_body" ]]; then rm -f "$defer_body"; fi
+    if [[ -n "$defer_tmp" ]]; then rm -f "$defer_tmp"; fi
+}
+
+# defer_lost <record file> <finding> <entry> <what is wrong>: a write of the record that failed
+# after the lookup or the create on GitHub, so the issue opened by then may be in no record: one
+# line naming the entry it could not record, never a tool's own message alone, and exit 1 (#97,
+# R1-3, R2-1).
+defer_lost() {
+    echo "redline-gh.sh: $1 $4 when $2's entry is written; not recorded: $3" >&2
+    exit 1
+}
+
+# defer_record <record file> <finding> <entry>: the record with the finding's entry set, merged
+# into the record as the file stands now, not as `defer` read it before the lookup and the create
+# on GitHub, so an entry another defer recorded in between is kept (#97, R1-2); written beside
+# itself and moved into place, so a reader never sees half a file. Every step that can fail exits
+# through defer_lost, which names the entry (#97, R2-1).
+defer_record() {
+    local current='{}'
+    if ! mkdir -p "$(dirname "$1")" || ! defer_tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"; then
+        defer_lost "$1" "$2" "$3" "cannot be written"
+    fi
+    if [[ -f "$1" ]]; then
+        if ! current="$(cat "$1")"; then
+            defer_lost "$1" "$2" "$3" "cannot be read"
+        fi
+    fi
+    if ! jq -e --arg id "$2" --argjson e "$3" 'if type == "object" then . + {($id): $e} else error("not an object") end' <<<"$current" > "$defer_tmp" 2>/dev/null; then
+        defer_lost "$1" "$2" "$3" "is no JSON object"
+    fi
+    if ! mv "$defer_tmp" "$1"; then
+        defer_lost "$1" "$2" "$3" "cannot be moved into place"
+    fi
+    defer_tmp=''
+}
+
+# defer_print <finding> <entry> <reused>: what `defer` prints for one finding.
+defer_print() {
+    jq -n --arg id "$1" --argjson e "$2" --argjson reused "$3" \
+        '{finding: $id, where: $e.where, number: ($e.number // 0), url: ($e.url // ""), path: $e.path, reused: $reused}'
 }
 
 # Every file of the PR as one JSON array, every page of the files endpoint: each item carries
@@ -350,7 +420,7 @@ case "$cmd" in
             # does (#94, R2-1).
             def classify:
                 if startswith("fixed in ") then "fixed"
-                elif startswith("mitigated") then "deferred"
+                elif startswith("mitigated") or startswith("deferred") then "deferred"
                 elif startswith("declined: ") then "declined"
                 elif startswith("not acted on in this run.") then "dropped"
                 elif startswith("not changed in this round.") then "not-changed"
@@ -508,10 +578,78 @@ case "$cmd" in
         gh pr edit "$1" --add-reviewer "$2"
         ;;
 
-    issue-create)
-        [[ $# -eq 2 ]] || usage
-        need_file "$2" "issue body"
-        gh issue create --title "$1" --body-file "$2"
+    defer)
+        [[ $# -eq 4 ]] || usage
+        trap defer_cleanup EXIT
+        trap 'exit 130' INT
+        trap 'exit 143' TERM
+        mode="$1" finding="$2" draft="$3" record="$4"
+        case "$mode" in
+            issue|draft) ;;
+            *) echo "redline-gh.sh: defer takes issue or draft, got: $mode" >&2; exit 2 ;;
+        esac
+        if ! [[ "$finding" =~ ^[RH][0-9]+-[0-9]+$ ]]; then
+            echo "redline-gh.sh: finding must be an id such as R1-4, got: $finding" >&2
+            exit 2
+        fi
+        need_file "$draft" "issue draft"
+        title="$(head -n 1 "$draft")"
+        if [[ "$title" != "# "?* || -n "$(sed -n '2p' "$draft")" ]]; then
+            echo "redline-gh.sh: $draft must open with \"# <title>\" and an empty line" >&2
+            exit 2
+        fi
+        title="${title#\# }"
+        # The draft's last line names the pull request, the round and the finding: text only the
+        # issue made from this draft carries, which is what the lookup below searches for.
+        marker="$(grep -v '^[[:space:]]*$' "$draft" | tail -n 1)"
+        # The draft's path as the record, the reply and the handoff give it: from its repository's
+        # root, or as given when it sits in none.
+        dir="$(cd "$(dirname "$draft")" && pwd)"
+        if prefix="$(git -C "$dir" rev-parse --show-prefix 2>/dev/null)"; then
+            path="$prefix$(basename "$draft")"
+        else
+            path="$draft"
+        fi
+        existing='{}'
+        if [[ -f "$record" ]] && ! existing="$(jq -ce 'select(type == "object")' "$record" 2>/dev/null)"; then
+            echo "redline-gh.sh: $record is not a JSON object" >&2
+            exit 2
+        fi
+        held="$(jq -c --arg id "$finding" '.[$id] // null' <<<"$existing")"
+        if [[ "$(jq -r '.where // ""' <<<"$held")" == "issue" ]]; then
+            defer_print "$finding" "$held" true
+            exit 0
+        fi
+        if [[ "$mode" == "draft" ]]; then
+            entry="$(jq -cn --arg path "$path" '{where: "draft", path: $path}')"
+            defer_record "$record" "$finding" "$entry"
+            defer_print "$finding" "$entry" false
+            exit 0
+        fi
+        # The second layer under the record: an issue opened by a run that died before it wrote
+        # the record is found by the draft's last line, matched as a whole line of the body, never
+        # by the search's own idea of a match. GitHub's search can lag by seconds, so this is best
+        # effort; the record is what makes a repeat safe. A failed call exits 1, as the header says,
+        # whatever status gh gave it: 4 when it needs a login (#97, R4-1).
+        found="$(gh issue list --state all --search "\"$marker\" in:body" --json number,url,body --limit 20)" || { echo 'redline-gh.sh: the lookup on GitHub failed' >&2; exit 1; }
+        match="$(jq -c --arg m "$marker" '[.[] | select((.body // "") | split("\n") | map(sub("\r$"; "")) | index($m) != null)] | sort_by(.number) | first // null' <<<"$found")"
+        if [[ "$match" != "null" ]]; then
+            entry="$(jq -c --arg path "$path" '{where: "issue", number: .number, url: .url, path: $path}' <<<"$match")"
+            defer_record "$record" "$finding" "$entry"
+            defer_print "$finding" "$entry" true
+            exit 0
+        fi
+        defer_body="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        tail -n +3 "$draft" > "$defer_body"
+        url="$(gh issue create --title "$title" --body-file "$defer_body")" || { echo 'redline-gh.sh: the create on GitHub failed' >&2; exit 1; }
+        number="${url##*/}"
+        if ! [[ "$number" =~ ^[0-9]+$ ]]; then
+            echo "redline-gh.sh: gh issue create printed no issue URL: $url" >&2
+            exit 1
+        fi
+        entry="$(jq -cn --arg path "$path" --arg url "$url" --argjson number "$number" '{where: "issue", number: $number, url: $url, path: $path}')"
+        defer_record "$record" "$finding" "$entry"
+        defer_print "$finding" "$entry" false
         ;;
 
     update)

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 #
 # Unit test of the read subcommands of scripts/redline-gh.sh that a large pull request exercises:
-# files, diff, place, last-round and has-review, against the fixtures under tests/gh-fixtures/.
+# files, diff, place, last-round and has-review, and of defer, the one subcommand that opens an
+# issue (#95), against the fixtures under tests/gh-fixtures/.
 # Nothing reaches GitHub: a `gh` shim first on PATH serves the fixtures by endpoint (an array of
 # pages for --paginate --slurp, the pages' lines for --paginate --jq, applied with the real jq),
 # refuses `gh pr diff` the way GitHub does over 300 files, refuses every write, and, with
@@ -32,10 +33,16 @@
 # layout that issue's review body has (items by kind, a could-not-confirm item with its Would confirm
 # line, a scope-declined line that carries no bold id), with a declined reply in a thread and in an
 # issue comment, a decided reply that only mentions a decline, and a rule's tail and reply naming the
-# person by login and by the no-login fallback. The shim is the
+# person by login and by the no-login fallback. PR 19 is the #95 fixture: one round whose replies
+# open "deferred to #<n>" and "deferred; the issue draft is at", beside a dropped draft's reply and
+# a deferral the person chose, which open with the decision. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
-# which threads were resolved and that the mutation is the script's fixed string.
+# which threads were resolved and that the mutation is the script's fixed string. It also answers
+# `gh issue list` and `gh issue create` for `defer` (#95): each call is appended to
+# $PAGES/issue.log (the search; the title and the body), a list is served from
+# $PAGES/issues-list.json and a create is answered with an issue URL numbered from 123, so the
+# cases pin that an issue is opened once, looked up before it is opened, and never opened twice.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -55,11 +62,17 @@ bad() { fail=$((fail+1)); printf 'FAIL %s\n     got: %s\n' "$1" "$2"; }
 is() { [[ "$2" == "$3" ]] && ok "$1" || bad "$1" "$2"; }
 # has <name> <haystack> <needle>: a fixed-string containment check
 has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -c 400)"; }
+# leftover <dir>: how many of defer's temp files are left in the folder, 0 when none is.
+leftover() {
+    local f n=0
+    for f in "$1"/.redline-deferred.*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
 
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$FIX/reviews-18.json" "$FIX/comments-18.json" "$FIX/issue-comments-18.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$FIX/reviews-18.json" "$FIX/comments-18.json" "$FIX/issue-comments-18.json" "$FIX/reviews-19.json" "$FIX/comments-19.json" "$FIX/issue-comments-19.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -75,6 +88,40 @@ cat > "$WORK/bin/gh" <<'SHIM'
 set -uo pipefail
 if [[ "${1:-}" == "--version" ]]; then echo "gh version 2.40.0 (2023-12-01)"; echo "https://github.com/cli/cli/releases/tag/v2.40.0"; exit 0; fi
 if [[ "${1:-}" == "pr" && "${2:-}" == "diff" ]]; then echo "could not find pull request diff: HTTP 406: Sorry, the diff exceeded the maximum number of files (300). Consider using 'List pull requests files' API or locally cloning the repository instead." >&2; exit 1; fi
+# gh issue (#95), the one write besides the thread mutation that is answered rather than refused.
+# `list` is logged with its search and served from $PAGES/issues-list.json ([] when absent);
+# `create` is logged with its title and its body (as one JSON string) and answered with an issue
+# URL, numbered from 123. GH_FAKE_LIST_FAIL=1 and GH_FAKE_CREATE_FAIL=1 fail them as GitHub would,
+# with GH_FAKE_FAIL_CODE as the exit status (1 when unset; gh's own is 4 when it needs a login).
+# GH_FAKE_CREATE_WRITES=<file> writes GH_FAKE_CREATE_TEXT into that file before the create answers,
+# as a defer for another finding finishing while this one is on GitHub would (#97).
+if [[ "${1:-}" == "issue" ]]; then
+    sub="${2:-}"; shift 2
+    title=""; body=""; search=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --title) title="$2"; shift 2 ;;
+            --body-file) body="$2"; shift 2 ;;
+            --search) search="$2"; shift 2 ;;
+            --state|--json|--limit) shift 2 ;;
+            *) echo "fake gh: unexpected issue argument $1" >&2; exit 1 ;;
+        esac
+    done
+    case "$sub" in
+        list)
+            printf 'list\t%s\n' "$search" >> "$PAGES/issue.log"
+            if [[ "${GH_FAKE_LIST_FAIL:-0}" == 1 ]]; then echo "HTTP 503: the search is unavailable" >&2; exit "${GH_FAKE_FAIL_CODE:-1}"; fi
+            if [[ -f "$PAGES/issues-list.json" ]]; then cat "$PAGES/issues-list.json"; else echo '[]'; fi ;;
+        create)
+            if [[ "${GH_FAKE_CREATE_FAIL:-0}" == 1 ]]; then echo "HTTP 403: Resource not accessible by integration" >&2; exit "${GH_FAKE_FAIL_CODE:-1}"; fi
+            n=$(( $(grep -c '^create' "$PAGES/issue.log" 2>/dev/null || true) + 123 ))
+            printf 'create\t%s\t%s\n' "$title" "$(jq -Rs . "$body")" >> "$PAGES/issue.log"
+            if [[ -n "${GH_FAKE_CREATE_WRITES:-}" ]]; then printf '%s\n' "${GH_FAKE_CREATE_TEXT:-}" > "$GH_FAKE_CREATE_WRITES"; fi
+            echo "https://github.com/o/r/issues/$n" ;;
+        *) echo "fake gh: unexpected issue subcommand $sub" >&2; exit 1 ;;
+    esac
+    exit 0
+fi
 if [[ "${1:-}" != "api" ]]; then echo "fake gh: unexpected call: $*" >&2; exit 1; fi
 shift
 # GraphQL (#39): the one call that carries fields. A query is served from the PR's thread pages; a
@@ -150,6 +197,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/18/reviews") pages=("$PAGES/reviews-18.json") ;;
     "repos/{owner}/{repo}/pulls/18/comments") pages=("$PAGES/comments-18.json") ;;
     "repos/{owner}/{repo}/issues/18/comments") pages=("$PAGES/issue-comments-18.json") ;;
+    "repos/{owner}/{repo}/pulls/19/reviews") pages=("$PAGES/reviews-19.json") ;;
+    "repos/{owner}/{repo}/pulls/19/comments") pages=("$PAGES/comments-19.json") ;;
+    "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -290,6 +340,15 @@ is "underscore login: its left to @login reply is left" "$(jq -r '.[0].dispositi
 # A finding minted from a candidate with no file is posted at (no file), line 0, so its line reads
 # back (#94, R2-6).
 is "no file: a finding minted with no file reads back at (no file), line 0" "$(jq -c '.[1] | [.id, .file, .line, .confidence]' <<<"$pf18")" '["R1-2","(no file)",0,"unconfirmed"]'
+# The #95 replies (PR 19): a reply that opens "deferred" is deferred, to an issue or to a draft;
+# a draft the person dropped and a deferral the person chose are their decisions, whose replies
+# open with the decision and only mention a deferral.
+pf19="$(gh prior-findings 19)"; code=$?
+is "#95 forms: prior-findings exits 0" "$code" "0"
+is "#95 forms: a reply that opens deferred to #<n> is deferred" "$(jq -c '.[0] | [.id, .disposition, .reply.id]' <<<"$pf19")" '["R1-1","deferred",1911]'
+is "#95 forms: a reply that opens deferred; the issue draft is at is deferred" "$(jq -c '.[1] | [.id, .disposition]' <<<"$pf19")" '["R1-2","deferred"]'
+is "#95 forms: a dropped draft's reply, which opens with the person's decision, is decided" "$(jq -c '.[2] | [.id, .disposition]' <<<"$pf19")" '["R1-3","decided"]'
+is "#95 forms: a deferral the person chose, whose reply ends Deferred to #<n>, is decided" "$(jq -c '.[3] | [.id, .disposition]' <<<"$pf19")" '["R1-4","decided"]'
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?
@@ -345,6 +404,97 @@ is "resolve-threads: the reply id alone names its thread too, and the thread is 
 rm -f "$WORK/pages/resolved.log"
 is "resolve-threads: a thread with a teammate's comment between Redline's two is skipped with that comment's id" "$(gh resolve-threads 13 1311 1313 | jq -c '[.resolved, .skipped]')" '[[],[{"id":1311,"reason":"comment 1312 is not Redline'\''s"}]]'
 is "resolve-threads: a comment between Redline's two means no mutation sent" "$([[ -e "$WORK/pages/resolved.log" ]] && echo yes || echo no)" "no"
+
+echo "# defer: a deferred finding's drafted issue, filed once (#95)"
+D="$WORK/repo/agent-os/specs/2026-11-16-1026-94-review-round-2/redline"; mkdir -p "$D"
+REL="agent-os/specs/2026-11-16-1026-94-review-round-2/redline"
+LOG="$WORK/pages/issue.log"
+LAST='Deferred from pull request #94 by Redline (round 2, finding R2-3).'
+# draft <file> <title> <last line>: a draft as the workflow writes it.
+draft() { printf '%s\n' "# $2" '' 'The job retries at once.' '' '- **Where:** `app/Jobs/SyncOrders.php:88`' '' "$3" > "$1"; }
+draft "$D/issue-R2-3.md" 'Back off retries in <b> the queue client for @sam' "$LAST"
+REC="$D/round-2-deferred.json"
+out="$(gh defer issue R2-3 "$D/issue-R2-3.md" "$REC")"; code=$?
+is "defer issue: exits 0" "$code" "0"
+is "defer issue: prints the finding, the issue, the draft's path from its repository's root, and that it was opened" "$(jq -c . <<<"$out")" "{\"finding\":\"R2-3\",\"where\":\"issue\",\"number\":123,\"url\":\"https://github.com/o/r/issues/123\",\"path\":\"$REL/issue-R2-3.md\",\"reused\":false}"
+is "defer issue: the record holds the finding's entry" "$(jq -c . "$REC")" "{\"R2-3\":{\"where\":\"issue\",\"number\":123,\"url\":\"https://github.com/o/r/issues/123\",\"path\":\"$REL/issue-R2-3.md\"}}"
+is "defer issue: one lookup, then one create" "$(cut -f1 "$LOG" | tr '\n' ' ')" "list create "
+is "defer issue: the lookup searches issue bodies for the draft's last line" "$(sed -n '1p' "$LOG" | cut -f2)" "\"$LAST\" in:body"
+is "defer issue: the title is the draft's first line without its marker, as written" "$(sed -n '2p' "$LOG" | cut -f2)" 'Back off retries in <b> the queue client for @sam'
+is "defer issue: the body is everything after the empty second line" "$(sed -n '2p' "$LOG" | cut -f3)" "\"The job retries at once.\\n\\n- **Where:** \`app/Jobs/SyncOrders.php:88\`\\n\\n$LAST\\n\""
+out="$(gh defer issue R2-3 "$D/issue-R2-3.md" "$REC")"
+is "defer issue, again: the recorded issue is printed as reused" "$(jq -c '[.number, .reused]' <<<"$out")" "[123,true]"
+is "defer issue, again: GitHub is not called, so no second issue is opened" "$(wc -l < "$LOG" | tr -d ' ')" "2"
+is "defer draft over a recorded issue: the issue stands" "$(gh defer draft R2-3 "$D/issue-R2-3.md" "$REC" | jq -c '[.where, .number, .reused]')" '["issue",123,true]'
+draft "$D/issue-R2-6.md" 'Split OrderExporter out of the controller' 'Deferred from pull request #94 by Redline (round 2, finding R2-6).'
+is "defer issue, a second finding: its own issue" "$(gh defer issue R2-6 "$D/issue-R2-6.md" "$REC" | jq -c '[.finding, .number, .reused]')" '["R2-6",124,false]'
+is "defer issue, a second finding: the record keeps both" "$(jq -c '[keys, .["R2-3"].number, .["R2-6"].number]' "$REC")" '[["R2-3","R2-6"],123,124]'
+rm -f "$LOG"
+out="$(gh defer draft R2-7 "$D/issue-R2-3.md" "$D/round-2-drafts.json")"; code=$?
+is "defer draft: exits 0 and prints the path, with no number" "$code $(jq -c . <<<"$out")" "0 {\"finding\":\"R2-7\",\"where\":\"draft\",\"number\":0,\"url\":\"\",\"path\":\"$REL/issue-R2-3.md\",\"reused\":false}"
+is "defer draft: the record holds the path" "$(jq -c . "$D/round-2-drafts.json")" "{\"R2-7\":{\"where\":\"draft\",\"path\":\"$REL/issue-R2-3.md\"}}"
+is "defer draft: GitHub is not called" "$([[ -e "$LOG" ]] && echo yes || echo no)" "no"
+is "defer issue over a recorded draft: the issue is opened and replaces the entry" "$(gh defer issue R2-7 "$D/issue-R2-3.md" "$D/round-2-drafts.json" | jq -c '[.where, .number, .reused]') $(jq -r '.["R2-7"].where' "$D/round-2-drafts.json")" '["issue",123,false] issue'
+rm -f "$LOG"
+# The record is gone and the issue is not: the draft's last line finds it, as a whole line of the
+# body (GitHub's line ends included), never inside another line.
+jq -n --arg last "$LAST" '[{number: 78, url: "https://github.com/o/r/issues/78", body: ("It quotes the line: " + $last + " and goes on")}, {number: 77, url: "https://github.com/o/r/issues/77", body: ("The job retries at once.\r\n\r\n" + $last + "\r\n")}]' > "$WORK/pages/issues-list.json"
+out="$(gh defer issue R2-3 "$D/issue-R2-3.md" "$D/lost.json")"
+is "defer issue, no record but the issue exists: found by the draft's last line, and reused" "$(jq -c '[.number, .url, .reused]' <<<"$out")" '[77,"https://github.com/o/r/issues/77",true]'
+is "defer issue, no record but the issue exists: recorded" "$(jq -c '.["R2-3"] | [.where, .number]' "$D/lost.json")" '["issue",77]'
+is "defer issue, no record but the issue exists: nothing is created" "$(cut -f1 "$LOG" | tr '\n' ' ')" "list "
+rm -f "$LOG"
+jq -n --arg last "$LAST" '[{number: 78, url: "https://github.com/o/r/issues/78", body: ("It quotes the line: " + $last + " and goes on")}]' > "$WORK/pages/issues-list.json"
+is "defer issue: a body that only quotes the line inside another is no match, so the issue is opened" "$(gh defer issue R2-3 "$D/issue-R2-3.md" "$D/quoted.json" | jq -c '[.number, .reused]') $(cut -f1 "$LOG" | tr '\n' ' ')" '[123,false] list create '
+rm -f "$LOG" "$WORK/pages/issues-list.json"
+GH_FAKE_CREATE_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a failed create: exits 1 with gh's error, then the call that failed" "$code $(cat "$WORK/err")" "1 HTTP 403: Resource not accessible by integration"$'\n''redline-gh.sh: the create on GitHub failed'
+is "defer issue, a failed create: writes no record" "$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "no"
+rm -f "$LOG"
+GH_FAKE_LIST_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>&1; code=$?
+is "defer issue, a failed lookup: exits 1, creates nothing and writes no record" "$code $(cut -f1 "$LOG" | tr '\n' ' ')$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 list no"
+rm -f "$LOG"
+# gh's own exit status is not the script's (#97, R4-1): a lookup or create that gh fails with 4,
+# as it does when it needs a login, still exits 1, names the call and writes no record.
+GH_FAKE_FAIL_CODE=4 GH_FAKE_LIST_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a lookup gh fails with status 4: exits 1, names the lookup, creates nothing and writes no record" "$code $(grep -c '^redline-gh.sh: the lookup on GitHub failed$' "$WORK/err") $(cut -f1 "$LOG" | tr '\n' ' ')$([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 1 list no"
+rm -f "$LOG"
+GH_FAKE_FAIL_CODE=4 GH_FAKE_CREATE_FAIL=1 gh defer issue R2-8 "$D/issue-R2-3.md" "$D/failed.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a create gh fails with status 4: exits 1, names the create and writes no record" "$code $(grep -c '^redline-gh.sh: the create on GitHub failed$' "$WORK/err") $([[ -e "$D/failed.json" ]] && echo yes || echo no)" "1 1 no"
+rm -f "$LOG"
+# A defer for another finding that finished while this one was on GitHub (#97, R1-2): the entry is
+# merged into the record as the file stands when it is written, so the other entry is kept.
+GH_FAKE_CREATE_WRITES="$D/overlap.json" GH_FAKE_CREATE_TEXT='{"R2-5":{"where":"issue","number":90,"url":"https://github.com/o/r/issues/90","path":"x.md"}}' gh defer issue R2-8 "$D/issue-R2-3.md" "$D/overlap.json" >/dev/null
+is "defer issue, another finding recorded meanwhile: the record keeps both entries" "$(jq -c 'keys' "$D/overlap.json")" '["R2-5","R2-8"]'
+is "defer issue, another finding recorded meanwhile: this finding's entry is the issue it opened" "$(jq -c '[.["R2-8"].number, .["R2-5"].number]' "$D/overlap.json")" '[123,90]'
+rm -f "$LOG"
+# A record that is no JSON object when the entry is written (#97, R1-3): exit 1, naming the entry
+# with the issue it opened, and no temp file left beside the record.
+mkdir -p "$D/corrupt"
+GH_FAKE_CREATE_WRITES="$D/corrupt/round-2-deferred.json" GH_FAKE_CREATE_TEXT='not json' gh defer issue R2-8 "$D/issue-R2-3.md" "$D/corrupt/round-2-deferred.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a record that is no JSON object when the entry is written: exits 1, naming the issue opened" "$code $(grep -c 'https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
+is "defer issue, a record that is no JSON object when the entry is written: no temp file is left beside it" "$(leftover "$D/corrupt")" "0"
+rm -f "$LOG"
+# A record that cannot be written once the issue is open (#97, R2-1): its folder is a file, so
+# making it fails after the create; exit 1, naming the entry with the issue it opened.
+printf 'not a folder\n' > "$D/blocked"
+gh defer issue R2-8 "$D/issue-R2-3.md" "$D/blocked/round-2-deferred.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a record whose folder cannot be made once the issue is open: exits 1, naming the issue opened" "$code $(grep -c 'not recorded: .*https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
+rm -f "$LOG"
+cp "$D/issue-R2-3.md" "$WORK/pages/loose.md"
+is "defer draft: a draft outside any repository keeps its path as given" "$(gh defer draft R2-9 "$WORK/pages/loose.md" "$WORK/pages/loose.json" | jq -r .path)" "$WORK/pages/loose.md"
+gh defer open R2-3 "$D/issue-R2-3.md" "$REC" 2>/dev/null; is "defer: a mode other than issue or draft exits 2" "$?" "2"
+gh defer issue 23 "$D/issue-R2-3.md" "$REC" 2>/dev/null; is "defer: a finding that is no id exits 2" "$?" "2"
+gh defer issue R2-3 "$D/missing.md" "$REC" 2>/dev/null; is "defer: a missing draft exits 2" "$?" "2"
+printf '%s\n' 'Back off retries' '' 'body' > "$D/untitled.md"
+gh defer issue R2-3 "$D/untitled.md" "$D/untitled.json" 2>/dev/null; is "defer: a draft whose first line is no title exits 2" "$?" "2"
+printf '%s\n' '# Back off retries' 'body on the second line' > "$D/crowded.md"
+gh defer issue R2-3 "$D/crowded.md" "$D/untitled.json" 2>/dev/null; is "defer: a draft whose second line is not empty exits 2" "$?" "2"
+echo '[]' > "$D/array.json"
+gh defer issue R2-3 "$D/issue-R2-3.md" "$D/array.json" 2>/dev/null; is "defer: a record that is not a JSON object exits 2" "$?" "2"
+is "defer: a usage error calls nothing" "$([[ -e "$LOG" ]] && echo yes || echo no)" "no"
+gh issue-create "A title" "$D/issue-R2-3.md" 2>/dev/null; is "issue-create is gone: defer is the one way an issue is opened" "$?" "2"
+is "issue-create is gone: nothing was opened" "$([[ -e "$LOG" ]] && echo yes || echo no)" "no"
 
 echo "# usage"
 gh threads 2>/dev/null; is "usage: threads without a number exits 2" "$?" "2"

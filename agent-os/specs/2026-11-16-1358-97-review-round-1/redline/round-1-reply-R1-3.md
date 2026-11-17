@@ -1,0 +1,1 @@
+Redline round 1: fixed in 4430429 (redline: R1-3 remove defer's temp files on every way out, and name what a failed record write lost (#95)). · decided by: redline

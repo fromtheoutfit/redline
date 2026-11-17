@@ -1,0 +1,1 @@
+Redline round 2: fixed in 478cee7 (redline: R2-5 write a draft's Where line only for a place that exists (#95)). · decided by: redline

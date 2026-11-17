@@ -1,0 +1,1 @@
+Redline round 3: fixed in 78e7e06 (redline: R3-1 name the end-of-run filing in the GitHub agent's defer operation (#95)). · decided by: redline

@@ -6,7 +6,7 @@ Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 o
 
 ## `redline-gh.sh`
 
-The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands and `resolve-threads` against a fake `gh` that serves `tests/gh-fixtures/`.
+The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
 
 ```text
 #
@@ -51,7 +51,9 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  <!-- redline:<id> --> whose next line is **<id>** · ... · from
 #                                  the Redline round <n> review body, as {id, body} with the text
 #                                  after the prefix, or null. disposition reads the reply's first
-#                                  words: "fixed in" fixed, "mitigated" deferred, "declined: "
+#                                  words: "fixed in" fixed, "deferred" (since #95: "deferred to
+#                                  #<n>", "deferred; the issue draft is at") or, before it,
+#                                  "mitigated" deferred, "declined: "
 #                                  declined (Redline's own decision not to act, #93; a reply that
 #                                  only mentions a decline is decided), "not acted on in this
 #                                  run." dropped, "not changed in this round." not-changed,
@@ -116,7 +118,27 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
-#   issue-create <title> <file>    open an issue; prints its URL
+#   defer <issue|draft> <finding> <draft-file> <record-file>
+#                                  file a deferred finding's drafted issue, safe to repeat (#95).
+#                                  The draft's first line is "# <title>", its second is empty and
+#                                  the rest is the body, so no title crosses the command line. The
+#                                  record is a JSON object of the round's filed drafts, by finding
+#                                  id. issue: a finding the record holds as an issue is printed
+#                                  again and nothing is called; else an issue whose body carries
+#                                  the draft's last line (the pull request, round and finding it
+#                                  came from, text only that issue has) is looked up, recorded and
+#                                  printed; else the issue is opened and recorded as {where:
+#                                  "issue", number, url, path}. Each entry is merged into the
+#                                  record as the file stands when it is written, so an entry
+#                                  another defer recorded meanwhile is kept. draft: the path is
+#                                  recorded as {where: "draft", path} and GitHub is not called.
+#                                  Prints {finding, where, number, url, path, reused}: path is the
+#                                  draft's, relative to its repository; number 0 and url "" for a
+#                                  draft; reused true when the issue was already there. A failed
+#                                  lookup or create exits 1 and writes no record; so does a record
+#                                  that cannot be read, written or moved into place, or is no JSON
+#                                  object, when the entry is written, which names the entry it
+#                                  could not record, the issue opened by then included
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
@@ -147,19 +169,36 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #
 # redline-prefs.sh: the saved launch preferences of /redline:redline, one file per person per
 # repository at <repoRoot>/.claude/redline.local.json (ignored by git; the guard refuses it for
-# every Redline role). It holds four settings: interrupt (the dial), revise (the revise model id),
-# maxRounds and scope. The skill calls this script so the merge rules live in one tested place.
+# every Redline role). It holds six settings: interrupt (the dial), revise (the revise model id),
+# maxRounds, scope, and the two for deferred items (#95): deferAt (when their drafted issues are
+# raised with the person: round or end) and deferTo (where a draft goes: github, spec or print).
+# The skill calls this script so the merge rules live in one tested place.
 #
 #   redline-prefs.sh resolve <repoRoot> [--interrupt <word>] [--revise <model>] [--max-rounds <n>] [--scope <word>]
+#                                       [--defer-at <word>] [--defer-to <word>]
 #       Merge: command line over the saved file over the defaults (guided, claude-opus-5-5,
-#       redline.json's maxRounds or 3, all). Prints JSON: the saved file (null when absent), the
-#       effective settings, where each came from, which fields the skill must ask for (no saved
-#       file: every field not on the command line that applies to the run), whether to show the
-#       one-question confirm instead (a saved file exists), and the confirm's summary line.
+#       redline.json's maxRounds or 3, all, round, redline.json's deferTo or github). Prints JSON:
+#       the saved file (null when absent), the defaults, what redline.json supplies of them
+#       (repository: {maxRounds, deferTo}, null for a key it does not set), the effective settings,
+#       where each came from (command line, saved or default), the fields that apply to the run
+#       (review only: the dial and the scope; autopilot: every field but deferAt, since it files
+#       each draft in its round and asks nothing), which fields the skill must ask for, whether to
+#       show the one-question confirm (a saved file exists), and the confirm's summary line.
+#       ask, with no saved file, is every field that applies and is not on the command line. With
+#       a saved file the confirm covers the first four, so ask holds only deferAt and deferTo, each
+#       when it applies and neither the command line nor the file gives it: a file saved before
+#       these two existed, or by runs they did not apply to, is asked for them once. The summary
+#       names the first four, then each deferral setting that applies and is not asked. A deferTo
+#       in redline.json that is not one of the three words is refused (exit 2): it says where an
+#       issue is opened, so it is never guessed.
 #   redline-prefs.sh save <repoRoot> --interrupt <word> --revise <model> --max-rounds <n> --scope <word>
+#                                    --defer-at <word> --defer-to <word>
 #       Write what the run uses as the new saved set, except that autopilot and review only are
-#       per-run verbs: the file keeps its previous interrupt (or none). Every other key of the
-#       file (the run markers under runs) is kept. Prints the file's JSON.
+#       per-run verbs: the file keeps its previous interrupt (or none). A deferral setting that
+#       did not apply to the run (both under review only, deferAt under autopilot) is not written
+#       either: the file keeps its previous value, or none, so the next run it applies to is
+#       asked. Every other key of the file (the run markers under runs) is kept. Prints the
+#       file's JSON.
 #
 # The same file holds, under runs, one marker per PR for a run that stopped (a hand-off, the
 # review dial, an error, a run the harness stopped), so the next /redline:redline <pr> can offer
@@ -214,7 +253,8 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       Removes the entry. Prints {cleared: true|false}.
 #
 # Interrupt words: autopilot | guided | plan | review | review only (also review-only). Scope
-# words: all | correctness. Exit 2 on a bad argument. Needs jq, and git for the run markers.
+# words: all | correctness. Defer-at words: round | end. Defer-to words: github | spec | print.
+# Exit 2 on a bad argument. Needs jq, and git for the run markers.
 ```
 
 ## `redline-gate.sh`
