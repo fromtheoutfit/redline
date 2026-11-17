@@ -4042,6 +4042,9 @@ function handoffComment(ending, prBody, threads) {
   // correctness items: how many, and how many of them a commit fixed, since the shaper may decline
   // one and no wording may call a declined item fixed. `ending.noRecheck` is a bought round that
   // changed no code with the coverage pass off; `ending.notPicked` a review dial with nothing picked.
+  // `ending.likeNits` a round that bought nothing and committed no fix whose correctness items
+  // included low-severity bugs in the previous round's fixes, which the generic sentence would say
+  // it never asked about (#97, R2-16).
   const end = ending && typeof ending === 'object' ? ending : {}
   const final = end.final || null
   const ran = `Redline ran ${reviews} review round${reviews === 1 ? '' : 's'}`
@@ -4062,6 +4065,8 @@ function handoffComment(ending, prBody, threads) {
     lines.push(`${ran}; the last one changed no code, and with the coverage pass off there was nothing further to review.`)
   } else if (end.notPicked) {
     lines.push(`${ran}; none of its findings was picked to act on.`)
+  } else if (end.likeNits) {
+    lines.push(`${ran}; the last one verified no new correctness item to fix or ask about beyond low-severity bugs in round ${last.round - 1}'s fixes, which are handled like nits and buy no further round, and it committed no fix.`)
   } else {
     lines.push(`${ran}; the last one verified no new correctness item to fix or ask about.`)
   }
@@ -4844,7 +4849,11 @@ try {
       finalPass = false
     } else if (!fixedAny) {
       const noRecheck = outcome.bought
-      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(noRecheck ? { noRecheck: true } : {}, prBody, threads))
+      // A round whose correctness items included low-severity bugs in the previous round's fixes,
+      // handled like nits, bought nothing and changed nothing: the handoff names them, since the
+      // generic sentence says the round verified nothing to fix or ask about (#97, R2-16).
+      const likeNits = !noRecheck && (record.minor || []).length > 0
+      const finished = await finish('handoff', record, (prBody, threads) => handoffComment(noRecheck ? { noRecheck: true } : likeNits ? { likeNits: true } : {}, prBody, threads))
       return result('done', { handoffPosted: finished.posted, reviewRequested: finished.reviewRequested, prBody: finished.prBody, note: noRecheck ? 'The last revise pass changed no code, and with the coverage pass off there was nothing further to review.' : 'The last revise pass committed no fix, so there was no fix diff to re-review.' })
     } else {
       finalPass = true
