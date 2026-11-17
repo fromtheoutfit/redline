@@ -58,6 +58,8 @@ This is the drafted issue for decision 10. This spec does not open it (decision 
 
 ## Standards retrospective (proposed)
 
+All six edits below were approved by @michaelfromtheoutfit and landed in `6be2b8f`.
+
 Gate step 12, done item by item. These are the decisions above, plus one As built deviation and one check that went red: CI's shellcheck job.
 
 **Already in a standard:**
