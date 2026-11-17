@@ -1,0 +1,1 @@
+Redline round 2: fixed in b268a6b (redline: R2-14 read the round's planned tasks from every resolve it ran (#95)). · decided by: redline

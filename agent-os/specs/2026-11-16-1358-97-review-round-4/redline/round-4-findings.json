@@ -1,0 +1,209 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "ff5b0a8deb9952738846bab0bdc9ae1a2911bb63",
+    "to": "2b1fcb7db22d22e8e250741593f6bc76ecfe4aba"
+  },
+  "summary": "Round 3's fixes do what they set out to do. ownCommit keeps a mention-only commit from counting as a planned deferral's mitigation. A reshape no longer replaces or re-checks a decided finding's deferred entry. NOTHING_SHIPS reads a value word followed by its reason. The new prompts and statements are pinned in the loop test, and the recheck found no correctness bug these fixes introduced. All seven coverage candidates were verified. They share one gap: a deferral's later life is not carried into every surface that reports it. A dropped draft of the person's own deferral loses its reason, and a human pass's final nit pass deferrals are missing from its summary. The FOLLOW_UP word list both over-matches and under-matches the rule it backs. The rest are a stale schema comment, a repeated warning and a documented exit status. The repository has no scheduled commands or queued jobs, so there is no overlap to check. The guard refuses `node`, so the loop-side findings were traced through the cited lines rather than run.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "scripts/redline-gh.sh",
+      "line": 128,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The defer header says a failed lookup or create exits 1, but the script exits with gh's own status",
+      "description": "The `defer` header (lines 127-128) says 'A failed lookup or create exits 1 and writes no record'. The script runs under `set -euo pipefail` (line 153). The lookup is `found=\"$(gh issue list --state all --search ...)\"` (line 633) and the create is `url=\"$(gh issue create --title ... --body-file ...)\"` (line 643). Neither is guarded. When gh fails, the assignment's status is gh's, and `set -e` exits with it. gh exits 1 for most errors, but with its own codes for others (4 when authentication is required, 2 when cancelled). So a logged-out run of `redline-gh.sh defer issue ...` exits 4, not the documented 1. The 'writes no record' half holds. docs/scripts.md line 138 quotes the same header. Nothing in the workflow or the GitHub agent's file depends on the 1, since the agent reports any non-zero exit (agents/redline-github.md, defer), so only the documented contract is wrong. The general header at line 4 already says 'exits non-zero'. Traced by reading; the reviewer's guard refuses running a fake gh here.",
+      "proposedFix": "Either say 'exits non-zero (gh's own status)' for a failed lookup or create in the header and in docs/scripts.md, or guard both calls (`found=\"$(gh issue list ...)\" || { echo 'redline-gh.sh: the lookup on GitHub failed' >&2; exit 1; }`, and the same for the create) so the documented 1 holds. Pin it in tests/gh-test.sh with a fake gh that exits 4.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "workflows/redline-loop.js",
+      "line": 848,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The shape schema's comment still says a decline's reason names where the finding belongs",
+      "description": "The comment on the shape schema's `reason` field (lines 847-849) says a decline's reason is 'why Redline does not act, and where the finding belongs when it belongs somewhere'. That was the rule before this pull request. #95 (the shaper's rule in agents/redline-shaper.md line 27 and templates/shape-spec-unattended.md line 56) now says a decline never points at follow-up work, since an item worth doing somewhere is a `defer`. The FOLLOW_UP warning (line 3143) flags 'belongs elsewhere', which is what this comment invites. The comment is the same on main (line 736 there), so its cause is code this pull request did not change; the pull request changed the rule that makes it stale. The same comment also says checkDispositions holds the shaper to the reason, while checkDeclineReasons (line 3124) is the check that does.",
+      "proposedFix": "Reword the comment: 'A decline's reason (#93), the sentence a teammate reads in the thread: why Redline does not act. It never points at follow-up work, which is a defer (#95). Required for a decline, which checkDeclineReasons holds the shaper to.'",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "workflows/redline-loop.js",
+      "line": 2942,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Dropping the draft of a deferral the person chose throws away their reason for the drop",
+      "description": "When the person answers a call with a deferral ('Mitigate', or a typed `defer`), the resolve agent drafts its issue and the draft stop raises it. If the person then drops the draft (`deferrals[id] = {action: 'drop', notes: '<reason>'}`), outcomesFor's decided branch (line 2942) keeps only `dropped: Boolean(deferredItem && dropped[f.id])` and `notes: decision.notes`. The drop's own `notes` is never read. describeOutcome (lines 2991-2992) then posts `<decision sentence> Applied in <sha>. No issue was opened. · decided by: @login` through draftClose (line 2974). At the end of the run, settleHeld does the same (line 3451: `{ ...d.outcome, held: false, dropped: true }`), and its decidedAll update (line 3458) copies `outcome.notes`, which is the call's decision. So the thread, the handoff line and `result.decided` say the item was deferred, that no issue was opened, and never say why. The in-round decided entry is also not marked overruled (line 4022: overruled is false for a finding that was a call), and settleHeld's `outcome.draftDropped` is unset on this branch, so the drop is not listed under `### Overruled`. Three texts promise the opposite: SKILL.md section 4, 'The round's deferred drafts' ('The restatement of a drop ... is posted in the finding's thread and listed in the handoff'); the #95 plan.md decision 14c ('Drop ... posted as your decision with your reason'); and plan.md line 146 ('A dropped draft is listed under ### Overruled by @login'). A drop of one of Redline's own deferrals goes through droppedOutcome (line 2966) and keeps its reason; only the person's own deferrals lose it. R2-7's decline settled the reply's form for this case (the decision sentence, then 'No issue was opened.'). It did not cover the drop's reason being lost. No loop test drops the draft of a deferral answered at a call (the drop scenarios at tests/loop-test.mjs lines 3100, 3103 and 3177 are all Redline's own deferrals). Traced through the cited lines; the guard refuses `node`, so it was not run.",
+      "proposedFix": "Carry the drop's answer on the decided outcome, `dropNotes: (deferredItem && dropped[f.id] && dropped[f.id].notes) || ''` at line 2942 and `dropNotes: answer.notes || ''` in settleHeld's decided branch (line 3451). Have draftClose close a dropped one with ` No issue was opened: <dropNotes>` (or the decision sentence then the drop's restatement), and mark the entry overruled when its draft was dropped (line 4022 and line 3458). Loop test: decisions `{'R1-1': {choice: 'Mitigate', notes: 'The author ships a guard now.'}}`, resolveDeferred with a full draft, deferrals `{'R1-1': answer('drop', {notes: '@me does not want this tracked: the client is replaced next quarter.'})}`; check that the R1-1 reply in `push and reply r1` includes the drop's notes and that the handoff lists R1-1 under Overruled. Add the same check with deferAt end for settleHeld.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3138,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The follow-up warning is pushed again on every reshape that keeps the same decline",
+      "description": "checkDeclineReasons pushes `<pass>: the shaper declined <id> with a reason that points at follow-up work (...)` (line 3138) into the module-level `warnings` array (line 2518). vetShape runs it after the shape (line 3595) and after every reshape (line 3829). The reshape returns every finding, and a decision of Redline's own that no adjustment names stays as it is, so a kept decline repeats its reason. Nothing de-duplicates `warnings`: result() passes the array as it stands (line 2607). So a round whose plan bounces twice reports the same line three times in the result the skill shows the person. Other checks in vetShape that warn share this. Traced by reading.",
+      "proposedFix": "Push a warning only when it is not already in the list (a `warn(text)` helper that skips a line already present), or de-duplicate `warnings` once in result(). Loop test: a decline with reason 'a follow-up PR' and planBounce 2; check that the warning appears once.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3143,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "FOLLOW_UP flags a decline that cites a spec named 'the ... follow-up spec'",
+      "description": "FOLLOW_UP's first alternative, `\\bfollow[- ]?up\\b` (line 3143), matches the word anywhere in the reason. The rules allow a decline that cites the pull request's spec ('the pull request's own spec decided the point (cite the decision)', templates/shape-spec-unattended.md line 56). This repository names specs that way: 'the #87 follow-up spec' and 'the #85 follow-up spec' are cited in agent-os/standards/workflow/agents.md (lines 13 and 24) and in the workflow's comments. A reason such as 'the #85 follow-up spec decided the point (its Decision 2)' matches, and checkDeclineReasons (lines 3133-3139) warns that the decline 'points at follow-up work' and should have been a defer. The only exemption is a reason opening with `could not confirm` (line 3135). The warning is advisory: nothing stops, and the plan approver judges the decline on its own. Traced from the regex; the guard refuses `node`, so it was not run.",
+      "proposedFix": "Exempt a spec citation, for example by matching `follow-up` only when it is not followed by `spec` (`\\bfollow[- ]?up\\b(?!\\s+spec)`), and add the reason above to the loop test's 'one case per form' list as a reason that stands.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3143,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "FOLLOW_UP misses the phrasings the decline rule names: another PR, an issue, a later change",
+      "description": "The rule FOLLOW_UP backs, stated in agents/redline-shaper.md line 27, agents/redline-plan-approver.md line 17 and templates/shape-spec-unattended.md line 56, is that a decline never points at follow-up work '(another pull request, an issue, a later change)'. FOLLOW_UP (line 3143) has four alternatives: `follow[- ]?up`, `separate (?:issue|pull request|PR)`, `another pull request` and `belongs elsewhere`. So 'belongs in another PR', 'worth a new issue', 'track it in an issue' and 'leave it for a later change' match nothing, and checkDeclineReasons (lines 3133-3139) is silent. The regex is also inconsistent with itself: 'a separate PR' warns, 'another PR' does not. The PR description promises that 'a decline whose reason points at a follow-up is a warning and a bounce from the plan approver'. The bounce depends on the approver model and still applies; the warning is the workflow's own layer, and it does not fire for these wordings. Like R3-2's NOTHING_SHIPS (deferred to #100), this is a fixed word list read against free text, but #100 is about the mitigation field, not this regex. Traced from the regex; the guard refuses `node`, so it was not run.",
+      "proposedFix": "Widen FOLLOW_UP to the rule's own three examples: `\\b(?:another|a separate|a new|a later)\\s+(?:pull request|PR|issue|change)\\b` plus `\\bin an issue\\b`, keeping `follow-up` and `belongs elsewhere`. Add 'belongs in another PR', 'worth a new issue' and 'leave it for a later change' to the loop test's warned forms beside the reasons that stand.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-7",
+      "file": "workflows/redline-loop.js",
+      "line": 4278,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A human review pass's summary omits what its final nit pass deferred, and counts a mitigated deferral as fixed",
+      "description": "After a human review pass that commits a fix, the final nit pass runs as a Redline round, `roundRecord` (line 4697). Its correctness findings go through `revise(roundRecord, active, 'correctness')` (line 4701), where the shaper may defer one, and fileDeferred records the filing on `roundRecord.filed` (lines 3351-3367). humanSummary(record, nitPass, threads), called at line 4709 with the human pass's own record, reads only `record.filed` (line 4278) and nitPass's two counts. So the one summary comment that replaces the handoff never names the nit pass's deferred item or its issue number. A human-review run posts no handoff and no `### Deferred` section, so outside that finding's own thread, nothing on the PR says where the item went. Also, nitPass.fixed is `fix.fixed.length` (line 4705), and revise's `fixed` (line 4064) counts every outcome other than declined or none that has commits, a deferral with a mitigation included. When every nit-pass item is a mitigated deferral, the summary says '<n> correctness bug(s) in the fixes, fixed in one more pass that was not re-reviewed' (line 4302), which calls a deferred item fixed. docs/running.md (line 245) says the summary 'counts what that pass found and what a commit fixed', and says a deferral 'is filed like any other ... and the summary line says where it went' (that sentence is about the pass's own deferrals). Traced through the cited lines.",
+      "proposedFix": "Give humanSummary the nit pass's record (pass `roundRecord`, or keep `nitPass.record`) and add its filings with the same `${id} ${deferredTo(filed[id])}` part. Count `nitPass.fixed` from outcomes of kind `fixed` (or `decided` with commits), and add a separate 'deferred' clause for kind `deferred`. Loop test: a human pass whose final nit pass defers R<n>-1 with a mitigation; check that the summary comment names R<n>-1 and #301 and does not call it fixed.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "2b1fcb7db22d22e8e250741593f6bc76ecfe4aba",
+    "candidates": 7,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {"index": 1, "outcome": "verified", "ref": "R4-3"},
+      {"index": 2, "outcome": "verified", "ref": "R4-7"},
+      {"index": 3, "outcome": "verified", "ref": "R4-5"},
+      {"index": 4, "outcome": "verified", "ref": "R4-6"},
+      {"index": 5, "outcome": "verified", "ref": "R4-4"},
+      {"index": 6, "outcome": "verified", "ref": "R4-2"},
+      {"index": 7, "outcome": "verified", "ref": "R4-1"}
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 2942,
+        "summary": "When the person drops the draft of a deferral they chose themselves, their restated reason for the drop is thrown away; the reply and the handoff post only their original 'defer' decision sentence plus 'No issue was opened.'",
+        "failure_scenario": "Guided run, deferAt round. The person answers call R1-1 'Mitigate' with notes '@me ships a guard now and defers the queue rework.' The resolve agent drafts it, draftStop raises the draft, and the person picks Drop with notes '@me does not want this tracked: the client is replaced next quarter.' outcomesFor's decided branch stores only `dropped: Boolean(...)` and keeps `notes: decision.notes`. The same happens at the end of the run: settleHeld line 3451 spreads `{...d.outcome, held: false, dropped: true}`. The thread therefore reads '@me ships a guard now and defers the queue rework. Applied in abc1234. No issue was opened. · decided by: @me'. It says the work was deferred, nothing tracks it, and the reason for not tracking it is posted nowhere (thread, handoff, result.decided). SKILL.md line 224 says the drop's restatement is posted in the thread and listed in the handoff. No loop test covers dropping a deferral the person chose."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 4278,
+        "summary": "humanSummary lists only the human review record's filings, so items deferred by the pass's final nit pass round are absent from the one summary comment that replaces the handoff.",
+        "failure_scenario": "`/redline:redline-revise <pr> review @x` commits a fix, so a final nit pass runs as Redline round N. That round's shaper defers R<N>-1 and fileDeferred records it on roundRecord.filed as #301. humanSummary(record, nitPass, threads) reads only `record.filed` (the human record) and nitPass's counts. The posted summary never names R<N>-1 or #301, and when the deferral shipped a mitigation commit, nitPass.fixed counts it as 'fixed in one more pass'. A Redline run's handoff carries a `### Deferred` section; a human-review run has no surface that says where its nit-pass deferrals went."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 3143,
+        "summary": "FOLLOW_UP matches the bare word 'follow-up', so a decline that cites a spec (a reason the rules allow) is warned about as pointing at follow-up work when that spec is named 'the ... follow-up spec'.",
+        "failure_scenario": "This repository names specs that way ('the #85 follow-up spec', 'the #87 follow-up spec', cited throughout agent-os/specs and the workflow's comments). A shaper decline with reason 'the #85 follow-up spec decided the point (its Decision 2)' is the allowed 'the pull request's spec chose otherwise' reason. `\\bfollow[- ]?up\\b` matches it, so the run warns 'declined R2-3 with a reason that points at follow-up work' and tells the reader it should have been a defer."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 3143,
+        "summary": "FOLLOW_UP misses the phrasings the shaper's own rule names ('another PR', 'an issue', 'a later change') and is inconsistent with itself: 'separate PR' warns, 'another PR' does not.",
+        "failure_scenario": "The rule says a decline never points at 'another pull request, an issue, a later change'. Reasons such as 'belongs in another PR', 'worth a new issue' or 'leave it for a later change' match none of the regex's four alternatives, so checkDeclineReasons stays silent. The decline is posted as 'declined: belongs in another PR' unless the plan approver happens to bounce it. 'a separate PR' does warn, because only the 'separate' alternative lists PR."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 3138,
+        "summary": "The new follow-up warning is pushed again on every reshape, because vetShape reruns checkDeclineReasons over the same kept decline and warnings are never de-duplicated.",
+        "failure_scenario": "A round whose plan bounces twice, where each reshape keeps decline R1-3 with reason 'a follow-up PR', calls vetShape three times (shape, reshape #1, reshape #2). The result's `warnings`, which the skill reports to the person, then holds the identical 'the shaper declined R1-3 with a reason that points at follow-up work' line three times."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 848,
+        "summary": "The shape schema's comment still describes a decline's reason as saying 'where the finding belongs when it belongs somewhere', which this PR now forbids.",
+        "failure_scenario": "Decision 3 of #95 and the new FOLLOW_UP warning say a decline never points at where the work belongs; that item is a defer. Someone maintaining the schema from this comment would put the old rule back. The FOLLOW_UP regex even flags 'belongs elsewhere'."
+      },
+      {
+        "index": 7,
+        "file": "scripts/redline-gh.sh",
+        "line": 128,
+        "summary": "The defer header says a failed lookup or create 'exits 1', but under `set -e` the calls at lines 633 and 643 exit with gh's own status (4 when authentication is required).",
+        "failure_scenario": "Run `redline-gh.sh defer issue R1-4 <draft> <record>` with gh logged out. `found=\"$(gh issue list ...)\"` fails with gh's exit 4 and set -e propagates it, so the script exits 4, not the documented 1. docs/scripts.md quotes this header byte for byte, so a reader or test that relies on 1 is wrong."
+      }
+    ]
+  }
+}

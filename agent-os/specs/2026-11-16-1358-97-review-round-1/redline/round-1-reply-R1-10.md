@@ -1,0 +1,1 @@
+Redline round 1: fixed in c9b4979 (redline: R1-10 count a decided finding as deferred only when its decision deferred it (#95)). · decided by: redline

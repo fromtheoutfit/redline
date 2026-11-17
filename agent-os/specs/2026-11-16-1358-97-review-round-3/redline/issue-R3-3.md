@@ -1,0 +1,9 @@
+# Keep code as written in a drafted issue's multi-line body fields
+
+Redline composes a deferred item's GitHub issue from the shaper's fields and passes `found`, `why` and `fullFix` each through `postedText` as one text (`issueDraft` in `workflows/redline-loop.js`). Under #87's rule in `textParts`, a text holding a newline is escaped whole, its code spans included, so a field written over several lines, or holding a fenced code block, files code such as `if ($a < $b && $c)` and a `@param` tag as `if ($a &lt; $b &amp;&amp; $c)` and `@&#8288;param`, which GitHub shows literally inside code. With `defer to print` the same escaped body is what the session prints for pasting into another tracker.
+
+- **Where:** `workflows/redline-loop.js:1299`
+- **Why it is not fixed in #97:** The rule that escapes a text with a newline whole is #87's and is shared by every text Redline posts, and #88 tracks a rule for multi-line markdown with code fences in comments and replies. A rule that splits a body by Markdown block has to be checked against GitHub's renderer before it is used, as #87's triggers were, and the review round that found this had no way to run that check, so it asked the agents to write each field as one paragraph instead.
+- **Proposed fix:** Escape a drafted issue's body fields by Markdown block, with the rule #88 settles for multi-line markdown or one of its own: leave a fenced code block as written, escape the prose around it, and keep each paragraph's code spans as written, with every construct checked once through `gh api markdown -f mode=gfm` on invented text and recorded. Then pin in `tests/loop-test.mjs` a `found` holding a fenced block with `<`, `&` and `@param`, filed unchanged while the prose around it is escaped.
+
+Deferred from pull request #97 by Redline (round 3, finding R3-3).

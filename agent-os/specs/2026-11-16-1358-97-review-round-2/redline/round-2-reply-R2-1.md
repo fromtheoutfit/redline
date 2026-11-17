@@ -1,0 +1,1 @@
+Redline round 2: fixed in 22e25be (redline: R2-1 name the entry on every failed write of the deferred record (#95)). · decided by: redline

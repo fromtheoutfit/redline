@@ -1,0 +1,1 @@
+Redline round 2: fixed in 233693a (redline: R2-13 stop at resolve when a deferral the person chose comes back with no entry (#95)). · decided by: redline

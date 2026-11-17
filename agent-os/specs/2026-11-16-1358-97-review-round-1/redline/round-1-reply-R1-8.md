@@ -1,0 +1,1 @@
+Redline round 1: fixed in 7b6888c (redline: R1-8 clean each draft title before one is chosen, and read the cleaned title in the draft check (#95)). · decided by: redline

@@ -1,0 +1,249 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "54b13f191b66c869c096a036e87224480c3de76d",
+    "to": "ff5b0a8deb9952738846bab0bdc9ae1a2911bb63"
+  },
+  "summary": "Round 2's fixes do what they set out to do: every failing step of the record write names the entry it lost, one deferred entry per finding is kept, a defer override with no entry stops at resolve, the planned tasks are read from every resolve, and the handoff names the fix-diff low findings. Most of the findings are about trusting what an agent restates. A reshape's deferral of a finding the person decided replaces or blocks the person's (R3-4, R3-6), a no-mitigation deferral listed with files takes in any commit that names it (R3-5, in round 2's fixes), and R1-7's word list misses other wordings (R3-2); the issue body also escapes code inside multi-line fields (R3-3). This repository has no scheduled commands or queued jobs, so there is no overlap to check, and the reviewer's guard refuses `node`, so the loop findings were traced through the cited lines rather than run.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "agents/redline-github.md",
+      "line": 28,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The GitHub agent's defer operation says it runs before the push, but the end-of-run filing runs after it",
+      "description": "The `defer` bullet opens with \"After the checker passed and before the push and the replies\". With `defer at end`, `settleHeld` (workflows/redline-loop.js:3407-3415) calls `fileDeferred(pass, record, toFile, 'Finish')` once the run finishes, after each round's `push and reply` call has already pushed. `deferPrompt` (2228-2239) says nothing about when the call runs, so the agent file is the only statement of the order, and in that case it is wrong. docs/running.md, Deferred items, Filing, already states both cases (\"or, with deferred items raised at the end of the run, when the run finishes\"). The prompt's steps are the same either way, so nothing is filed differently; the agent is told something untrue about where it is in the run.",
+      "proposedFix": "Reword the bullet's opening as docs/running.md does: \"After the checker passed and before the push and the replies, or, with deferred items raised at the end of the run, at Finish before the replies those items waited for\".",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "workflows/redline-loop.js",
+      "line": 771,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "NOTHING_SHIPS reads only a fixed list of whole phrases, so another wording of 'nothing ships' still demands a commit",
+      "description": "R1-7 was fixed, but still reproduces here with a wording outside the list. `NOTHING_SHIPS` is `^(none|n\\/a|nothing|nothing ships( now)?|no mitigation)(\\s*\\(.*\\))?\\.?$`: only those words, optionally a parenthesised note and a full stop, to the end of the string. `None; nothing ships in this pull request.` and `N/A — the full fix is deferred` fail at the `;` and the dash, so `hasMitigation` (772-775) returns true. For a shaper deferral, `mitigated` (3874) is then true and `needCommits` (3875-3876) demands a commit naming the finding, which the plan has no task for, since the shaper planned nothing to ship. `judge` (2459) reports `no commit names R1-2`, the repair pass has nothing to build, and the run stops at stage `check`; a resume replays the cached shape and stops the same way. The same reading makes `describeOutcome` post the phrase as `mitigation: ...` (2960) and `draftView` show it as what ships (3361). It needs the shaper or the resolve agent to write the field in words, which the shape prompt invites by asking the recommendation beside it to say \"that nothing ships now\" (1932); the prompts ask for an empty string (1989, 2029). Traced; the reviewer's guard refuses `node`, so the loop test was not run.",
+      "proposedFix": "Stop deciding 'ships something' from free text alone: a deferral demands a commit only when it ships a mitigation and a task with files was planned for it (`plannedTask(id) || shaperPlanned(id)`), so a wording the list misses costs a mis-worded reply at most, never a stopped round; or widen the test to a leading word followed by any punctuation (`^(none|n\\/a|nothing|no mitigation)\\b`). A loop check: a shaper deferral with mitigation 'None; nothing ships in this pull request.' and no commit ends in status done, with no 'no commit names' error.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "workflows/redline-loop.js",
+      "line": 1299,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A multi-line draft field is escaped whole, so a filed issue shows &lt;, &amp; and @&#8288; inside its code blocks",
+      "description": "`issueDraft` passes `found`, `why` and `fullFix` each through `postedText` (1299, 1302, 1303). `textParts` (1218-1221) treats any text holding a newline as one part, escaped whole, code spans included. A `found` written for a reader who has not seen the pull request, with a fenced block such as ```` ```php\\nif ($a < $b && $c) { /** @param int */ }\\n``` ````, becomes `if ($a &lt; $b &amp;&amp; $c) { /** @&#8288;param int */ }` inside the fence. GitHub shows character references literally inside a code block or span, so the filed issue's code reads `&lt;`, `&amp;&amp;` and `@&#8288;param`, and a single-line span in any multi-line field does the same. The function's comment (1288-1289) says \"a code span stays as written\", which holds only for one-line fields. The escape-whole rule for a newline is #87's, accepted there as a cost for review text, and decision 13 of this pull request's spec routed the issue body through the same function; issue bodies are where multi-line text with code is common. With `defer to print`, the same escaped body is what the session prints for pasting into another tracker (`deferredEntry`, 3348). #88 tracks a newline in comment descriptions, proposed fixes and replies, not the issue body.",
+      "proposedFix": "Escape the issue body by Markdown block: leave fenced code blocks (and the spans of each line) as written and run `postedText` over the remaining lines one at a time, so a newline is no longer a reason to escape a span; or escape only outside fences and spans whatever the newlines. A loop check: a draft whose found holds a fenced block with `<`, `&` and `@param` files that block unchanged while the prose around it is escaped.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3124,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "checkDrafts holds a reshape to a full draft for a finding the person already decided, stopping the round at shape",
+      "description": "After a bounced plan, the reshape is vetted by `vetShape` (3798, 3536-3553), whose `checkDrafts` (3123-3129) throws for every finding the result marks `defer` whose entry lacks a draft field. Nothing exempts a finding in `roundDecisions`. When the person answered call R1-2 'Mitigate', the resolve agent wrote it under `## Deferred` in shape.md and returned its full draft. If the reshape, reading that shape.md, lists R1-2 as `defer` with `found` empty, the run ends with status error, stage shape: \"the shaper deferred R1-2 with no drafted issue (missing found)\", resumable at the reshape, even though the person's deferral and its draft were complete. The rule this pull request's standards state is that a decided finding is theirs \"whatever disposition a reshape later gives it\" (agent-os/standards/workflow/agents.md, line 40; the comment at 3649-3651). The reshape prompt (1987) tells the shaper a decision the person made stays as it is, so this needs the reshape to restate a decided finding as a deferral and leave its draft short. Traced through 3795-3798 and 3123-3127; not run, since the reviewer's guard refuses `node`.",
+      "proposedFix": "Skip decided findings in `checkDrafts` on a reshape (pass `roundDecisions`, or filter `shaped.findings` by `!roundDecisions[f.id]`), and drop the reshape's entry for such a finding with a warning, as `checkDispositions` drops a stray one.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3730,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "shaperPlanned counts a no-mitigation deferral listed with files as planned, so a commit that only names its id is posted as its mitigation",
+      "description": "Round 2's fix for R2-6 added `shaperPlanned` (3730), true for any shaper deferral with a non-empty `files`, whatever its mitigation, and passes it into `outcomesFor`'s `planned` (3952). There `shipsNothing` (2906) is false for such a finding, so `shipped` is every commit that names the id (`named`, 2899), including one that only mentions it. A deferral with mitigation '' and `files: ['app/y.php']` but no task, and a standards commit `redline: record the round 1 review lessons in the standards, finishing R1-2 (#3)` (the form agents/redline-implementer.md:19 gives), reply `deferred to #301. Mitigated in <sha> (redline: record the round 1 review lessons in the standards, finishing R1-2 (#3)).` R1-2 then counts in `fixed` (4024, commits non-empty), so `fixedAny` (4849) can send the run into a final nit pass over a standards-only change. Before round 2 the zeroing at 2906 ruled this out, which is what R1-10's fix meant it to do (its comment at 2902-2905). Round 2's shape.md (Unattended answer 10 and decision 3) weighed only the gate (\"a shaper that lists files by mistake stops nothing\"), not the reply and the count. It needs the shaper to list files for a deferral it plans no task for, against its rule that `files` are the task's paths, and some commit to name the id. Traced; not run, since the reviewer's guard refuses `node`.",
+      "proposedFix": "Count a shaper deferral as planned only when a commit's `finding` field is the id, or only when it ships a mitigation or the plan's task list names it; or keep `shaperPlanned` and leave commits that only mention the id (`mentions`) out of `shipped` when the mitigation is empty. A loop check: a shaper deferral with mitigation '' and files, whose only commit naming it is the standards commit, replies `deferred to #301.` with no Mitigated clause and buys no final nit pass.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3808,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A reshape's deferred entry replaces the resolve agent's for a decided finding, undoing the person's deferral or swapping its draft",
+      "description": "After a bounced plan, line 3808 rebuilds `deferred` as `shaped.deferred.concat(...)`, so the reshape's entry for an id replaces the earlier one with no exception for a finding in `roundDecisions`. `isDeferral` (3738-3747) reads that entry for a decided finding: `resolveDeferred.has(d.id) && (hasMitigation(d) || !plannedTask(d.id))`. Say the person answers call R1-2 'Mitigate' and the resolve agent returns its entry (mitigation 'a guard', its draft) with a task with files. If the reshape lists R1-2 as `defer` with mitigation '', its entry wins: `hasMitigation` is false and `plannedTask` is true, so `isDeferral` is false. No `file deferred r1` call is made, no issue is opened, and `outcomesFor` (2916) finds no `deferredItem`, so the reply is `The author ships a guard now. Applied in <sha>.` with no `Deferred to #N`. If the reshape's entry has a mitigation but another draft, the reshape's title and body replace the resolve's: `draftsOf` recomposes it (3586-3593), and it is raised again as a new version or, on autopilot, filed as the reshape wrote it. The comment at 3649-3651 says a reshape's entry never shows a decided call's deferral (#94, R8-6), and the person's decision should stand whatever a reshape lists. Line 3808 predates this pull request (#94); the readings of the entry's mitigation and draft that make it matter are this pull request's (R1-10's `resolveDeferred` test, and the drafts). It needs a bounce and a reshape that restates a decided finding's deferral differently, which the reshape prompt (1987) tells it not to do. Traced; not run, since the reviewer's guard refuses `node`.",
+      "proposedFix": "At 3808 keep the earlier entry for an id in `roundDecisions` (or in `resolveDeferred`) and drop the reshape's for it with a warning, e.g. `shaped.deferred.filter((d) => !roundDecisions[d.id])` before the concat. A loop check: a call answered 'Mitigate' with a resolve entry, then a bounce whose reshape defers the finding with mitigation '', still files the resolve's draft and replies `... Deferred to #301.`",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-7",
+      "file": "workflows/redline-loop.js",
+      "line": 4239,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "humanSummary words a draft's place by hand, differently from deferredTo",
+      "description": "`humanSummary` writes ``${id} deferred to the draft at `path` `` (4239), while `deferredTo` (1318), which the replies and the handoff use, writes ``deferred; the issue draft is at `path` ``. A human review pass with `defer to spec` posts the summary in one wording and the thread reply in the other, and a later change to the wording has to be made in both places. The issue form (`deferred to #N`) is the same in both.",
+      "proposedFix": "Build the summary's part from the helper: `${id} ${deferredTo(record.filed[id])}`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "ff5b0a8deb9952738846bab0bdc9ae1a2911bb63",
+    "candidates": 8,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 1,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R3-6"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R3-2"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R3-3"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R3-5"
+      },
+      {
+        "index": 5,
+        "outcome": "settled",
+        "ref": "R2-7: declined. Its reason states this on purpose: a deferral the person chose keeps its decision sentence and, for a dropped draft, closes with 'No issue was opened.', so the drop's restatement is not posted (outcomesFor, workflows/redline-loop.js:2916, and draftClose, 2948). The skill's line saying the restatement is posted (skills/redline/SKILL.md:224) describes a Redline deferral's drop (droppedOutcome, 2939-2941)."
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R3-4"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R3-1"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R3-7"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3808,
+        "summary": "After a bounced plan, the reshape's deferred entry replaces the resolve agent's entry for a finding the person decided. `isDeferral` then reads the mitigation from the reshape's entry, so a reshape can undo the person's deferral or swap its draft. This breaks the rule that a reshape never changes a decided finding (#94, R8-6).",
+        "failure_scenario": "On autopilot or guided, the person answers call R1-2 with 'Mitigate'. The resolve agent returns R1-2 with mitigation 'a guard', its draft and a task with files. The plan approver bounces, and the reshape re-lists R1-2 (now under ## Deferred in shape.md) as defer with mitigation ''. `deferred` now holds the reshape's entry, and `isDeferral` is false because the mitigation is empty and the task exists. No `file deferred r1` call is made, no issue is opened, and the reply reads 'The author ships a guard now. Applied in 2bbbbbb.' with no 'Deferred to #N'. If the reshape's draft is complete but different, the reshape's title and body are filed instead of the resolve's (reproduced: deferred[0].draft.title === 'Reshape title')."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 771,
+        "summary": "`NOTHING_SHIPS` only recognises a short list of exact phrases. Any other wording of 'nothing ships' counts as a mitigation, so `needCommits` asks for a commit the plan has no task for. This is the R1-7 case again with a phrase outside its word list; the root problem is reading free text where a structured 'ships nothing' value is needed.",
+        "failure_scenario": "The shaper defers R1-2 with mitigation 'None; nothing ships in this pull request.' (or 'N/A — the full fix is deferred'). `hasMitigation` returns true, `needCommits` includes R1-2, and `judge` reports 'no commit names R1-2'. The repair pass changes nothing, so the run stops: status=error, stage=check, 'checks.sh still fails after one repair pass in round 1: no commit names R1-2' (reproduced on autopilot). A resume replays the same shape, so it stops the same way."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 1299,
+        "summary": "`issueDraft` passes `found` (and `why`/`fullFix` on the next lines) through `postedText`. Any field that contains a newline is escaped as a whole, code spans and fenced blocks included, and GitHub shows those escapes literally inside code. R2-3 assumed `postedText` keeps a quoted fence as written; that is only true for single-line text.",
+        "failure_scenario": "`found` = 'SyncOrders retries.\\n\\n```php\\nif ($a < $b && $c) { /** @param int */ }\\n```'. `postedText` returns '...```php\\nif ($a &lt; $b &amp;&amp; $c) { /** @&#8288;param int */ }\\n```' (checked with node). The filed issue shows `&lt;`, `&amp;&amp;` and `@&#8288;param` as text inside its code block, and `<`, `&` and `@word` in multi-line text read the same way."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 3730,
+        "summary": "`shaperPlanned` treats any shaper deferral that lists `files` as having a task, even when its mitigation is empty and the plan has no task for it. `shipsNothing` is then false, so any commit that merely mentions the id (such as the standards commit) is posted as the mitigation and counted as a fix. R1-10 meant to rule that out; this is a gap left by R2-6's decision.",
+        "failure_scenario": "The shaper defers R1-2 with mitigation '' and files ['app/y.php'], as the shaper agent's own example does for a deferral. The plan has no task for it, and the standards commit says 'finishing R1-2'. The reply reads 'deferred to #301. Mitigated in 2bbbbbb (redline: record the round 1 review lessons in the standards, finishing R1-2 (#3)).' (reproduced). R1-2 also lands in `fixed`, so `fixedAny` can trigger a final nit pass over a standards-only change."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 2916,
+        "summary": "When the person drops the draft of a deferral they chose themselves (a call answered 'Mitigate'), the restated reason the skill records in `args.deferrals[id].notes` is thrown away. The reply uses the call's notes and only adds 'No issue was opened.' Yet docs/running.md:129 and skills/redline/SKILL.md:224 say the drop's restatement is posted in the thread. R2-7 settled the wording; this is the narrower mismatch with the docs. The same happens at line 3422 for drafts held to the end.",
+        "failure_scenario": "Call R1-1 is answered 'Mitigate' ('The author ships a guard now.'). At the draft stop the person drops it: notes 'The author does not want this tracked: the client is replaced next quarter.' The posted reply is 'Redline round 1: The author ships a guard now. Applied in 1bbbbbb (redline: R1-1 fix). No issue was opened. · decided by: @author' (reproduced). The drop reason appears nowhere on GitHub or in the handoff."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 3123,
+        "summary": "`checkDrafts` holds the reshape to a full draft for every finding it marks 'defer', including ones the person already decided and the resolve agent already drafted. A reshape that re-lists such a finding with an incomplete draft stops the whole round at shape.",
+        "failure_scenario": "The person answers call R1-2 'Mitigate' and the resolve agent returns its full draft. The plan bounces, and the reshape lists R1-2 as defer with `found` ''. The run ends: status=error, stage=shape, 'the shaper deferred R1-2 with no drafted issue (missing found)' (reproduced on autopilot), even though the person's deferral and its draft were already complete."
+      },
+      {
+        "index": 7,
+        "file": "agents/redline-github.md",
+        "line": 28,
+        "summary": "The GitHub agent's **defer** step says it runs 'After the checker passed and before the push and the replies'. With deferred items raised at the end of the run, `settleHeld` runs it in Finish, after the round's push. The agent file contradicts the prompt in that case.",
+        "failure_scenario": "Run with `defer at end`. At Finish the `file deferred r1` prompt asks the agent to file drafts after the round has already pushed. Its instructions say filing comes before the push, which can make the agent hesitate or report an ordering problem; the prompt is authoritative, but the two disagree."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 4239,
+        "summary": "`humanSummary` writes its own 'deferred to' wording instead of calling `deferredTo()`, and the two already differ: 'deferred to the draft at `path`' here, 'deferred; the issue draft is at `path`' in the replies and the handoff.",
+        "failure_scenario": "A human review pass that defers H1-1 with `defer to spec` posts a summary saying 'H1-1 deferred to the draft at `...`', while the thread reply and the handoff say 'deferred; the issue draft is at `...`'. Any later change to the wording has to be made in two places."
+      }
+    ]
+  }
+}

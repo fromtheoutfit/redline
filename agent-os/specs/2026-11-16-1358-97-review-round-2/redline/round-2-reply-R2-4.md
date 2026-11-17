@@ -1,0 +1,1 @@
+Redline round 2: fixed in 542bb54 (redline: R2-4 say a headless run that must not stop uses autopilot (#95)). · decided by: redline

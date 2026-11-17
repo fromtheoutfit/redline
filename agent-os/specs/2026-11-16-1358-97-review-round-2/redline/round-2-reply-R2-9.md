@@ -1,0 +1,1 @@
+Redline round 2: declined: settleHeld runs once, at the end of a run, for the rounds that held drafts, at most the run's round cap (3 by default), so the cost is a few GitHub-agent calls a run, while one filing call and one reply call per round keep each round's record file and the labels a resume reruns from (file deferred r<n>, deferred replies r<n>) · decided by: redline

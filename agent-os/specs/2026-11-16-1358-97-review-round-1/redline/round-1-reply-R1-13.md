@@ -1,0 +1,1 @@
+Redline round 1: declined: a round holds a few dozen findings and deferred entries at most, so the repeated map and the recomposed drafts cost microseconds a round, and draftsOf must recompose each draft to notice one that changed · decided by: redline

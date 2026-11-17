@@ -1,0 +1,1 @@
+Redline round 1: declined: the pull request's spec checks the claim against the previous round's approved plan paths on purpose (decision 20 in its plan.md and shape.md), and docs/running.md, Rounds, step 7, already tells the reader the claim is honoured only for a file the previous round's plan named · decided by: redline

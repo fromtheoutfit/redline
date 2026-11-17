@@ -1,0 +1,1 @@
+Redline round 2: fixed in 07f2d76 (redline: R2-3 fence a printed draft body longer than any fence in it (#95)). · decided by: redline

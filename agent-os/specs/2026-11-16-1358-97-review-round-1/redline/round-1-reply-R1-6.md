@@ -1,0 +1,1 @@
+Redline round 1: fixed in c36caac (redline: R1-6 list the deferred items and print the print-mode drafts on a capped run (#95)). · decided by: redline
