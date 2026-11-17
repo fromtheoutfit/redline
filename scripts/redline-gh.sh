@@ -126,9 +126,9 @@
 #                                  draft's, relative to its repository; number 0 and url "" for a
 #                                  draft; reused true when the issue was already there. A failed
 #                                  lookup or create exits 1 and writes no record; so does a record
-#                                  that is no JSON object when the entry is written, which names
-#                                  the entry it could not record, the issue opened by then
-#                                  included
+#                                  that cannot be read, written or moved into place, or is no JSON
+#                                  object, when the entry is written, which names the entry it
+#                                  could not record, the issue opened by then included
 #   update <n> <title|-> <file> [<copy>]
 #                                  edit the PR title and body, with backup and read-back;
 #                                  "-" keeps the current title. Backup dir: $REDLINE_BACKUP_DIR
@@ -182,22 +182,36 @@ defer_cleanup() {
     if [[ -n "$defer_tmp" ]]; then rm -f "$defer_tmp"; fi
 }
 
+# defer_lost <record file> <finding> <entry> <what is wrong>: a write of the record that failed
+# after the lookup or the create on GitHub, so the issue opened by then may be in no record: one
+# line naming the entry it could not record, never a tool's own message alone, and exit 1 (#97,
+# R1-3, R2-1).
+defer_lost() {
+    echo "redline-gh.sh: $1 $4 when $2's entry is written; not recorded: $3" >&2
+    exit 1
+}
+
 # defer_record <record file> <finding> <entry>: the record with the finding's entry set, merged
 # into the record as the file stands now, not as `defer` read it before the lookup and the create
 # on GitHub, so an entry another defer recorded in between is kept (#97, R1-2); written beside
-# itself and moved into place, so a reader never sees half a file.
+# itself and moved into place, so a reader never sees half a file. Every step that can fail exits
+# through defer_lost, which names the entry (#97, R2-1).
 defer_record() {
     local current='{}'
-    mkdir -p "$(dirname "$1")"
+    if ! mkdir -p "$(dirname "$1")" || ! defer_tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"; then
+        defer_lost "$1" "$2" "$3" "cannot be written"
+    fi
     if [[ -f "$1" ]]; then
-        current="$(cat "$1")"
+        if ! current="$(cat "$1")"; then
+            defer_lost "$1" "$2" "$3" "cannot be read"
+        fi
     fi
-    defer_tmp="$(mktemp "$(dirname "$1")/.redline-deferred.XXXXXX")"
     if ! jq -e --arg id "$2" --argjson e "$3" 'if type == "object" then . + {($id): $e} else error("not an object") end' <<<"$current" > "$defer_tmp" 2>/dev/null; then
-        echo "redline-gh.sh: $1 is no JSON object when $2's entry is written; not recorded: $3" >&2
-        exit 1
+        defer_lost "$1" "$2" "$3" "is no JSON object"
     fi
-    mv "$defer_tmp" "$1"
+    if ! mv "$defer_tmp" "$1"; then
+        defer_lost "$1" "$2" "$3" "cannot be moved into place"
+    fi
     defer_tmp=''
 }
 

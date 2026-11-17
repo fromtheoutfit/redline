@@ -460,6 +460,12 @@ GH_FAKE_CREATE_WRITES="$D/corrupt/round-2-deferred.json" GH_FAKE_CREATE_TEXT='no
 is "defer issue, a record that is no JSON object when the entry is written: exits 1, naming the issue opened" "$code $(grep -c 'https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
 is "defer issue, a record that is no JSON object when the entry is written: no temp file is left beside it" "$(ls -A "$D/corrupt" | grep -c '^\.redline-deferred\.')" "0"
 rm -f "$LOG"
+# A record that cannot be written once the issue is open (#97, R2-1): its folder is a file, so
+# making it fails after the create; exit 1, naming the entry with the issue it opened.
+printf 'not a folder\n' > "$D/blocked"
+gh defer issue R2-8 "$D/issue-R2-3.md" "$D/blocked/round-2-deferred.json" >/dev/null 2>"$WORK/err"; code=$?
+is "defer issue, a record whose folder cannot be made once the issue is open: exits 1, naming the issue opened" "$code $(grep -c 'not recorded: .*https://github.com/o/r/issues/123' "$WORK/err")" "1 1"
+rm -f "$LOG"
 cp "$D/issue-R2-3.md" "$WORK/pages/loose.md"
 is "defer draft: a draft outside any repository keeps its path as given" "$(gh defer draft R2-9 "$WORK/pages/loose.md" "$WORK/pages/loose.json" | jq -r .path)" "$WORK/pages/loose.md"
 gh defer open R2-3 "$D/issue-R2-3.md" "$REC" 2>/dev/null; is "defer: a mode other than issue or draft exits 2" "$?" "2"
