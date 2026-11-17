@@ -2162,7 +2162,7 @@ ${gateLine(ctx, label)}
 The ${pass.human ? "pass's" : "round's"} findings, as JSON:
 ${json(ctx.inScope)}
 
-Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a deferred finding with an empty mitigation has no task and no commit; a declined finding has no task and no commit'}), as JSON:
+Dispositions and deferred items (a defer task ships only the mitigation${pass.human ? '; a none finding has no task' : '; a deferred finding with no task in plan.md gets no change and no commit; a declined finding has no task and no commit'}), as JSON:
 ${json({ findings: ctx.shaped.findings, deferred: ctx.deferred })}
 
 Decisions made outside the shaper (already in the spec; decidedBy names the owner, the person or the autopilot): ${Object.keys(ctx.roundDecisions).length ? json(ctx.roundDecisions) : 'none'}
@@ -2921,7 +2921,7 @@ function shaperOwner(decidedBy, pass) {
 function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, forced, filing) {
   // What became of each deferral's draft (#95): filed (where it went), dropped by the person (their
   // answer), or held for the stop before the run finishes.
-  const { filed = {}, dropped = {}, held = new Set(), planned = new Set() } = filing || {}
+  const { filed = {}, dropped = {}, held = new Set() } = filing || {}
   const outcomes = {}
   const dispositions = Object.fromEntries(shaped.findings.map((f) => [f.id, f.disposition]))
   const owners = Object.fromEntries(shaped.findings.map((f) => [f.id, shaperOwner(f.decidedBy, pass)]))
@@ -2931,14 +2931,16 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const named = commits.filter((c) => c.finding === f.id || mentions(c.message, f.id))
     const decision = roundDecisions[f.id]
     const deferredItem = deferred.find((d) => d.id === f.id)
-    // A deferral that ships nothing has no commits of its own (#95): a commit that only names its
-    // id, the standards commit say, is not its mitigation, so it is never called mitigated and
-    // never earns a final nit pass. A task the round planned with files for the finding is never
-    // one that ships nothing: needCommits demands its commit, and the commit is its own (#97, R1-10).
-    // Such a task's commit is its own alone: one the implementer reported for the finding or whose
-    // subject opens with its id, never one that only mentions it (#97, R3-5).
-    const shipsNothing = Boolean(deferredItem) && !hasMitigation(deferredItem) && !planned.has(f.id)
-    const shipped = shipsNothing ? [] : deferredItem && !hasMitigation(deferredItem) ? named.filter((c) => ownCommit(c, f.id)) : named
+    // What a deferral shipped is read off the round's commits, never off the words of its
+    // mitigation (#100): it shipped one when a commit of its own landed, the one the implementer
+    // reported for the finding or one whose subject opens with its id (#97, R3-5). A commit that
+    // only names its id, the standards commit say, is not its mitigation (#95), so with no commit
+    // of its own the item ships nothing: it is never called mitigated, never earns a final nit
+    // pass, and its words are not posted. With one, every commit that names it is listed, as for
+    // a fix. No commit is demanded of a deferral, so nothing here stops a round.
+    const own = named.filter((c) => ownCommit(c, f.id))
+    const shipsNothing = Boolean(deferredItem) && own.length === 0
+    const shipped = shipsNothing ? [] : named
     const owner = owners[f.id] || REDLINE
     const left = (forced || {})[f.id]
     if (left) {
@@ -3769,9 +3771,15 @@ async function revise(record, inScope, reviewedKind) {
   // `files` are the paths its task touches (the shaper's schema), so a deferral listed with files
   // has a task whatever its mitigation says, and the commit that task makes is the item's, never
   // zeroed as shipping nothing. A finding the person or autopilot decided is read from the
-  // resolve's tasks instead (plannedTask), whatever the shaper listed for it. Nothing new is
-  // demanded of the gate: a deferral with no mitigation still demands no commit.
+  // resolve's tasks instead (plannedTask), whatever the shaper listed for it. Nothing is demanded
+  // of the gate for it: no deferral's commit is (#100).
   const shaperPlanned = (id) => !roundDecisions[id] && shaped.findings.some((s) => s.id === id && s.disposition === 'defer' && Array.isArray(s.files) && s.files.length > 0)
+  // The files of the task the round planned for a deferral (#100), none when it planned no task:
+  // the resolve's tasks for a finding the person or autopilot decided, the shaper's own list for
+  // one nobody decided (R2-6's split).
+  const plannedFiles = (id) => (roundDecisions[id]
+    ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files))
+    : shaperPlanned(id) ? shaped.findings.find((s) => s.id === id).files.slice() : [])
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
@@ -3923,12 +3931,17 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const accepted = new Set(finalDispositions.filter((f) => f.disposition === 'accept').map((f) => f.id))
-  // A deferral demands a commit only when it ships a mitigation (#95): one with none has no task.
   const mitigated = (id) => deferred.some((d) => d.id === id && hasMitigation(d))
+  // No commit is demanded of a deferral (#100), Redline's own or one the person chose: a
+  // mitigation is optional, so one the build left out is a warning after the check, never a
+  // failing check. It stays out of the repair as well, which would be told to produce a commit
+  // for a finding the plan may hold no task for, and could only invent a change or answer
+  // blocked, a stop. A fix, the shaper's or a decided one, is demanded as before.
+  const deferralIds = new Set(deferred.filter(isDeferral).map((d) => d.id).concat(finalDispositions.filter((f) => f.disposition === 'defer').map((f) => f.id)))
   const needCommits = finalDispositions
-    .filter((f) => f.disposition === 'fix' || (f.disposition === 'defer' && mitigated(f.id)))
+    .filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id))
     .map((f) => f.id)
-    .concat(resolvedTasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding]).map((task) => task.finding))
+    .concat(resolvedTasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding] && !deferralIds.has(task.finding)).map((task) => task.finding))
   const ctx = {
     specFolder, snapshotPath, octane, baselineFailing, inScope, shaped: { ...shaped, findings: finalDispositions }, deferred, roundDecisions, plan, standards,
     allowed: unique(prFiles.concat(approvedPaths, ['agent-os/specs/', 'agent-os/standards/', 'openapi.json'])),
@@ -4005,7 +4018,18 @@ async function revise(record, inScope, reviewedKind) {
   // say where its item went: the issue's number, or the draft's path.
   const filed = toFile.length ? await fileDeferred(pass, record, toFile, 'Push and reply') : {}
   const heldIds = new Set(held.map((d) => d.item.id))
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds, planned: new Set(inScope.map((f) => f.id).filter((id) => plannedTask(id) || shaperPlanned(id))) })
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds })
+  // A planned mitigation the build left out (#100): the round planned a task with files for the
+  // deferral and no commit of its own landed. It is posted as shipping nothing, its draft is
+  // filed all the same, and the warning names the files, since a commit that carries it under
+  // another subject is not counted either.
+  const landed = (id) => roundCommits.some((c) => ownCommit(c, id))
+  for (const d of roundDeferrals) {
+    const files = plannedFiles(d.item.id)
+    if (files.length && !landed(d.item.id)) {
+      warnings.push(`${pass.name}: ${d.item.id} planned a mitigation in ${files.join(', ')} and no commit of its own landed; posted as shipping nothing`)
+    }
+  }
   for (const d of toFile) {
     deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))
   }
