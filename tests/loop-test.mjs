@@ -2884,6 +2884,11 @@ function samePrefix(name, first, second, n) {
     check(`defer: a decline whose reason says "${match}" is warned about as a defer`, warned.res.warnings.includes(`round 1: the shaper declined ${id} with a reason that points at follow-up work (${JSON.stringify(match)}); an item worth doing elsewhere is a defer`), warned.res.warnings)
   }
   check('defer: a decline for a reason that stands, or for want of confirmation, is not warned about, and the run goes on', warned.res.status === 'done' && !warned.res.warnings.some((w) => Object.keys(stands).some((id) => w.includes(`declined ${id} `))), warned.res.warnings)
+  // A reshape that keeps the same decline does not repeat its warning (#97, R4-4): the run's
+  // warnings are each listed once, however many times the shape was vetted.
+  const rewarned = await go('defer: a kept decline over two reshapes', baseArgs, { reviews: [[f('R1-1', 'nit'), f('R1-2', 'nit')], []], decline: ['R1-1'], reason: { 'R1-1': 'a follow-up PR' }, planBounce: 2, commitIds: [['R1-2']] })
+  const followUpWarning = 'round 1: the shaper declined R1-1 with a reason that points at follow-up work ("follow-up"); an item worth doing elsewhere is a defer'
+  check('defer: a decline a reshape keeps is warned about once, however often the plan bounced', rewarned.res.status === 'done' && labels(rewarned.calls).includes('reshape r1 #2') && rewarned.res.warnings.filter((w) => w === followUpWarning).length === 1, [rewarned.res.status, labels(rewarned.calls), rewarned.res.warnings])
 }
 
 // ---------------------------------------------------------------------------
