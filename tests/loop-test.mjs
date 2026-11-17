@@ -2822,6 +2822,26 @@ function samePrefix(name, first, second, n) {
   }
   const approverAgent = read('agents', 'redline-plan-approver.md')
   check('defer: the plan approver\'s file asks for a task only of a deferral that ships a mitigation, and bounces a decline that points at follow-up work', approverAgent.includes('ships a mitigation') && approverAgent.includes('points at follow-up work'), [approverAgent.includes('ships a mitigation'), approverAgent.includes('points at follow-up work')])
+  // What a deferral ships is the round's record (#100), and each place a person or an agent meets
+  // the rule says so: the plan approver holds the file list and the plan to each other, the
+  // implementer makes the mitigation's commit the finding's own, and the docs, the README and the
+  // skill say what is read and that no commit is demanded.
+  const implementerAgent = read('agents', 'redline-implementer.md')
+  const runningDoc = read('docs', 'running.md')
+  for (const [name, text, phrases] of [
+    ['the plan approver\'s file', approverAgent, ['whose `files` list is empty has no task', 'lists `files` with no task for it in `plan.md`']],
+    ['the implementer\'s file', implementerAgent, ['with no task in `plan.md` gets no change and no commit', 'only a commit of the finding\'s own is counted']],
+    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral']],
+    ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**']],
+    ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;']],
+  ]) {
+    for (const phrase of phrases) {
+      check(`defer: ${name} says "${phrase}"`, text.includes(phrase))
+    }
+  }
+  for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
+    check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
+  }
   check('defer: the resolve agent\'s file has it draft the issue for a deferral the person chose', read('agents', 'redline-resolve.md').includes('drafted issue'))
 
   // A deferral with a mitigation is as before: its commit is demanded, and a correctness one buys the next round.
