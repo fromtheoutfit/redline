@@ -213,14 +213,18 @@ function mock(scenario) {
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : onReshape('reshapeDefer').includes(id) ? 'defer' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
       // workflow's check of it.
+      // The mitigation the shaper writes for a deferred finding (see `deferred` below).
+      const mitigationOf = (id) => (scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause')
       const owner = (id) => (scenario.ownerOf && scenario.ownerOf[id]) || (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
-        // scenario.files and scenario.askRule (#49) add the paths a finding's task touches and the
-        // shaper's ask-rule tag, only when scripted, so every other scenario's JSON is unchanged.
+        // Every finding lists the paths its task touches, as the schema requires (#100): a fix
+        // has a task, and so has a deferral unless its mitigation is scripted as '' (nothing ships);
+        // a decline, an ask and a none have none. scenario.files[id] (#49) scripts a finding's own
+        // list, [] for no task. scenario.askRule (#49) adds the shaper's ask-rule tag, only when scripted.
         findings: ids.map((id) => ({
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
-          ...(scenario.files && scenario.files[id] ? { files: scenario.files[id] } : {}),
+          files: scenario.files && id in scenario.files ? scenario.files[id] : disposition(id) === 'fix' || (disposition(id) === 'defer' && mitigationOf(id) !== '') ? ['app/x.php'] : [],
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
@@ -232,7 +236,7 @@ function mock(scenario) {
         // shape-stage error. scenario.deferTwice (#97, R2-12) returns a finding's entry twice, the
         // second with another found.
         deferred: ids.filter((id) => defer.includes(id) || onReshape('reshapeDefer').includes(id)).map((id) => ({
-          id, mitigation: scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause', fullFix: 'a lock',
+          id, mitigation: mitigationOf(id), fullFix: 'a lock',
           // scenario.drafts[id] (#95) replaces fields of one finding's draft, fullFix included.
           // scenario.reshapeDrafts[id] (#95) does the same on a reshape alone: a draft the reshape changed.
           ...((scenario.noDraft || []).includes(id) ? {} : { title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}`, ...((scenario.drafts || {})[id] || {}), ...((reshape && (scenario.reshapeDrafts || {})[id]) || {}) }),
@@ -360,6 +364,13 @@ const dispositionEnum = (calls, label) => {
   const item = ((schema.properties || {}).findings || {}).items || {}
   return ((item.properties || {}).disposition || {}).enum || []
 }
+// The keys a shaper call's schema requires of every finding, [] when the call or the path is absent (#100).
+const findingRequired = (calls, label) => {
+  const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
+  return (((schema.properties || {}).findings || {}).items || {}).required || []
+}
+// What every shape, human-pass and reshape prompt asks of a finding's files (#100).
+const FILES_ASKED = 'an empty list when it has no task'
 const comment = (calls, label) => {
   const p = pick(calls, label).prompt
   return p.slice(p.indexOf('```markdown\n') + 12, p.lastIndexOf('\n```'))
@@ -1296,6 +1307,8 @@ function samePrefix(name, first, second, n) {
   const roundEnum = whyEnum(first.calls, 'shape r1')
   check('rules: a Redline round\'s shaper schema takes the round\'s reasons and the rule reasons, and none of a human pass\'s own', ['product decision', 'spec assumption', 'outside the pull request', 'no clear pick', 'unconfirmed, serious if true', 'redline\'s own file', 'repository rule craft-config', 'repository rule billing'].every((w) => roundEnum.includes(w)) && ['unsure', 'new standard', 'disproportionate fix'].every((w) => !roundEnum.includes(w)), roundEnum)
   check('rules: a Redline round\'s shaper schema takes fix, decline, defer and ask, and no none', dispositionEnum(first.calls, 'shape r1').join('|') === 'fix|decline|defer|ask', dispositionEnum(first.calls, 'shape r1'))
+  // A finding's files are required, so an empty list means no task, never a list not asked for (#100).
+  check('rules: a Redline round\'s shaper schema requires every finding\'s files', findingRequired(first.calls, 'shape r1').includes('files'), findingRequired(first.calls, 'shape r1'))
   const post = pick(first.calls, 'post r1').prompt
   check('rules: the review body marks a paths match and the reviewer\'s tag as the person\'s, last on the line', post.includes('`config/project/project.yaml:3` · title R1-2 · left to @author under rule craft-config\\n') && post.includes('`app/Billing.php:1` · title R1-3 · left to @author under rule billing\\n') && !post.includes('yours under rule') && post.includes('`app/x.php:1` · title R1-1\\n'), post)
   check('rules: the inline comment says whose it is and why', post.includes(`This one is left to @author: repository rule craft-config (${reason}).`) && post.includes('This one is left to @author: repository rule billing (Billing changes are reviewed by finance).'), post)
@@ -2435,6 +2448,7 @@ function samePrefix(name, first, second, n) {
   const humanEnum = whyEnum(run.calls, 'shape h1')
   check('human: a human pass\'s shaper schema keeps its own reasons and has none of a Redline round\'s', ['product decision', 'spec assumption', 'new standard', 'unsure', 'disproportionate fix'].every((w) => humanEnum.includes(w)) && !humanEnum.includes('redline\'s own file') && !humanEnum.includes('outside the pull request'), humanEnum)
   check('human: a human pass\'s shaper schema takes fix, ask and none, and no decline or defer', dispositionEnum(run.calls, 'shape h1').join('|') === 'fix|ask|none', dispositionEnum(run.calls, 'shape h1'))
+  check('human: a human pass\'s shaper schema requires every finding\'s files, and its prompt asks for them', findingRequired(run.calls, 'shape h1').includes('files') && (pick(run.calls, 'shape h1') || { prompt: '' }).prompt.includes(FILES_ASKED), findingRequired(run.calls, 'shape h1'))
 
   // A repository ask rule still wins: the person is brought in even for what the shaper would decline.
   const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
@@ -2815,6 +2829,10 @@ function samePrefix(name, first, second, n) {
   check('defer: with a mitigation, a correctness deferral buys the next round', mitigated.res.status === 'done' && mitigated.res.rounds.length === 2 && mitigated.res.rounds[1].reviewed === 'fix-diff', [mitigated.res.status, mitigated.res.rounds.map((r) => r.reviewed)])
   const shape = (pick(mitigated.calls, 'shape r1') || { prompt: '' }).prompt
   check('defer: the shape prompt asks for the drafted issue and says a deferral with no mitigation has no task', shape.includes('it always carries a drafted issue that stands on its own') && shape.includes('neither has a deferred one that ships no mitigation') && shape.includes('its drafted issue as title, found, why and fullFix'), shape.slice(-1800))
+  // Every finding lists its files, in a repository with no ask rules too (#100): the round reads
+  // whether a deferral planned a mitigation from them, never from the words of its mitigation.
+  check('defer: the shaper\'s file says every finding lists its files and that a deferral\'s planned mitigation is read from them', shaperAgent.includes(FILES_ASKED) && shaperAgent.includes('never from the words of `mitigation`'), [shaperAgent.includes(FILES_ASKED), shaperAgent.includes('never from the words of `mitigation`')])
+  check('defer: the shape prompt of a repository with no ask rules asks for every finding\'s files', shape.includes(FILES_ASKED), shape.slice(-900))
   check('defer: the plan approver and the implementer are shown the entry with its draft', [(pick(mitigated.calls, 'plan approver r1') || { prompt: '' }).prompt, (pick(mitigated.calls, 'implement r1') || { prompt: '' }).prompt].every((p) => p.includes('"title": "Lock R1-1"') && p.includes('"why": "why R1-1"')))
 
   // No mitigation: no task, no commit demanded, nothing bought. The nit fixed beside it earns the
@@ -2843,7 +2861,7 @@ function samePrefix(name, first, second, n) {
   check('defer: a mitigation that only begins with "nothing ships now" still ships, is demanded and buys the round', nothingBut.res.status === 'done' && nothingBut.res.rounds.length === 2 && nothingBut.res.rounds[1].reviewed === 'fix-diff', [nothingBut.res.status, nothingBut.res.rounds.map((r) => r.reviewed)])
   // A wording the list reads as no mitigation demands no commit (#97, R3-2): before, the gate
   // demanded one the plan had no task for, and the round stopped at the check after its repair.
-  const worded = await go('defer: no mitigation worded as a sentence, and no commit', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': 'None; nothing ships in this pull request.' }, commitIds: [[]] })
+  const worded = await go('defer: no mitigation worded as a sentence, and no commit', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': 'None; nothing ships in this pull request.' }, files: { 'R1-1': [] }, commitIds: [[]] })
   check('defer: a no-mitigation word with its reason after a semicolon demands no commit, so the round ends with no stop at the check', worded.res.status === 'done' && !(worded.res.error || '').includes('no commit names') && replyFor(worded.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. · decided by: redline', [worded.res.status, worded.res.stage, worded.res.error, replyFor(worded.calls, 'push and reply r1', 'R1-1')])
   // The neighbour (#97, R3-2): a comma goes on into what ships, so the words before it are a mitigation.
   const nothingComma = await go('defer: a mitigation that begins with the words nothing ships now and a comma', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'Nothing ships now, but a log line with the retry count' }, commitIds: [['R1-1']] })
@@ -3034,6 +3052,7 @@ function samePrefix(name, first, second, n) {
   // The person's deferral stands through a reshape (#97, R3-6): a reshape that restates it with
   // another mitigation or another draft has its entry dropped, with a warning, and the resolve
   // agent's entry is the one filed and posted.
+  check('filing: the reshape prompt asks for every finding\'s files', (pick(strayReshape.calls, 'reshape r1 #1') || { prompt: '' }).prompt.includes(FILES_ASKED), (pick(strayReshape.calls, 'reshape r1 #1') || { prompt: '' }).prompt.slice(-900))
   const restated = await go('filing: a reshape restates a deferral the person chose, shipping nothing and with another draft', { ...baseArgs, interrupt: 'autopilot', decisions: mitigateCall }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeDefer: ['R1-1'], mitigations: { 'R1-1': '' }, reshapeDrafts: { 'R1-1': { found: 'found R1-1 by the reshape' } }, resolveDeferred: [chosenEntry], commitIds: [['R1-1']] })
   check('filing: a reshape\'s entry for a decided deferral is dropped with a warning, and the resolve agent\'s draft is filed and its reply says where it went', restated.res.status === 'done' && ((draftsOf(restated)[0] || {}).content || '').includes('\nfound R1-1\n') && replyFor(restated.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: The author ships a guard now. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author' && (restated.res.warnings || []).includes('round 1: the reshape listed R1-1 as deferred, a finding the person or autopilot decided; the reshape\'s entry is dropped, since the decision stands'), [restated.res.status, draftsOf(restated), replyFor(restated.calls, 'push and reply r1', 'R1-1'), restated.res.warnings])
   const chosenBare = await go('filing: a call answered with a deferral that ships nothing', { ...baseArgs, decisions: { 'R1-1': { choice: 'Defer it', notes: 'Defer it; nothing ships now.', date: '2026-11-16' } }, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [[]] })
