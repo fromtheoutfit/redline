@@ -2833,6 +2833,11 @@ function samePrefix(name, first, second, n) {
   // The neighbour of the words (#97, R1-7): a mitigation that only begins with them still ships.
   const nothingBut = await go('defer: a mitigation that begins with the words nothing ships now', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': 'Nothing ships now but a log line with the retry count' }, commitIds: [['R1-1']] })
   check('defer: a mitigation that only begins with "nothing ships now" still ships, is demanded and buys the round', nothingBut.res.status === 'done' && nothingBut.res.rounds.length === 2 && nothingBut.res.rounds[1].reviewed === 'fix-diff', [nothingBut.res.status, nothingBut.res.rounds.map((r) => r.reviewed)])
+  // A task the shaper planned with files for its own deferral is a task the round planned (#97,
+  // R2-6): its commit is the item's, never zeroed as shipping nothing, so it is posted and the final
+  // nit pass reads it. The runs above with no files keep the zeroing.
+  const plannedBare = await go('defer: the shaper plans a task with files for a deferral that ships nothing', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': '' }, files: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1']] })
+  check('defer: a commit for a task the shaper planned with files is posted with the item and read by the final nit pass', plannedBare.res.status === 'done' && replyFor(plannedBare.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline' && (plannedBare.res.rounds[1] || {}).reviewed === 'final-nit-pass', [plannedBare.res.status, plannedBare.res.error, replyFor(plannedBare.calls, 'push and reply r1', 'R1-1'), plannedBare.res.rounds.map((r) => r.reviewed)])
 
   // A deferral with no drafted issue is a result the run cannot use: the shaper is rerun.
   const undrafted = await go('defer: the shaper drafts no issue', baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], noDraft: ['R1-1'], commitIds: [[]] })

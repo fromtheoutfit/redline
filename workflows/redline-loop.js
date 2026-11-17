@@ -3677,6 +3677,13 @@ async function revise(record, inScope, reviewedKind) {
   })
   // A task the round's resolve planned with files for a finding: what needCommits demands.
   const plannedTask = (id) => Boolean(resolved) && resolved.tasks.some((task) => task.finding === id && task.files.length > 0)
+  // A task the shaper planned with files for one of its own deferrals (#97, R2-6): a finding's
+  // `files` are the paths its task touches (the shaper's schema), so a deferral listed with files
+  // has a task whatever its mitigation says, and the commit that task makes is the item's, never
+  // zeroed as shipping nothing. A finding the person or autopilot decided is read from the
+  // resolve's tasks instead (plannedTask), whatever the shaper listed for it. Nothing new is
+  // demanded of the gate: a deferral with no mitigation still demands no commit.
+  const shaperPlanned = (id) => !roundDecisions[id] && shaped.findings.some((s) => s.id === id && s.disposition === 'defer' && Array.isArray(s.files) && s.files.length > 0)
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
@@ -3901,7 +3908,7 @@ async function revise(record, inScope, reviewedKind) {
   // say where its item went: the issue's number, or the draft's path.
   const filed = toFile.length ? await fileDeferred(pass, record, toFile, 'Push and reply') : {}
   const heldIds = new Set(held.map((d) => d.item.id))
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds, planned: new Set(inScope.map((f) => f.id).filter(plannedTask)) })
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds, planned: new Set(inScope.map((f) => f.id).filter((id) => plannedTask(id) || shaperPlanned(id))) })
   for (const d of toFile) {
     deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))
   }
