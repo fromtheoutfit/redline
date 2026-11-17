@@ -457,3 +457,21 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 - `agent-os/standards/workflow/agents.md` (step 12, only the approved edits)
 - `agent-os/specs/2026-11-16-1358-97-review-round-3/plan.md` (step 13)
 - `agent-os/specs/2026-11-16-1358-97-review-round-3/shape.md` (step 13)
+
+## As built
+
+Counts are read off each gate run's kept result (`checks.sh` names the file under `kept`), red before the change and green after it. Every count matched the plan's arithmetic.
+
+- **Task 1**, `e7870fa`: the spec folder.
+- **Task 2 (R3-2, its mitigation)**, `bbf194a`. Red: loop `1278 checks passed, 4 failed`: the three new word-loop entries replied `Mitigated in 1bbbbbb (redline: standards edits for R1-1)` and bought round 2, and the `worded` run stopped at `check` with `checks.sh still fails after one repair pass in round 1: no commit names R1-1`; the comma neighbour, `noneOf` and `nothingBut` passed. Green: 1283. Proof: `1`.
+- **Task 3 (R3-3, its mitigation)**, `4fb228f`. Red: `1283 checks passed, 1 failed`. Green: 1284. Proof: `2` and `1`.
+- **Task 4 (R3-4)**, `6f26222`. Red: `1284 checks passed, 1 failed`: the run stopped at shape with `the shaper deferred R1-1 with no drafted issue (missing found); a deferred item always carries one`; `strayReshape` and `undrafted` passed. Green: 1286. Proof: `1`.
+- **Task 5 (R3-5)**, `fb71400`. Red: `1287 checks passed, 1 failed`: the reply read `Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: record the round 1 review lessons in the standards, finishing R1-1 (#95)). · decided by: redline` and a final nit pass ran; `plannedBare` passed. Green: 1288. Proof: `1`.
+- **Task 6 (R3-6)**, `4b25d8d`. Red: `1289 checks passed, 1 failed`: no draft was filed, the reply read `Redline round 1: The author ships a guard now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author`, and no warning was recorded; `changed` and `strayReshape` passed. Green: 1290. Proof: `1`.
+- **Task 7 (R3-1)**, `78e7e06`. Red: `1290 checks passed, 1 failed`. Green: 1291. Proof: `1`.
+- **Task 8 (R3-7)**, `951fd40`. Red: `1292 checks passed, 1 failed`: the summary read `H1-1 deferred to the draft at` and the path; the issue-form neighbour passed. Green: 1293. Proof: `0`.
+- **Standards retrospective**, `77cbd73`: the five approved edits to `agent-os/standards/workflow/agents.md` (lines 49, 39, 40, 47 and 16, each at the end of its bullet). They are lessons; no finding's fix runs through them, so the message names none.
+- Final counts, the gate at `77cbd73` (`ok` true, no unexpected or uncommitted file): loop 1293, guard 601, prefs 172, gate 117, setup 512, gh 179, background 39.
+- Each task's red run came after the previous task's commit, so no gate run served two tasks. Each commit staged its own task's files by name.
+
+No deviation from the plan, so `shape.md` gains no Decision.
