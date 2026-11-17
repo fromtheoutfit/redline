@@ -3135,9 +3135,12 @@ const FOLLOW_UP = /\bfollow[- ]?up\b|\bseparate (?:issue|pull request|PR)\b|\ban
 // A deferred finding carries its drafted issue (#95): a title, what was found, why it is not fixed
 // here and the fix proposed. One without is a result the run cannot use, as a decline with no
 // reason is. Runs after forceAskRules, which turns a rule-covered deferral into an ask and drops
-// its entry, and names the shaper's label itself, since the spec check ran after the shaper.
-function checkDrafts(shaped, shaperLabel) {
-  for (const f of shaped.findings.filter((s) => s.disposition === 'defer')) {
+// its entry, and names the shaper's label itself, since the spec check ran after the shaper. On a
+// reshape it skips the round's decided findings (`decided`): a deferral the person or autopilot
+// made carries the resolve agent's draft, which resolveWith checked, and the decision stands
+// whatever the reshape lists, so a restatement is not held to a draft of its own (#97, R3-4).
+function checkDrafts(shaped, shaperLabel, decided = []) {
+  for (const f of shaped.findings.filter((s) => s.disposition === 'defer' && !decided.includes(s.id))) {
     const missing = draftMissing(shaped.deferred.find((d) => d.id === f.id))
     if (missing.length) {
       throw stageError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
@@ -3548,8 +3551,10 @@ async function checker(flag, snapshot, octane, label, prefix) {
 // R8-5): the spec folder it reports, a disposition for every finding (the reshape prompt asks for
 // every finding, as the shape prompt does), then the eight checks, forceAskRules among them, and
 // the round's dispositions. `known` is the round's calls so far, [] on the shape; `label` names
-// the shaper call for the checks that stop on it, and `suffix` its spec-status call.
-async function vetShape(pass, record, inScope, shaped, known, label, suffix) {
+// the shaper call for the checks that stop on it, and `suffix` its spec-status call. `decided` is
+// the ids of the round's decided findings, [] on the shape, which the draft check skips (#97,
+// R3-4).
+async function vetShape(pass, record, inScope, shaped, known, label, suffix, decided = []) {
   if (shaped.specFolder.replace(/\/+$/, '') !== record.specFolder) {
     warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${record.specFolder}`)
   }
@@ -3563,7 +3568,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix) {
   await checkSpec(pass, record.specFolder, label, suffix)
   forceAskRules(record, pass, inScope, shaped)
   checkDeclineReasons(pass, shaped, label)
-  checkDrafts(shaped, label)
+  checkDrafts(shaped, label, decided)
   checkWhy(pass, shaped, known, label)
   record.dispositions = shaped.findings
 }
@@ -3811,7 +3816,7 @@ async function revise(record, inScope, reviewedKind) {
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
-    await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`)
+    await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
