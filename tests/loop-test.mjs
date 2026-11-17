@@ -3337,6 +3337,9 @@ function samePrefix(name, first, second, n) {
   const fence = 'in a fenced block whose fence is one backtick longer than the longest run of backticks in the body, and at least three'
   const doneSection = ((read('skills', 'redline', 'SKILL.md').split('### `done`')[1] || '').split('### `capped`')[0]) || ''
   check('statements: the skill prints a print-mode draft\'s body in a fence longer than any run of backticks in it, when the run ends and at the cap', doneSection.includes(fence) && capped.includes(fence) && !read('skills', 'redline', 'SKILL.md').includes('in a fenced block, both exactly as given'), 'skills/redline/SKILL.md, done and capped')
+  // A headless run stops where its dial does, a draft's stop included (#97, R2-4).
+  const headless = 'a headless run that must not stop uses `autopilot`'
+  check('statements: the docs and the skill say a headless run that must not stop uses autopilot', read('docs', 'running.md').includes(headless) && read('skills', 'redline', 'SKILL.md').includes(headless), 'docs/running.md, Saved launch settings; skills/redline/SKILL.md, section 3')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
