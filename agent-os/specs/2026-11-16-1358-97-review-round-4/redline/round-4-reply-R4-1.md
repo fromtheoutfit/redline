@@ -1,0 +1,1 @@
+Redline round 4: fixed in 654e311 (Exit 1 from defer when gh's lookup or create fails (#95)). · decided by: @michaelfromtheoutfit
