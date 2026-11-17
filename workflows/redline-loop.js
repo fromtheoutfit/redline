@@ -3382,13 +3382,14 @@ async function fileDeferred(pass, record, drafts, phaseName) {
   return record.filed
 }
 
-// A deferred item as the result and the handoff carry it (#95): the finding, its mitigation and
+// A deferred item as the result and the handoff carry it (#95): the finding, its mitigation (the
+// words as written when its outcome holds a commit, which is what says one shipped, #100) and
 // full fix, its draft as filed (for the session's closing summary, which prints it when the
 // setting is print), where it went, and its outcome as posted.
 function deferredEntry(pass, record, d, filedTo, outcome) {
   return {
     id: d.item.id, round: record.round, title: d.f.title, file: d.f.file, line: d.f.line, specFolder: record.specFolder, commentId: record.commentIds[d.item.id] || 0,
-    mitigation: hasMitigation(d.item) ? d.item.mitigation : '', fullFix: d.item.fullFix,
+    mitigation: outcome && Array.isArray(outcome.commits) && outcome.commits.length ? d.item.mitigation : '', fullFix: d.item.fullFix,
     draft: draftParts(issueDraft(pass, d.f, d.item, d.title || '')),
     ...filedTo,
     outcome: describeOutcome(outcome, pass.human),
@@ -3931,7 +3932,6 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   const accepted = new Set(finalDispositions.filter((f) => f.disposition === 'accept').map((f) => f.id))
-  const mitigated = (id) => deferred.some((d) => d.id === id && hasMitigation(d))
   // No commit is demanded of a deferral (#100), Redline's own or one the person chose: a
   // mitigation is optional, so one the build left out is a warning after the check, never a
   // failing check. It stays out of the repair as well, which would be told to produce a commit
@@ -4028,6 +4028,11 @@ async function revise(record, inScope, reviewedKind) {
     const files = plannedFiles(d.item.id)
     if (files.length && !landed(d.item.id)) {
       warnings.push(`${pass.name}: ${d.item.id} planned a mitigation in ${files.join(', ')} and no commit of its own landed; posted as shipping nothing`)
+    } else if (!files.length && landed(d.item.id)) {
+      // The other way about: a commit of its own with no task planned with files. The commit is the
+      // record, so it counts, and the warning says whose list was empty.
+      const shas = andList(roundCommits.filter((c) => ownCommit(c, d.item.id)).map((c) => short(c.sha)))
+      warnings.push(`${pass.name}: ${d.item.id} has a commit of its own (${shas}) and ${roundDecisions[d.item.id] ? 'the resolve agent planned no task with files for it; posted with its decision' : 'the shaper listed no files for its task; posted as its mitigation'}`)
     }
   }
   for (const d of toFile) {
@@ -4091,15 +4096,17 @@ async function revise(record, inScope, reviewedKind) {
   // handoff's final nit pass sentence still calls such an item fixed (R2-12, deferred), while a
   // human review pass's summary names it with where it went (#97, R4-7).
   // A deferral buys the next round only through its mitigation, which is new code (#95): one that
-  // ships nothing changes nothing here and, like a decline, buys nothing. The shaper's own entry is
-  // read for its own disposition, as shaperOwn is, and the round's final list for the final one.
+  // ships nothing changes nothing here and, like a decline, buys nothing. Whether one shipped is
+  // read off the round's commits, never off the words of an entry (#100): a commit of the
+  // finding's own landed. So a planned mitigation the build left out buys nothing, and neither
+  // does the shaper's deferral once the person changed it to accept, which ships no commit; a fix
+  // the person changed to accept still buys, as above.
   const finalOwn = Object.fromEntries(finalDispositions.map((s) => [s.id, s.disposition]))
-  const shaperMitigated = (id) => shaped.deferred.some((d) => d.id === id && hasMitigation(d))
-  const buys = (own, shipped) => own === 'fix' || (own === 'defer' && shipped)
+  const buys = (own, id) => own === 'fix' || (own === 'defer' && landed(id))
   // A low-severity correctness finding from the previous round's fix diff is fixed like a nit
   // (#95): whatever became of it, a call included, it buys nothing, as a nit buys nothing.
   const likeNit = new Set(record.minor || [])
-  const bought = inScope.some((f) => f.category === 'correctness' && !likeNit.has(f.id) && (calls.some((call) => call.id === f.id) || shaperOwn[f.id] === 'ask' || buys(shaperOwn[f.id], shaperMitigated(f.id)) || buys(finalOwn[f.id], mitigated(f.id))))
+  const bought = inScope.some((f) => f.category === 'correctness' && !likeNit.has(f.id) && (calls.some((call) => call.id === f.id) || shaperOwn[f.id] === 'ask' || buys(shaperOwn[f.id], f.id) || buys(finalOwn[f.id], f.id)))
   const fixed = inScope.filter((f) => !['declined', 'none'].includes(outcomes[f.id].kind) && outcomes[f.id].commits.length > 0).map((f) => f.id)
   return { handoff: false, newHead, commits: roundCommits, bought, fixed }
 }
