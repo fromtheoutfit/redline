@@ -1289,14 +1289,16 @@ function draftTitle(text) {
 // code span stays as written. The place and the last line are the workflow's own. The last line
 // names the pull request, the pass and the finding, text only this issue carries: the script
 // looks an issue up by it before it opens one. Each title is cleaned before one is chosen, so a
-// title of the person's that cleans to nothing gives way to the shaper's (#97, R1-8).
+// title of the person's that cleans to nothing gives way to the shaper's (#97, R1-8). The Where
+// line names a place that exists: none for a finding minted with no file (NO_FILE), and the file
+// alone when the finding gives no line (#97, R2-5).
 function issueDraft(pass, f, item, title) {
   return [
     `# ${draftTitle(title) || draftTitle(item.title)}`,
     '',
     postedText(item.found.trim()),
     '',
-    ...(f && f.file ? [`- **Where:** \`${f.file}:${f.line}\``] : []),
+    ...(f && f.file && f.file !== NO_FILE ? [`- **Where:** \`${f.file}${Number.isInteger(f.line) && f.line > 0 ? `:${f.line}` : ''}\``] : []),
     `- **Why it is not fixed in #${pr}:** ${postedText(item.why.trim())}`,
     `- **Proposed fix:** ${postedText(item.fullFix.trim())}`,
     '',
