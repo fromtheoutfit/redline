@@ -3836,7 +3836,16 @@ async function revise(record, inScope, reviewedKind) {
     // rebuilt before the stop below reads it, so a draft the reshape wrote or changed is raised
     // at the same stop as a call it raised (#95).
     const stillDeferred = (id) => Boolean(roundDecisions[id]) || shaped.findings.some((s) => s.id === id && s.disposition === 'defer')
-    deferred = shaped.deferred.concat(deferred.filter((item) => !shaped.deferred.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
+    // A finding the person or autopilot decided keeps the entry its decision was planned with (#97,
+    // R3-6): a reshape's entry for it would replace that one, and isDeferral reads the entry, so a
+    // restated mitigation could undo the person's deferral and a restated draft swap the one filed.
+    // The reshape's entry is dropped with a warning; stillDeferred keeps the earlier one.
+    const restated = shaped.deferred.filter((d) => roundDecisions[d.id]).map((d) => d.id)
+    if (restated.length) {
+      warnings.push(`${pass.name}: the reshape listed ${restated.join(', ')} as deferred, a finding the person or autopilot decided; the reshape's entry is dropped, since the decision stands`)
+    }
+    const reshaped = shaped.deferred.filter((d) => !roundDecisions[d.id])
+    deferred = reshaped.concat(deferred.filter((item) => !reshaped.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
     const openRaised = raised.filter((call) => !decisions[call.id])
     const stopForRaised = settle(openRaised)
     const redrafted = draftStop()
