@@ -2019,6 +2019,8 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
       '',
       'Decisions on them, as JSON (choice is an option label or the person\'s own words; notes is the decision restated as one standalone sentence, the choice and the reasoning; date is when; decidedBy is the owner):',
       json(callDecisions),
+      '',
+      'Return a deferred entry for a call only when its decision defers the finding (a "mitigate" choice, or the person\'s own words saying to defer it), with its mitigation and its drafted issue; a decision that fixes the finding in full or accepts it returns none, since the workflow reads an entry beside a planned task as a deferral the person chose (#97, R2-15).',
     )
   }
   if (overrides.length) {
