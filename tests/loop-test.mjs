@@ -3250,6 +3250,12 @@ function samePrefix(name, first, second, n) {
   // run, and the workflow's test is the second layer, as for a judgment call's reason.
   const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
   check('filing: a stated disposition outside fix, defer and accept is no statement, so the round stops at resolve', misstated.res.status === 'error' && misstated.res.stage === 'resolve' && (misstated.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstated.res.resumeFrom) && misstated.res.resumeFrom.label === 'resolve r1', [misstated.res.status, misstated.res.stage, misstated.res.error, misstated.res.resumeFrom])
+  // One statement a call is the first returned, whatever it holds (#108, R3-3; the spec's
+  // decisions 12 and 20): a first statement outside the three is no statement, so the round stops
+  // at resolve even with a valid second one beside it. `statedTwice` above is the neighbour, two
+  // valid statements, the first kept.
+  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
+  check('filing: of two statements for one call the first is kept even when it is outside the three, so the round stops at resolve', (misstatedFirst.res || {}).status === 'error' && misstatedFirst.res.stage === 'resolve' && (misstatedFirst.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstatedFirst.res.resumeFrom) && misstatedFirst.res.resumeFrom.label === 'resolve r1', [(misstatedFirst.res || {}).status, (misstatedFirst.res || {}).stage, (misstatedFirst.res || {}).error])
   // A call's decision that names a disposition itself decides, as an override's does (#103,
   // R1-11), so no statement is asked of it (#99): the round goes on without one, and the fix it
   // names is demanded and posted.

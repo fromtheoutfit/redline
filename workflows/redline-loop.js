@@ -3799,7 +3799,10 @@ async function revise(record, inScope, reviewedKind) {
     // its own disposition decides as an override's does (#103, R1-11), and a call left to the
     // person under a rule has no disposition to read, so neither is asked for one. A decision
     // that names its own disposition is checked below by what it names (#108, R1-5).
-    const statements = firstPerId((out.decided || []).filter((item) => CALL_ENDS.includes(item.disposition)))
+    // The first statement is picked before its value is read, so a first one outside the three
+    // leaves the call with no statement, a valid second beside it included (#108, R3-3).
+    const firstStated = firstPerId(out.decided || [])
+    const statements = { kept: firstStated.kept.filter((item) => CALL_ENDS.includes(item.disposition)), repeated: firstStated.repeated }
     if (statements.repeated.length) {
       warnings.push(`${pass.name}: the resolve agent stated a disposition for ${statements.repeated.join(', ')} more than once; the first is kept`)
     }
