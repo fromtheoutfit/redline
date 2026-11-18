@@ -226,6 +226,9 @@ function mock(scenario) {
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
           files: scenario.files && id in scenario.files ? scenario.files[id] : disposition(id) === 'fix' || (disposition(id) === 'defer' && mitigationOf(id) !== '') ? ['app/x.php'] : [],
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
+          // scenario.reshapeAskRule (#108, R1-8) adds an ask-rule tag on a reshape alone, as a
+          // reshape that newly puts a decided call under a rule returns it.
+          ...(reshape && scenario.reshapeAskRule && scenario.reshapeAskRule[id] ? { askRule: scenario.reshapeAskRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
         })),
@@ -3279,6 +3282,15 @@ function samePrefix(name, first, second, n) {
   check('filing: an override to accept planned beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptOverrideWithFiles, 'the resolve agent planned a task with files for R1-1 (app/x.php), which a disposition override names as accepted; an accepted finding changes nothing'), stopDetail(acceptOverrideWithFiles))
   const restatedBare = await go('filing: a defer override on the shaper\'s own deferral, with no entry from the resolve agent', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: deferNamed, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
   check('filing: a defer override whose entry the round already holds from the shaper runs on past resolve with no entry of its own', !(restatedBare.res.status === 'error' && restatedBare.res.stage === 'resolve') && labels(restatedBare.calls).includes('plan approver r1'), stopDetail(restatedBare))
+  // A call stated as a fix that a reshape then leaves to the person under a rule is not
+  // demanded (#108, R1-8), as the clause the statement replaced had it: the finding is posted
+  // as left to the person. Its neighbour, a call stated as a fix and not forced, is demanded
+  // (`strayFilledUnbuilt` above).
+  const billingRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
+  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedReply = replyFor(forcedLater.calls, 'push and reply r1', 'R1-1')
+  check('filing: a call stated as a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedLater.res.status === 'done' && !labels(forcedLater.calls).includes('repair r1'), [forcedLater.res.status, forcedLater.res.stage, forcedLater.res.error, labels(forcedLater.calls).slice(-6)])
+  check('filing: that call is posted as left to the person under the rule', forcedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedReply)
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it

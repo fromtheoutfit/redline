@@ -4081,14 +4081,16 @@ async function revise(record, inScope, reviewedKind) {
   // What the check demands of a call the person or autopilot decided is read from what the
   // resolve agent stated for it, and from nothing else (#99): a call stated as a fix is demanded
   // whatever entry stood beside it and whatever a reshape made of its finding, and one stated as
-  // a deferral or as accepted is not, whatever its task lists. Until #99 a call's fix was
-  // demanded through the resolve's tasks, any with files whose finding was not read as a
-  // deferral, the inference isDeferral made from the other side. Every other finding is demanded
-  // by its final disposition, as before.
+  // a deferral or as accepted is not, whatever its task lists. One exception: a call a reshape
+  // leaves to the person under a rule after its resolve is demanded of nothing, as isDeferral
+  // and the outcomes treat it, and as the clause before #99 had it (#108, R1-8). Until #99 a
+  // call's fix was demanded through the resolve's tasks, any with files whose finding was not
+  // read as a deferral, the inference isDeferral made from the other side. Every other finding
+  // is demanded by its final disposition, as before.
   const needCommits = finalDispositions
     .filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id) && !(f.id in stated))
     .map((f) => f.id)
-    .concat(Object.keys(stated).filter((id) => stated[id] === 'fix'))
+    .concat(Object.keys(stated).filter((id) => stated[id] === 'fix' && !record.forced[id]))
   const ctx = {
     specFolder, snapshotPath, octane, baselineFailing, inScope, shaped: { ...shaped, findings: finalDispositions }, deferred, roundDecisions, plan, standards,
     allowed: unique(prFiles.concat(approvedPaths, ['agent-os/specs/', 'agent-os/standards/', 'openapi.json'])),
