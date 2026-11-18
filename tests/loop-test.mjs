@@ -2846,6 +2846,7 @@ function samePrefix(name, first, second, n) {
   check('defer: a deferred outcome carries no mitigation words, so no reply or outcome line can post them without a commit of its own', !src.includes('outcome.mitigation') && !src.includes('mitigation: shipsNothing ? \'\' : deferredItem.mitigation'))
   check('defer: the skill\'s closing summary no longer reads an empty mitigation as nothing shipped', !read('skills', 'redline', 'SKILL.md').includes('(`mitigation` is empty when nothing shipped)'))
   check('defer: the script\'s done-rule comment says a deferral buys a round only through a commit of its own', !src.includes('(in full, or by a deferral\'s mitigation) or puts to the') && src.includes('A deferral buys it only through a commit of its own'))
+  check('defer: the deferred schema\'s comment says the field is read once, as filled or empty, by isDeferral', src.includes('read once, as filled or empty, by isDeferral') && !src.includes('shown and never read to decide'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }

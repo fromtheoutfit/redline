@@ -764,7 +764,9 @@ function judgmentCallSchema(reasons) {
 }
 
 // A deferred item (#95): worth doing, not in this pull request. `mitigation` is the words for what
-// ships now, an empty string when nothing does, shown and never read to decide (#100); `title`, `found`, `why` and `fullFix` are its drafted issue, which
+// ships now, an empty string when nothing does. The words never decide what ships (#100): the
+// field is read once, as filled or empty, by isDeferral for a call's decision (mitigationFilled
+// below, #99; #103, R2-3). `title`, `found`, `why` and `fullFix` are its drafted issue, which
 // stands on its own. The draft fields are checked by the workflow, not required here, since the
 // resolve agent's entry for a finding left to the person under a repository rule carries none.
 const DEFERRED_SCHEMA = {
