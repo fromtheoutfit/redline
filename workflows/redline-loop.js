@@ -3783,7 +3783,8 @@ async function revise(record, inScope, reviewedKind) {
     // resolve applied needs its statement, since nothing else says what its decision ends in, and
     // one without stops the round here, where a resume reruns the agent. A decision that names
     // its own disposition decides as an override's does (#103, R1-11), and a call left to the
-    // person under a rule has no disposition to read, so neither is asked for one.
+    // person under a rule has no disposition to read, so neither is asked for one. A decision
+    // that names its own disposition is checked below by what it names (#108, R1-5).
     const statements = firstPerId((out.decided || []).filter((item) => CALL_ENDS.includes(item.disposition)))
     if (statements.repeated.length) {
       warnings.push(`${pass.name}: the resolve agent stated a disposition for ${statements.repeated.join(', ')} more than once; the first is kept`)
@@ -3826,13 +3827,20 @@ async function revise(record, inScope, reviewedKind) {
     if (undrafted.length) {
       throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
     }
-    // A deferral the person chose by a disposition override comes back with its entry (#97,
-    // R2-13): one the resolve agent left out would be neither drafted nor filed, and its reply would
-    // close the person's deferral with no issue and no warning. An entry the round already holds
-    // for it (the shaper's own deferral) stands in, as it does when the resolve returns none.
-    const unentered = newOverrides.filter((f) => roundDecisions[f.id].disposition === 'defer' && !fresh.some((item) => item.id === f.id) && !deferred.some((d) => d.id === f.id))
+    // A decision that names its own disposition, an override or a call whose decision carries
+    // one, is checked by what it names, as a stated call is by its statement (#108, R1-5); a
+    // finding left to the person under a rule names none (its disposition was deleted above).
+    // Until #108 only a defer override was checked, by its entry.
+    const named = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id)).filter((id) => !record.forced[id] && roundDecisions[id].disposition)
+    const namedAs = (disposition) => named.filter((id) => roundDecisions[id].disposition === disposition)
+    const whose = (id) => (newOverrides.some((f) => f.id === id) ? 'a disposition override' : 'its decision')
+    // A deferral the person chose comes back with its entry (#97, R2-13): one the resolve agent
+    // left out would be neither drafted nor filed, and its reply would close the person's
+    // deferral with no issue and no warning. An entry the round already holds for it (the
+    // shaper's own deferral) stands in, as it does when the resolve returns none.
+    const unentered = namedAs('defer').filter((id) => !fresh.some((item) => item.id === id) && !deferred.some((d) => d.id === id))
     if (unentered.length) {
-      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((f) => f.id).join(', ')}, which a disposition override deferred; a deferred item always carries a drafted issue`)
+      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((id) => `${id}, which ${whose(id)} deferred`).join('; ')}; a deferred item always carries a drafted issue`)
     }
     // What a call's decision is stated to end in is checked against what this same resolve
     // returned, its entries and its tasks, before anything is built, filed or posted (#99): a
@@ -3857,6 +3865,17 @@ async function revise(record, inScope, reviewedKind) {
     const planned = statedAs('accept').filter((id) => taskFiles(id).length > 0)
     if (planned.length) {
       throw stageError('resolve', `the resolve agent stated accept beside a task with files for ${planned.map((id) => `${id} (${taskFiles(id).join(', ')})`).join(', ')}; an accepted finding changes nothing`)
+    }
+    // A decision that names a fix or an accept is held to its tasks the same way (#108, R1-5):
+    // until #108 a named fix with no task with files stopped at the check after a repair, which
+    // resumes at the build and cannot replan, and a named accept beside a task with files was built.
+    const namedUnplanned = namedAs('fix').filter((id) => taskFiles(id).length === 0)
+    if (namedUnplanned.length) {
+      throw stageError('resolve', `the resolve agent planned no task with files for ${namedUnplanned.map((id) => `${id}, which ${whose(id)} names as a fix`).join('; ')}; a fix names the files it changes`)
+    }
+    const namedPlanned = namedAs('accept').filter((id) => taskFiles(id).length > 0)
+    if (namedPlanned.length) {
+      throw stageError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
     }
     resolvedTasks.push(...out.tasks)
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))

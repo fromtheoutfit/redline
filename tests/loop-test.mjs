@@ -252,6 +252,7 @@ function mock(scenario) {
       // repository ask rule (its decision carries rule, #49); everything else gets a task with a file.
       // scenario.acceptedCalls (#93): the judgment calls the person answered with no change.
       // scenario.resolveDeferred (#94, R5-9): the deferred list the resolve agent returns.
+      // scenario.resolveFiles[id] (#108, R1-5) scripts one task's files, [] for none, whatever its decision.
       const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]).concat(scenario.acceptedCalls || []))
       const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
       const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
@@ -269,7 +270,7 @@ function mock(scenario) {
       const decided = callIds
         .filter((id) => !left.has(id) && !(scenario.resolveUnstated || []).includes(id))
         .flatMap((id) => [{ id, disposition: states(id) }].concat(scenario.resolveDecidedTwice && scenario.resolveDecidedTwice[id] ? [{ id, disposition: scenario.resolveDecidedTwice[id] }] : []))
-      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
+      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
       // scenario.planBounce (#10): the plan approver bounces the plan this many times first.
@@ -3261,6 +3262,22 @@ function samePrefix(name, first, second, n) {
   check('filing: a call stated as a fix is held to its own task\'s files, whatever another call\'s task lists', stopsAtResolve(fixNoFilesBeside, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFilesBeside))
   const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
   check('filing: a call stated as accepted beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptWithFiles, 'the resolve agent stated accept beside a task with files for R1-1 (app/x.php); an accepted finding changes nothing'), stopDetail(acceptWithFiles))
+  // A decision that names its own disposition is held to the same three checks, by what it names
+  // (#108, R1-5): until #108 only a defer override was, by its entry. A call whose decision names
+  // a deferral and comes back with no deferred entry, a decline the person overrules to a fix
+  // planned with no task with files, and a fix the person changes to accept planned beside a task
+  // with files each stop at resolve before the plan approver. Their neighbours run on: `namedCall`
+  // above (a named fix with files), `fixAccepted` (an accept override with no files), and the
+  // shaper's own deferral below, which stands in for a defer override's entry as before.
+  const deferNamed = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-18', disposition: 'defer' } }
+  const namedDeferNoEntry = await go('filing: a call whose decision names a deferral, with no deferred entry', { ...baseArgs, decisions: deferNamed }, { ...oneCall, resolveUnstated: ['R1-1'] })
+  check('filing: a call whose decision names a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(namedDeferNoEntry, 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue'), stopDetail(namedDeferNoEntry))
+  const fixOverrideNoFiles = await go('filing: a decline the person overrules to a fix, planned with no task with files', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')]], decline: ['R1-1'], resolveFiles: { 'R1-1': [] }, commitIds: [['R1-1']] })
+  check('filing: an override to fix planned with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixOverrideNoFiles, 'the resolve agent planned no task with files for R1-1, which a disposition override names as a fix; a fix names the files it changes'), stopDetail(fixOverrideNoFiles))
+  const acceptOverrideWithFiles = await go('filing: a fix the person changes to accept, planned with a task with files', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'accept', notes: 'Keep it as it is.', date: '2026-11-18', disposition: 'accept' } } }, { reviews: [[f('R1-1', 'correctness')]], resolveFiles: { 'R1-1': ['app/x.php'] }, commitIds: [[]] })
+  check('filing: an override to accept planned beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptOverrideWithFiles, 'the resolve agent planned a task with files for R1-1 (app/x.php), which a disposition override names as accepted; an accepted finding changes nothing'), stopDetail(acceptOverrideWithFiles))
+  const restatedBare = await go('filing: a defer override on the shaper\'s own deferral, with no entry from the resolve agent', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: deferNamed, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
+  check('filing: a defer override whose entry the round already holds from the shaper runs on past resolve with no entry of its own', !(restatedBare.res.status === 'error' && restatedBare.res.stage === 'resolve') && labels(restatedBare.calls).includes('plan approver r1'), stopDetail(restatedBare))
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it
