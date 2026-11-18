@@ -913,12 +913,13 @@ const RESOLVE_SCHEMA = {
       items: { type: 'object', required: ['n', 'title', 'files', 'finding'], properties: { n: int, title: str, files: strings, finding: str } },
     },
     deferred: DEFERRED_SCHEMA,
-    // What each judgment call's decision ends in (#99), one entry per call the resolve applied.
-    // The workflow reads a call's disposition from here, never from its deferred entry or its
-    // task. An override names its own disposition, and a call left to the person under a rule has
-    // none to read, so neither has an entry. The list is required, so an empty one means no call
-    // was applied. A result recorded before #99 holds no list, and can replay only for a resolve
-    // with no call, whose prompt did not change; resolveWith reads an absent list as empty.
+    // What each judgment call's decision ends in (#99), one entry per call the resolve was asked
+    // to state. The workflow reads a call's disposition from here, never from its deferred entry
+    // or its task. An override and a call whose decision names its own disposition (#108, R1-2)
+    // name theirs, and a call left to the person under a rule has none to read, so none of them
+    // has an entry. The list is required, so an empty one means no call needed a statement. A
+    // result recorded before #99 holds no list, and can replay only for a resolve with no call,
+    // whose prompt did not change; resolveWith reads an absent list as empty.
     decided: {
       type: 'array',
       items: { type: 'object', required: ['id', 'disposition'], properties: { id: str, disposition: { type: 'string', enum: CALL_ENDS } } },
@@ -3964,9 +3965,10 @@ async function revise(record, inScope, reviewedKind) {
     if (decision) {
       // An override names its disposition, and that decides (#103, R1-11): an override to fix or
       // accept leaves no deferral behind (awayFromDefer), whatever entry the resolve agent returns
-      // beside it. A call's decision names none, and is read from what the resolve agent stated
-      // for it (#99), never from the entry or the task beside it: resolveWith checked the
-      // statement against both when the resolve returned.
+      // beside it, and so does a call whose decision names one (#108, R1-2). A call's decision that
+      // names no disposition is read from what the resolve agent stated for it (#99), never from
+      // the entry or the task beside it: resolveWith checked the statement against both when the
+      // resolve returned.
       if (decision.disposition) {
         return decision.disposition === 'defer'
       }
