@@ -780,7 +780,7 @@ const DEFERRED_SCHEMA = {
 // a filled field is what tells them apart until the resolve agent names the disposition (#99).
 // Until #100 a list of phrases for nothing (none, n/a, nothing ships now) was read here as well,
 // and a wording it missed demanded a commit the plan had no task for (#97, R1-7, R3-2).
-const filled = (item) => Boolean(item) && typeof item.mitigation === 'string' && item.mitigation.trim() !== ''
+const mitigationFilled = (item) => Boolean(item) && typeof item.mitigation === 'string' && item.mitigation.trim() !== ''
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
@@ -3814,7 +3814,7 @@ async function revise(record, inScope, reviewedKind) {
       if (decision.disposition) {
         return decision.disposition === 'defer'
       }
-      return resolveDeferred.has(d.id) && (filled(d) || !plannedTask(d.id))
+      return resolveDeferred.has(d.id) && (mitigationFilled(d) || !plannedTask(d.id))
     }
     return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
   }
