@@ -3808,9 +3808,17 @@ async function revise(record, inScope, reviewedKind) {
     // resolve agent returns beside it (#103, R2-8): the entry is dropped with a warning before the
     // round's list takes it, so the plan approver and the implementer are never shown one, and no
     // draft check stops the round for it.
+    // An override is a finding the person changed away from defer; a call whose decision names
+    // its own fix or accept was never a deferral, and its warning says whose decision it is
+    // (#108, R2-3). An override is never one of the round's calls (overridesFor).
     const strayOverride = once.kept.filter((item) => awayFromDefer(item.id)).map((item) => item.id)
-    if (strayOverride.length) {
-      warnings.push(`${pass.name}: the resolve agent listed ${strayOverride.join(', ')} as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands`)
+    const strayNamed = strayOverride.filter((id) => calls.some((call) => call.id === id))
+    const strayChanged = strayOverride.filter((id) => !strayNamed.includes(id))
+    if (strayChanged.length) {
+      warnings.push(`${pass.name}: the resolve agent listed ${strayChanged.join(', ')} as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands`)
+    }
+    for (const id of strayNamed) {
+      warnings.push(`${pass.name}: the resolve agent listed ${id} as deferred, a call whose decision names it as ${roundDecisions[id].disposition}; the entry is dropped, since the decision stands`)
     }
     // A call whose decision is stated as a fix or as accepted leaves none behind either (#99),
     // on any dial: its entry is dropped the same way, before the round's list takes it, so no

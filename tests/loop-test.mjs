@@ -3250,6 +3250,12 @@ function samePrefix(name, first, second, n) {
   const namedResolve = (pick(namedCall.calls, 'resolve r1') || { prompt: '' }).prompt
   check('filing: the resolve prompt says a call whose decision names its own disposition has no entry in decided', namedResolve.includes(NAMED_EXEMPT), namedResolve.slice(-1500))
   check('filing: the resolve agent\'s file says a call whose decision carries a disposition has no entry in decided', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('and so does a call whose decision carries `disposition`'))
+  // A stray entry beside a call whose decision names its own disposition is dropped as one beside
+  // an override is, and its warning says whose decision it is (#108, R2-3): the call was never a
+  // deferral the person changed away from. The override's own wording is pinned by
+  // `overrideBuilt` below.
+  const namedStray = await go('filing: a stray entry beside a call whose decision names a fix', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1']] })
+  check('filing: a stray entry beside a call whose decision names a fix is warned as that call\'s, never as one the person changed away from defer', (namedStray.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a call whose decision names it as fix; the entry is dropped, since the decision stands') && !(namedStray.res.warnings || []).some((w) => w.includes('changed away from defer')), [namedStray.res.status, namedStray.res.warnings])
   // What is stated is checked against what the same resolve returned, before anything is built,
   // filed or posted (#99): a statement its own tasks and entries cannot support is a result the
   // run cannot use, so the round stops at resolve, where a resume reruns the agent. Three ways: a
