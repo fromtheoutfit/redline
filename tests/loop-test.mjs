@@ -2831,7 +2831,7 @@ function samePrefix(name, first, second, n) {
   for (const [name, text, phrases] of [
     ['the plan approver\'s file', approverAgent, ['whose `files` list is empty has no task', 'lists `files` with no task for it in `plan.md`']],
     ['the implementer\'s file', implementerAgent, ['with no task in `plan.md` gets no change and no commit', 'only a commit of the finding\'s own is counted']],
-    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision']],
+    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision', 'except in the plan dial\'s list of the shaper\'s dispositions']],
     ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**', 'read by no Redline pass']],
     ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;']],
     ['the skill\'s closing summary', read('skills', 'redline', 'SKILL.md'), ['and what shipped, from `ships` and never from whether `mitigation` is empty', 'and what shipped, from `ships`, as that section says']],
@@ -2847,6 +2847,7 @@ function samePrefix(name, first, second, n) {
   check('defer: the skill\'s closing summary no longer reads an empty mitigation as nothing shipped', !read('skills', 'redline', 'SKILL.md').includes('(`mitigation` is empty when nothing shipped)'))
   check('defer: the script\'s done-rule comment says a deferral buys a round only through a commit of its own', !src.includes('(in full, or by a deferral\'s mitigation) or puts to the') && src.includes('A deferral buys it only through a commit of its own'))
   check('defer: the deferred schema\'s comment says the field is read once, as filled or empty, by isDeferral', src.includes('read once, as filled or empty, by isDeferral') && !src.includes('shown and never read to decide'))
+  check('defer: the comment on the mitigation field names the plan dial\'s list as the one that shows the shaper\'s words', src.includes('the plan dial\'s list of the shaper\'s'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }

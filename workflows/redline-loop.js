@@ -776,13 +776,14 @@ const DEFERRED_SCHEMA = {
 // Whether a deferred entry's mitigation field holds anything (#100). What a deferral ships is
 // never read from this field: before the build it is the task the round planned with files, and
 // after it the commit of the finding's own, so no wording here can stop a round or demand a
-// commit. The words are shown, at a stop and in the result,
-// only beside a mitigation the record says ships. This test has one reader, isDeferral, which
-// the record alone cannot serve: there a person's "Mitigate" answer and a fix with a stray entry
-// are both an entry beside a task with files, and a filled field is what tells them apart until
-// the resolve agent names the disposition (#99). Until #100 a list of phrases for nothing (none,
-// n/a, nothing ships now) was read here as well, and a wording it missed demanded a commit the
-// plan had no task for (#97, R1-7, R3-2).
+// commit. The words are shown, in a stop's drafts and in the result's deferred list,
+// only beside a mitigation the record says ships; the plan dial's list of the shaper's
+// dispositions shows them as the shaper wrote them, beside the files it listed (#103, R2-4).
+// This test has one reader, isDeferral, which the record alone cannot serve: there a person's
+// "Mitigate" answer and a fix with a stray entry are both an entry beside a task with files, and
+// a filled field is what tells them apart until the resolve agent names the disposition (#99).
+// Until #100 a list of phrases for nothing (none, n/a, nothing ships now) was read here as well,
+// and a wording it missed demanded a commit the plan had no task for (#97, R1-7, R3-2).
 const mitigationFilled = (item) => Boolean(item) && typeof item.mitigation === 'string' && item.mitigation.trim() !== ''
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
