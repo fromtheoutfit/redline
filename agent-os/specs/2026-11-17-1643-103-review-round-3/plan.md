@@ -386,3 +386,25 @@ The red run: the check fails.
 - `agent-os/specs/2026-11-17-1643-103-review-round-3/plan.md`
 - `agent-os/specs/2026-11-17-1643-103-review-round-3/shape.md`
 - `agent-os/standards/workflow/agents.md`
+
+## As built
+
+Every task was built as planned, and no file outside the tasks' lists was touched. Gate runs took about two minutes each, so every task had a red run and a green run of its own, with no combined run. Each task's files were staged by name once its change was made. The next task's check was then added to the working tree only, and one gate run showed the staged task green and the next check red. The commit was made from the index, so each commit holds only its own checks.
+
+| Task | Finding | Commit | Red | Green |
+| --- | --- | --- | --- | --- |
+| 1 | spec | `933e169` | | |
+| 2 | R3-1 | `61e0844` | 1378 passed, 2 failed (the plan dial's new phrase and the absence check) | 1380 passed (Task 3's red run prints 1380 passed, 1 failed) |
+| 3 | R3-2 | `55cb11e` | 1380 passed, 1 failed | 1381 passed (Task 4's red run prints 1381 passed, 1 failed) |
+| 4 | R3-3 | `4f23088` | 1381 passed, 1 failed, with `[0,true]`, as predicted | 1382 passed (Task 5's red run prints 1382 passed, 1 failed) |
+| 5 | R3-5 | `1e585de` | 1382 passed, 1 failed, with `[146,181]`, as predicted | 1383 passed (Task 6's red run prints 1383 passed, 1 failed) |
+| 6 | R3-6 | `accf502` | 1383 passed, 1 failed | 1384 passed, 0 failed (with Task 6 staged, before its commit) |
+| 7 | standards, a lesson | `17ff44a` | | |
+
+**Final gate run** (after `17ff44a`): `ok: true`. Loop `1384 checks passed, 0 failed`, the count expected above. prefs 172 passed, gate 117, setup 512, gh 181, background 39, all with 0 failed. syntax, validate and guard exit 0. `git.unexpected_files` and `git.uncommitted` are empty. `grep -c` prints `0` for `plannedTask`, `the title and body as they will be filed, and its version` and `whatever entry stands beside it` in `workflows/redline-loop.js`, and for `empty when nothing ships now` and `true: the mitigation as written` in `skills/redline/SKILL.md`. `git diff --word-diff` of Task 5's change shows only the `//` markers moving, so no word changed. Every line of both rewrapped blocks is at 100 columns or less.
+
+**Not built, as planned.** R3-4 is deferred with nothing shipped, and R3-7 is declined. Neither has a change or a commit.
+
+**Standards retrospective.** The standards approver approved item 1. It is applied in `agent-os/standards/workflow/agents.md`, line 49, after the R2-7 clause, in its own commit. The commit names no finding, since the item is a lesson and every fix is whole in its own commit.
+
+**Deviations:** none.
