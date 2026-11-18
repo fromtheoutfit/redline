@@ -3951,7 +3951,12 @@ async function revise(record, inScope, reviewedKind) {
   // failing check. It stays out of the repair as well, which would be told to produce a commit
   // for a finding the plan may hold no task for, and could only invent a change or answer
   // blocked, a stop. A fix, the shaper's or a decided one, is demanded as before.
-  const deferralIds = new Set(deferred.filter(isDeferral).map((d) => d.id).concat(finalDispositions.filter((f) => f.disposition === 'defer').map((f) => f.id)))
+  // The findings read as deferrals, and only those (#103, R1-10): a final disposition of defer
+  // alone is not one, since a reshape's re-sort of a decided call is no deferral (#94, R8-6), and
+  // that call's planned task is still demanded. Read once here; the filing and the outcomes
+  // below reuse it, since nothing they read changes after the approve loop.
+  const roundDeferred = deferred.filter(isDeferral)
+  const deferralIds = new Set(roundDeferred.map((d) => d.id))
   const needCommits = finalDispositions
     .filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id))
     .map((f) => f.id)
@@ -4024,7 +4029,7 @@ async function revise(record, inScope, reviewedKind) {
   // run, so nothing is filed and no reply is posted for it yet. Dropped: the person said so at a
   // stop, so nothing is filed and nothing else changes. Filed: every other draft, with the
   // person's title when they gave one; on autopilot that is every draft, as drafted.
-  const roundDeferrals = draftsOf(deferred.filter(isDeferral))
+  const roundDeferrals = draftsOf(roundDeferred)
   const held = holdsDrafts ? roundDeferrals : []
   const dropped = Object.fromEntries(roundDeferrals.filter((d) => raisesDrafts && deferrals[d.item.id] && deferrals[d.item.id].action === 'drop').map((d) => [d.item.id, deferrals[d.item.id]]))
   const toFile = holdsDrafts ? [] : roundDeferrals.filter((d) => !dropped[d.item.id]).map((d) => ({ ...d, title: raisesDrafts && deferrals[d.item.id] ? deferrals[d.item.id].title : '' }))
@@ -4032,7 +4037,7 @@ async function revise(record, inScope, reviewedKind) {
   // say where its item went: the issue's number, or the draft's path.
   const filed = toFile.length ? await fileDeferred(pass, record, toFile, 'Push and reply') : {}
   const heldIds = new Set(held.map((d) => d.item.id))
-  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, deferred.filter(isDeferral), roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds })
+  const outcomes = outcomesFor(pass, inScope, { ...shaped, findings: finalDispositions }, roundDeferred, roundDecisions, roundCommits, record.forced, { filed, dropped, held: heldIds })
   // A planned mitigation the build left out (#100): the round planned a task with files for the
   // deferral and no commit of its own landed. It is posted as shipping nothing, its draft is
   // filed all the same, and the warning names the files, since a commit that carries it under
