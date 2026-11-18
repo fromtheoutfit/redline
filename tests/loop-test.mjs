@@ -2865,6 +2865,7 @@ function samePrefix(name, first, second, n) {
   }
   const wrapped = [commentLines('// A draft as a stop shows it to the person', 'function draftView('), commentLines('  // The round\'s deferrals as they stand', '  const isDeferral = ')]
   check('defer: the comments above draftView and isDeferral wrap at 100 columns', wrapped.every((lines) => lines.every((line) => line.length <= 100)), wrapped.map((lines) => Math.max(...lines.map((line) => line.length))))
+  check('defer: isDeferral reads whether a decided finding has a planned task through plannedFiles, with no second reader of the resolve\'s tasks', !src.includes('plannedTask') && src.includes('mitigationFilled(d) || plannedFiles(d.id).length === 0'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }

@@ -3797,16 +3797,15 @@ async function revise(record, inScope, reviewedKind) {
     const shown = decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
     return decision && shown.disposition === 'defer' ? { ...shown, files: plannedFiles(f.id) } : shown
   })
-  // A task one of the round's resolves planned with files for a finding: what needCommits demands.
-  const plannedTask = (id) => resolvedTasks.some((task) => task.finding === id && task.files.length > 0)
   // The files of the task the round planned for a deferral (#100), none when it planned no task.
-  // A finding the person or autopilot decided is read from the resolve's tasks (plannedTask reads
-  // the same tasks), whatever the shaper listed for it. One nobody decided is read from the
-  // shaper's own list for its deferral (#97, R2-6): a finding's `files` are the paths its task
-  // touches (the shaper's schema), so a deferral listed with files has a task whatever its
-  // mitigation says, and shaperFiles reads only a finding the shaper deferred, so no other test of
-  // the list is needed (#103, R2-9). Nothing is demanded of the gate for it: no deferral's commit
-  // is (#100).
+  // A finding the person or autopilot decided is read from the resolve's tasks, whatever the
+  // shaper listed for it; isDeferral reads whether such a finding has a planned task from this
+  // list too, so the stops, the prompts, the warning and isDeferral read one fact one way (#103,
+  // R3-6). One nobody decided is read from the shaper's own list for its deferral (#97, R2-6): a
+  // finding's `files` are the paths its task touches (the shaper's schema), so a deferral listed
+  // with files has a task whatever its mitigation says, and shaperFiles reads only a finding the
+  // shaper deferred, so no other test of the list is needed (#103, R2-9). Nothing is demanded of
+  // the gate for it: no deferral's commit is (#100).
   const plannedFiles = (id) => (roundDecisions[id] ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files)) : shaperFiles(id))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
@@ -3830,7 +3829,7 @@ async function revise(record, inScope, reviewedKind) {
       if (decision.disposition) {
         return decision.disposition === 'defer'
       }
-      return resolveDeferred.has(d.id) && (mitigationFilled(d) || !plannedTask(d.id))
+      return resolveDeferred.has(d.id) && (mitigationFilled(d) || plannedFiles(d.id).length === 0)
     }
     return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
   }
