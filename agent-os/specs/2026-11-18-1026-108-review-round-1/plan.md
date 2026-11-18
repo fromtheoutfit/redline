@@ -495,3 +495,25 @@ Then, as written in the gate:
 11. **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.2`, as the pull request set them; this round adds no bump.
 12. **Standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. The standards approver judges them; apply the approved ones in their own commit, after the finding commits, or record "Standards retrospective: no changes" under Decisions in `shape.md` if none is approved.
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 1 for PR #108 (#99)`.
+
+## As built
+
+Built as planned, with no deviation. Each task's checks were added first and seen red on a gate run. Each task was then built and committed, and its green was seen on the next gate run, which also showed the next task's red. Counts are the loop harness's. Every other harness passed on every run, as at baseline.
+
+| Task | Commit | Red run | Green run |
+| --- | --- | --- | --- |
+| Task 1, spec folder | `3f66809` | none | none |
+| Task 2, R1-1 | `109b9c5` | none (no harness reads the sentence) | none |
+| Task 3, R1-2 | `a8a1c9d` | `1416 checks passed, 2 failed` (both new checks) | `1423 checks passed, 3 failed` (the 3 are Task 4's red) |
+| Task 4, R1-5 | `e2f66d8` | `1423 checks passed, 3 failed` (the three stops; the neighbour `restatedBare` was green before the change and after it) | `1423 checks passed, 1 failed` (the 1 is Task 5's red) |
+| Task 5, R1-7 | `3f46c3f` | `1423 checks passed, 1 failed` (the source check) | `1424 checks passed, 2 failed` (the 2 are Task 6's red) |
+| Task 6, R1-8 | `6edd835` | `1424 checks passed, 2 failed`: `forcedLater` stopped at `check` after `repair r1` with `no commit names R1-1`, as traced. The reply check was red too, since that run posted nothing | `1427 checks passed, 0 failed` |
+| Standards retrospective | `90813ac` | none | none |
+
+In Task 4's red run, the three stop runs reached Finish and each added the run-record check `go` adds, so that run counts 1426 checks. Built, those runs stop at `resolve` and add none. The neighbour reaches Finish and adds its own, so Task 4 nets five checks, as planned.
+
+Final gate, on `90813ac`: `ok: true`, every check exit 0, `1427 checks passed, 0 failed`, no unexpected and no uncommitted files. That matches the plan's expected count.
+
+The standards commit applies the three approved edits: `workflow/agents.md` line 39 (R1-8's exception) and line 16 (R1-2's lesson), and `testing/tests.md` line 28 (R1-8's lesson). They are lessons only and finish no finding's fix, so the commit message names no finding.
+
+Docs (gate step 10): `docs/running.md`, "Deferred items", bullet "A deferral you chose at a call", is changed by `109b9c5` (Task 2) and `e2f66d8` (Task 4's sentence, the reader-facing entry for its workflow change). Tasks 3, 5 and 6 make no reader-facing change, for the reasons their tasks give. Version (step 11): `0.4.2` in both manifests, unchanged.
