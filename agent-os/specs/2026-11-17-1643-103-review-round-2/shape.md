@@ -77,6 +77,8 @@ Out of scope, as the pull request has it: `scripts/redline-guard.sh`, `hooks/hoo
     Decided by: redline
 12. **R2-12 (nit, decline).** Reason: what counts as a finding's own commit is defined once, in `ownCommit` (`workflows/redline-loop.js:596-598`). The three sites (2937, 4053, 4061) only filter the round's commits through it, so a change to that rule is one edit. Every commit `ownCommit` accepts is in `outcomesFor`'s `named`, since it is the reported commit or opens with the id. A shared map would add an argument to `outcomesFor` and change no behaviour.
     Decided by: redline
+13. **Deviation at build: one red run for Tasks 8, 9 and 10.** Gate runs slowed to between 30 and 100 minutes each partway through the round (95 seconds at its start), so the checks of Tasks 8, 9 and 10 were seen red together in one gate run (1373 passed, 5 failed, the neighbour green), not one run each. Each finding still has its own commit holding only its own checks, and the final gate run is green for all three (loop 1378 passed, 0 failed). What was built is as planned. Only the number of red runs changed (`plan.md`, As built).
+    Decided by: redline
 
 ### Proportionality
 

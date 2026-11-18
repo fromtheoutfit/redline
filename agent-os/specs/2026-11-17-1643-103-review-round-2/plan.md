@@ -649,3 +649,33 @@ The condition is R1-2's, unchanged: a decided finding whose disposition after th
 - `agent-os/specs/2026-11-17-1643-103-review-round-2/plan.md`
 - `agent-os/specs/2026-11-17-1643-103-review-round-2/shape.md`
 - `agent-os/standards/workflow/agents.md`
+
+## As built
+
+Every task was built as planned, and no file outside the tasks' lists was touched. The loop counts below are from the gate's red and green runs. Where a green run's count was not printed, the next red run's count confirms it.
+
+| Task | Finding | Commit | Red | Green |
+| --- | --- | --- | --- | --- |
+| 1 | spec | `33c12ba` | | |
+| 2 | R2-7 | `6eec2c8` | 1359 passed, 6 failed (the six new checks) | 1365 passed (Task 3's red run prints 1365 passed, 1 failed) |
+| 3 | R2-8 | `c4ae920` | 1365 passed, 1 failed (both prompts held the entry, no warning) | 1366 passed |
+| 4 | R2-1 | `c5c1862` | 1366 passed, 1 failed | 1367 passed |
+| 5 | R2-2 | `51c9767` | by the two-layer mutation: 1367 passed, 2 failed, as predicted (this check, whose reply ended `Deferred to #301.`, and Task 3's); both lines restored, `git diff workflows/redline-loop.js` empty before the commit | 1369 passed |
+| 6 | R2-3 | `ef0f064` | 1369 passed, 1 failed | 1370 passed, 0 failed |
+| 7 | R2-4 | `c36df26` | 1370 passed, 2 failed | 1372 passed, 0 failed |
+| 8 | R2-5 | `5f0d197` | one red run for Tasks 8 to 10: 1373 passed, 5 failed (Task 8's two checks, Task 9's check, Task 10's first two; Task 10's neighbour passed). Task 10's two read `["defer",[]]` and `["defer",["app/x.php"]]`, as predicted | the final run |
+| 9 | R2-9 | `70cbe01` | as above | the final run |
+| 10 | R2-11 | `0a6ee87` | as above | the final run |
+| 11 | standards, finishing R2-1 and R2-4 | `f8dbd3b` | | |
+
+**Final gate run** (after `f8dbd3b`): `ok: true`. Loop `1378 checks passed, 0 failed`, the count expected above. prefs 172 passed, gate 117, setup 512, gh 181, background 39, all with 0 failed. syntax, validate and guard exit 0. `git.unexpected_files` and `git.uncommitted` are empty. `grep -c` prints `0` for `approverFindings`, `shaperPlanned` and `shown and never read to decide` in `workflows/redline-loop.js`, and for `is empty when nothing shipped` in `skills/redline/SKILL.md`.
+
+**Standards retrospective.** The standards approver approved all six items. They are applied in `agent-os/standards/workflow/agents.md` lines 39, 42, 46 and 49, in one commit whose message names R2-1 and R2-4, the findings items 1 and 2 finish.
+
+**Deviation: one red run for Tasks 8, 9 and 10.** Partway through the round, gate runs on this machine went from about 95 seconds to between 30 and 100 minutes each. The setup harness alone took 33 minutes on one run, and nothing in the round's changes accounts for that. So the checks of Tasks 8, 9 and 10 were added together and seen red in one gate run, not one run each. Each task was then committed with only its own checks:
+- the checks of Tasks 9 and 10 were taken out of `tests/loop-test.mjs` while Task 8 was committed;
+- each was put back word for word in its own task's commit.
+
+None of the three commits had a green run of its own. The final gate run is green for all of them, with the counts above. Recorded under Decisions in `shape.md` (Decision 13).
+
+**A timing failure outside the plan.** On the combined red run, the background harness failed 2 of 39 cases ("a second wait returns the result": got `3`, still running). That case runs a stub that sleeps 3 seconds and expects the default wait to collect its result, which the slow machine missed. No task touches `scripts/` or `tests/background-test.sh`. The harness passed on every other run of the round, the final one included (39 passed).
