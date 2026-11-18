@@ -3364,6 +3364,10 @@ function samePrefix(name, first, second, n) {
   check('filing: the resolve agent\'s schema requires the decided list', (((callResolve.opts || {}).schema || {}).required || []).includes('decided'), ((callResolve.opts || {}).schema || {}).required)
   check('filing: the resolve agent\'s file asks for each call\'s disposition, as the prompt does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes(ENDS_IN))
   check('filing: the resolve prompt of a run with overrides and no call asks for no disposition', overridePrompt !== '' && !overridePrompt.includes(ENDS_IN) && !overridePrompt.includes(ENTRY_RULE), overridePrompt.slice(-1500))
+  // An override's fix is held to the files of a task whose finding is its own id (namedUnplanned),
+  // so the agent file says so; the overrides prompt stays as it was, so an overrides-only resolve
+  // still replays after an update (#108, R4-9; the spec's decision 13).
+  check('filing: the resolve agent\'s file asks for a task of its own for an override\'s fix', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('`fix` plans the full fix as a task of its own, its `finding` set to the override\'s id (files by path, the change, the test)'))
   // A call stated as a fix is held to the files of its own task (`fixNoFilesBeside` above), so the
   // ask says each has a task of its own, its finding the call's id, in the prompt and in the agent
   // file (#108, R2-4).
