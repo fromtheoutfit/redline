@@ -3116,6 +3116,29 @@ function samePrefix(name, first, second, n) {
   // The neighbour: a deferral nobody decided is shown with the shaper's own list, as before.
   const ownDefer = await go('filing: the shaper\'s own deferral, as the plan approver is shown it', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], files: { 'R1-1': ['app/y.php'] }, commitIds: [['R1-1']] })
   check('filing: the plan approver is shown the shaper\'s own files for a deferral nobody decided', approverFiles(ownDefer, 'R1-1') === '["defer",["app/y.php"]]', [ownDefer.res.status, ownDefer.res.error, approverFiles(ownDefer, 'R1-1')])
+  // The implementer is shown the same list (#103, R2-11): for a deferral the person decided, the
+  // files of the task the resolve agent planned, never the shaper's list for the old disposition.
+  // An absent heading or JSON that does not parse reads as null, so a run that took another path
+  // fails the check and does not throw.
+  const IMPLEMENT_HEAD = 'a declined finding has no task and no commit), as JSON:\n'
+  const implementerFiles = (r, id) => {
+    const p = (pick(r.calls, 'implement r1') || { prompt: '' }).prompt
+    const a = p.indexOf(IMPLEMENT_HEAD)
+    const b = a < 0 ? -1 : p.indexOf('\n\nDecisions made outside the shaper', a)
+    if (a < 0 || b < 0) {
+      return null
+    }
+    try {
+      const entry = JSON.parse(p.slice(a + IMPLEMENT_HEAD.length, b)).findings.find((x) => x.id === id)
+      return entry ? JSON.stringify([entry.disposition, entry.files]) : null
+    } catch {
+      return null
+    }
+  }
+  check('filing: the implementer is shown the resolve agent\'s files for a decline the person overruled to a deferral with a task', implementerFiles(declineToDefer, 'R1-1') === '["defer",["app/x.php"]]', [declineToDefer.res.status, implementerFiles(declineToDefer, 'R1-1')])
+  check('filing: the implementer is shown no files for a fix the person changed to a deferral with no task, whatever the shaper listed', implementerFiles(fixToDefer, 'R1-1') === '["defer",[]]', [fixToDefer.res.status, implementerFiles(fixToDefer, 'R1-1')])
+  // The neighbour: a deferral nobody decided is shown with the shaper's own list, as before.
+  check('filing: the implementer is shown the shaper\'s own files for a deferral nobody decided', implementerFiles(ownDefer, 'R1-1') === '["defer",["app/y.php"]]', [ownDefer.res.status, implementerFiles(ownDefer, 'R1-1')])
   // A finding the person decided is a deferral only when the decision made it one (#97, R1-10): a
   // resolve agent's entry that ships nothing beside a call it planned as a fix, and a reshape's
   // entry beside a decided call, leave the fix a fix; a call answered with a deferral that ships
