@@ -3639,7 +3639,8 @@ async function revise(record, inScope, reviewedKind) {
   }
   // Each draft carries the files of the task planned for it, which the stop shows (#100):
   // plannedFiles once the round's decisions are in, the shaper's own list at the stops before them.
-  const draftsOf = (list, filesOf = plannedFiles) => list.map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id) })).filter((d) => d.f).map((d) => {
+  // Every call passes its reader, since plannedFiles is declared after the first stop (#103, R1-8).
+  const draftsOf = (list, filesOf) => list.map((item) => ({ item, f: inScope.find((finding) => finding.id === item.id) })).filter((d) => d.f).map((d) => {
     const text = issueDraft(pass, d.f, d.item, '')
     const seen = record.drafts[d.item.id]
     if (!seen || seen.text !== text) {
@@ -3823,7 +3824,7 @@ async function revise(record, inScope, reviewedKind) {
   // and lists no declines, as a stop after a plan approver does (afterApproval; #94, R3-7): an
   // override is applied by that first resolve, whose prompt comes before this stop.
   const draftStop = () => {
-    const open = openDrafts(draftsOf(deferred.filter(isDeferral)))
+    const open = openDrafts(draftsOf(deferred.filter(isDeferral), plannedFiles))
     return open.length ? { handoff: true, kind: 'decisions', pending: [], calls, shaped, drafts: open, afterApproval: true } : null
   }
   if (calls.length || overrides.length) {
@@ -4036,7 +4037,7 @@ async function revise(record, inScope, reviewedKind) {
   // run, so nothing is filed and no reply is posted for it yet. Dropped: the person said so at a
   // stop, so nothing is filed and nothing else changes. Filed: every other draft, with the
   // person's title when they gave one; on autopilot that is every draft, as drafted.
-  const roundDeferrals = draftsOf(roundDeferred)
+  const roundDeferrals = draftsOf(roundDeferred, plannedFiles)
   const held = holdsDrafts ? roundDeferrals : []
   const dropped = Object.fromEntries(roundDeferrals.filter((d) => raisesDrafts && deferrals[d.item.id] && deferrals[d.item.id].action === 'drop').map((d) => [d.item.id, deferrals[d.item.id]]))
   const toFile = holdsDrafts ? [] : roundDeferrals.filter((d) => !dropped[d.item.id]).map((d) => ({ ...d, title: raisesDrafts && deferrals[d.item.id] ? deferrals[d.item.id].title : '' }))
