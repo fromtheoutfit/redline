@@ -767,27 +767,24 @@ function judgmentCallSchema(reasons) {
 }
 
 // A deferred item (#95): worth doing, not in this pull request. `mitigation` is the words for what
-// ships now, an empty string when nothing does. The words never decide what ships (#100), and
-// since #99 nothing reads the field to decide anything: whether a call's decision deferred its
-// finding is read from what the resolve agent states (`decided` in RESOLVE_SCHEMA), where the
-// field was read as filled or empty until then (#103, R2-3). `title`, `found`, `why` and `fullFix`
-// are its drafted issue, which stands on its own. The draft fields are checked by the workflow,
-// not required here, since the resolve agent's entry for a finding left to the person under a
-// repository rule carries none.
+// ships now, an empty string when nothing does. The words never decide what ships (#100): before
+// the build that is the task the round planned with files, and after it the commit of the
+// finding's own, so no wording can stop a round or demand a commit. The words are shown, in a
+// stop's drafts and in the result's deferred list, only beside a mitigation the record says ships;
+// the plan dial's list of the shaper's dispositions shows them as the shaper wrote them, beside
+// the files it listed (#103, R2-4). Until #100 a list of phrases for nothing (none, n/a, nothing
+// ships now) was read from the field, and a wording it missed demanded a commit the plan had no
+// task for (#97, R1-7, R3-2). And since #99 nothing reads the field to decide anything: whether a
+// call's decision deferred its finding is read from what the resolve agent states (`decided` in
+// RESOLVE_SCHEMA), where the field was read as filled or empty until then, to tell a person's
+// "Mitigate" answer from a fix with a stray entry (#103, R2-3). `title`, `found`, `why` and
+// `fullFix` are its drafted issue, which stands on its own. The draft fields are checked by the
+// workflow, not required here, since the resolve agent's entry for a finding left to the person
+// under a repository rule carries none.
 const DEFERRED_SCHEMA = {
   type: 'array',
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str, title: str, found: str, why: str } },
 }
-// What a deferral ships is never read from the mitigation field either (#100): before the build
-// it is the task the round planned with files, and after it the commit of the finding's own, so
-// no wording there can stop a round or demand a commit. The words are shown, in a stop's drafts
-// and in the result's deferred list, only beside a mitigation the record says ships;
-// the plan dial's list of the shaper's dispositions shows them as the shaper wrote them, beside
-// the files it listed (#103, R2-4). Until #100 a list of phrases for nothing (none, n/a, nothing
-// ships now) was read from the field, and a wording it missed demanded a commit the plan had no
-// task for (#97, R1-7, R3-2). From #100 to #99 one test still read it, as filled or empty, to
-// tell a person's "Mitigate" answer from a fix with a stray entry, which the record alone cannot
-// do: both are an entry beside a task with files.
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
