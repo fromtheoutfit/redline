@@ -231,7 +231,19 @@ const personLabel = login ? `@${login}` : A.revise && typeof A.revise === 'objec
 const personLabelStart = personLabel.charAt(0).toUpperCase() + personLabel.slice(1)
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
+// What a judgment call's decision can end in (#99): a change in this pull request whose commit
+// the check demands, an issue with or without a mitigation, or no change.
+const CALL_ENDS = ['fix', 'defer', 'accept']
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
+// A decision that names its own disposition names one of the three (#108, R2-6): the skill
+// records only fix, defer or accept, and every reader of the field matches those exact values,
+// so any other would be neither checked at resolve nor demanded at the check. Until #99 a
+// resolve task with files was demanded whatever the decision named.
+for (const [id, entry] of Object.entries(decisions)) {
+  if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
+    fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
 // plan dial: the passes whose disposition list the person approved (relaunch carries them all):
 // a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
 // its final nit pass never share a key when their numbers are equal (#38, R1-5).
@@ -872,9 +884,6 @@ function shapeSchema(reasons, dispositions) {
 const FILES_ASK = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask, the paths its recommended change would touch)'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
-// What a judgment call's decision can end in (#99): a change in this pull request whose commit
-// the check demands, an issue with or without a mitigation, or no change.
-const CALL_ENDS = ['fix', 'defer', 'accept']
 const RESOLVE_SCHEMA = {
   type: 'object',
   required: ['specFolder', 'tasks', 'deferred', 'decided', 'unresolved'],

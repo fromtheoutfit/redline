@@ -600,6 +600,11 @@ function samePrefix(name, first, second, n) {
   check('bad interrupt: refused before any agent runs', run.thrown && /args.interrupt must be one of/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
   run = await go('bad scope word', { ...baseArgs, scope: 'nits' }, { reviews: [[]] })
   check('bad scope: refused', run.thrown && /args.scope must be/.test(run.thrown.message))
+  // A decision's disposition is one of the three when it names one (#108, R2-6): every reader of
+  // it matches the exact values, so any other is refused before any agent runs. Its neighbour, a
+  // lower-case fix, runs on (`namedCall`), and so does a decision with no disposition at all.
+  run = await go('bad decision disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'Fix' } } }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'] })
+  check('bad decision disposition: refused before any agent runs', Boolean(run.thrown) && /args\.decisions must give a disposition of fix \| defer \| accept/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   check('no login: the person running Redline stands in, never the author', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the person running Redline') && !comment(run.calls, 'handoff comment').includes('the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
 }
