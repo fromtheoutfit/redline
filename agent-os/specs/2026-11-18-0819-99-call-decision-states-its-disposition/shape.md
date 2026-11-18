@@ -92,7 +92,7 @@ A drafted comment; posting it is yours.
 
 ## Standards retrospective
 
-Listed from decisions 1 to 26 and the red runs, and put to the person before any edit. All six edits were approved on 2026-11-18 and applied in their own commit.
+Listed from decisions 1 to 26 and the red runs, and put to the person before any edit. All six edits were approved on 2026-11-18 and applied in their own commit, `7905c47`.
 
 The edits:
 
