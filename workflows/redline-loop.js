@@ -2041,6 +2041,10 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   // A call left to the person under a rule has no disposition to state (#99), and the sentence
   // that says so is in the prompt only when a call carries one.
   const anyRule = Object.values(callDecisions).some((d) => d && d.rule)
+  // A call whose decision names its own disposition decides as an override's does, so no
+  // statement is asked of it (#99, its spec's decision 17), and the sentence that says so is in
+  // the prompt only when a call carries one, as for a rule (#108, R1-2).
+  const anyNamed = Object.values(callDecisions).some((d) => d && d.disposition)
   const lines = [
     RUN_LINE,
     '',
@@ -2069,7 +2073,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
       // The whole ask for `decided` (#99) sits here, in the calls block, and nowhere else in the
       // prompt: the answer then does not depend on the agent file the session loaded, and a
       // resolve with overrides and no call keeps the prompt it had before #99, so it replays.
-      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (its task names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}`,
+      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (its task names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}`,
     )
   }
   if (overrides.length) {

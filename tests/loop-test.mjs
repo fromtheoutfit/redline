@@ -3234,6 +3234,13 @@ function samePrefix(name, first, second, n) {
   check('filing: a call whose decision names its disposition needs no statement, and its fix is posted as applied', namedCall.res.status === 'done' && replyFor(namedCall.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it in full. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [namedCall.res.status, namedCall.res.stage, namedCall.res.error, replyFor(namedCall.calls, 'push and reply r1', 'R1-1')])
   const namedUnbuilt = await go('filing: a call whose decision names its own disposition, the fix left out', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [[], []] })
   check('filing: a call whose decision names a fix is demanded: left unbuilt, the round stops at the check', namedUnbuilt.res.status === 'error' && namedUnbuilt.res.stage === 'check' && (namedUnbuilt.res.error || '').includes('no commit names R1-1'), [namedUnbuilt.res.status, namedUnbuilt.res.stage, namedUnbuilt.res.error])
+  // A call whose decision names its own disposition is asked for no statement (#108, R1-2), as
+  // a call left to the person under a rule is not: the prompt says so only when a call carries
+  // one (`callResolve` below holds no such sentence), and the agent file says it too.
+  const NAMED_EXEMPT = 'A call whose decision carries `disposition` names its own and has no entry in decided.'
+  const namedResolve = (pick(namedCall.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('filing: the resolve prompt says a call whose decision names its own disposition has no entry in decided', namedResolve.includes(NAMED_EXEMPT), namedResolve.slice(-1500))
+  check('filing: the resolve agent\'s file says a call whose decision carries a disposition has no entry in decided', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('and so does a call whose decision carries `disposition`'))
   // What is stated is checked against what the same resolve returned, before anything is built,
   // filed or posted (#99): a statement its own tasks and entries cannot support is a result the
   // run cannot use, so the round stops at resolve, where a resume reruns the agent. Three ways: a
