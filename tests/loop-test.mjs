@@ -2842,6 +2842,7 @@ function samePrefix(name, first, second, n) {
   check('defer: the skill\'s plan dial has no space before the comma after a decline\'s reason', !read('skills', 'redline', 'SKILL.md').includes('thread) ,'))
   check('defer: the script\'s comment on the mitigation field says the words are shown only beside a mitigation that ships', src.includes('only beside a mitigation the record says ships'))
   check('defer: every call of draftsOf passes its files reader, with no default that names a later declaration', !src.includes('filesOf = plannedFiles'))
+  check('defer: a deferred outcome carries no mitigation words, so no reply or outcome line can post them without a commit of its own', !src.includes('outcome.mitigation') && !src.includes('mitigation: shipsNothing ? \'\' : deferredItem.mitigation'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }

@@ -1521,7 +1521,7 @@ function replyBody(pass, outcome) {
       // Where the item went (#95): the issue's number, or the draft's path. The reply opens
       // "deferred", which redline-gh.sh prior-findings reads back as the disposition, so a later
       // run never raises the finding again. A deferral that ships nothing is never called mitigated.
-      return `${pass.title}: ${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}.${commits ? ` Mitigated in ${commits}.${local}` : outcome.mitigation ? ` Mitigation: ${outcome.mitigation}.` : ''}${owner}`
+      return `${pass.title}: ${outcome.filed ? deferredTo(outcome.filed) : 'deferred'}.${commits ? ` Mitigated in ${commits}.${local}` : ''}${owner}`
     case 'decided':
       // A draft the person dropped (#95): their reason, that no issue was opened, and the
       // mitigation's commit when one shipped. It opens with the decision, so prior-findings reads
@@ -2952,7 +2952,7 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
       // mitigation still ships. It is their decision, posted with their reason.
       outcomes[f.id] = droppedOutcome(dropped[f.id], shipped)
     } else if (dispositions[f.id] === 'defer' && deferredItem) {
-      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, mitigation: shipsNothing ? '' : deferredItem.mitigation, decidedBy: owner, filed: filed[f.id] || null, held: held.has(f.id) }
+      outcomes[f.id] = { kind: 'deferred', commits: shipped, fullFix: deferredItem.fullFix, decidedBy: owner, filed: filed[f.id] || null, held: held.has(f.id) }
     } else if (dispositions[f.id] === 'decline') {
       // Redline's own decision not to act (#93): settled with its reason, and no commit is demanded.
       outcomes[f.id] = { kind: 'declined', reason: reasons[f.id], commits: named, decidedBy: REDLINE }
@@ -2991,7 +2991,7 @@ function describeOutcome(outcome, human) {
     case 'deferred':
       // Where the item went (#95), then the mitigation's commits when one shipped. An item with
       // no filing yet is one the run has still to raise with the person.
-      return `${outcome.filed ? deferredTo(outcome.filed) : outcome.held ? HELD : 'deferred'}${outcome.commits.length ? `; mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}` : outcome.mitigation ? `; mitigation: ${outcome.mitigation}` : ''}${owner}`
+      return `${outcome.filed ? deferredTo(outcome.filed) : outcome.held ? HELD : 'deferred'}${outcome.commits.length ? `; mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}` : ''}${owner}`
     case 'decided':
       if (outcome.draftDropped) {
         return `${decisionSentence(outcome, human)} No issue was opened.${outcome.commits.length ? ` Mitigated in ${andList(outcome.commits.map((c) => short(c.sha)))}.` : ''}${owner}`
