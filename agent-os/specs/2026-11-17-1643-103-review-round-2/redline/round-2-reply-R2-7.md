@@ -1,0 +1,1 @@
+Redline round 2: fixed in 6eec2c8 (redline: R2-7 say in the result's deferred entry whether a mitigation shipped, and read it in the closing summary (#100)). · decided by: redline

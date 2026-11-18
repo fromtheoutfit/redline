@@ -1,0 +1,1 @@
+Redline round 1: fixed in ddf0eed (redline: R1-8 pass the files reader at every call of draftsOf (#100)). · decided by: redline

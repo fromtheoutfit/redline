@@ -1,0 +1,1 @@
+Redline round 3: fixed in 55cb11e (redline: R3-2 call a mitigation with empty words a change in its own commit at the end-of-run stop (#100)). · decided by: redline

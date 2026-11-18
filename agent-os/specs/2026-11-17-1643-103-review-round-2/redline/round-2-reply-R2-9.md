@@ -1,0 +1,1 @@
+Redline round 2: fixed in 70cbe01 (redline: R2-9 read the shaper's own list in plannedFiles with no second test of it (#100)). · decided by: redline

@@ -1,0 +1,10 @@
+{
+  "round": 4,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "96f014f5c7e9f2ac27ba4b73f44ef4d3fbecac18",
+    "to": "cb7fdc1ba2bad16d90802524df85c2d202a0d9a8"
+  },
+  "summary": "The round 3 fixes did what they said and introduced no correctness bugs. R3-6 replaces `plannedTask(id)` with `plannedFiles(id).length === 0` inside the `if (decision)` branch of `isDeferral` (workflows/redline-loop.js:3832). There `roundDecisions[d.id]` is set, so `plannedFiles` reads the resolve's tasks, and because `RESOLVE_SCHEMA` (line 882) requires each task's `files`, \"no task with files\" and \"an empty union of those files\" mean the same thing. No reference to `plannedTask` is left. The other fixes are a comment rewrap (R3-5), the SKILL.md and standards prose for R3-1 to R3-3 (now consistent with what `draftView` and `deferredEntry` compute for `ships` at each stop), and new loop-test checks that pin them.",
+  "findings": []
+}

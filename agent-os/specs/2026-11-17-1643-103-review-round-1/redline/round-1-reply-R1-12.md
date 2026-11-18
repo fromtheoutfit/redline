@@ -1,0 +1,1 @@
+Redline round 1: fixed in efcadce (redline: R1-12 pin and document the decided form of the commit-of-its-own warning (#100)). · decided by: redline

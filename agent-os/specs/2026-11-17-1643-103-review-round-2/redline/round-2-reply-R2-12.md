@@ -1,0 +1,1 @@
+Redline round 2: declined: what counts as a finding's own commit is defined once, in `ownCommit`, and the three sites only filter the round's commits through it, so a change to that rule is one edit; a shared map would add an argument to `outcomesFor` and change no behaviour · decided by: redline

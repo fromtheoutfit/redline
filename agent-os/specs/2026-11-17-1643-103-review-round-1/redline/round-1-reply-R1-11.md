@@ -1,0 +1,1 @@
+Redline round 1: fixed in cfb4a1c (redline: R1-11 read an override's own disposition when deciding whether it is a deferral (#100)). · decided by: redline

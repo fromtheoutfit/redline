@@ -1,0 +1,1 @@
+Redline round 1: fixed in 504ebce (redline: R1-1 say that an uncounted mitigation commit is read by no Redline pass (#100)). · decided by: redline

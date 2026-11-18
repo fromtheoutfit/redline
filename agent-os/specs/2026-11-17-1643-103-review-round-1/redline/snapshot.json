@@ -1,0 +1,34 @@
+{
+  "pr": 103,
+  "start_sha": "5a9c2f11e905ee2b51c1978c8f1c63e0451e2f14",
+  "round_sha": "5a9c2f11e905ee2b51c1978c8f1c63e0451e2f14",
+  "base_ref": "main",
+  "files": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    "README.md",
+    "agent-os/specs/2026-11-17-1535-100-deferral-ships-from-the-record/plan.md",
+    "agent-os/specs/2026-11-17-1535-100-deferral-ships-from-the-record/references.md",
+    "agent-os/specs/2026-11-17-1535-100-deferral-ships-from-the-record/shape.md",
+    "agent-os/specs/2026-11-17-1535-100-deferral-ships-from-the-record/standards.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agents/redline-implementer.md",
+    "agents/redline-plan-approver.md",
+    "agents/redline-shaper.md",
+    "docs/running.md",
+    "skills/redline/SKILL.md",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "agent-os/specs/2026-11-17-1643-103-review-round-1/",
+    "workflows/redline-loop.js",
+    "tests/loop-test.mjs",
+    "README.md",
+    "docs/running.md",
+    "skills/redline/SKILL.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/testing/tests.md"
+  ]
+}
