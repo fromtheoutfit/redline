@@ -3752,7 +3752,15 @@ async function revise(record, inScope, reviewedKind) {
     if (once.repeated.length) {
       warnings.push(`${pass.name}: the resolve agent listed ${once.repeated.join(', ')} as deferred more than once; the first entry is kept`)
     }
-    const fresh = once.kept
+    // An override to fix or accept leaves no deferral behind (awayFromDefer), whatever entry the
+    // resolve agent returns beside it (#103, R2-8): the entry is dropped with a warning before the
+    // round's list takes it, so the plan approver and the implementer are never shown one, and no
+    // draft check stops the round for it.
+    const strayOverride = once.kept.filter((item) => awayFromDefer(item.id)).map((item) => item.id)
+    if (strayOverride.length) {
+      warnings.push(`${pass.name}: the resolve agent listed ${strayOverride.join(', ')} as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands`)
+    }
+    const fresh = once.kept.filter((item) => !awayFromDefer(item.id))
     // A deferral the resolve agent planned carries its drafted issue, as the shaper's does (#95).
     const undrafted = fresh.filter((item) => draftMissing(item).length)
     if (undrafted.length) {
