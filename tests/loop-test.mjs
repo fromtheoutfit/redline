@@ -2839,6 +2839,7 @@ function samePrefix(name, first, second, n) {
       check(`defer: ${name} says "${phrase}"`, text.includes(phrase))
     }
   }
+  check('defer: the skill\'s plan dial has no space before the comma after a decline\'s reason', !read('skills', 'redline', 'SKILL.md').includes('thread) ,'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }
