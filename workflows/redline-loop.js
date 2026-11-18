@@ -247,7 +247,8 @@ const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArr
 // (#108, R4-2).
 for (const [id, entry] of Object.entries(decisions)) {
   if (entry && typeof entry === 'object' && (entry.disposition === null || entry.disposition === '')) {
-    decisions[id] = Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'disposition'))
+    const { disposition: _dropped, ...rest } = entry
+    decisions[id] = rest
   } else if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
     fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
   }
