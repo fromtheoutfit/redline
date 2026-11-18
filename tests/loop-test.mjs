@@ -3301,6 +3301,13 @@ function samePrefix(name, first, second, n) {
   const forcedReply = replyFor(forcedLater.calls, 'push and reply r1', 'R1-1')
   check('filing: a call stated as a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedLater.res.status === 'done' && !labels(forcedLater.calls).includes('repair r1'), [forcedLater.res.status, forcedLater.res.stage, forcedLater.res.error, labels(forcedLater.calls).slice(-6)])
   check('filing: that call is posted as left to the person under the rule', forcedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedReply)
+  // The same holds for a call whose decision names its own fix (#108, R2-5): no statement is
+  // asked of it, so it is demanded through its final disposition, and a reshape that leaves it
+  // to the person under a rule after its resolve takes it out of the demand as well.
+  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
+  check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
+  check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it
