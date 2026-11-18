@@ -4121,9 +4121,10 @@ async function revise(record, inScope, reviewedKind) {
   keepReplyIds(record, pushed)
   const newHead = roundCommits.length ? roundCommits[roundCommits.length - 1].sha : null
   // The done rule (#93): a round is bought by what it finds, not by what it commits. A new
-  // correctness item the shaper fixes (in full, or by a deferral's mitigation) or puts to the
-  // person buys the next round, whatever the person answered and whether or not a commit resulted;
-  // so does a decline the person overruled to a fix. A decline of the shaper's own buys nothing,
+  // correctness item the shaper fixes or puts to the person buys the next round, whatever the
+  // person answered and whether or not a commit resulted; so does a decline the person overruled
+  // to a fix. A deferral buys it only through a commit of its own, as the paragraph below says
+  // (#100; #103, R2-1). A decline of the shaper's own buys nothing,
   // and neither does any item that is not a correctness one. A call stays in `calls` when a reshape
   // re-sorts its finding, so an item put to the person buys the round whatever the reshape
   // returned (#94, R2-11).
