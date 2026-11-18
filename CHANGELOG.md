@@ -2,6 +2,13 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+
+## 0.4.1 (2026-11-18)
+
+### Fixes
+
+- #103 What a deferred item ships is read from the round's record, never from the words of its mitigation: no commit is demanded of a deferral, so a wording of "nothing ships" can no longer stop a round, and a commit of the finding's own decides what the reply says and whether the next round is bought (#100)
+
 ## 0.4.0 (2026-11-17)
 
 ### Features
