@@ -1,0 +1,1 @@
+Redline round 2: fixed in 6a35e67 (redline: R2-6 refuse a decision whose disposition is not fix, defer or accept (#99)). · decided by: redline

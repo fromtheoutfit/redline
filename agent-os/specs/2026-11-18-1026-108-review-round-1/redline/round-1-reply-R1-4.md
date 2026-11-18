@@ -1,0 +1,1 @@
+Redline round 1: declined: The pull request's spec chose a warning for any second statement of one call, as for a second deferred entry (decision 12, after #97 R2-12), and a repeat is the agent departing from the ask whether or not the two agree, which is what the warning reports · decided by: redline

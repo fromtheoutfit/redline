@@ -1,0 +1,1 @@
+Redline round 1: declined: The pull request's spec chose one message for a missing statement and for one outside the three (decision 20, pinned by misstated); the message names the three values a statement may hold, and the schema's enum refuses any other in the agent's own run · decided by: redline

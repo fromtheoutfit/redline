@@ -226,6 +226,9 @@ function mock(scenario) {
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
           files: scenario.files && id in scenario.files ? scenario.files[id] : disposition(id) === 'fix' || (disposition(id) === 'defer' && mitigationOf(id) !== '') ? ['app/x.php'] : [],
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
+          // scenario.reshapeAskRule (#108, R1-8) adds an ask-rule tag on a reshape alone, as a
+          // reshape that newly puts a decided call under a rule returns it.
+          ...(reshape && scenario.reshapeAskRule && scenario.reshapeAskRule[id] ? { askRule: scenario.reshapeAskRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
         })),
@@ -252,10 +255,29 @@ function mock(scenario) {
       // repository ask rule (its decision carries rule, #49); everything else gets a task with a file.
       // scenario.acceptedCalls (#93): the judgment calls the person answered with no change.
       // scenario.resolveDeferred (#94, R5-9): the deferred list the resolve agent returns.
+      // scenario.resolveFiles[id] (#108, R1-5) scripts one task's files, [] for none, whatever its decision.
       const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]).concat(scenario.acceptedCalls || []))
       const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
+      // A call whose decision carries its own disposition has no entry in decided (#108, R1-2,
+      // R2-1), as the prompt says, so the mock leaves it out as a real agent would, unless
+      // scenario.resolveDecided scripts a statement for it.
+      const named = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "/g)].map((m) => m[1]))
       const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
-      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
+      // What each judgment call's decision ends in, as the resolve agent states it (#99): one entry
+      // per call of the prompt's calls block, none for a call left to the person under a rule, and
+      // none for a call whose decision names its own disposition. By default it states what a real agent would for what it returned: defer beside its own
+      // deferred entry, accept for a call it accepted, fix otherwise. scenario.resolveDecided[id]
+      // scripts one, scenario.resolveUnstated lists the calls it leaves out,
+      // scenario.resolveDecidedTwice[id] is a second statement for one, and
+      // scenario.resolveNoDecided leaves the key out, as a result recorded before #99 holds none.
+      const callsFrom = prompt.indexOf('Judgment calls as the shaper wrote them, as JSON:')
+      const callsTo = prompt.indexOf('Decisions on them, as JSON')
+      const callIds = callsFrom < 0 || callsTo < 0 ? [] : [...new Set([...prompt.slice(callsFrom, callsTo).matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))]
+      const states = (id) => (scenario.resolveDecided && scenario.resolveDecided[id]) || ((scenario.resolveDeferred || []).some((e) => e.id === id) ? 'defer' : (scenario.acceptedCalls || []).includes(id) ? 'accept' : 'fix')
+      const decided = callIds
+        .filter((id) => !left.has(id) && !(named.has(id) && !(scenario.resolveDecided && id in scenario.resolveDecided)) && !(scenario.resolveUnstated || []).includes(id))
+        .flatMap((id) => [{ id, disposition: states(id) }].concat(scenario.resolveDecidedTwice && scenario.resolveDecidedTwice[id] ? [{ id, disposition: scenario.resolveDecidedTwice[id] }] : []))
+      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
       // scenario.planBounce (#10): the plan approver bounces the plan this many times first.
@@ -578,6 +600,17 @@ function samePrefix(name, first, second, n) {
   check('bad interrupt: refused before any agent runs', run.thrown && /args.interrupt must be one of/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
   run = await go('bad scope word', { ...baseArgs, scope: 'nits' }, { reviews: [[]] })
   check('bad scope: refused', run.thrown && /args.scope must be/.test(run.thrown.message))
+  // A decision's disposition is one of the three when it names one (#108, R2-6): every reader of
+  // it matches the exact values, so any other is refused before any agent runs. Its neighbour, a
+  // lower-case fix, runs on (`namedCall`), and so does a decision with no disposition at all.
+  run = await go('bad decision disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'Fix' } } }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'] })
+  check('bad decision disposition: refused before any agent runs', Boolean(run.thrown) && /args\.decisions must give a disposition of fix \| defer \| accept/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+  // An empty or a null disposition names none (#108, R3-1), as every reader of the field reads it:
+  // the decision runs on as a call with no disposition, its resolve prompt shows none, and the
+  // agent states one. The neighbour above, a value outside the three, is still refused.
+  run = await go('empty decision disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: '' }, 'R1-2': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: null } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1', 'R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  const emptyResolve = (pick(run.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('empty decision disposition: an empty and a null one each run on as no disposition, and the resolve prompt shows neither', !run.thrown && (run.res || {}).status === 'done' && emptyResolve !== '' && !emptyResolve.includes('"disposition": ""') && !emptyResolve.includes('"disposition": null'), [run.thrown && run.thrown.message, (run.res || {}).status, (run.res || {}).error])
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   check('no login: the person running Redline stands in, never the author', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the person running Redline') && !comment(run.calls, 'handoff comment').includes('the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
 }
@@ -1343,6 +1376,9 @@ function samePrefix(name, first, second, n) {
   check('rules: autopilot never applies a forced finding and demands no commit', auto.res.status === 'done', [auto.res.status, auto.res.error])
   const autoResolve = pick(auto.calls, 'resolve r1').prompt
   check('rules: the autopilot decision leaves it to the person', autoResolve.includes('"choice": "Left to the person"') && autoResolve.includes(`"notes": "Repository rule craft-config: ${reason}. No change made; @author makes it."`) && autoResolve.includes('"decidedBy": "redline (autopilot)"') && autoResolve.includes('"rule": "craft-config"'), autoResolve)
+  // A call left to the person under a rule has no disposition to state (#99): its resolve prompt
+  // says so, and the round goes on with no statement for it.
+  check('rules: the resolve prompt says a call that carries a rule has no entry in decided, and the round goes on without one', autoResolve.includes('A call whose decision carries `rule` is left to the person and has no entry in decided.') && auto.res.status === 'done', [auto.res.status, auto.res.error, autoResolve.slice(-600)])
   check('rules: the autopilot reply', replyFor(auto.calls, 'push and reply r1', 'R1-2') === `Redline round 1: left to @author under repository rule craft-config (${reason}). Repository rule craft-config: ${reason}. No change made; @author makes it. · decided by: redline (autopilot)`, replyFor(auto.calls, 'push and reply r1', 'R1-2'))
   const autoHandoff = comment(auto.calls, 'handoff comment')
   // Since #95 a deferral is an item with a drafted issue, so a finding autopilot leaves to the
@@ -1424,6 +1460,32 @@ function samePrefix(name, first, second, n) {
   // An override the resolve agent could not apply is restated, and the restatement replaces it in
   // the relaunch's decisions (#94, R5-4).
   check('resume: the relaunch note says a restated override replaces the one the resolve agent could not apply', first.res.relaunch.how.includes('For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply.'), first.res.relaunch.how)
+  // The plan clause gives an ask the shape the skill records for it, with no disposition, and a
+  // changed disposition its own (#108, R3-2): since #99 a disposition on a call's decision decides it.
+  check('resume: the relaunch note gives a plan dial ask no disposition, and a changed disposition its own', first.res.relaunch.how.includes('plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"})'), first.res.relaunch.how)
+  // A stop at resolve is the workflow's check of what the resolve agent returned, so its resume
+  // line tells the rerun to correct what its first attempt wrote, decided entries included (#108,
+  // R3-4). The recheck above is the neighbour: its resumed prompt ends with the line alone.
+  const resolveClause = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
+  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const resolveError = (stoppedAtResolve.res || {}).error || ''
+  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
+  check('resume: the resolve agent\'s file says the same of a resumed resolve, as the resume line does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again'))
+  // The clause is chosen by the stop (#108, R4-4): the autopilot stop is raised from the resolve
+  // agent's own unresolved list, which its rules keep pending, so its resumed prompt ends with the
+  // line alone. `resumedResolve` above is the neighbour: a check of the returned result keeps it.
+  const unappliedStop = await go('resume: autopilot could not apply a recommendation', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], unresolved: [{ id: 'R1-1', why: 'no such option' }], commitIds: [['R1-1']] })
+  const unappliedError = (unappliedStop.res || {}).error || ''
+  const resumedUnapplied = await go('resume: autopilot could not apply a recommendation, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: unappliedError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedUnappliedPrompt = (pick(resumedUnapplied.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('resume: a resumed resolve after autopilot could not apply a recommendation ends with the resume line alone, with no clause to correct what it wrote', unappliedError.startsWith('autopilot could not apply the shaper\'s recommendation for R1-1') && resumedUnappliedPrompt.endsWith(line(unappliedError)) && !resumedUnappliedPrompt.includes(resolveClause), [unappliedError, resumedUnappliedPrompt.slice(-600)])
+  check('resume: the resolve agent\'s file says a decision it could not apply stays pending on a resume, as the resume line leaves it', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('An error that says autopilot could not apply a decision is not that check'))
+  // The predicate rests on every check of the resolve agent's returned result opening its error
+  // with "the resolve agent ", and on the autopilot stop being the one resolve stop that does not.
+  const opening = (text) => src.split(text).length - 1
+  check('resume: every resolve stage error but the autopilot stop opens with "the resolve agent "', opening("stageError('resolve', `") === opening("stageError('resolve', `the resolve agent ") + 1 && opening("stageError('resolve', `autopilot could not apply ") === 1, [opening("stageError('resolve', `"), opening("stageError('resolve', `the resolve agent ")])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -2846,9 +2908,10 @@ function samePrefix(name, first, second, n) {
   check('defer: a deferred outcome carries no mitigation words, so no reply or outcome line can post them without a commit of its own', !src.includes('outcome.mitigation') && !src.includes('mitigation: shipsNothing ? \'\' : deferredItem.mitigation'))
   check('defer: the skill\'s closing summary no longer reads an empty mitigation as nothing shipped', !read('skills', 'redline', 'SKILL.md').includes('(`mitigation` is empty when nothing shipped)'))
   check('defer: the script\'s done-rule comment says a deferral buys a round only through a commit of its own', !src.includes('(in full, or by a deferral\'s mitigation) or puts to the') && src.includes('A deferral buys it only through a commit of its own'))
-  check('defer: the deferred schema\'s comment says the field is read once, as filled or empty, by isDeferral', src.includes('read once, as filled or empty, by isDeferral') && !src.includes('shown and never read to decide'))
+  check('defer: the deferred schema\'s comment says nothing reads the mitigation field to decide anything, since a call\'s decision is read from what is stated (#99)', src.includes('since #99 nothing reads the field to decide anything') && !src.includes('read once, as filled or empty, by isDeferral') && !src.includes('shown and never read to decide'))
   check('defer: the comment on the mitigation field names the plan dial\'s list as the one that shows the shaper\'s words', src.includes('the plan dial\'s list of the shaper\'s'))
   check('defer: plannedFiles reads the shaper\'s own list through shaperFiles alone, with no second test of it', !src.includes('shaperPlanned'))
+  check('defer: a finding\'s task files are read through one helper, by the resolve-time checks and by plannedFiles (#108, R1-7)', src.includes('const taskFilesOf = (tasks, id) =>') && src.includes('taskFilesOf(out.tasks, id)') && src.includes('taskFilesOf(resolvedTasks, id)') && !src.includes('unique(out.tasks.filter((task) => task.finding === id)') && !src.includes('unique(resolvedTasks.filter((task) => task.finding === id)'))
   check('defer: the skill\'s plan dial no longer reads an empty mitigation in deferredPlanned as nothing shipping', !read('skills', 'redline', 'SKILL.md').includes('holds each defer\'s mitigation (empty when nothing ships now)'))
   check('defer: the skill\'s draft stop calls a mitigation with empty words a planned change only at a round\'s stop, and a change in its own commit at the end-of-run stop', read('skills', 'redline', 'SKILL.md').includes('"a change in its own commit" at the end-of-run stop') && !read('skills', 'redline', 'SKILL.md').includes('or "a planned change" when the words are empty'))
   // What shipped is stated from `ships` first, and the words follow it labelled as its words
@@ -2865,7 +2928,7 @@ function samePrefix(name, first, second, n) {
   }
   const wrapped = [commentLines('// A draft as a stop shows it to the person', 'function draftView('), commentLines('  // The round\'s deferrals as they stand', '  const isDeferral = ')]
   check('defer: the comments above draftView and isDeferral wrap at 100 columns', wrapped.every((lines) => lines.every((line) => line.length <= 100)), wrapped.map((lines) => Math.max(...lines.map((line) => line.length))))
-  check('defer: isDeferral reads whether a decided finding has a planned task through plannedFiles, with no second reader of the resolve\'s tasks', !src.includes('plannedTask') && src.includes('mitigationFilled(d) || plannedFiles(d.id).length === 0'))
+  check('defer: isDeferral reads a decided call from what the resolve agent states, with no reader of the mitigation field or of the resolve agent\'s entries', !src.includes('plannedTask') && !src.includes('mitigationFilled') && !src.includes('resolveDeferred') && src.includes("return stated[d.id] === 'defer'"))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }
@@ -3156,21 +3219,164 @@ function samePrefix(name, first, second, n) {
   check('filing: the implementer is shown no files for a fix the person changed to a deferral with no task, whatever the shaper listed', implementerFiles(fixToDefer, 'R1-1') === '["defer",[]]', [fixToDefer.res.status, implementerFiles(fixToDefer, 'R1-1')])
   // The neighbour: a deferral nobody decided is shown with the shaper's own list, as before.
   check('filing: the implementer is shown the shaper\'s own files for a deferral nobody decided', implementerFiles(ownDefer, 'R1-1') === '["defer",["app/y.php"]]', [ownDefer.res.status, implementerFiles(ownDefer, 'R1-1')])
-  // A finding the person decided is a deferral only when the decision made it one (#97, R1-10): a
-  // resolve agent's entry that ships nothing beside a call it planned as a fix, and a reshape's
-  // entry beside a decided call, leave the fix a fix; a call answered with a deferral that ships
-  // nothing, with no task, is still the person's deferral.
-  const strayResolve = await go('filing: the resolve agent defers a call it planned as a fix, shipping nothing', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1']] })
-  check('filing: a resolve entry that ships nothing beside a call planned as a fix files nothing, and the fix is posted and counted as one', strayResolve.res.status === 'done' && !labels(strayResolve.calls).includes('file deferred r1') && (strayResolve.res.deferred || []).length === 0 && (replyFor(strayResolve.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(strayResolve.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to') && (strayResolve.res.rounds[1] || {}).reviewed === 'fix-diff', [strayResolve.res.status, labels(strayResolve.calls), replyFor(strayResolve.calls, 'push and reply r1', 'R1-1'), strayResolve.res.rounds.map((r) => r.reviewed)])
-  // Whether a decided finding is a deferral is read from whether its entry's mitigation field is
-  // filled, never from what it says (#100): `none` beside a planned task is a filled field, so it
-  // is the decision's deferral, as any other words are. The empty entry above stays a stray one.
-  // The resolve agent naming the disposition (#99) replaces this reading.
-  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it planned', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: 'none', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1']] })
-  check('filing: a resolve entry whose mitigation field is filled, whatever its words, beside a planned task is the decision\'s deferral: filed and posted as applied', strayWorded.res.status === 'done' && labels(strayWorded.calls).includes('file deferred r1') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to #301.'), [strayWorded.res.status, labels(strayWorded.calls), replyFor(strayWorded.calls, 'push and reply r1', 'R1-1')])
-  // The resolve prompt says, beside the decisions, when a deferred entry is returned (#97, R2-15):
-  // an entry with a mitigation beside a call planned as a fix has the shape of a "Mitigate" answer.
-  check('filing: the resolve prompt of a run with a call says an entry is returned only for a decision that defers', (pick(strayResolve.calls, 'resolve r1') || { prompt: '' }).prompt.includes('Return a deferred entry for a call only when its decision defers the finding'), (pick(strayResolve.calls, 'resolve r1') || { prompt: '' }).prompt.slice(-1500))
+  // What a call's decision ends in is read from what the resolve agent states (#99), never from
+  // its deferred entry or from whether its task has files, and the statement is checked against
+  // the tasks and entries the same resolve returned. Four runs cover both statements over both
+  // entries, so neither the words nor the emptiness of the mitigation field decides anything: a
+  // filled entry and an empty one beside a call stated as a fix are dropped, and the fix is
+  // demanded (`strayFilled`, `strayResolve`); the same two beside a call stated as a deferral are
+  // the decision's deferral (`strayWorded` and `mitigateAnswer`, `emptyDeferral`).
+  // Pin 1 of #99: a fix beside a stray filled entry, which was filed as an issue until #99, on
+  // autopilot with no question.
+  const strayEntry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  const strayScenario = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [strayEntry], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1']] }
+  const STRAY_CALL = 'round 1: the resolve agent listed R1-1 as deferred and stated its decision as fix; the entry is dropped, since the statement decides'
+  // The prompts a dropped entry must not reach. A prompt that is absent reads as '' and fails.
+  const shownTo = (r) => ['plan approver r1', 'implement r1'].map((label) => (pick(r.calls, label) || { prompt: '' }).prompt)
+  const entryDropped = (r) => shownTo(r).every((p) => p !== '' && !p.includes('"title": "Lock R1-1"')) && (r.res.warnings || []).includes(STRAY_CALL)
+  const postedAsFix = (r) => r.res.status === 'done' && !labels(r.calls).includes('file deferred r1') && (r.res.deferred || []).length === 0 && (replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to') && (r.res.rounds[1] || {}).reviewed === 'fix-diff'
+  const fixDetail = (r) => [r.res.status, r.res.error, labels(r.calls), replyFor(r.calls, 'push and reply r1', 'R1-1'), r.res.rounds.map((round) => round.reviewed)]
+  const strayFilled = await go('filing: the resolve agent returns a filled entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, strayScenario)
+  check('filing: a filled entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayFilled), fixDetail(strayFilled))
+  check('filing: a filled entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayFilled), [shownTo(strayFilled).map((p) => p.includes('"title": "Lock R1-1"')), strayFilled.res.warnings])
+  // On any dial (#99): a guided run whose call is answered raises no draft for the dropped entry,
+  // so the round goes on with no stop and no answer for one.
+  const fixCall = { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } }
+  const strayFilledGuided = await go('filing: a filled entry beside a call stated as a fix, on the guided dial', { ...baseArgs, decisions: fixCall }, strayScenario)
+  check('filing: on the guided dial a filled entry beside a call stated as a fix raises no draft and files nothing', strayFilledGuided.res.status === 'done' && !labels(strayFilledGuided.calls).includes('file deferred r1') && replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [strayFilledGuided.res.status, strayFilledGuided.res.handoffKind, labels(strayFilledGuided.calls), replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1')])
+  // The fix is demanded by the check whatever entry stands beside it (#99): left unbuilt, the
+  // round stops at the check after its repair and files nothing. Until #99 the filled entry made
+  // it a deferral, whose commit is never demanded (#100), so the round passed with a warning.
+  const strayFilledUnbuilt = await go('filing: a filled entry beside a call stated as a fix, the fix left out', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, commitIds: [[], []] })
+  check('filing: a call stated as a fix is demanded beside a filled entry: left unbuilt, the round stops at the check after its repair and files nothing', strayFilledUnbuilt.res.status === 'error' && strayFilledUnbuilt.res.stage === 'check' && (strayFilledUnbuilt.res.error || '').includes('no commit names R1-1') && labels(strayFilledUnbuilt.calls).includes('repair r1') && !labels(strayFilledUnbuilt.calls).includes('file deferred r1'), [strayFilledUnbuilt.res.status, strayFilledUnbuilt.res.stage, strayFilledUnbuilt.res.error, labels(strayFilledUnbuilt.calls).slice(-6)])
+  // Pin 2 of #99: a fix beside a stray empty entry. It filed nothing before #99 either (#97,
+  // R1-10), by the emptiness of the field, but the entry stayed in the list the plan approver and
+  // the implementer were shown, and no warning said so.
+  const strayResolve = await go('filing: the resolve agent returns an empty entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: '' }] })
+  check('filing: an empty entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayResolve), fixDetail(strayResolve))
+  check('filing: an empty entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayResolve), [shownTo(strayResolve).map((p) => p.includes('"title": "Lock R1-1"')), strayResolve.res.warnings])
+  // What is stated decides, whatever the entry says (#99): an entry worded `none` beside a planned
+  // task, with a deferral stated, is the decision's deferral, filed and posted as applied. Until
+  // #99 it was filed because its field was filled (#100). `strayFilled` above is its twin, a
+  // filled entry beside the same task with a fix stated, which files nothing.
+  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it states as a deferral', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: 'none' }], resolveDecided: { 'R1-1': 'defer' } })
+  check('filing: an entry worded none beside a call stated as a deferral is the decision\'s deferral, whatever its words: filed and posted as applied', strayWorded.res.status === 'done' && labels(strayWorded.calls).includes('file deferred r1') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to #301.') && !(strayWorded.res.warnings || []).some((w) => w.includes('the entry is dropped')), [strayWorded.res.status, labels(strayWorded.calls), replyFor(strayWorded.calls, 'push and reply r1', 'R1-1'), strayWorded.res.warnings])
+  // Every call the resolve applied has its statement (#99): one left out is a result the run
+  // cannot use, so the round stops at resolve, where a resume reruns the agent.
+  const unstated = await go('filing: the resolve agent states no disposition for a call it applied', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  check('filing: a call with no stated disposition stops at resolve, resumable there, before the plan approver', unstated.res.status === 'error' && unstated.res.stage === 'resolve' && unstated.res.error === 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)' && Boolean(unstated.res.resumeFrom) && unstated.res.resumeFrom.label === 'resolve r1' && !labels(unstated.calls).includes('plan approver r1'), [unstated.res.status, unstated.res.stage, unstated.res.error, unstated.res.resumeFrom, labels(unstated.calls).slice(-3)])
+  // One statement a call (#99): the first the agent returned, as for a deferred entry (#97,
+  // R2-12). Here the first says fix and the second defer, so the entry is dropped and nothing filed.
+  const statedTwice = await go('filing: the resolve agent states two dispositions for one call', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDecidedTwice: { 'R1-1': 'defer' } })
+  check('filing: of two statements for one call the first is kept, with a warning', postedAsFix(statedTwice) && (statedTwice.res.warnings || []).includes('round 1: the resolve agent stated a disposition for R1-1 more than once; the first is kept'), [fixDetail(statedTwice), statedTwice.res.warnings])
+  // A value outside the three is no statement (#99): the schema refuses one in the agent's own
+  // run, and the workflow's test is the second layer, as for a judgment call's reason.
+  const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
+  check('filing: a stated disposition outside fix, defer and accept is no statement, so the round stops at resolve', misstated.res.status === 'error' && misstated.res.stage === 'resolve' && (misstated.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstated.res.resumeFrom) && misstated.res.resumeFrom.label === 'resolve r1', [misstated.res.status, misstated.res.stage, misstated.res.error, misstated.res.resumeFrom])
+  // One statement a call is the first returned, whatever it holds (#108, R3-3; the spec's
+  // decisions 12 and 20): a first statement outside the three is no statement, so the round stops
+  // at resolve even with a valid second one beside it. `statedTwice` above is the neighbour, two
+  // valid statements, the first kept.
+  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
+  check('filing: of two statements for one call the first is kept even when it is outside the three, so the round stops at resolve', (misstatedFirst.res || {}).status === 'error' && misstatedFirst.res.stage === 'resolve' && (misstatedFirst.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstatedFirst.res.resumeFrom) && misstatedFirst.res.resumeFrom.label === 'resolve r1', [(misstatedFirst.res || {}).status, (misstatedFirst.res || {}).stage, (misstatedFirst.res || {}).error])
+  // A call's decision that names a disposition itself decides, as an override's does (#103,
+  // R1-11), so no statement is asked of it (#99): the round goes on without one, and the fix it
+  // names is demanded and posted.
+  const namedCall = await go('filing: a call whose decision names its own disposition, with no statement', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  check('filing: a call whose decision names its disposition needs no statement, and its fix is posted as applied', namedCall.res.status === 'done' && replyFor(namedCall.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it in full. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [namedCall.res.status, namedCall.res.stage, namedCall.res.error, replyFor(namedCall.calls, 'push and reply r1', 'R1-1')])
+  const namedUnbuilt = await go('filing: a call whose decision names its own disposition, the fix left out', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [[], []] })
+  check('filing: a call whose decision names a fix is demanded: left unbuilt, the round stops at the check', namedUnbuilt.res.status === 'error' && namedUnbuilt.res.stage === 'check' && (namedUnbuilt.res.error || '').includes('no commit names R1-1'), [namedUnbuilt.res.status, namedUnbuilt.res.stage, namedUnbuilt.res.error])
+  // A call whose decision names its own disposition is asked for no statement (#108, R1-2), as
+  // a call left to the person under a rule is not: the prompt says so only when a call carries
+  // one (`callResolve` below holds no such sentence), and the agent file says it too.
+  const NAMED_EXEMPT = 'A call whose decision carries `disposition` names its own and has no entry in decided.'
+  const namedResolve = (pick(namedCall.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('filing: the resolve prompt says a call whose decision names its own disposition has no entry in decided', namedResolve.includes(NAMED_EXEMPT), namedResolve.slice(-1500))
+  check('filing: the resolve agent\'s file says a call whose decision carries a disposition has no entry in decided', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('and so does a call whose decision carries `disposition`'))
+  // A stray entry beside a call whose decision names its own disposition is dropped as one beside
+  // an override is, and its warning says whose decision it is (#108, R2-3): the call was never a
+  // deferral the person changed away from. The override's own wording is pinned by
+  // `overrideBuilt` below.
+  const namedStray = await go('filing: a stray entry beside a call whose decision names a fix', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1']] })
+  check('filing: a stray entry beside a call whose decision names a fix is warned as that call\'s, never as one the person changed away from defer', (namedStray.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a call whose decision names it as fix; the entry is dropped, since the decision stands') && !(namedStray.res.warnings || []).some((w) => w.includes('changed away from defer')), [namedStray.res.status, namedStray.res.warnings])
+  // What is stated is checked against what the same resolve returned, before anything is built,
+  // filed or posted (#99): a statement its own tasks and entries cannot support is a result the
+  // run cannot use, so the round stops at resolve, where a resume reruns the agent. Three ways: a
+  // deferral with no deferred entry, as a defer override with none stops (#97, R2-13); a fix with
+  // no task with files; and an accept beside a task with files, which the implementer would
+  // build. Their neighbours run on: `chosenBare` below (a deferral with its entry and no task),
+  // `acceptedResorted` below (an accept with no files) and `strayFilled` above (a fix with files).
+  const stopsAtResolve = (r, error) => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === 'resolve r1' && !labels(r.calls).includes('plan approver r1')
+  const stopDetail = (r) => [r.res.status, r.res.stage, r.res.error, r.res.resumeFrom, labels(r.calls).slice(-3)]
+  const oneCall = { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
+  check('filing: a call stated as a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(deferNoEntry, 'the resolve agent stated defer for R1-1 with no deferred entry; a deferred item always carries a drafted issue'), stopDetail(deferNoEntry))
+  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
+  check('filing: a call stated as a fix with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixNoFiles, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFiles))
+  // The files are those of the finding's own task: another call's task with files, in the same
+  // resolve, does not stand in for it.
+  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  check('filing: a call stated as a fix is held to its own task\'s files, whatever another call\'s task lists', stopsAtResolve(fixNoFilesBeside, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFilesBeside))
+  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
+  check('filing: a call stated as accepted beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptWithFiles, 'the resolve agent stated accept beside a task with files for R1-1 (app/x.php); an accepted finding changes nothing'), stopDetail(acceptWithFiles))
+  // A decision that names its own disposition is held to the same three checks, by what it names
+  // (#108, R1-5): until #108 only a defer override was, by its entry. A call whose decision names
+  // a deferral and comes back with no deferred entry, a decline the person overrules to a fix
+  // planned with no task with files, and a fix the person changes to accept planned beside a task
+  // with files each stop at resolve before the plan approver. Their neighbours run on: `namedCall`
+  // above (a named fix with files), `fixAccepted` (an accept override with no files), and the
+  // shaper's own deferral below, which stands in for a defer override's entry as before.
+  const deferNamed = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-18', disposition: 'defer' } }
+  const namedDeferNoEntry = await go('filing: a call whose decision names a deferral, with no deferred entry', { ...baseArgs, decisions: deferNamed }, oneCall)
+  check('filing: a call whose decision names a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(namedDeferNoEntry, 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue'), stopDetail(namedDeferNoEntry))
+  const fixOverrideNoFiles = await go('filing: a decline the person overrules to a fix, planned with no task with files', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')]], decline: ['R1-1'], resolveFiles: { 'R1-1': [] }, commitIds: [['R1-1']] })
+  check('filing: an override to fix planned with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixOverrideNoFiles, 'the resolve agent planned no task with files for R1-1, which a disposition override names as a fix; a fix names the files it changes'), stopDetail(fixOverrideNoFiles))
+  const acceptOverrideWithFiles = await go('filing: a fix the person changes to accept, planned with a task with files', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'accept', notes: 'Keep it as it is.', date: '2026-11-18', disposition: 'accept' } } }, { reviews: [[f('R1-1', 'correctness')]], resolveFiles: { 'R1-1': ['app/x.php'] }, commitIds: [[]] })
+  check('filing: an override to accept planned beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptOverrideWithFiles, 'the resolve agent planned a task with files for R1-1 (app/x.php), which a disposition override names as accepted; an accepted finding changes nothing'), stopDetail(acceptOverrideWithFiles))
+  const restatedBare = await go('filing: a defer override on the shaper\'s own deferral, with no entry from the resolve agent', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: deferNamed, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-1']] })
+  check('filing: a defer override whose entry the round already holds from the shaper runs on past resolve with no entry of its own', !(restatedBare.res.status === 'error' && restatedBare.res.stage === 'resolve') && labels(restatedBare.calls).includes('plan approver r1'), stopDetail(restatedBare))
+  // A call stated as a fix that a reshape then leaves to the person under a rule is not
+  // demanded (#108, R1-8), as the clause the statement replaced had it: the finding is posted
+  // as left to the person. Its neighbour, a call stated as a fix and not forced, is demanded
+  // (`strayFilledUnbuilt` above).
+  const billingRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
+  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedReply = replyFor(forcedLater.calls, 'push and reply r1', 'R1-1')
+  check('filing: a call stated as a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedLater.res.status === 'done' && !labels(forcedLater.calls).includes('repair r1'), [forcedLater.res.status, forcedLater.res.stage, forcedLater.res.error, labels(forcedLater.calls).slice(-6)])
+  check('filing: that call is posted as left to the person under the rule', forcedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedReply)
+  // The same holds for a call whose decision names its own fix (#108, R2-5): no statement is
+  // asked of it, so it is demanded through its final disposition, and a reshape that leaves it
+  // to the person under a rule after its resolve takes it out of the demand as well.
+  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
+  check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
+  check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
+  // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
+  // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
+  // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it
+  // had before #99, and a result recorded before it can replay with no `decided` list: the list
+  // is read as empty, and nothing is needed from it, since no call was applied.
+  const ENDS_IN = 'each call\'s decision ends in'
+  const ENTRY_RULE = 'return a deferred entry for a call only when its decision defers the finding'
+  const callResolve = pick(strayResolve.calls, 'resolve r1') || { prompt: '', opts: {} }
+  const overridePrompt = (pick(chosen.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('filing: the resolve prompt of a run with a call asks for each call\'s disposition and says an entry is returned only for a decision that defers', callResolve.prompt.includes(`State in decided what ${ENDS_IN}`) && callResolve.prompt.includes(ENTRY_RULE) && !callResolve.prompt.includes('has no entry in decided'), callResolve.prompt.slice(-2400))
+  check('filing: the resolve agent\'s schema requires the decided list', (((callResolve.opts || {}).schema || {}).required || []).includes('decided'), ((callResolve.opts || {}).schema || {}).required)
+  check('filing: the resolve agent\'s file asks for each call\'s disposition, as the prompt does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes(ENDS_IN))
+  check('filing: the resolve prompt of a run with overrides and no call asks for no disposition', overridePrompt !== '' && !overridePrompt.includes(ENDS_IN) && !overridePrompt.includes(ENTRY_RULE), overridePrompt.slice(-1500))
+  // An override's fix is held to the files of a task whose finding is its own id (namedUnplanned),
+  // so the agent file says so; the overrides prompt stays as it was, so an overrides-only resolve
+  // still replays after an update (#108, R4-9; the spec's decision 13).
+  check('filing: the resolve agent\'s file asks for a task of its own for an override\'s fix', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('`fix` plans the full fix as a task of its own, its `finding` set to the override\'s id (files by path, the change, the test)'))
+  // A call stated as a fix is held to the files of its own task (`fixNoFilesBeside` above), so the
+  // ask says each has a task of its own, its finding the call's id, in the prompt and in the agent
+  // file (#108, R2-4).
+  check('filing: the resolve prompt asks for a task of its own for each call stated as a fix', callResolve.prompt.includes('(a task of its own, its finding set to the call\'s id, names its files, and the check demands its commit;'), callResolve.prompt.slice(-2400))
+  check('filing: the resolve agent\'s file asks for a task of its own for each call stated as a fix, as the prompt does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('(a task of its own, its `finding` set to the call\'s id, names its files, and the check demands its commit)'))
+  const noDecided = await go('filing: a resolve with overrides and no call returns no decided list', { ...filedArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveNoDecided: true })
+  check('filing: a resolve with overrides only and no decided list ends as it does with one', noDecided.res.status === 'done' && labels(noDecided.calls).join(' | ') === labels(chosen.calls).join(' | ') && replyFor(noDecided.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it behind a log line. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author', [noDecided.res.status, noDecided.res.error, labels(noDecided.calls), replyFor(noDecided.calls, 'push and reply r1', 'R1-1')])
+  // A reshape's entry beside a decided call never makes it a deferral (#97, R1-10): no draft is
+  // raised, nothing is filed, and the fix is posted as the person's.
   const strayReshape = await go('filing: a reshape defers a decided call\'s finding, shipping nothing', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-16' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeDefer: ['R1-1'], mitigations: { 'R1-1': '' }, commitIds: [['R1-1']] })
   check('filing: a reshape\'s entry beside a decided call raises no draft and files nothing, and the fix is posted as the person\'s', strayReshape.res.status === 'done' && !labels(strayReshape.calls).includes('file deferred r1') && replyFor(strayReshape.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author' && (strayReshape.res.rounds[1] || {}).reviewed === 'fix-diff', [strayReshape.res.status, strayReshape.res.handoffKind, labels(strayReshape.calls), replyFor(strayReshape.calls, 'push and reply r1', 'R1-1')])
   // A decided call a reshape re-sorts to defer is no deferral (#97, R1-10), so its planned fix is
@@ -3194,13 +3400,18 @@ function samePrefix(name, first, second, n) {
   // R2-8): the resolve agent's entry beside it is dropped with a warning, so neither the plan
   // approver nor the implementer is shown it. A prompt that is absent reads as '' and fails.
   const shownStray = ['plan approver r1', 'implement r1'].map((label) => (pick(overrideBuilt.calls, label) || { prompt: '' }).prompt)
-  check('filing: the resolve agent\'s entry beside an override to fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', shownStray.every((p) => p !== '' && !p.includes('"mitigation": "a guard"')) && (overrideBuilt.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands'), [shownStray.map((p) => p.includes('"mitigation": "a guard"')), overrideBuilt.res.warnings])
+  check('filing: the resolve agent\'s entry beside an override to fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', shownStray.every((p) => p !== '' && !p.includes('"mitigation": "a guard"')) && (overrideBuilt.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a finding whose disposition the person changed to fix; the entry is dropped, since the decision stands'), [shownStray.map((p) => p.includes('"mitigation": "a guard"')), overrideBuilt.res.warnings])
   // The accept half of R1-11's rule (#103, R2-2): an override to accept beside a filled entry the
   // resolve agent returns is no deferral either, so nothing is filed or listed as deferred, and the
   // reply is the person's decision with no code change.
   const acceptOverride = { 'R1-1': { choice: 'accept', notes: 'Keep it as it is.', date: '2026-11-17', disposition: 'accept' } }
   const overrideAccepted = await go('filing: a deferral the person changes to accept, beside a filled resolve entry', { ...overrideArgs, decisions: acceptOverride }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], resolveDeferred: [strayOverrideEntry], commitIds: [[]] })
   check('filing: an override to accept beside a filled resolve entry files nothing, lists nothing as deferred and is posted as kept with no code change', overrideAccepted.res.status === 'done' && !labels(overrideAccepted.calls).includes('file deferred r1') && (overrideAccepted.res.deferred || []).length === 0 && replyFor(overrideAccepted.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Keep it as it is. No code change. · decided by: @author', [overrideAccepted.res.status, overrideAccepted.res.error, labels(overrideAccepted.calls).slice(-8), replyFor(overrideAccepted.calls, 'push and reply r1', 'R1-1')])
+  // An override's stray warning names the disposition the person changed the finding to, since
+  // an override need not have been a deferral (#108, R3-5): here the shaper declined the finding
+  // and the person overruled it to a fix.
+  const declineStray = await go('filing: a decline the person overrules to a fix, beside a filled resolve entry', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: fixOverride }, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-1'], resolveDeferred: [strayOverrideEntry], commitIds: [['R1-1']] })
+  check('filing: a stray entry beside a decline overruled to a fix is warned with the disposition the person chose, never as a change away from defer', ((declineStray.res || {}).warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a finding whose disposition the person changed to fix; the entry is dropped, since the decision stands') && !((declineStray.res || {}).warnings || []).some((w) => w.includes('changed away from defer')), [(declineStray.res || {}).status, (declineStray.res || {}).warnings])
   // A reshape that restates a deferral the person chose is not held to a draft of its own (#97,
   // R3-4): the decision's entry carries the resolve agent's draft, so a short one in the
   // restatement stops nothing.
@@ -3225,10 +3436,35 @@ function samePrefix(name, first, second, n) {
   // resolve agent planned no task with files, and whose commit is the finding's own.
   const chosenUnlisted = await go('filing: a call answered with a mitigation, no task with files, and a commit of its own', { ...baseArgs, decisions: mitigateCall, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], acceptedCalls: ['R1-1'], resolveDeferred: [chosenEntry], commitIds: [['R1-1']] })
   check('filing: a decided deferral with a commit of its own and no task with files is posted with its decision, and the warning says the resolve agent planned none', chosenUnlisted.res.status === 'done' && replyFor(chosenUnlisted.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: The author ships a guard now. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author' && (chosenUnlisted.res.warnings || []).includes('round 1: R1-1 has a commit of its own (1bbbbbb) and the resolve agent planned no task with files for it; posted with its decision') && !(chosenUnlisted.res.warnings || []).some((w) => w.includes('the shaper listed no files')), [chosenUnlisted.res.status, chosenUnlisted.res.error, replyFor(chosenUnlisted.calls, 'push and reply r1', 'R1-1'), chosenUnlisted.res.warnings])
+  // Pin 3 of #99: a real "Mitigate" answer. A filled entry, a task and its commit, with a deferral
+  // stated: filed, and posted as the person's decision, applied. It ended the same way before
+  // #99, by the filled field, so its red run is a mutation of the statement's reading; its twin
+  // `strayFilledGuided` above is the same record with a fix stated, which files nothing.
+  const mitigateAnswer = await go('filing: a call answered with a mitigation', { ...baseArgs, decisions: mitigateCall, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [chosenEntry], resolveDecided: { 'R1-1': 'defer' }, commitIds: [['R1-1']] })
+  check('filing: a call answered with a mitigation is the person\'s deferral: filed, and posted as applied', mitigateAnswer.res.status === 'done' && labels(mitigateAnswer.calls).includes('file deferred r1') && replyFor(mitigateAnswer.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: The author ships a guard now. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author' && !(mitigateAnswer.res.warnings || []).some((w) => w.includes('the entry is dropped')), [mitigateAnswer.res.status, mitigateAnswer.res.error, labels(mitigateAnswer.calls), replyFor(mitigateAnswer.calls, 'push and reply r1', 'R1-1'), mitigateAnswer.res.warnings])
+  // The same record as `strayResolve`, an empty entry beside a task with files, with a deferral
+  // stated (#99): the person's deferral whatever its words say, so no commit is demanded of it
+  // whatever became of its task. Here the plan is bounced and reshaped and nothing is built, the
+  // path #106 names: until #99 the empty field beside a planned task read as a fix, and the round
+  // stopped at the check.
+  const deferCall = { 'R1-1': { choice: 'Defer it', notes: 'Defer it; nothing ships now.', date: '2026-11-18' } }
+  const emptyDeferral = await go('filing: a call answered with a deferral in empty words beside a planned task, the plan bounced and nothing built', { ...baseArgs, decisions: deferCall, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], planBounce: 1, resolveDeferred: [{ ...chosenEntry, mitigation: '' }], resolveDecided: { 'R1-1': 'defer' }, commitIds: [[]] })
+  check('filing: a call stated as a deferral is never demanded, whatever its words and its task: filed, posted with no code change, and warned about', emptyDeferral.res.status === 'done' && labels(emptyDeferral.calls).includes('reshape r1 #1') && labels(emptyDeferral.calls).includes('file deferred r1') && replyFor(emptyDeferral.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it; nothing ships now. No code change. Deferred to #301. · decided by: @author' && (emptyDeferral.res.warnings || []).includes('round 1: R1-1 planned a mitigation in app/x.php and no commit of its own landed; posted as shipping nothing'), [emptyDeferral.res.status, emptyDeferral.res.stage, emptyDeferral.res.error, labels(emptyDeferral.calls).slice(-6), replyFor(emptyDeferral.calls, 'push and reply r1', 'R1-1'), emptyDeferral.res.warnings])
+  // An accept leaves no deferral behind either (#99): an entry beside a call stated as accepted
+  // is dropped with a warning, no draft is raised, nothing is filed, and the reply is the decision
+  // with no code change. The override's half of the rule is `overrideAccepted` above.
+  const acceptCall = { 'R1-1': { choice: 'Keep it', notes: 'Keep it as it is.', date: '2026-11-18' } }
+  const acceptBesideEntry = await go('filing: the resolve agent returns an entry beside a call it states as accepted', { ...baseArgs, decisions: acceptCall }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], resolveDeferred: [chosenEntry], resolveDecided: { 'R1-1': 'accept' }, commitIds: [[]] })
+  check('filing: an entry beside a call stated as accepted files nothing, raises no draft and is posted as kept with no code change', acceptBesideEntry.res.status === 'done' && !labels(acceptBesideEntry.calls).includes('file deferred r1') && (acceptBesideEntry.res.deferred || []).length === 0 && replyFor(acceptBesideEntry.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Keep it as it is. No code change. · decided by: @author' && (acceptBesideEntry.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred and stated its decision as accept; the entry is dropped, since the statement decides'), [acceptBesideEntry.res.status, acceptBesideEntry.res.handoffKind, acceptBesideEntry.res.error, labels(acceptBesideEntry.calls).slice(-6), replyFor(acceptBesideEntry.calls, 'push and reply r1', 'R1-1'), acceptBesideEntry.res.warnings])
+  // A call's decision stands whatever a reshape makes of its finding (#94, R8-6), and what the
+  // check demands of it is read from the statement alone (#99): an accepted call a reshape
+  // re-sorts to fix is not demanded. Until #99 the reshape's disposition demanded its commit.
+  const acceptedResorted = await go('filing: a reshape re-sorts an accepted call\'s finding to fix', { ...baseArgs, decisions: acceptCall }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], planBounce: 1, reshapeFix: ['R1-1'], commitIds: [[]] })
+  check('filing: an accepted call a reshape re-sorts to fix is not demanded: the round ends with the decision and no code change', acceptedResorted.res.status === 'done' && labels(acceptedResorted.calls).includes('reshape r1 #1') && replyFor(acceptedResorted.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Keep it as it is. No code change. · decided by: @author', [acceptedResorted.res.status, acceptedResorted.res.stage, acceptedResorted.res.error, labels(acceptedResorted.calls).slice(-6), replyFor(acceptedResorted.calls, 'push and reply r1', 'R1-1')])
   // Every resolve of the round planned tasks (#97, R2-14): a reshape that raises a call runs a
   // second resolve for that call alone, and the first resolve's tasks still count, for the task a
   // stray entry stands beside and for the commits the gate demands.
-  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], commitIds: [['R1-1', 'R1-2']] })
+  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
   check('filing: after a reshape\'s resolve, a stray entry beside the first resolve\'s fix files nothing, and the fix is posted as applied', strayRaised.res.status === 'done' && labels(strayRaised.calls).includes('resolve r1 #1') && !labels(strayRaised.calls).includes('file deferred r1') && (replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to'), [strayRaised.res.status, labels(strayRaised.calls), replyFor(strayRaised.calls, 'push and reply r1', 'R1-1')])
   const unbuilt = await go('filing: a reshape raises a call and the first resolve\'s task is not built', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-2'], []] })
   check('filing: after a reshape\'s resolve, the gate still demands the commit of the first resolve\'s task', unbuilt.res.status === 'error' && unbuilt.res.stage === 'check' && (unbuilt.res.error || '').includes('no commit names R1-1'), [unbuilt.res.status, unbuilt.res.stage, unbuilt.res.error])

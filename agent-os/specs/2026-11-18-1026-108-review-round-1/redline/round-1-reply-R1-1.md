@@ -1,0 +1,1 @@
+Redline round 1: fixed in 109b9c5 (redline: R1-1 name every label the resolve stop takes (#99)). · decided by: redline

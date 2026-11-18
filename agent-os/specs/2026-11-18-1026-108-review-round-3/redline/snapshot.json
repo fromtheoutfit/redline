@@ -1,0 +1,31 @@
+{
+  "pr": 108,
+  "start_sha": "253052a8a5a6b9f5bb42e428224265d9b89ca4bb",
+  "round_sha": "da0909046ff1cf1db3042797b371bbadf5fd1512",
+  "base_ref": "main",
+  "files": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    "README.md",
+    "agent-os/specs/2026-11-18-0819-99-call-decision-states-its-disposition/plan.md",
+    "agent-os/specs/2026-11-18-0819-99-call-decision-states-its-disposition/references.md",
+    "agent-os/specs/2026-11-18-0819-99-call-decision-states-its-disposition/shape.md",
+    "agent-os/specs/2026-11-18-0819-99-call-decision-states-its-disposition/standards.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agent-os/standards/workflow/replay.md",
+    "agents/redline-resolve.md",
+    "docs/running.md",
+    "tests/loop-test.mjs",
+    "workflows/redline-loop.js"
+  ],
+  "plan_paths": [
+    "workflows/redline-loop.js",
+    "agents/redline-resolve.md",
+    "tests/loop-test.mjs",
+    "docs/running.md",
+    "agent-os/specs/2026-11-18-1026-108-review-round-1/",
+    "agent-os/specs/2026-11-18-1026-108-review-round-2/",
+    "agent-os/specs/2026-11-18-1026-108-review-round-3/"
+  ]
+}

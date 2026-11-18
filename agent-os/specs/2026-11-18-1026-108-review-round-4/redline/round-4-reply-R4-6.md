@@ -1,0 +1,1 @@
+Redline round 4: fixed in bbe52bc (redline: R4-6 name a call whose decision names its own disposition in two comments (#99)). · decided by: redline

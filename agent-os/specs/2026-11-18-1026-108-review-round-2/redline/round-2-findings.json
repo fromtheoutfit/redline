@@ -1,0 +1,249 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "253052a8a5a6b9f5bb42e428224265d9b89ca4bb",
+    "to": "81565cc5980f6b6e3337afa2e29a5fa99202bd94"
+  },
+  "summary": "Round 1's fixes do what they say: the forced guard is back on the stated branch, one helper now reads task files, named decisions face the same resolve-time checks, and the prompt and agent file no longer ask named calls for a statement. Most of what remains comes from a call's disposition living in two places. The first `needCommits` branch still demands a named-fix call that a reshape forces (R2-5). The removed resolve-task clause was also the only catch for a named disposition outside the three (R2-6). And a call forced after its resolve keeps its task in the plan (R2-7). Everything was traced rather than run, because the guard refuses `node` to the reviewer. The repository has no scheduled or queued work, and the fix diff's doc change is in `docs/running.md`.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "tests/loop-test.mjs",
+      "line": 274,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The resolve mock still states a disposition for a call whose decision names its own, which the prompt now says has none",
+      "description": "Since R1-2's fix the resolve prompt says a call whose decision carries `disposition` has no entry in `decided` (workflows/redline-loop.js 2079), and the agent file says the same (agents/redline-resolve.md line 24). The mock's default `decided` list (tests/loop-test.mjs 273-275) leaves out only calls in `left` (rule) and in `scenario.resolveUnstated`, so a named call in the calls block still gets a statement (`states(id)`, 272). The workflow drops that statement unread (`asked`, workflows/redline-loop.js 3795). Today every scenario with a named call (`namedCall`, `namedUnbuilt`, `namedDeferNoEntry`) passes `resolveUnstated` by hand, so the mock models the real agent only where a scenario remembers to say so. A mutation that read statements for named calls would stay green in any future scenario that leaves the key out. Traced from the lines cited; the guard refuses `node` to the reviewer, so nothing was run.",
+      "proposedFix": "Have the mock leave a call out of `decided` when its decision in the prompt carries `disposition`, the way it reads `accepted` and `left` from the decisions JSON (a `named` set from `/\"([RH]\\d+-\\d+)\": \\{[^}]*\"disposition\": \"/`), and drop the now-redundant `resolveUnstated` from the named scenarios, or keep it and add one check that a named call with no `resolveUnstated` gets no statement.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "workflows/redline-loop.js",
+      "line": 781,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The mitigation-field comment left by mitigationFilled's removal now sits above DRAFT_FIELDS and retells the filled-or-empty history",
+      "description": "With `mitigationFilled` deleted, its ten-line comment (781-790), rewritten, now sits directly above `const DRAFT_FIELDS` (791). That position makes it read as the comment for the draft fields, but it is about the mitigation field and what a deferral ships. Its last sentence ('From #100 to #99 one test still read it, as filled or empty...') repeats what the DEFERRED_SCHEMA comment eight lines above already says ('where the field was read as filled or empty until then (#103, R2-3)', 772-773). Introduced by this pull request's own commits, not by round 1's fixes.",
+      "proposedFix": "Fold 781-790 into the DEFERRED_SCHEMA comment at 769-776, keeping one telling of the filled-or-empty history, so the line above DRAFT_FIELDS is the comment for the draft fields or none.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-3",
+      "file": "workflows/redline-loop.js",
+      "line": 3816,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A stray entry beside a call whose decision names a fix is warned as one the person 'changed away from defer'",
+      "description": "`awayFromDefer` (3733) is true for any decided finding whose decision names a disposition other than `defer`, an override or a call alike. For a call whose decision names `fix` (the `namedCall` shape, which R1-5's fix now treats as first-class in the resolve-time checks), a deferred entry the resolve agent returns beside it goes through `strayOverride` (3814), and the warning reads 'the resolve agent listed R1-1 as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands' (3816). The shaper sorted that finding `ask`, so it was never a deferral, and the warning tells the person at the hand-off that they overrode one. The entry is still dropped correctly; only the words are wrong. The warning text is unchanged from main (main 3767), so the cause is in code this pull request did not change. The condition is a call decision that carries its own `disposition`, which the skill's paths for a call rarely write (the skill records `disposition` on overrides and on a shaper's draft turned back, `skills/redline/SKILL.md` 189, 224). This is not R1-3's split of the two drops into two warnings; it is this warning's wording. Traced from the lines cited.",
+      "proposedFix": "Word the warning by whose decision it is, as `whose(id)` does for the R1-5 checks: for an override keep 'a finding the person changed away from defer'; for a call whose decision names its disposition say 'whose decision names it as <fix|accept>'.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3864,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The resolve-time fix checks find a finding's files only in a task whose `finding` is exactly its id",
+      "description": "`unplanned` (3864) and, since R1-5's fix, `namedUnplanned` (3875) read a fix's files through `taskFilesOf(out.tasks, id)` (459), which keeps only tasks whose `finding` equals the id exactly. A resolve that plans one task for two calls with a shared cause ({finding: 'R1-1', files: ['app/x.php']}, its commit naming both) stops the round at resolve with 'the resolve agent stated fix for R1-2 with no task with files; a fix names the files it changes' (3866). On main nothing was demanded of R1-2 there, and a commit naming it was listed. The condition is a resolve that departs from its contract: the agent file asks it to turn 'the matching `Pending decision <id>: <title>` task into the concrete task' (agents/redline-resolve.md step 3), one per decision, and the implementer commits one finding per commit. The stop is the one the pull request's description names on purpose ('`fix` with no task with files'), resumable at the resolve label. Whether a rerun repeats the shared task is agent behaviour the repository cannot show; the code path is traced from the lines cited.",
+      "proposedFix": "Either keep the stop and say in the resolve prompt's ask that each call stated `fix` has a task of its own (`finding` set to its id), or read a task's `finding` as a list of ids where it names more than one. Whichever is chosen, a loop case with one shared task over two calls pins it.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-5",
+      "file": "workflows/redline-loop.js",
+      "line": 4091,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "needCommits' first branch has no forced guard, so a named-fix call a reshape puts under an ask rule is still demanded",
+      "description": "R1-8's fix put `!record.forced[id]` on the stated branch of `needCommits` (4093), and its comment (4084-4086) and the standard it added (agent-os/standards/workflow/agents.md line 39) say a call a reshape leaves to the person under a rule after its resolve 'is demanded of nothing'. The first branch (4090-4092) still has no forced test. Traced: a guided run with prose rule `billing`; call R1-1 is decided `{choice: 'fix', disposition: 'fix'}` (the `namedCall` shape). At its resolve it is not forced, so `roundDecisions['R1-1'].disposition` stays 'fix' (3752-3763) and no statement is read (`asked`, 3795). The plan bounces and the reshape tags R1-1 `askRule: billing`; `vetShape` runs `forceAskRules`, which sets `record.forced['R1-1']` on a decided finding not yet forced (3317-3318). R1-1 is a known call, so no second resolve runs (3989). `effectiveDispositions` shows `fix` from the decision (3894), `isDeferral` returns false for a forced finding (3919), and `!(f.id in stated)` holds, so the first branch demands R1-1. If the build leaves it out, the repair pass is told to produce a commit for a change the rule reserves for the person, and failing that the round stops at the check with 'no commit names R1-1'; `outcomesFor` meanwhile posts R1-1 as left to the person (2973-2976). The first branch on main (main 3982) lacks the guard too, so this predates the pull request; R1-8 covered the stated branch only. Conditions: a call decision carrying its own disposition, and a reshape after a bounced plan that newly puts it under a rule or the own-file reason, both rare. Traced, not run: the guard refuses `node` to the reviewer.",
+      "proposedFix": "Apply the forced test to the whole list: `.filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id) && !(f.id in stated) && !record.forced[f.id])`, or filter the concatenated list once by `!record.forced[id]`. Pin it with the `forcedLater` loop case run with `decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } }` and `resolveUnstated: ['R1-1']`: the round should finish with no repair and post R1-1 as left to @author under rule billing.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-6",
+      "file": "workflows/redline-loop.js",
+      "line": 4093,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "With the resolve-task clause removed, a decision whose named disposition is outside fix, defer and accept is never demanded or checked",
+      "description": "`args.decisions[id].disposition` is not validated at intake; only the resolve agent's own statements are filtered by `CALL_ENDS` (3791). A decision carrying a disposition outside the three (`'Fix'`, or `'decline'` on an override) is truthy, so `asked` skips it (3795); `namedAs` matches exact strings (3838), so none of the R1-5 checks see it; `stated` has no entry; `isDeferral` returns false (3930); `effectiveDispositions` shows `'Fix'` (3894), which the first branch of `needCommits` does not match (4091), and the stated branch reads only `stated` (4093). With the build leaving its task out, the run finishes and posts the decision with ' No code change.' (3031). On main the clause this pull request removed, `.concat(resolvedTasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding] && !deferralIds.has(task.finding)).map((task) => task.finding))` (main 3984), demanded any decided finding's task with files that was not accepted, forced or deferred, which caught this. Condition: a value no skill path writes; the skill records `<fix|defer|accept>` in lowercase for every override and changed disposition (skills/redline/SKILL.md 189, 215, 224, 228), so it needs the session to write the field outside that form. Traced from the lines cited, not run.",
+      "proposedFix": "Refuse a decision whose `disposition` is present and not one of `CALL_ENDS` where the workflow reads `args.decisions`, as an unusable argument, or lowercase and check it there; alternatively have `named` (3837) stop the round at resolve on a disposition outside the three.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-7",
+      "file": "workflows/redline-loop.js",
+      "line": 4093,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "unconfirmed",
+      "title": "A call forced by a reshape after its resolve keeps its fix task in plan.md, so its change can ship unlisted under a prose rule",
+      "description": "R1-8's fix stops the check demanding a call a reshape forces after its resolve, but nothing takes that call's task out of the plan. Traced in the workflow: the resolve ran before the forcing, so `roundDecisions['R1-1']` carries no `rule` (3752-3763) and the resolve agent wrote a concrete task with files, not 'Left to the person'. The reshape prompt tells the shaper that 'a decision the person made, or the autopilot applied, stays as it is' (2033), so plan.md most likely keeps that task. The implementer is told to build the plan exactly (2182) and is shown the decision without a rule (2196); its file stops only at a task titled 'Left to the person' (agents/redline-implementer.md 18, 29). Under a prose rule the guard does not refuse the write. If the task is built, `outcomesFor` posts R1-1 as left to the person with `commits: []` (2976), so a change the rule reserves for a person ships in the push and is named in no reply. R1-8's description named this outcome ('If it is built, the commit ships...'); its fix restored the demand guard, not this path. The same flow runs on main, so the cause, forcing after the resolve without re-resolving or rewriting the task, is in code this pull request did not change (`forceAskRules` 3317-3318, the approve loop 3986-4025). What could not be shown from the repository is the two agents' behaviour: whether the reshape keeps the resolve's task and whether the implementer builds it against the `ask`/`askRule` disposition it is shown. Conditions: a reshape that newly puts a decided call under a prose rule (a paths rule's write is refused by the guard) or the own-file reason, which is rare.",
+      "proposedFix": "When a reshape forces a finding that already has a decision, run the resolve again for it with the rule (so its task becomes 'Left to the person: <id>'), or stop the round at the reshape for the person, and pin it with the `forcedLater` loop case plus a commit in `commitIds` for R1-1.",
+      "wouldConfirm": "A guided run in which a reshape tags a decided call with a prose rule, showing plan.md still holds the resolve's task with files after the reshape and the implementer committing it.",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "81565cc5980f6b6e3337afa2e29a5fa99202bd94",
+    "candidates": 8,
+    "counts": {
+      "verified": 6,
+      "unconfirmed": 1,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 1,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R2-5"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R2-6"
+      },
+      {
+        "index": 3,
+        "outcome": "unconfirmed",
+        "ref": "R2-7"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R2-4"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R2-3"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R2-1"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R2-2"
+      },
+      {
+        "index": 8,
+        "outcome": "settled",
+        "ref": "R1-3 was decided (declined). Two parallel check sets over `stated` and over the named disposition, with an effective `roundDecisions[id].disposition || stated[id]` as the fix, is the same split R1-3 raised, and it still holds at this head."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 4091,
+        "summary": "R1-8 put the forced guard back only on the stated-fix branch of needCommits. The first branch (finalDispositions with disposition fix) still has none, so a call whose decision names `fix` itself, and which a later reshape puts under a repository ask rule, is still demanded.",
+        "failure_scenario": "Guided run. R1-1 is a judgment call answered {choice:'fix', disposition:'fix'}. The plan bounces once and the reshape tags R1-1 with ask rule 'billing', so forceAskRules sets record.forced['R1-1']. R1-1 is in `calls`, so no second resolve runs, and roundDecisions keeps disposition 'fix'. effectiveDispositions shows 'fix', and `!(f.id in stated)` holds because a named call is never stated, so needCommits demands R1-1. Reproduced: with the fix left unbuilt, the round stops with 'checks.sh still fails after one repair pass in round 1: no commit names R1-1', while outcomesFor posts R1-1 as left to the person. The standard added in agents.md and the R1-8 comment both say a call forced after its resolve is demanded of nothing. The general fix is to apply `!record.forced[f.id]` to the whole needCommits list rather than to one branch."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 4093,
+        "summary": "Removing the resolvedTasks clause from needCommits dropped the only demand for a decided finding whose named disposition is not exactly fix, defer or accept. args.decisions[id].disposition is never validated, `asked` skips any truthy disposition, and namedAs matches exact strings only, so such a finding is neither stated, checked at resolve nor demanded at the check.",
+        "failure_scenario": "The session records a call as {choice:'fix', disposition:'Fix'}, or a plan-dial override as disposition 'decline'. The resolve agent plans a task with files (app/x.php) and the build leaves it out. On main, the old clause (a resolve task with files, not accepted, forced or deferred) demanded it, and the round stopped with 'no commit names R1-1'. On the head, nothing demands it: the run finishes 'done' and posts 'Fix it in full. No code change.' Reproduced on both the head and main. Rejecting a disposition outside fix|defer|accept at intake would close this."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 4093,
+        "summary": "Round 1 raised this as R1-8, but the fix covers only half: removing the demand leaves the forced call's resolve task in plan.md. The implementer still builds it, and the commit ships for a finding Redline posts as left to the person with no commit listed.",
+        "failure_scenario": "Guided run. A call answered 'Change it' is stated fix and planned with app/x.php. The plan bounces, and the reshape tags the call with prose rule 'billing', so it is forced. The implementer prompt carries no rule for R1-1 (the decision was sent to the resolve before the forcing), so it builds the task and 'redline: R1-1 fix' lands. The reply is 'left to @author under repository rule billing … Fix it now.' with no commit, so the change the rule reserves for a person has shipped unannounced. Reproduced. R1-8's own text named this half ('Built, a commit ships…'), and round 1's fix did not address it."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 462,
+        "summary": "The new stops at resolve find a finding's files only through a task whose `finding` exactly equals its id. A fix the agent plans inside another finding's task, or labels in any other form, stops the run, and rerunning the resolve does not change how the agent writes it.",
+        "failure_scenario": "Calls R1-1 and R1-2 share a cause, and the resolve agent plans one task {finding:'R1-1', files:['app/x.php']} whose commit names both ids. R1-2 is stated fix, taskFilesOf(out.tasks,'R1-2') is [], and the round stops: 'the resolve agent stated fix for R1-2 with no task with files'. Before #99, a commit naming R1-2 was enough. The same exact match drives namedUnplanned for an override to fix. The rerun at the resume label tends to repeat the shared task, so the stop recurs."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 3816,
+        "summary": "Since #108 treats a call whose decision names its own disposition as first-class, a stray entry beside such a call goes through strayOverride. Its warning then says the person 'changed away from defer' a finding that was never a deferral.",
+        "failure_scenario": "Call R1-1 (shaper disposition ask) is answered {choice:'fix', disposition:'fix'}, and the resolve agent returns a filled deferred entry for it. Reproduced warning: 'round 1: the resolve agent listed R1-1 as deferred, a finding the person changed away from defer; the entry is dropped'. The person reads at the hand-off a claim that they overrode a deferral that never existed."
+      },
+      {
+        "index": 6,
+        "file": "tests/loop-test.mjs",
+        "line": 274,
+        "summary": "After R1-2, the prompt says a call whose decision carries `disposition` has no entry in `decided`, but by default the resolve mock still states one for such a call. Only scenarios that pass resolveUnstated model the real agent.",
+        "failure_scenario": "The default `decided` list excludes only `left` (rule) calls and resolveUnstated, not calls whose decision carries a disposition. A future scenario with a named call that leaves out resolveUnstated gets a statement the workflow drops unread, so a mutation that wrongly read statements for named calls would stay green. testing/tests.md says the mock should answer as the real agent would."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 781,
+        "summary": "Removing mitigationFilled left its 10-line comment block in place, so it now sits directly above `const DRAFT_FIELDS` and reads as that constant's comment. It also repeats history the DEFERRED_SCHEMA comment above already gives ('read as filled or empty until then').",
+        "failure_scenario": "A reader of DRAFT_FIELDS and draftMissing finds a paragraph about what a deferral ships and the history of a removed test. Nothing at that point is described by it, and the filled-or-empty history is now told twice in adjacent comments. Folding it into the DEFERRED_SCHEMA comment, or deleting it, removes the stray block."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 3875,
+        "summary": "R1-5 added a second, parallel set of three checks (namedUnplanned/namedPlanned/unentered over namedAs, beside unplanned/planned/undeferred over statedAs). Three checks over one effective disposition per id (`roundDecisions[id].disposition || stated[id]`) would do the same job.",
+        "failure_scenario": "resolveWith now carries six near-identical filter, throw and message blocks over two complementary id lists (`asked` and `named`). Any change to one rule must be made twice: what counts as files, the accept rule, or the defer allowance (which only the named side has). Shape decision 5 asked for the checks to run 'by its effective disposition'; one list keyed by effective disposition, with `whose(id)` choosing the wording, would hold each rule once."
+      }
+    ]
+  }
+}

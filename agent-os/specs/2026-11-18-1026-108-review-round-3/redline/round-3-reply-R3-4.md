@@ -1,0 +1,1 @@
+Redline round 3: fixed in a2ba199 (redline: R3-4 tell a resumed resolve the stop was the check of its own result (#99)). · decided by: redline

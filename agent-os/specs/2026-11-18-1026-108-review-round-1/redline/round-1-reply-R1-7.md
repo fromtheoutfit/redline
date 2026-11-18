@@ -1,0 +1,1 @@
+Redline round 1: fixed in 3f46c3f (redline: R1-7 read a finding's task files through one helper (#99)). · decided by: redline

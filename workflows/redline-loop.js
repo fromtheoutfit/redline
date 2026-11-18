@@ -231,7 +231,28 @@ const personLabel = login ? `@${login}` : A.revise && typeof A.revise === 'objec
 const personLabelStart = personLabel.charAt(0).toUpperCase() + personLabel.slice(1)
 const REDLINE = 'redline'
 const AUTOPILOT = 'redline (autopilot)'
+// What a judgment call's decision can end in (#99): a change in this pull request whose commit
+// the check demands, an issue with or without a mitigation, or no change.
+const CALL_ENDS = ['fix', 'defer', 'accept']
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
+// A decision that names its own disposition names one of the three (#108, R2-6): the skill
+// records only fix, defer or accept, and every reader of the field matches those exact values,
+// so any other would be neither checked at resolve nor demanded at the check. Until #99 a
+// resolve task with files was demanded whatever the decision named. An empty string or a null
+// names none, as every reader of the field reads it: it is dropped from the run's copy of the
+// decision, so the resolve prompt shows none either, where until #108, R3-1 the check below
+// refused it and a relaunch threw before any agent ran. Only those two name none: a blank
+// string, or "", '' or null in quotes, which errorText also clears from an agent's error (#42),
+// is a value outside the three here and is refused, since no path the skill records writes one
+// (#108, R4-2).
+for (const [id, entry] of Object.entries(decisions)) {
+  if (entry && typeof entry === 'object' && (entry.disposition === null || entry.disposition === '')) {
+    const { disposition: _dropped, ...rest } = entry
+    decisions[id] = rest
+  } else if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
+    fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
 // plan dial: the passes whose disposition list the person approved (relaunch carries them all):
 // a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
 // its final nit pass never share a key when their numbers are equal (#38, R1-5).
@@ -457,6 +478,9 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
+// The files of the tasks a list holds for one finding (#108, R1-7): the resolve-time checks read
+// one resolve's tasks, plannedFiles every resolve's of the round, and both read them this way.
+const taskFilesOf = (tasks, id) => unique(tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
 
 // The glob dialect of a paths ask rule, shared with the guard (glob_regex in
 // scripts/redline-guard.sh) and pinned by the same cases on both sides: ** spans segments, * and ?
@@ -551,13 +575,23 @@ function resumeLine(opts) {
   const shaper = opts.agentType === 'redline:redline-shaper'
     ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
     : ''
+  // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
+  // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
+  // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
+  // (#108, R3-4). The clause is chosen by the stop, not by the agent alone (#108, R4-4): each of
+  // those checks opens its error with "the resolve agent ", and neither the autopilot stop nor a
+  // crash does. The autopilot stop is raised from the agent's own unresolved list, whose entries
+  // its rules keep pending, so its rerun is told nothing more.
+  const resolveFix = opts.agentType === 'redline:redline-resolve' && String(entry.error || '').startsWith('the resolve agent ')
+    ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
+    : ''
   const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub
     ? ` Before Step 2, run \`${GH} pr-comments ${pr}\`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, set posted true and comment_url to "" (the script prints no comment URL), and go on to Step 3.`
     : ''
   const recordCommit = opts.label === 'record commit'
     ? ` Before Step 1, run \`git -C ${repoRoot} status --porcelain --untracked-files=all -- <the paths Step 1 names>\`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA \`git -C ${repoRoot} rev-parse HEAD\` prints, and do Step 3.`
     : ''
-  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${finishComment}${recordCommit}`
+  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${resolveFix}${finishComment}${recordCommit}`
 }
 
 // The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2
@@ -764,27 +798,24 @@ function judgmentCallSchema(reasons) {
 }
 
 // A deferred item (#95): worth doing, not in this pull request. `mitigation` is the words for what
-// ships now, an empty string when nothing does. The words never decide what ships (#100): the
-// field is read once, as filled or empty, by isDeferral for a call's decision (mitigationFilled
-// below, #99; #103, R2-3). `title`, `found`, `why` and `fullFix` are its drafted issue, which
-// stands on its own. The draft fields are checked by the workflow, not required here, since the
-// resolve agent's entry for a finding left to the person under a repository rule carries none.
+// ships now, an empty string when nothing does. The words never decide what ships (#100): before
+// the build that is the task the round planned with files, and after it the commit of the
+// finding's own, so no wording can stop a round or demand a commit. The words are shown, in a
+// stop's drafts and in the result's deferred list, only beside a mitigation the record says ships;
+// the plan dial's list of the shaper's dispositions shows them as the shaper wrote them, beside
+// the files it listed (#103, R2-4). Until #100 a list of phrases for nothing (none, n/a, nothing
+// ships now) was read from the field, and a wording it missed demanded a commit the plan had no
+// task for (#97, R1-7, R3-2). And since #99 nothing reads the field to decide anything: whether a
+// call's decision deferred its finding is read from what the resolve agent states (`decided` in
+// RESOLVE_SCHEMA), where the field was read as filled or empty until then, to tell a person's
+// "Mitigate" answer from a fix with a stray entry (#103, R2-3). `title`, `found`, `why` and
+// `fullFix` are its drafted issue, which stands on its own. The draft fields are checked by the
+// workflow, not required here, since the resolve agent's entry for a finding left to the person
+// under a repository rule carries none.
 const DEFERRED_SCHEMA = {
   type: 'array',
   items: { type: 'object', required: ['id', 'mitigation', 'fullFix'], properties: { id: str, mitigation: str, fullFix: str, title: str, found: str, why: str } },
 }
-// Whether a deferred entry's mitigation field holds anything (#100). What a deferral ships is
-// never read from this field: before the build it is the task the round planned with files, and
-// after it the commit of the finding's own, so no wording here can stop a round or demand a
-// commit. The words are shown, in a stop's drafts and in the result's deferred list,
-// only beside a mitigation the record says ships; the plan dial's list of the shaper's
-// dispositions shows them as the shaper wrote them, beside the files it listed (#103, R2-4).
-// This test has one reader, isDeferral, which the record alone cannot serve: there a person's
-// "Mitigate" answer and a fix with a stray entry are both an entry beside a task with files, and
-// a filled field is what tells them apart until the resolve agent names the disposition (#99).
-// Until #100 a list of phrases for nothing (none, n/a, nothing ships now) was read here as well,
-// and a wording it missed demanded a commit the plan had no task for (#97, R1-7, R3-2).
-const mitigationFilled = (item) => Boolean(item) && typeof item.mitigation === 'string' && item.mitigation.trim() !== ''
 const DRAFT_FIELDS = ['title', 'found', 'why', 'fullFix']
 // A draft field is missing when it is no string or holds nothing; the title is read as it will be
 // filed, so one that cleans to nothing (control characters only) is missing too (#97, R1-8).
@@ -874,7 +905,7 @@ const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer'
 
 const RESOLVE_SCHEMA = {
   type: 'object',
-  required: ['specFolder', 'tasks', 'deferred', 'unresolved'],
+  required: ['specFolder', 'tasks', 'deferred', 'decided', 'unresolved'],
   properties: {
     specFolder: str,
     tasks: {
@@ -882,6 +913,17 @@ const RESOLVE_SCHEMA = {
       items: { type: 'object', required: ['n', 'title', 'files', 'finding'], properties: { n: int, title: str, files: strings, finding: str } },
     },
     deferred: DEFERRED_SCHEMA,
+    // What each judgment call's decision ends in (#99), one entry per call the resolve was asked
+    // to state. The workflow reads a call's disposition from here, never from its deferred entry
+    // or its task. An override and a call whose decision names its own disposition (#108, R1-2)
+    // name theirs, and a call left to the person under a rule has none to read, so none of them
+    // has an entry. The list is required, so an empty one means no call needed a statement. A
+    // result recorded before #99 holds no list, and can replay only for a resolve with no call,
+    // whose prompt did not change; resolveWith reads an absent list as empty.
+    decided: {
+      type: 'array',
+      items: { type: 'object', required: ['id', 'disposition'], properties: { id: str, disposition: { type: 'string', enum: CALL_ENDS } } },
+    },
     unresolved: {
       type: 'array',
       items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } },
@@ -2025,6 +2067,13 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   // to the own-file bullet, and the resolve agent gets one wording for it (#94, R9-4).
   const anyOwn = Object.values(callDecisions).some((d) => d && d.own)
   const overrideDecisions = Object.fromEntries(overrides.map((f) => [f.id, roundDecisions[f.id]]))
+  // A call left to the person under a rule has no disposition to state (#99), and the sentence
+  // that says so is in the prompt only when a call carries one.
+  const anyRule = Object.values(callDecisions).some((d) => d && d.rule)
+  // A call whose decision names its own disposition decides as an override's does, so no
+  // statement is asked of it (#99, its spec's decision 17), and the sentence that says so is in
+  // the prompt only when a call carries one, as for a rule (#108, R1-2).
+  const anyNamed = Object.values(callDecisions).some((d) => d && d.disposition)
   const lines = [
     RUN_LINE,
     '',
@@ -2050,7 +2099,10 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
       'Decisions on them, as JSON (choice is an option label or the person\'s own words; notes is the decision restated as one standalone sentence, the choice and the reasoning; date is when; decidedBy is the owner):',
       json(callDecisions),
       '',
-      'Return a deferred entry for a call only when its decision defers the finding (a "mitigate" choice, or the person\'s own words saying to defer it), with its mitigation and its drafted issue; a decision that fixes the finding in full or accepts it returns none, since the workflow reads an entry beside a planned task as a deferral the person chose (#97, R2-15).',
+      // The whole ask for `decided` (#99) sits here, in the calls block, and nowhere else in the
+      // prompt: the answer then does not depend on the agent file the session loaded, and a
+      // resolve with overrides and no call keeps the prompt it had before #99, so it replays.
+      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (a task of its own, its finding set to the call's id, names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}`,
     )
   }
   if (overrides.length) {
@@ -2617,7 +2669,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -3711,10 +3763,12 @@ async function revise(record, inScope, reviewedKind) {
   // resolve for that call alone and `resolved` becomes it, so what the round planned is read from
   // every resolve's tasks, never from the latest one's.
   const resolvedTasks = []
-  // The findings whose deferred entry the round's resolve agent returned (#97, R1-10): how a call's
-  // answer shows a deferral. A reshape's entry never does, since the person's decision stays
-  // whatever disposition a reshape gives its finding (#94, R8-6).
-  const resolveDeferred = new Set()
+  // What each call's decision ends in, by finding id, as the round's resolves stated it (#99):
+  // fix, defer or accept. It is how a call's answer shows a deferral, and what the check demands
+  // of a call. Until #99 the resolve agent's own deferred entry showed one (#97, R1-10). A
+  // reshape never changes it, since the person's decision stays whatever disposition or entry a
+  // reshape gives its finding (#94, R8-6).
+  const stated = {}
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     for (const id of newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))) {
       const decision = withOwner(decisions[id])
@@ -3751,6 +3805,30 @@ async function revise(record, inScope, reviewedKind) {
       }
       return { handoff: true, kind: 'decisions', pending: newCalls.filter((call) => ids.includes(call.id)), overridesUnresolved: out.unresolved.filter((item) => stuck.includes(item.id)), calls, unresolved: out.unresolved, shaped, afterApproval: suffix !== '' }
     }
+    // What each call's decision ends in is the resolve agent's to state (#99), one statement a
+    // call: the first it returned, and a value outside the three is no statement. A list that is
+    // absent reads as empty: a resolve with no call keeps the prompt it had before #99, so a
+    // result recorded before it can replay here, and nothing is needed from it. Every call this
+    // resolve applied needs its statement, since nothing else says what its decision ends in, and
+    // one without stops the round here, where a resume reruns the agent. A decision that names
+    // its own disposition decides as an override's does (#103, R1-11), and a call left to the
+    // person under a rule has no disposition to read, so neither is asked for one. A decision
+    // that names its own disposition is checked below by what it names (#108, R1-5).
+    // The first statement is picked before its value is read, so a first one outside the three
+    // leaves the call with no statement, a valid second beside it included (#108, R3-3).
+    const firstStated = firstPerId(out.decided || [])
+    const statements = { kept: firstStated.kept.filter((item) => CALL_ENDS.includes(item.disposition)), repeated: firstStated.repeated }
+    if (statements.repeated.length) {
+      warnings.push(`${pass.name}: the resolve agent stated a disposition for ${statements.repeated.join(', ')} more than once; the first is kept`)
+    }
+    const asked = newCalls.filter((call) => !record.forced[call.id] && !roundDecisions[call.id].disposition)
+    const unstated = asked.filter((call) => !statements.kept.some((item) => item.id === call.id)).map((call) => call.id)
+    if (unstated.length) {
+      throw stageError('resolve', `the resolve agent stated no disposition for ${unstated.join(', ')}, a judgment call it applied; a call's decision is read from what it states (fix, defer or accept)`)
+    }
+    for (const call of asked) {
+      stated[call.id] = statements.kept.find((item) => item.id === call.id).disposition
+    }
     // The resolve agent's entry for a decision it planned replaces an earlier one for the same id,
     // in place, so a deferral the person restated with their own mitigation is the one planned and
     // posted (#94, R5-9). A finding a repository ask rule covers keeps none (#49).
@@ -3762,28 +3840,89 @@ async function revise(record, inScope, reviewedKind) {
     // resolve agent returns beside it (#103, R2-8): the entry is dropped with a warning before the
     // round's list takes it, so the plan approver and the implementer are never shown one, and no
     // draft check stops the round for it.
+    // An override is a finding whose disposition the person changed, from whatever the shaper
+    // sorted it to (a decline overruled to a fix included), and a call whose decision names its
+    // own fix or accept was never a deferral either: each warning says whose decision it is and
+    // what it names (#108, R2-3, R3-5). An override is never one of the round's calls (overridesFor).
+    // Whether a decision is a call's or an override's, read one way for the stray warnings and
+    // the named-check stops (#108, R3-6): `newCalls` is always within `calls`, and `overridesFor`
+    // never takes a call.
+    const isCall = (id) => calls.some((call) => call.id === id)
     const strayOverride = once.kept.filter((item) => awayFromDefer(item.id)).map((item) => item.id)
-    if (strayOverride.length) {
-      warnings.push(`${pass.name}: the resolve agent listed ${strayOverride.join(', ')} as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands`)
+    const strayNamed = strayOverride.filter(isCall)
+    const strayChanged = strayOverride.filter((id) => !strayNamed.includes(id))
+    for (const id of strayChanged) {
+      warnings.push(`${pass.name}: the resolve agent listed ${id} as deferred, a finding whose disposition the person changed to ${roundDecisions[id].disposition}; the entry is dropped, since the decision stands`)
     }
-    const fresh = once.kept.filter((item) => !awayFromDefer(item.id))
+    for (const id of strayNamed) {
+      warnings.push(`${pass.name}: the resolve agent listed ${id} as deferred, a call whose decision names it as ${roundDecisions[id].disposition}; the entry is dropped, since the decision stands`)
+    }
+    // A call whose decision is stated as a fix or as accepted leaves none behind either (#99),
+    // on any dial: its entry is dropped the same way, before the round's list takes it, so no
+    // draft is raised or filed for it and the fix is still demanded. Until #99 a filled entry
+    // beside a call's fix was read as a "Mitigate" answer and filed (#97, R2-15). An entry for a
+    // call an earlier resolve of the round stated is dropped as well.
+    const strayCall = once.kept.filter((item) => Boolean(stated[item.id]) && stated[item.id] !== 'defer')
+    for (const item of strayCall) {
+      warnings.push(`${pass.name}: the resolve agent listed ${item.id} as deferred and stated its decision as ${stated[item.id]}; the entry is dropped, since the statement decides`)
+    }
+    const fresh = once.kept.filter((item) => !awayFromDefer(item.id) && !strayCall.includes(item))
     // A deferral the resolve agent planned carries its drafted issue, as the shaper's does (#95).
     const undrafted = fresh.filter((item) => draftMissing(item).length)
     if (undrafted.length) {
       throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
     }
-    // A deferral the person chose by a disposition override comes back with its entry (#97,
-    // R2-13): one the resolve agent left out would be neither drafted nor filed, and its reply would
-    // close the person's deferral with no issue and no warning. An entry the round already holds
-    // for it (the shaper's own deferral) stands in, as it does when the resolve returns none.
-    const unentered = newOverrides.filter((f) => roundDecisions[f.id].disposition === 'defer' && !fresh.some((item) => item.id === f.id) && !deferred.some((d) => d.id === f.id))
+    // A decision that names its own disposition, an override or a call whose decision carries
+    // one, is checked by what it names, as a stated call is by its statement (#108, R1-5); a
+    // finding left to the person under a rule names none (its disposition was deleted above).
+    // Until #108 only a defer override was checked, by its entry.
+    const named = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id)).filter((id) => !record.forced[id] && roundDecisions[id].disposition)
+    const namedAs = (disposition) => named.filter((id) => roundDecisions[id].disposition === disposition)
+    const whose = (id) => (isCall(id) ? 'its decision' : 'a disposition override')
+    // A deferral the person chose comes back with its entry (#97, R2-13): one the resolve agent
+    // left out would be neither drafted nor filed, and its reply would close the person's
+    // deferral with no issue and no warning. An entry the round already holds for it (the
+    // shaper's own deferral) stands in, as it does when the resolve returns none.
+    const unentered = namedAs('defer').filter((id) => !fresh.some((item) => item.id === id) && !deferred.some((d) => d.id === id))
     if (unentered.length) {
-      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((f) => f.id).join(', ')}, which a disposition override deferred; a deferred item always carries a drafted issue`)
+      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((id) => `${id}, which ${whose(id)} deferred`).join('; ')}; a deferred item always carries a drafted issue`)
+    }
+    // What a call's decision is stated to end in is checked against what this same resolve
+    // returned, its entries and its tasks, before anything is built, filed or posted (#99): a
+    // statement they cannot support is never trusted on its own, and it stops the round here,
+    // where a resume reruns the agent. A deferral comes back with its deferred entry, as an
+    // override's does above: with none there is no draft to file, and its reply would close the
+    // person's deferral with no issue. A fix has a task with files: with none the plan approver
+    // lists no path for it, so the build could not write it, and the stop that followed would
+    // resume at the build, which cannot replan. An accept has no task with files: the workflow
+    // cannot take one out of plan.md, and the implementer builds the plan as written. An entry
+    // short of a draft field stopped above, and an entry beside a fix or an accept was dropped.
+    const taskFiles = (id) => taskFilesOf(out.tasks, id)
+    const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
+    const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
+    if (undeferred.length) {
+      throw stageError('resolve', `the resolve agent stated defer for ${undeferred.join(', ')} with no deferred entry; a deferred item always carries a drafted issue`)
+    }
+    const unplanned = statedAs('fix').filter((id) => taskFiles(id).length === 0)
+    if (unplanned.length) {
+      throw stageError('resolve', `the resolve agent stated fix for ${unplanned.join(', ')} with no task with files; a fix names the files it changes`)
+    }
+    const planned = statedAs('accept').filter((id) => taskFiles(id).length > 0)
+    if (planned.length) {
+      throw stageError('resolve', `the resolve agent stated accept beside a task with files for ${planned.map((id) => `${id} (${taskFiles(id).join(', ')})`).join(', ')}; an accepted finding changes nothing`)
+    }
+    // A decision that names a fix or an accept is held to its tasks the same way (#108, R1-5):
+    // until #108 a named fix with no task with files stopped at the check after a repair, which
+    // resumes at the build and cannot replan, and a named accept beside a task with files was built.
+    const namedUnplanned = namedAs('fix').filter((id) => taskFiles(id).length === 0)
+    if (namedUnplanned.length) {
+      throw stageError('resolve', `the resolve agent planned no task with files for ${namedUnplanned.map((id) => `${id}, which ${whose(id)} names as a fix`).join('; ')}; a fix names the files it changes`)
+    }
+    const namedPlanned = namedAs('accept').filter((id) => taskFiles(id).length > 0)
+    if (namedPlanned.length) {
+      throw stageError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
     }
     resolvedTasks.push(...out.tasks)
-    for (const item of fresh) {
-      resolveDeferred.add(item.id)
-    }
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
@@ -3799,24 +3938,25 @@ async function revise(record, inScope, reviewedKind) {
   })
   // The files of the task the round planned for a deferral (#100), none when it planned no task.
   // A finding the person or autopilot decided is read from the resolve's tasks, whatever the
-  // shaper listed for it; isDeferral reads whether such a finding has a planned task from this
-  // list too, so the stops, the prompts, the warning and isDeferral read one fact one way (#103,
-  // R3-6). One nobody decided is read from the shaper's own list for its deferral (#97, R2-6): a
-  // finding's `files` are the paths its task touches (the shaper's schema), so a deferral listed
-  // with files has a task whatever its mitigation says, and shaperFiles reads only a finding the
-  // shaper deferred, so no other test of the list is needed (#103, R2-9). Nothing is demanded of
-  // the gate for it: no deferral's commit is (#100).
-  const plannedFiles = (id) => (roundDecisions[id] ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files)) : shaperFiles(id))
+  // shaper listed for it, so the stops, the prompts and the warning read one fact one way (#103,
+  // R3-6). isDeferral read this list too until #99, which reads a call's decision from what the
+  // resolve agent states and no longer from whether a task is planned. One nobody decided is read
+  // from the shaper's own list for its deferral (#97, R2-6): a finding's `files` are the paths its
+  // task touches (the shaper's schema), so a deferral listed with files has a task whatever its
+  // mitigation says, and shaperFiles reads only a finding the shaper deferred, so no other test
+  // of the list is needed (#103, R2-9). Nothing is demanded of the gate for it: no deferral's
+  // commit is (#100).
+  const plannedFiles = (id) => (roundDecisions[id] ? taskFilesOf(resolvedTasks, id) : shaperFiles(id))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, and no other override whatever
-  // entry stands beside it (#103, R1-11), or, for a call, the resolve agent's own entry when its
-  // mitigation field is filled or the finding has no planned task with files, since a deferral
-  // that ships nothing has no task. The field is read as filled or empty, never by its words
-  // (#100); the resolve agent naming each decision's disposition replaces this test (#99). A
-  // reshape's disposition or entry never makes a decided finding one (#94, R8-6). A decline or a
-  // fix beside a leftover entry is none (#94, R4-9), and neither is a finding left to the person
-  // under a rule, which has no entry at all.
+  // entry stands beside it (#103, R1-11), or a call whose decision the resolve agent stated as a
+  // deferral (#99). Until #99 a call was read from the entry itself, as a deferral when its
+  // mitigation field was filled or the finding had no planned task with files, so a fix beside
+  // a stray filled entry was filed as the person's deferral, and a deferral in empty words
+  // beside a planned task was demanded as a fix. A reshape's disposition or entry never makes a
+  // decided finding one (#94, R8-6). A decline or a fix beside a leftover entry is none (#94,
+  // R4-9), and neither is a finding left to the person under a rule, which has no entry at all.
   const isDeferral = (d) => {
     if (record.forced[d.id]) {
       return false
@@ -3825,11 +3965,14 @@ async function revise(record, inScope, reviewedKind) {
     if (decision) {
       // An override names its disposition, and that decides (#103, R1-11): an override to fix or
       // accept leaves no deferral behind (awayFromDefer), whatever entry the resolve agent returns
-      // beside it. Only a call's decision, which names none, is read from the resolve agent's entry.
+      // beside it, and so does a call whose decision names one (#108, R1-2). A call's decision that
+      // names no disposition is read from what the resolve agent stated for it (#99), never from
+      // the entry or the task beside it: resolveWith checked the statement against both when the
+      // resolve returned.
       if (decision.disposition) {
         return decision.disposition === 'defer'
       }
-      return resolveDeferred.has(d.id) && (mitigationFilled(d) || plannedFiles(d.id).length === 0)
+      return stated[d.id] === 'defer'
     }
     return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
   }
@@ -3894,8 +4037,9 @@ async function revise(record, inScope, reviewedKind) {
     // at the same stop as a call it raised (#95).
     const stillDeferred = (id) => Boolean(roundDecisions[id]) || shaped.findings.some((s) => s.id === id && s.disposition === 'defer')
     // A finding the person or autopilot decided keeps the entry its decision was planned with (#97,
-    // R3-6): a reshape's entry for it would replace that one, and isDeferral reads the entry, so a
-    // restated mitigation could undo the person's deferral and a restated draft swap the one filed.
+    // R3-6): a reshape's entry for it would replace that one, so a restated draft would swap the
+    // one filed and a restated mitigation the words shown beside it. Until #99 isDeferral read
+    // the entry as well, so a restated mitigation could undo the person's deferral.
     // The reshape's entry is dropped with a warning; stillDeferred keeps the earlier one.
     const restated = shaped.deferred.filter((d) => roundDecisions[d.id]).map((d) => d.id)
     if (restated.length) {
@@ -3966,7 +4110,6 @@ async function revise(record, inScope, reviewedKind) {
     }
   }
 
-  const accepted = new Set(finalDispositions.filter((f) => f.disposition === 'accept').map((f) => f.id))
   // No commit is demanded of a deferral (#100), Redline's own or one the person chose: a
   // mitigation is optional, so one the build left out is a warning after the check, never a
   // failing check. It stays out of the repair as well, which would be told to produce a commit
@@ -3978,10 +4121,23 @@ async function revise(record, inScope, reviewedKind) {
   // below reuse it, since nothing they read changes after the approve loop.
   const roundDeferred = deferred.filter(isDeferral)
   const deferralIds = new Set(roundDeferred.map((d) => d.id))
+  // What the check demands of a call the person or autopilot decided is read from what the
+  // resolve agent stated for it, and from nothing else (#99): a call stated as a fix is demanded
+  // whatever entry stood beside it and whatever a reshape made of its finding, and one stated as
+  // a deferral or as accepted is not, whatever its task lists. One exception: a decided finding
+  // a reshape leaves to the person under a rule after its resolve is demanded of nothing, a call
+  // stated as a fix, a call whose decision names its own fix and an override to fix alike, as
+  // isDeferral and the outcomes treat it, and as the clause before #99 had it for a stated call
+  // (#108, R1-8); the test is on the whole list, since a decision that names its fix is demanded
+  // through its final disposition (#108, R2-5). Until #99 a
+  // call's fix was demanded through the resolve's tasks, any with files whose finding was not
+  // read as a deferral, the inference isDeferral made from the other side. Every other finding
+  // is demanded by its final disposition, as before.
   const needCommits = finalDispositions
-    .filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id))
+    .filter((f) => f.disposition === 'fix' && !deferralIds.has(f.id) && !(f.id in stated))
     .map((f) => f.id)
-    .concat(resolvedTasks.filter((task) => task.files.length && task.finding && !accepted.has(task.finding) && !record.forced[task.finding] && !deferralIds.has(task.finding)).map((task) => task.finding))
+    .concat(Object.keys(stated).filter((id) => stated[id] === 'fix'))
+    .filter((id) => !record.forced[id])
   const ctx = {
     specFolder, snapshotPath, octane, baselineFailing, inScope, shaped: { ...shaped, findings: finalDispositions }, deferred, roundDecisions, plan, standards,
     allowed: unique(prFiles.concat(approvedPaths, ['agent-os/specs/', 'agent-os/standards/', 'openapi.json'])),

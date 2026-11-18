@@ -1,0 +1,1 @@
+Redline round 2: declined: could not confirm: needs a guided run in which a reshape puts a decided call under a prose rule after its resolve, showing plan.md still holding the resolve's task with files and the implementer committing it, which is agent behaviour the scripted loop test cannot show · decided by: redline

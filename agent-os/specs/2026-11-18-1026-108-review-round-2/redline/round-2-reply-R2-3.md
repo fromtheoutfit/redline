@@ -1,0 +1,1 @@
+Redline round 2: fixed in feabf61 (redline: R2-3 word a stray entry's warning by whose decision it is (#99)). · decided by: redline

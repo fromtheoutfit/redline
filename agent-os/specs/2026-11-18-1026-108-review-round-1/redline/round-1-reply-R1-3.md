@@ -1,0 +1,1 @@
+Redline round 1: declined: The view effectiveDispositions gives the plan approver and the implementer is kept on purpose by the pull request's spec (decision 14, as #106's subject), and the one concrete cost the finding names, the forced test missing from needCommits, is fixed in this round as R1-8 · decided by: redline

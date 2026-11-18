@@ -1,0 +1,1 @@
+Redline round 3: fixed in 0d86faf (redline: R3-6 tell a call from an override with one predicate in resolveWith (#99)). · decided by: redline

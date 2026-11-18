@@ -1,0 +1,1 @@
+Redline round 3: fixed in 90ec7e4 (redline: R3-3 pick the first statement before reading its value (#99)). · decided by: redline
