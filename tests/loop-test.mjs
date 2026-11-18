@@ -3137,7 +3137,8 @@ function samePrefix(name, first, second, n) {
   // An override names its disposition, and that decides (#103, R1-11): a filled entry the resolve
   // agent returns beside an override to fix is no deferral, so the fix is demanded and nothing is
   // filed. The neighbours that must not change: `chosen` above, a defer override filed, and
-  // `deferAccepted` in the defer section, an accept override that buys nothing.
+  // `overrideAccepted` below, an accept override beside the same entry, which files nothing
+  // (#103, R2-2).
   const fixOverride = { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-17', disposition: 'fix' } }
   const strayOverrideEntry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
   const overrideArgs = { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: fixOverride, deferrals: goAhead('R1-1') }
@@ -3150,6 +3151,12 @@ function samePrefix(name, first, second, n) {
   // approver nor the implementer is shown it. A prompt that is absent reads as '' and fails.
   const shownStray = ['plan approver r1', 'implement r1'].map((label) => (pick(overrideBuilt.calls, label) || { prompt: '' }).prompt)
   check('filing: the resolve agent\'s entry beside an override to fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', shownStray.every((p) => p !== '' && !p.includes('"mitigation": "a guard"')) && (overrideBuilt.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a finding the person changed away from defer; the entry is dropped, since the decision stands'), [shownStray.map((p) => p.includes('"mitigation": "a guard"')), overrideBuilt.res.warnings])
+  // The accept half of R1-11's rule (#103, R2-2): an override to accept beside a filled entry the
+  // resolve agent returns is no deferral either, so nothing is filed or listed as deferred, and the
+  // reply is the person's decision with no code change.
+  const acceptOverride = { 'R1-1': { choice: 'accept', notes: 'Keep it as it is.', date: '2026-11-17', disposition: 'accept' } }
+  const overrideAccepted = await go('filing: a deferral the person changes to accept, beside a filled resolve entry', { ...overrideArgs, decisions: acceptOverride }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], resolveDeferred: [strayOverrideEntry], commitIds: [[]] })
+  check('filing: an override to accept beside a filled resolve entry files nothing, lists nothing as deferred and is posted as kept with no code change', overrideAccepted.res.status === 'done' && !labels(overrideAccepted.calls).includes('file deferred r1') && (overrideAccepted.res.deferred || []).length === 0 && replyFor(overrideAccepted.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Keep it as it is. No code change. · decided by: @author', [overrideAccepted.res.status, overrideAccepted.res.error, labels(overrideAccepted.calls).slice(-8), replyFor(overrideAccepted.calls, 'push and reply r1', 'R1-1')])
   // A reshape that restates a deferral the person chose is not held to a draft of its own (#97,
   // R3-4): the decision's entry carries the resolve agent's draft, so a short one in the
   // restatement stops nothing.
