@@ -475,3 +475,22 @@ The red run: the check fails, since both texts are in the script.
 - `agent-os/specs/2026-11-17-1643-103-review-round-1/shape.md`
 - `agent-os/standards/workflow/agents.md`
 - `agent-os/standards/testing/tests.md`
+
+## As built
+
+Built by Redline's implementer on 2026-11-17, from `5a9c2f1`. Every count below is the loop check's own line, read from the gate's kept result (`<TMPDIR>/redline-checks/<root key>-<HEAD>.json`), since the gate's printed JSON carries no output for a check that passes. Every count matches the plan's expectation, so no count is a deviation.
+
+- **Task 1** (`f855c8c`): `redline: save review round 1 spec for PR #103 (#100)`; the four files, nothing under `redline/`.
+- **Task 2, R1-2** (`d1aba94`): red `1343 checks passed, 2 failed` (the two decided-deferral checks, showing the shaper's lists `["defer",[]]` and `["defer",["app/x.php"]]`; the neighbour passed); green `1345 checks passed, 0 failed`.
+- **Task 3, R1-10** (`917edb0`): red `1346 checks passed, 1 failed` (the run ended `done`); green `1346 checks passed, 0 failed`, the run stopping at the check.
+- **Task 4, R1-11** (`cfb4a1c`): red `1348 checks passed, 2 failed` (the unbuilt run ended `done`, the built run's reply ended `Deferred to #301.`); green `1349 checks passed, 0 failed`.
+- **Task 5, R1-1** (`504ebce`): red `1349 checks passed, 2 failed` (the two phrases); green `1351 checks passed, 0 failed`. The two doc edits were first made before the red run; they were undone by hand, the red run seen with the test change alone, and then made again.
+- **Task 6, R1-3** (`a94636b`): red `1351 checks passed, 1 failed`; green `1352 checks passed, 0 failed`; `grep -c 'thread) ,' skills/redline/SKILL.md` prints `0`.
+- **Task 7, R1-5** (`a92f41b`): no check added; green `1352 checks passed, 0 failed`; `mitigationFilled` appears twice and `const filled` once (the coverage parser's).
+- **Task 8, R1-7** (`812bad0`): red `1352 checks passed, 2 failed`; green `1354 checks passed, 0 failed`. The rewrap leaves the comment's fourth line short (`// commit. The words are shown, at a stop and in the result,`), since the pinned phrase opens the next line whole; no line of the comment is wider than the lines around it.
+- **Task 9, R1-8** (`ddf0eed`): red `1354 checks passed, 1 failed`; green `1355 checks passed, 0 failed`. `draftsOf` has three calls, each passing its reader (`shaperFiles`, `plannedFiles`, `plannedFiles`).
+- **Task 10, R1-12** (`efcadce`): the phrase check and the mutation were seen red in one gate run, with the ternary's two texts swapped: `1355 checks passed, 3 failed` (the phrase, this run check and `defer: a commit of its own with no files listed is counted`). The line was put back exactly, `git diff workflows/redline-loop.js` printed nothing, and the green run read `1358 checks passed, 0 failed`.
+- **Task 11, R1-6** (`dd1bf10`): the reader check held as the plan states: `outcome.mitigation` only at the two fallbacks (then lines 1524 and 2994), nothing outside the script, and six `.mitigation` lines, the others reading a deferred entry's words. `record.held`, which keeps a held draft's outcome object, was also read: only `settleHeld` reads it (`describeOutcome`, `replyEntry` and so `replyBody`, `deferredEntry`), and the run's result does not carry it. So the field went with the two fallbacks. Red `1358 checks passed, 1 failed`; green `1359 checks passed, 0 failed`; `grep -c 'outcome\.mitigation' workflows/redline-loop.js` prints `0`.
+- **Standards retrospective** (`d675667`): `redline: record what PR #103 round 1 taught in the agent and testing standards (#100)`, the five approved edits as approved: `workflow/agents.md` lines 39, 46 and 49 (two edits), and `testing/tests.md` line 13. No finding's fix runs through it, so the message names none.
+- **Verification Gate:** `.claude/redline/checks.sh` with this round's snapshot, run after the standards commit, exits 0 with all nine checks at exit 0: syntax, validate, guard, loop (`1359 checks passed, 0 failed`), prefs, gate, setup, gh, background; `git.unexpected_files` and `git.uncommitted` empty. Docs (step 10) as Task 12 lists them; no version bump (step 11).
+- **Deviations:** none.
