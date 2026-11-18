@@ -2855,6 +2855,16 @@ function samePrefix(name, first, second, n) {
   // (#103, R3-3): they are not checked and can say that nothing ships, so the draft stop and the
   // closing summary never print them alone as what shipped.
   check('defer: the skill\'s draft stop and closing summary state what shipped from ships first and the words after it, labelled as its words', read('skills', 'redline', 'SKILL.md').split('then the words as written, labelled as its words, when they are not empty').length === 3 && !read('skills', 'redline', 'SKILL.md').includes('true: the mitigation as written'), [read('skills', 'redline', 'SKILL.md').split('then the words as written, labelled as its words, when they are not empty').length - 1, read('skills', 'redline', 'SKILL.md').includes('true: the mitigation as written')])
+  // The comments this pull request added above draftView and isDeferral wrap at the file's width
+  // (#103, R3-5). An anchor that is absent reads as one over-long line, so the check fails and
+  // does not throw.
+  const commentLines = (start, end) => {
+    const a = src.indexOf(start)
+    const b = a < 0 ? -1 : src.indexOf(end, a)
+    return a < 0 || b < 0 ? ['x'.repeat(101)] : src.slice(a, b).split('\n')
+  }
+  const wrapped = [commentLines('// A draft as a stop shows it to the person', 'function draftView('), commentLines('  // The round\'s deferrals as they stand', '  const isDeferral = ')]
+  check('defer: the comments above draftView and isDeferral wrap at 100 columns', wrapped.every((lines) => lines.every((line) => line.length <= 100)), wrapped.map((lines) => Math.max(...lines.map((line) => line.length))))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }

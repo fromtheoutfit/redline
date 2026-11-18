@@ -3401,9 +3401,9 @@ function deferredEntry(pass, record, d, filedTo, outcome) {
 }
 
 // A draft as a stop shows it to the person (#95): the finding, what ships in the round (`ships`,
-// with the words and the planned files), where the draft goes, the title and body as they will be filed, and its version, which the answer names.
-// `canFix` says whether turning it back into a fix can still be built in this round: only at the
-// stop no resolve of the round has run before.
+// with the words and the planned files), where the draft goes, the title and body as they will
+// be filed, and its version, which the answer names. `canFix` says whether turning it back into
+// a fix can still be built in this round: only at the stop no resolve of the round has run before.
 function draftView(record, d, canFix) {
   const parts = draftParts(record.drafts[d.item.id].text)
   // What ships is the round's record, never the words (#100): at a round's stop, before the
@@ -3810,12 +3810,14 @@ async function revise(record, inScope, reviewedKind) {
   const plannedFiles = (id) => (roundDecisions[id] ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files)) : shaperFiles(id))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
-  // when the decision made it one (#97, R1-10): a defer override, and no other override whatever entry stands beside it (#103, R1-11), or, for a call, the resolve agent's own entry
-  // when its mitigation field is filled or the finding has no planned task with files, since a
-  // deferral that ships nothing has no task. The field is read as filled or empty, never by its
-  // words (#100); the resolve agent naming each decision's disposition replaces this test (#99). A reshape's disposition or entry never makes a decided finding
-  // one (#94, R8-6). A decline or a fix beside a leftover entry is none (#94, R4-9), and neither is
-  // a finding left to the person under a rule, which has no entry at all.
+  // when the decision made it one (#97, R1-10): a defer override, and no other override whatever
+  // entry stands beside it (#103, R1-11), or, for a call, the resolve agent's own entry when its
+  // mitigation field is filled or the finding has no planned task with files, since a deferral
+  // that ships nothing has no task. The field is read as filled or empty, never by its words
+  // (#100); the resolve agent naming each decision's disposition replaces this test (#99). A
+  // reshape's disposition or entry never makes a decided finding one (#94, R8-6). A decline or a
+  // fix beside a leftover entry is none (#94, R4-9), and neither is a finding left to the person
+  // under a rule, which has no entry at all.
   const isDeferral = (d) => {
     if (record.forced[d.id]) {
       return false
