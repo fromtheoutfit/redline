@@ -1,0 +1,1 @@
+Redline round 4: fixed in 6df0664 (redline: R4-4 choose the resolve resume clause by the stop (#99)). · decided by: redline

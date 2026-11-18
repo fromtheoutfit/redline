@@ -1,0 +1,1 @@
+Redline round 3: fixed in 0f90b66 (redline: R3-5 word an override's stray warning by the disposition it was changed to (#99)). · decided by: redline

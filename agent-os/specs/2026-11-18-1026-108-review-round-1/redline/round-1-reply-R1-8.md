@@ -1,0 +1,1 @@
+Redline round 1: fixed in 6edd835 (redline: R1-8 keep the forced guard on a stated fix's demand (#99)). · decided by: redline

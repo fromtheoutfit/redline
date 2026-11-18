@@ -1,0 +1,1 @@
+Redline round 4: fixed in 18675f7 (redline: R4-3 drop the disposition key with rest destructuring (#99)). · decided by: redline

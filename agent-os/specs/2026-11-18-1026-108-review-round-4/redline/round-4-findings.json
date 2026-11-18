@@ -1,0 +1,269 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "da0909046ff1cf1db3042797b371bbadf5fd1512",
+    "to": "8bad058f869e7d5d12bc02f917ba29f6973b3929"
+  },
+  "summary": "Round 3's fixes do what they set out to do. An empty or null disposition now runs on as none, two statements are read in order, overrides and calls are told apart one way, and the override warning names the disposition the person chose. What remains is mostly text that one of those fixes left behind or narrowed. That includes a resume clause chosen by agent type rather than by the stop (R4-4), an intake rule narrower than the reader it cites (R4-2), and the R2-4 'task of its own' ask, which was given to calls but not to overrides (R4-9). The repository has no scheduled or queued work (no routes/console.php), so no overlap applies. The fix diff's doc change is in docs/running.md.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "docs/running.md",
+      "line": 126,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The doc keeps the first of two statements but does not say a first statement outside the three leaves the call with none",
+      "description": "Since R3-3's fix (90ec7e4), `resolveWith` picks the first statement per id before it reads the value (workflows/redline-loop.js 3811-3812). So `decided: [{id:'R1-1', disposition:'mitigate'}, {id:'R1-1', disposition:'fix'}]` gives two messages: the warning `the resolve agent stated a disposition for R1-1 more than once; the first is kept` (3814) and the stop `the resolve agent stated no disposition for R1-1` (3819). The loop case `misstatedFirst` (tests/loop-test.mjs, added in round 3) pins that pair. docs/running.md line 126 says only 'A second statement for one call is dropped too: ... the first is kept' and lists 'a call with no statement at all' as a stop. It never says that a statement outside fix, defer and accept counts as none, or that this holds when it is the first of two. A reader of the doc expects the valid second statement to be dropped and the run to go on, and instead sees the warning beside the stop. The R3-3 fix changed the code and the test but not this bullet. Round 3's plan named docs/running.md, for R3-4's sentence.",
+      "proposedFix": "Update docs/running.md, section \"Deferred items\", bullet \"A deferral you chose at a call\": after 'the first is kept', add that a statement outside fix, defer and accept is no statement, so a first one like that stops the round at `resolve` even when a valid second one follows it.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "workflows/redline-loop.js",
+      "line": 246,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Intake drops only null and '' but its comment and the standard say it reads a disposition as run() reads an error",
+      "description": "R3-1's fix (54d6218) drops a decision's `disposition` only when it is `null` or `''` (line 246). The comment above it (241-244) says 'as run() reads an agent's error (#42)', and the new sentence in agent-os/standards/workflow/agents.md says 'a decision's disposition at intake is read the same way'. `errorText` (594-597) also trims the text and reads the strings '\"\"', \"''\" and 'null', and whitespace, as empty. Intake does neither, so `disposition: 'null'`, `'\"\"'` or `' '` still reaches the `else if` at 248 and fails the launch with `args.decisions must give a disposition of fix | defer | accept`. This is the refusal R3-1 removed for '' and null. The conditions it needs: a session writing one of those strings, which no documented path does. The skill records a disposition only as fix, defer or accept. The comment also says 'where the check above refused it', but the check it means is the `else if` below, in the same loop.",
+      "proposedFix": "Either read the field through the same rule as errorText (trim a string, and treat '', '\"\"', \"''\", 'null' and null as none), for example with a small shared helper, or narrow the comment and the agents.md sentence to 'an empty string or null'. Also reword 'the check above' to say the check refused it before #108, R3-1.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "workflows/redline-loop.js",
+      "line": 247,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Removing the disposition key goes through Object.fromEntries/filter where rest destructuring does it in one line",
+      "description": "R3-1's fix (54d6218) builds a copy of the decision without `disposition` like this: `Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'disposition'))` (line 247). `const { disposition: _dropped, ...rest } = entry; decisions[id] = rest` makes the same shallow copy of the entry's own keys without that one. The repository's checks run no linter (.claude/redline/checks.json), so an unused binding draws nothing. The only cost is readability.",
+      "proposedFix": "Replace line 247 with rest destructuring, for example `const { disposition: _dropped, ...rest } = entry` and `decisions[id] = rest`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "workflows/redline-loop.js",
+      "line": 578,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "unconfirmed",
+      "title": "The resolve resume clause is chosen by agent type, so the autopilot 'could not apply' stop also tells the agent to correct what the error names",
+      "description": "R3-4's fix (a2ba199) adds `resolveFix` to the resume line of every resolve. The test is `opts.agentType === 'redline:redline-resolve'` (578-580), and nothing checks which stop the run is resuming from. One resolve stop is the autopilot `autopilot could not apply the shaper's recommendation for R1-2` (3793-3796). That stop is thrown from what the earlier attempt returned (`out.unresolved`), so the clause's condition ('When that error is the check the workflow runs on what the earlier attempt returned') reads literally onto it. Its instruction, 'correct what the error names, and return the whole result again', then asks the agent to apply the recommendation it had judged too unclear. The agent file's first rule says the opposite: 'Apply, never reinterpret ... do not guess: leave that entry pending'. The same sentence is in agents/redline-resolve.md line 32. A resolve stop from a crash or a guard refusal also gets the clause, though its condition does not match there. The other agents still get only 'the person has since fixed the cause by hand' for a stop that is the workflow's check of their own output, so each new stop of this kind needs another branch keyed by agent (candidate 8). What is traced: the clause is appended to that resume (578-583, 600-605), and the stop takes the resolve label through `lastLabel`. What is not measured: whether an agent reading both sentences guesses a task or leaves the call pending.",
+      "proposedFix": "Choose the clause by the stop, not by the agent. For example, set a flag (say `ownCheck: true`) in the `stageError` calls that check the resolve's returned statements, entries and tasks (3819, 3865, 3880, 3896, 3900, 3904, 3911, 3915), carry it into the resume entry, and append the clause only when `resumeLine` reads it. Leave the autopilot 'could not apply' stop without the clause. A loop case resuming that stop, asserting the prompt has no `resolveFix` sentence, pins it.",
+      "wouldConfirm": "A resumed autopilot resolve after 'autopilot could not apply the shaper's recommendation', showing whether the rerun guesses a task for the unclear recommendation or still leaves it under unresolved.",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-5",
+      "file": "workflows/redline-loop.js",
+      "line": 901,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "unconfirmed",
+      "title": "RESOLVE_SCHEMA requires `decided` for a resolve whose prompt never asks for it",
+      "description": "`RESOLVE_SCHEMA.required` includes `decided` for every resolve (line 901). The whole ask for it is in the calls block only (2094-2097), on purpose, so that an overrides-only prompt stays byte-identical to the prompt before #99 (decision 13). Picture a new script running with an agent file loaded before #99. On an overrides-only resolve, neither the prompt nor that agent file mentions `decided`, but the schema still requires it. With the current agent file, step 3 says an override has no entry. Whatever such an agent returns is read only by `firstPerId` for the repeat warning (3811-3815), because `asked` holds calls only. A stray override statement can therefore add a 'stated a disposition ... more than once' warning and nothing else. The other path is the replay the schema comment relies on (913-914), 'A result recorded before #99 holds no list, and can replay only for a resolve with no call'. If the harness checks a replayed result against the current schema, that cached result fails before `out.decided || []` (3811) is reached. The pull request's Known gaps measure only the opposite case, an extra key a schema does not list. Whether the harness checks a cached result against the schema is harness behaviour the repository cannot show.",
+      "proposedFix": "Either measure the replay of a cached result with no `decided` under the new schema and record the outcome beside decision 13, or make `decided` optional in RESOLVE_SCHEMA, since `resolveWith` already reads an absent list as empty and every call it reads is checked through `unstated` (3816-3820).",
+      "wouldConfirm": "A relaunch, under the new script, that replays an overrides-only resolve result recorded before #99, showing whether the harness accepts it without `decided`.",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-6",
+      "file": "workflows/redline-loop.js",
+      "line": 911,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Two comments still say only an override or a rule call has no statement, and that a call's decision names no disposition",
+      "description": "Since R1-2 (a8a1c9d), a call whose decision carries its own `disposition` is asked for no statement: `asked` leaves it out (3816), and the prompt's `anyNamed` sentence (2097) says it has no entry. Two comments from the pull request's first slice (0f406f78) were not updated. (1) The RESOLVE_SCHEMA comment (909-914) says 'one entry per call the resolve applied', names only an override and a rule call as having no entry, and says 'an empty one means no call was applied'. An empty list is also correct when every call applied was named or under a rule. (2) The comment in `isDeferral` (3958-3962) says 'A call's decision names none'. The `decision.disposition` branch just below it (3963-3965) also decides a named call. The repository's standard is that a comment restating a rule changes along with the rule.",
+      "proposedFix": "In the RESOLVE_SCHEMA comment, say that an override, a call whose decision names its own disposition and a call left to the person under a rule have no entry, and that an empty list means no call needed a statement. In the isDeferral comment, write 'A call's decision that names no disposition is read from what the resolve agent stated for it'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-7",
+      "file": "workflows/redline-loop.js",
+      "line": 3857,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A stray entry beside a call stated fix or accept is dropped only from the workflow's list, so the committed shape.md still shows it as deferred",
+      "description": "`strayCall` (3857-3861) removes the entry from `once.kept` before `deferred` takes it, and the warning says 'the entry is dropped, since the statement decides'. The resolve agent's instructions pair the two writes: for a deferral, add the finding under `## Deferred` in shape.md with its draft, 'and return it in `deferred`' (agents/redline-resolve.md step 3, line 23). A stray entry is therefore likely in shape.md as well. Nothing in the workflow edits shape.md (the only rewrite instruction is the shaper's resume clause, line 572). No later prompt tells an agent to remove the entry. The round's spec folder is committed with the round. The record then says R1-1 is deferred with a drafted issue, while its thread reply says 'Applied in <sha>' and no issue was opened. Before this pull request, a filled stray entry beside a call was filed, so shape.md and the outcome agreed. The pull request extends to every answered call, on every dial, the gap an override has had since #103, R2-8 (3831-3851), which is code this pull request did not add. The plan approver reads shape.md and gets only `shaped.deferred` in its prompt (2133-2134). Whether it bounces on the mismatch is agent behaviour, not measured.",
+      "proposedFix": "When an entry is dropped as stray, ask the next agent that writes the folder to remove it (for example, a line in the implementer's prompt naming each dropped id: 'remove <id> from ## Deferred in shape.md; it was dropped because the statement decides'). Or say in docs/running.md that the round's shape.md can still list a dropped entry, and that the run's warning and the reply are the record.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-8",
+      "file": "workflows/redline-loop.js",
+      "line": 3857,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "`stated` is a plain object, so a returned id like 'constructor' reads as a statement",
+      "description": "`stated` is `{}` (3763). It is read with truthy lookups (`Boolean(stated[item.id])`, 3857), with `===` (3893, 3966), with `in` (4128) and with `Object.keys` (4130). For a deferred entry whose id is an inherited name such as `constructor` or `toString`, `stated[id]` is a function. That id is truthy and not 'defer', so the entry is dropped as a stray, with the warning `... stated its decision as function Object() { [native code] } ...`. The `in` test at 4128 would treat a finding with that id as stated. The conditions: an id outside the workflow's `R<n>-<k>` form, which only an agent's own `deferred` list could carry. No finding id has that form, so in practice the risk is limited to an odd warning for a malformed entry.",
+      "proposedFix": "Declare `const stated = Object.create(null)`, or use a Map with `.has()` and `.get()`, so only ids the resolve stated count.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-9",
+      "file": "workflows/redline-loop.js",
+      "line": 3909,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "An override is held to a task of its own, but neither the overrides prompt nor the agent file asks for one",
+      "description": "R2-4 was fixed, but still reproduces here for overrides. Its fix (a461d1e) put 'a task of its own, its finding set to the call's id' in the calls block's ask (2097) and in the agent file's `decided` paragraph (line 24). `namedUnplanned` and `namedPlanned` (3909-3916) read an override's files through the same `taskFilesOf(out.tasks, id)` (479), which keeps only tasks whose single `finding` (RESOLVE_SCHEMA 906) equals the id. The overrides block of the prompt (2103: 'fix: plan the full fix as a task, files by path ...') and the agent file's override paragraph (line 21) never say that. docs/running.md line 126 leaves 'of its own' out of the named-decision sentence too ('a fix with no task that names files'). Example: the person overrules decline R1-2 to fix, and the resolve agent folds the fix into R1-1's task (`finding: 'R1-1'`). The round stops at resolve with 'the resolve agent planned no task with files for R1-2, which a disposition override names as a fix', a rule its prompt never gave. An accept override on R1-1 whose task also carries another finding's change stops through `namedPlanned` the same way. Separately, an overrides-only prompt is byte-identical to the one before #99. A result cached under an older script can therefore replay into these stops on a relaunch that runs a newer script, which the pull request's Known gaps say happens on a repository that is not the plugin's own after an update.",
+      "proposedFix": "Add the same clause to the overrides block's fix wording, for example 'fix: plan the full fix as a task of its own, its finding set to the override's id, files by path and the test that proves it'. Add it to the override paragraph of agents/redline-resolve.md as well, and add 'of its own' to the named-decision sentence of docs/running.md 'A deferral you chose at a call'. Because this changes the overrides-only prompt, check the replay note in the comment at 2094-2096 and decision 13.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "8bad058f869e7d5d12bc02f917ba29f6973b3929",
+    "candidates": 10,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 2,
+      "refuted": 0,
+      "duplicate": 1,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {"index": 1, "outcome": "verified", "ref": "R4-7"},
+      {"index": 2, "outcome": "verified", "ref": "R4-9"},
+      {"index": 3, "outcome": "unconfirmed", "ref": "R4-4"},
+      {"index": 4, "outcome": "verified", "ref": "R4-2"},
+      {"index": 5, "outcome": "unconfirmed", "ref": "R4-5"},
+      {"index": 6, "outcome": "verified", "ref": "R4-1"},
+      {"index": 7, "outcome": "verified", "ref": "R4-6"},
+      {"index": 8, "outcome": "duplicate", "ref": "3: same cause as candidate 3, reported as R4-4. `resolveFix` is chosen by `opts.agentType` (line 578), not by what stopped the run, and R4-4's proposed fix is the flag on the stop that this candidate suggests."},
+      {"index": 9, "outcome": "verified", "ref": "R4-3"},
+      {"index": 10, "outcome": "verified", "ref": "R4-8"}
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3857,
+        "summary": "A stray deferred entry beside a call stated as fix or accept is dropped from the workflow's list only, so the resolve agent's `## Deferred` section and drafted issue stay in the committed round spec (shape.md), which now disagrees with what was filed and posted.",
+        "failure_scenario": "Autopilot: the resolve agent answers R1-1 as a fix, writes R1-1 under `## Deferred` in shape.md with a draft, and returns that entry. The workflow warns 'the entry is dropped, since the statement decides' and files nothing, but nothing removes the entry from shape.md. The committed round spec says R1-1 is deferred with a drafted issue while its thread says 'Applied in <sha>' and no issue exists. A later round or reviewer reading that folder (CLAUDE.md tells them to) reads R1-1 as deferred. The plan approver, which reads shape.md as well as the JSON list without R1-1, can bounce on the mismatch. Overrides had the same gap before (#103, R2-8); this PR extends it to every answered call on every dial."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 2103,
+        "summary": "The new checks hold an override to the 'task of its own' rule (a task whose `finding` is the override's id), but the overrides block of the resolve prompt and the override paragraph of agents/redline-resolve.md never state it. R2-4 added the rule to the calls block only, and docs/running.md:126 leaves 'of its own' out for a decision that names its own disposition.",
+        "failure_scenario": "On the plan dial the person overrules decline R1-2 to fix, and the resolve agent folds the fix into the existing R1-1 task (finding 'R1-1', files app/x.php). `namedUnplanned` stops at resolve: 'planned no task with files for R1-2, which a disposition override names as a fix', a rule the override prompt never gave. Likewise, accepting R1-1 while its task also carries R1-2's fix stops through `namedPlanned`. And because an overrides-only prompt is byte-identical to before #99, a cached pre-#108 result can replay into these new stops."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 578,
+        "summary": "The `resolveFix` resume sentence is added to every resolve resume, whatever stopped it. On the autopilot 'could not apply' stop it tells the agent nothing was fixed by hand and to 'correct what the error names', which pushes it to guess, against its 'Apply, never reinterpret' rule.",
+        "failure_scenario": "Autopilot, and the resolve agent puts R1-2 under `unresolved` because the shaper's recommendation is too unclear. The run throws 'autopilot could not apply the shaper's recommendation for R1-2' at stage resolve. On resume the agent reads 'When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it ... correct what the error names'. That error does come from the workflow reading what the agent returned, so the agent can take it as an order to apply the recommendation it had judged too unclear, and returns a guessed task instead of leaving it pending."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 245,
+        "summary": "The intake step drops only `null` and `''`, yet its comment and the new agents.md standard say a disposition is read 'the same way' as `run()` reads an agent's error. That reader (`errorText`) also treats '\"\"', \"''\", 'null' and whitespace as empty, so those values still throw at launch; the rule is re-implemented more narrowly instead of shared.",
+        "failure_scenario": "A relaunch carries {'R1-1': {choice: 'Fix it', notes: '...', date: '2026-11-18', disposition: 'null'}} (or '\"\"', or ' '). `errorText` would read each as empty. The intake check instead fails with 'args.decisions must give a disposition of fix | defer | accept', before any agent runs, which is the exact failure R3-1 set out to remove for empty values. The comment also says 'where the check above refused it' about a check that sits below it."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 909,
+        "summary": "RESOLVE_SCHEMA now requires `decided` for every resolve, while a resolve with overrides and no call is deliberately never asked for it, so in that mix the key is required and unexplained.",
+        "failure_scenario": "Decision 13's mix: a new script with the old agent file (a session that re-read the workflow but not its agent registry) and an overrides-only resolve. Neither the prompt nor the agent file mentions `decided`, but the schema requires it, so the agent must guess, for example statements for the overrides, which are read for nothing. Separately, if the harness checks a replayed pre-#99 overrides-only result against the new schema, the documented 'can replay with no decided list' path fails before `out.decided || []` is ever reached. Neither was measured."
+      },
+      {
+        "index": 6,
+        "file": "docs/running.md",
+        "line": 126,
+        "summary": "The doc says a second statement for one call is dropped and the first kept. It does not say that a first statement outside fix, defer and accept leaves the call with no statement (R3-3), which stops the round even when a valid second statement follows, with the 'the first is kept' warning shown beside the stop.",
+        "failure_scenario": "The resolve agent returns decided [{id:'R1-1', disposition:'mitigate'}, {id:'R1-1', disposition:'fix'}]. The run warns 'the resolve agent stated a disposition for R1-1 more than once; the first is kept' and stops with 'the resolve agent stated no disposition for R1-1'. Someone reading the doc expects the first statement to be kept and the run to go on, and gets two messages that contradict each other."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 3960,
+        "summary": "Two comments are stale since R1-2/R1-5. The `decided` comment in RESOLVE_SCHEMA (909-914) says 'one entry per call the resolve applied' and lists only overrides and rule calls as having none, leaving out a call whose decision names its own disposition. isDeferral's inner comment says 'A call's decision names none'.",
+        "failure_scenario": "A maintainer reading the schema comment expects a `decided` entry for a named call, but `asked` (3816) leaves it out and the prompt tells the agent to return none. isDeferral's comment calls the `decision.disposition` branch override-only when it also decides a named call. This breaks the repository's own standard that a comment restating a rule changes with it (workflow/agents, line 16)."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 578,
+        "summary": "Altitude: the resume wording is chosen by agent type (`opts.agentType === 'redline:redline-resolve'`), not by what caused the stop, so the new replay.md rule ('a step whose stop is the workflow's own check of what that step returned is told so') is a special case for one agent.",
+        "failure_scenario": "Every other stop that is the workflow checking an agent's own output still resumes with 'the person has since fixed the cause by hand', and the resolve gets the 'nothing was fixed by hand' sentence even for an agent crash or a guard refusal. Cost: each new stop of this kind needs another per-agent branch. The deeper fix is a flag on `stageError` set by the workflow's result checks, read by `resumeLine` for any agent."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 247,
+        "summary": "Simplification: removing the key goes through `Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'disposition'))` when rest destructuring does the same job.",
+        "failure_scenario": "Cost is readability only: `const { disposition, ...rest } = entry; decisions[id] = rest` makes the same shallow copy without the key in one plain line."
+      },
+      {
+        "index": 10,
+        "file": "workflows/redline-loop.js",
+        "line": 4128,
+        "summary": "`stated` is a plain `{}` read with `in` and with truthy lookups (`Boolean(stated[item.id])`, 3857), so inherited Object.prototype names count as statements.",
+        "failure_scenario": "Unreachable with workflow-assigned `R<n>-<k>` ids, but an agent-returned deferred id such as 'constructor' or 'toString' would make `Boolean(stated[id])` true and drop the entry as a stray, and `f.id in stated` would take that id out of the first branch of `needCommits`. `Object.create(null)` or a `Map` with `.has()` removes the risk at no cost."
+      }
+    ]
+  }
+}

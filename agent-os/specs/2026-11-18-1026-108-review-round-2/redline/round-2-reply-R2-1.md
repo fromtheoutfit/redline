@@ -1,0 +1,1 @@
+Redline round 2: fixed in 0096b84 (redline: R2-1 leave a named call out of the resolve mock's decided list (#99)). · decided by: redline

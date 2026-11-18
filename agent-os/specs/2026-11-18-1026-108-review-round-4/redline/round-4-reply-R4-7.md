@@ -1,0 +1,1 @@
+Redline round 4: deferred to #109. Mitigated in ec6f563 (redline: R4-7 say a dropped stray entry can still be listed in the round's shape.md (#99)). · decided by: redline

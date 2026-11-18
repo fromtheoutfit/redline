@@ -1,0 +1,1 @@
+Redline round 2: fixed in 724e1ac (redline: R2-2 tell the mitigation field's history once, in the deferred schema's comment (#99)). · decided by: redline

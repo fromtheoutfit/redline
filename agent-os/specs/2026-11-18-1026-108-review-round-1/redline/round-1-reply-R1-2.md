@@ -1,0 +1,1 @@
+Redline round 1: fixed in a8a1c9d (redline: R1-2 ask no statement of a call that names its own disposition (#99)). · decided by: redline
