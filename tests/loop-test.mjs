@@ -3234,6 +3234,26 @@ function samePrefix(name, first, second, n) {
   check('filing: a call whose decision names its disposition needs no statement, and its fix is posted as applied', namedCall.res.status === 'done' && replyFor(namedCall.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it in full. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [namedCall.res.status, namedCall.res.stage, namedCall.res.error, replyFor(namedCall.calls, 'push and reply r1', 'R1-1')])
   const namedUnbuilt = await go('filing: a call whose decision names its own disposition, the fix left out', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [[], []] })
   check('filing: a call whose decision names a fix is demanded: left unbuilt, the round stops at the check', namedUnbuilt.res.status === 'error' && namedUnbuilt.res.stage === 'check' && (namedUnbuilt.res.error || '').includes('no commit names R1-1'), [namedUnbuilt.res.status, namedUnbuilt.res.stage, namedUnbuilt.res.error])
+  // What is stated is checked against what the same resolve returned, before anything is built,
+  // filed or posted (#99): a statement its own tasks and entries cannot support is a result the
+  // run cannot use, so the round stops at resolve, where a resume reruns the agent. Three ways: a
+  // deferral with no deferred entry, as a defer override with none stops (#97, R2-13); a fix with
+  // no task with files; and an accept beside a task with files, which the implementer would
+  // build. Their neighbours run on: `chosenBare` below (a deferral with its entry and no task),
+  // `acceptedResorted` below (an accept with no files) and `strayFilled` above (a fix with files).
+  const stopsAtResolve = (r, error) => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === 'resolve r1' && !labels(r.calls).includes('plan approver r1')
+  const stopDetail = (r) => [r.res.status, r.res.stage, r.res.error, r.res.resumeFrom, labels(r.calls).slice(-3)]
+  const oneCall = { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
+  check('filing: a call stated as a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(deferNoEntry, 'the resolve agent stated defer for R1-1 with no deferred entry; a deferred item always carries a drafted issue'), stopDetail(deferNoEntry))
+  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
+  check('filing: a call stated as a fix with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixNoFiles, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFiles))
+  // The files are those of the finding's own task: another call's task with files, in the same
+  // resolve, does not stand in for it.
+  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  check('filing: a call stated as a fix is held to its own task\'s files, whatever another call\'s task lists', stopsAtResolve(fixNoFilesBeside, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFilesBeside))
+  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
+  check('filing: a call stated as accepted beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptWithFiles, 'the resolve agent stated accept beside a task with files for R1-1 (app/x.php); an accepted finding changes nothing'), stopDetail(acceptWithFiles))
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it

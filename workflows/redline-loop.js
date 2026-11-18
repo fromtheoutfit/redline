@@ -3830,6 +3830,30 @@ async function revise(record, inScope, reviewedKind) {
     if (unentered.length) {
       throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((f) => f.id).join(', ')}, which a disposition override deferred; a deferred item always carries a drafted issue`)
     }
+    // What a call's decision is stated to end in is checked against what this same resolve
+    // returned, its entries and its tasks, before anything is built, filed or posted (#99): a
+    // statement they cannot support is never trusted on its own, and it stops the round here,
+    // where a resume reruns the agent. A deferral comes back with its deferred entry, as an
+    // override's does above: with none there is no draft to file, and its reply would close the
+    // person's deferral with no issue. A fix has a task with files: with none the plan approver
+    // lists no path for it, so the build could not write it, and the stop that followed would
+    // resume at the build, which cannot replan. An accept has no task with files: the workflow
+    // cannot take one out of plan.md, and the implementer builds the plan as written. An entry
+    // short of a draft field stopped above, and an entry beside a fix or an accept was dropped.
+    const taskFiles = (id) => unique(out.tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
+    const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
+    const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
+    if (undeferred.length) {
+      throw stageError('resolve', `the resolve agent stated defer for ${undeferred.join(', ')} with no deferred entry; a deferred item always carries a drafted issue`)
+    }
+    const unplanned = statedAs('fix').filter((id) => taskFiles(id).length === 0)
+    if (unplanned.length) {
+      throw stageError('resolve', `the resolve agent stated fix for ${unplanned.join(', ')} with no task with files; a fix names the files it changes`)
+    }
+    const planned = statedAs('accept').filter((id) => taskFiles(id).length > 0)
+    if (planned.length) {
+      throw stageError('resolve', `the resolve agent stated accept beside a task with files for ${planned.map((id) => `${id} (${taskFiles(id).join(', ')})`).join(', ')}; an accepted finding changes nothing`)
+    }
     resolvedTasks.push(...out.tasks)
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
@@ -3874,7 +3898,8 @@ async function revise(record, inScope, reviewedKind) {
       // An override names its disposition, and that decides (#103, R1-11): an override to fix or
       // accept leaves no deferral behind (awayFromDefer), whatever entry the resolve agent returns
       // beside it. A call's decision names none, and is read from what the resolve agent stated
-      // for it (#99), never from the entry or the task beside it.
+      // for it (#99), never from the entry or the task beside it: resolveWith checked the
+      // statement against both when the resolve returned.
       if (decision.disposition) {
         return decision.disposition === 'defer'
       }
