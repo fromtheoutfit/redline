@@ -432,3 +432,23 @@ Then, as written in the gate:
 11. **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.2`, as the pull request set them; this round adds no bump.
 12. **Standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. The standards approver judges them; apply the approved ones in their own commit, after the finding commits, or record "Standards retrospective: no changes" under Decisions in `shape.md` if none is approved.
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 3 for PR #108 (#99)`.
+
+## As built
+
+Every task was built as written; no anchor, replacement or expectation changed.
+
+| Task | Finding | Commit | Red | Green |
+| --- | --- | --- | --- | --- |
+| Task 1 | spec folder | `9945650` | n/a | n/a |
+| Task 2 | R3-1 | `54d6218` | `empty decision disposition: ...` failed (the run threw `args.decisions must give a disposition of fix \| defer \| accept`) | passes |
+| Task 3 | R3-2 | `62bdc7d` | `resume: the relaunch note gives a plan dial ask no disposition, ...` failed | passes |
+| Task 4 | R3-3 | `90ec7e4` | `filing: of two statements for one call the first is kept even when it is outside the three, ...` failed (the run finished `done`) | passes |
+| Task 5 | R3-4 | `a2ba199` | both new checks failed | both pass |
+| Task 6 | R3-5 | `0f90b66` | the changed `overrideBuilt` check and the new `declineStray` check failed, each warning reading `a finding the person changed away from defer` | both pass |
+| Task 7 | R3-6 | `0d86faf` | n/a, a refactor | gate green; the two `grep -c` pipelines print `1` and `0` |
+| Standards | lessons for R3-1, R3-2, R3-4 | `7ecbec6` | n/a | n/a |
+
+- **Red run, combined.** The checks of Tasks 2 to 6 were added together and seen red in one gate run, before any code change: the loop printed `1437 checks passed, 7 failed`, the seven being exactly this round's new and changed checks. The test file was then cut back to each task's own checks, so each finding's commit holds only its own (see Decisions in `shape.md`, Deviation 1).
+- **Green run, combined.** The gate was run green once, after the Task 7 commit, rather than once per task: every check passed and the loop printed `1444 checks passed, 0 failed`, the count the table above expects. Task 7's "same count as before it" is read from that run, since 1444 is the count Tasks 2 to 6 add up to (Deviation 1).
+- **Standards.** The three approved edits landed in `7ecbec6`. None carries part of a finding's fix, so the commit message names no finding.
+- No `git.unexpected_files` or `git.uncommitted` entry, and the formatter touched nothing.

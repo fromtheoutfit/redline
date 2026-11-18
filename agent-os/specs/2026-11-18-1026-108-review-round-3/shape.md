@@ -45,6 +45,8 @@ Out of scope, as the pull request has it: `scripts/redline-guard.sh`, `hooks/hoo
    Decided by: redline
 6. **R3-6 (nit, fix).** Unattended answer 7. Task 7 defines one predicate in `resolveWith`, `isCall`, and reads it in `strayNamed` and in `whose`, so the stray warnings and the named-check stops tell a call from an override one way (workflow/agents, line 38: one fact is read by one function wherever the workflow reads it). Task 7 follows Task 6, which rewrites the block `strayNamed` sits in.
    Decided by: redline
+7. **Deviation 1 (build): red and green runs combined.** The plan allows it when gate runs are slow. The new checks of Tasks 2 to 6 were added together and seen red in one gate run (`1437 checks passed, 7 failed`, the seven being this round's new and changed checks). The test file was then cut back so each finding's commit holds only its own checks. The gate was run green once, after the Task 7 commit (`1444 checks passed, 0 failed`), not once per task; Task 7's unchanged count is read from that run. Recorded under As built in `plan.md`.
+   Decided by: redline
 
 ### Proportionality
 
