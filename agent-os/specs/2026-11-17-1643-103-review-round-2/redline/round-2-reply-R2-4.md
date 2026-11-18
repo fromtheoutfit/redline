@@ -1,0 +1,1 @@
+Redline round 2: fixed in c36df26 (redline: R2-4 name the plan dial's list where the words are said to be shown only beside a mitigation that ships (#100)) and f8dbd3b (redline: record what PR #103 round 2 taught in the agent standard, finishing R2-1 and R2-4 (#100)). · decided by: redline

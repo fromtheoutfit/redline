@@ -1,0 +1,1 @@
+Redline round 1: fixed in a92f41b (redline: R1-5 rename the deferred entry's filled test so no local helper shadows it (#100)). · decided by: redline

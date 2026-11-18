@@ -1,0 +1,1 @@
+Redline round 3: fixed in 4f23088 (redline: R3-3 state what shipped from ships first and the words after it, in the draft stop and the closing summary (#100)). · decided by: redline

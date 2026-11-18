@@ -1,0 +1,1 @@
+Redline round 3: fixed in 61e0844 (redline: R3-1 say in the plan dial's field list that deferredPlanned holds the shaper's words as written (#100)). · decided by: redline

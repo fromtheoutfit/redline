@@ -1,0 +1,1 @@
+Redline round 2: fixed in ef0f064 (redline: R2-3 say in the deferred schema's comment that isDeferral reads the field as filled or empty (#100)). · decided by: redline

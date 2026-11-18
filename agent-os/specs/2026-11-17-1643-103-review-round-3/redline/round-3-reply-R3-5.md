@@ -1,0 +1,1 @@
+Redline round 3: fixed in 1e585de (redline: R3-5 rewrap the comments above draftView and isDeferral at the file's width (#100)). · decided by: redline

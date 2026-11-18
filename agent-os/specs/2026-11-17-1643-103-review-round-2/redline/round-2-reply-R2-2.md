@@ -1,0 +1,1 @@
+Redline round 2: fixed in 51c9767 (redline: R2-2 pin an override to accept beside a filled resolve entry (#100)). · decided by: redline

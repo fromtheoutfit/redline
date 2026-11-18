@@ -1,0 +1,1 @@
+Redline round 3: fixed in accf502 (redline: R3-6 read a decided finding's planned task through plannedFiles alone (#100)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 1: fixed in 812bad0 (redline: R1-7 say a mitigation's words are shown only beside one that ships (#100)). · decided by: redline

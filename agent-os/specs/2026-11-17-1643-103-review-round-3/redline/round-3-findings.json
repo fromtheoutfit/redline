@@ -1,0 +1,249 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "363e4458791dec025e9b5793e4c99909bb01a31d",
+    "to": "96f014f5c7e9f2ac27ba4b73f44ef4d3fbecac18"
+  },
+  "summary": "Round 2's fixes do what they set out to do, and the fix diff adds no new correctness bug. The approver and the implementer now get their list from one place. A stray entry beside an override to fix or accept is dropped with a warning. The result's deferred entry carries `ships`. Most findings are in how the skill renders `ships` beside the mitigation's words: a parenthetical that still reads empty words as nothing shipping, \\\"a planned change\\\" for a change already committed, and words that say nothing ships printed beside a commit that did. One correctness finding remains. A reshape's edit to a decided deferral's task is never read, so the approver can keep bouncing the same plan. The rest are small refactors and comment wrapping. This repository has no scheduled or queued work.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "skills/redline/SKILL.md",
+      "line": 184,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The plan dial still says an empty deferredPlanned mitigation means nothing ships",
+      "description": "The plan-dial paragraph says `deferredPlanned` holds each defer's mitigation \"(empty when nothing ships now)\". The same paragraph, as this pull request changed it, says a defer's `files` are \"what says a mitigation is planned, whatever its words say\". For a shaper deferral with `mitigation: ''` and `files: ['app/x.php']` (the loop test's empty-string `mirror` case, which builds and posts a mitigation), the two sentences give the session opposite readings of one entry. The parenthetical is on the base branch unchanged (`git show origin/main:skills/redline/SKILL.md`, line 184). It became false when this pull request made the record, not the words, decide what ships. docs/running.md's new exception (\"the files say whether a task is planned\") says the files decide, so the skill now disagrees with it. R2-4 (fixed) covered the workflow returning the words at the plan dial, not this parenthetical.",
+      "proposedFix": "Change the parenthetical to say the words are the shaper's as written, possibly empty, and that the entry's `files` in `plan` say whether a mitigation is planned. For example: \"`deferredPlanned` holds each defer's mitigation as the shaper wrote it (its `files` in `plan` say whether one is planned)\".",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "skills/redline/SKILL.md",
+      "line": 220,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The end-of-run stop calls a committed mitigation with empty words 'a planned change'",
+      "description": "The drafts rule at line 220 says that when `ships` is true and the words are empty, the session shows \"a planned change\", with the files it touches. Line 217 says that at the end-of-run stop `ships` means a commit of the finding's own has landed. `draftView` (workflows/redline-loop.js:3414) sets `ships` from `d.outcome.commits.length > 0` when the draft carries its round's outcome, which every held draft does (`record.held`, 4082). So with `defer at end`, a deferral with empty words whose own commit landed in an earlier round is told to the person as a planned change. By then the change is built, committed and pushed. The wording is right only at a round's stop, before the build.",
+      "proposedFix": "Make the empty-words fallback depend on the stop, for example: \"a planned change\" at a round's stop, and \"a change in its own commit\" at the end-of-run stop, which matches the closing summary's wording at line 264.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "skills/redline/SKILL.md",
+      "line": 264,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The closing summary and the draft stop print words that say nothing ships beside a mitigation that shipped",
+      "description": "When `ships` is true, the closing summary's new rule (264, written by R2-7's fix) prints \"the mitigation as written\". The draft stop (220) does the same. The words are not checked, so they can say the opposite of `ships`. `deferredEntry` returns `{ ships: true, mitigation: 'none' }` for a deferral worded `none` that has its own commit (workflows/redline-loop.js:3395-3396), and the loop test's `mirror` case pins exactly that (`mitigation === word`, with `ships === true`). `draftView` likewise returns `mitigation: 'none'` beside `ships: true` when files are planned (3414-3416). The summary then reads \"R1-1 ... deferred to #301, shipped: none\", while the thread reply reads `Mitigated in 1bbbbbb`. It only shows for words that describe nothing (none, n/a, nothing ships now). This pull request lets those words stand beside a planned task on purpose.",
+      "proposedFix": "In both places, show the words only when they describe a change. Otherwise, when `ships` is true, fall back to the same wording as for empty words. Or say \"a change in its own commit (the shaper's words: <words>)\", so that `ships` is always stated first and the words can never stand alone as what shipped.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3810,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A reshape's edit to a decided deferral's task is never read, so the approver keeps seeing the first resolve's files",
+      "description": "For a finding the person or autopilot decided, `plannedFiles` reads only `resolvedTasks` (3810). Only `resolveWith` adds to that list (3783), and a reshape does not run a resolve unless it raises a new call (3911-3914). `effectiveDispositions` gives that list to every decided deferral (3798), and the plan approver is shown it on every pass of the approve loop (3863). The reshape's own `files` for the finding is never read, since `plannedFiles` reads `shaperFiles` only for undecided ids.\n\nPath:\n1. R1-1 is overridden to defer, and `resolve r1` plans a guard task in app/x.php.\n2. The approver bounces that task (for proportionality, its test or a citation).\n3. The reshape applies the adjustment by removing or rewriting the task in plan.md. The reshape prompt (2017) keeps the person's decision but tells it to apply each adjustment.\n4. `plan approver r1 #2` is still shown `{disposition: 'defer', files: ['app/x.php']}`. Rule 1 (agents/redline-plan-approver.md:16) bounces a defer that lists files with no task for it in plan.md, so the same bounce repeats until `maxPlanAdjustments`, and the round stops at approve.\n\nIf the approver approves instead, the implementer is shown the same stale list (ctx.shaped, 3985). After the build, the planned-and-unbuilt warning (4067-4069) names app/x.php for a task the plan no longer holds. For a call answered with defer and empty words, `plannedTask` (3801, the same tasks) also stays true, so `isDeferral` reads it as no deferral, and needCommits (3983) demands a commit for the removed task.\n\nThis differs from R2-10 (declined). R2-10 needed a reshape to raise a call for a decided finding against its prompt, and then a second resolve. Here one reshape that follows its prompt is enough, and the fix R2-10 proposed (the latest resolve's tasks) would not cover it. R1-2's fix chose `plannedFiles` as the approver's source, and it is that source that is never updated.\n\nConditions: the approver bounces a decided deferral's task, and the reshape changes that task. The cost is a bounced plan, a resumable stop at approve, or a warning that names files no longer planned. That stop goes against the pull request's \"a deferral can no longer stop a round\". The loop test was not run; the guard refuses `node` for the reviewer.",
+      "proposedFix": "After each reshape, read a decided finding's files from the reshape's own entry for it, where it gives one. Or tell the reshape prompt that a decided deferral's task is fixed by the resolve and that an adjustment to it becomes a judgment call. Pin it with a loop case: an override to defer whose resolve plans app/x.php, a bounce, and a reshape whose entry lists no files. `plan approver r1 #2` must be shown `files: []`, or the round must raise a call.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3813,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Three comment lines this pull request added run far past the file's wrap",
+      "description": "The file's comments wrap at about 100 columns. Lines 3404 (146 characters, in the `draftView` docblock), 3813 (181) and 3816 (160, both in the `isDeferral` docblock) do not. They carry the R1-11 and #99 clauses. Counting comment lines over 120 columns gives 8 at this head and 5 on origin/main. R2-3's fix rewrapped the over-long line at 767 for the same reason. None of the three is in round 2's fix diff.",
+      "proposedFix": "Rewrap the comments at 3403-3404 and 3811-3818 to the file's width.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3831,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "plannedTask and plannedFiles read one fact about a decided finding two ways",
+      "description": "For a decided id, `plannedTask(id)` (3801) is `resolvedTasks.some(task.finding === id && task.files.length > 0)`. That is true exactly when `plannedFiles(id)` (3810), the union of those tasks' files, is non-empty. `isDeferral` reads the first (3831). The stop views, the implementer's list and the planned-and-unbuilt warning read the second (3798, 3839, 4067). `needCommits` reads `resolvedTasks` a third way (3983), although `plannedTask`'s comment (3800) says it is \"what needCommits demands\"; `isDeferral` is its only caller. `plannedTask` is on the base branch; this pull request added `plannedFiles` beside it. A later change to one reader, such as R3-4's or R2-10's proposed fix, would leave `isDeferral` and the warning disagreeing about the same finding.",
+      "proposedFix": "In `isDeferral`, read `plannedFiles(d.id).length === 0` and delete `plannedTask`, or define `plannedTask` as `plannedFiles(id).length > 0`. Correct the comment at 3800.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-7",
+      "file": "workflows/redline-loop.js",
+      "line": 3833,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "isDeferral rebuilds every finding's dispositions, now with plannedFiles, to read one undecided finding",
+      "description": "For an id with no decision, `isDeferral` calls `effectiveDispositions()` (3833). That maps every finding, and since R2-11's change (3798) it also runs `plannedFiles` (a filter, flatMap and unique over `resolvedTasks`) for each decided deferral, only to read one finding the decisions do not touch. For such an id, `effectiveDispositions` returns the shaper's finding unchanged (3797), so the answer is `shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')`. `deferred.filter(isDeferral)` runs in each `draftStop` (3839), on each pass of the approve loop and once after it (3978), so the throwaway work is deferred x findings x tasks. These lists are small, so the cost is small. The `effectiveDispositions()` call is on the base branch; the `plannedFiles` work inside it came with R2-11's fix.",
+      "proposedFix": "Write the undecided branch as `return shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "96f014f5c7e9f2ac27ba4b73f44ef4d3fbecac18",
+    "candidates": 8,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 1
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R3-4"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R3-3"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R3-1"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R3-2"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R3-6"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R3-7"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R3-5"
+      },
+      {
+        "index": 8,
+        "outcome": "known",
+        "ref": "#99: a filled resolve entry (`none`, `n/a`) beside a call planned as a fix is read as the person's deferral, and its fix commit drops out of needCommits. #99 tracks this, and this pull request's comment on #99 covers the lost demand. The strayWorded loop test pins it as intended, and round 1 set the same candidate aside as known."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3810,
+        "summary": "For a finding the person or autopilot decided, `plannedFiles` reads only the resolve agent's `resolvedTasks`, which a reshape never updates. The plan approver's new rule bounces any plan where that list and plan.md disagree, so a bounce about a decided deferral's task can never converge.",
+        "failure_scenario": "The person overrides a fix to `defer` with notes saying nothing ships, but the resolve agent plans a guard task with app/x.php. The approver bounces that task, and the reshape removes it from plan.md. `effectiveDispositions` still shows the approver `{disposition: 'defer', files: ['app/x.php']}` from `resolvedTasks`. The approver's rule in agents/redline-plan-approver.md:16 ('a `defer` finding that lists `files` with no task for it in `plan.md` ... is a bounce') fires again on every adjustment. The round ends at approve after maxPlanAdjustments (default 2). The reshape's own `files` for the finding is ignored, because `plannedFiles` only reads `shaperFiles` for undecided findings. The implementer and the planned-but-unbuilt warning are shown the same stale list. This differs from R2-10, which was declined: that path needed a second resolve, while here a single reshape edit to plan.md is enough."
+      },
+      {
+        "index": 2,
+        "file": "skills/redline/SKILL.md",
+        "line": 264,
+        "summary": "When `ships` is true, the closing summary and the draft stop show the mitigation words 'as written', even when the words say nothing ships ('none', 'Nothing ships now.'). The person is told 'none' shipped beside a commit that did ship.",
+        "failure_scenario": "The shaper lists files ['app/x.php'] for a deferral whose `mitigation` is 'none', and `redline: R1-1 ...` lands. `deferredEntry` returns `{ships: true, mitigation: 'none'}`, which the `mirror` loop test pins. The SKILL rule 'true: the mitigation as written, or \"a change in its own commit\" when the words are empty' then prints 'R1-1 ... deferred to #301, shipped: none'. The draft stop does the same ('true: the mitigation as written', line 220), with `draftView` returning `mitigation: 'none'` beside `ships: true`. The person reads that nothing shipped, although the reply says 'Mitigated in 1bbbbbb'."
+      },
+      {
+        "index": 3,
+        "file": "skills/redline/SKILL.md",
+        "line": 184,
+        "summary": "The plan dial still says `deferredPlanned` holds each defer's mitigation '(empty when nothing ships now)', so empty words still mean nothing ships. The same paragraph now says a defer's `files` decides 'whatever its words say'.",
+        "failure_scenario": "A shaper deferral has `mitigation: ''` and `files: ['app/x.php']`, which is the `shownMirror` case. The session reading the plan-dial result has two readings of one entry: the deferredPlanned parenthetical says nothing ships, and the `files` sentence says a mitigation is planned. Following the first, it tells the person nothing ships, and the build then commits a mitigation. #100 is meant to remove exactly this word-based reading."
+      },
+      {
+        "index": 4,
+        "file": "skills/redline/SKILL.md",
+        "line": 220,
+        "summary": "At the end-of-run stop, `ships: true` with empty words is shown as 'a planned change', but there `ships` means a commit of the finding's own has already landed (line 217, `draftView` at workflows/redline-loop.js:3414).",
+        "failure_scenario": "deferAt is `end`, and a deferral with empty words has its own commit land in round 1. At the end-of-run stop, `draftView` returns `{ships: true, mitigation: ''}` from `d.outcome.commits`. The skill follows the drafts section and tells the person 'a planned change' ships, although the build is over and the change is committed and pushed."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 3831,
+        "summary": "`plannedTask(id)` and `plannedFiles(id)` are two readers of one fact: whether the resolve agent planned a task with files for a decided finding. `isDeferral` uses one and the warnings and stop views use the other.",
+        "failure_scenario": "For a decided id, `plannedTask(id)` (3801) equals `plannedFiles(id).length > 0` (3810), since both filter `resolvedTasks` by finding and read `task.files`. If only one is changed later, for example to read the reshape's tasks for R2-10, `isDeferral` and the 'planned a mitigation ... no commit of its own landed' warning will disagree about the same finding. `isDeferral` could read `plannedFiles(d.id).length === 0`, leaving `plannedTask` only for `needCommits`, or `needCommits` could use it as well."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 3833,
+        "summary": "For an undecided entry, `isDeferral` rebuilds the whole `effectiveDispositions()` list on every call. Since R2-11, that rebuild also runs `plannedFiles` (filter, flatMap and unique over `resolvedTasks`) for every decided deferral, only to read one undecided finding's shaper disposition.",
+        "failure_scenario": "`deferred.filter(isDeferral)` runs in every `draftStop()`, in each approve-loop iteration and once after the loop, so the cost is O(deferred × findings × tasks) of throwaway work. For an id with no decision the answer is just `shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')`, since `effectiveDispositions` returns such a finding unchanged."
+      },
+      {
+        "index": 7,
+        "file": "workflows/redline-loop.js",
+        "line": 3813,
+        "summary": "This PR adds comment lines far past the file's roughly 100-column wrap: 3404 (146 characters), 3813 (181) and 3816 (160). R2-3 rewrapped an over-long comment line (767) for the same reason.",
+        "failure_scenario": "The `isDeferral` docblock (3811-3818) and the `draftView` docblock (3403-3406) each have one line that runs off-screen in a side-by-side diff or review pane. That makes the rule text they carry, the R1-11 and #99 clauses, harder to review, against the wrapping this file and round R2-3 keep."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 3831,
+        "summary": "Already tracked in #99, nothing missing. `isDeferral` now treats any filled `mitigation`, including 'none' or 'n/a', beside a call's planned fix as the person's deferral. `needCommits` then drops that fix's commit through `deferralIds`.",
+        "failure_scenario": "On autopilot, a call is planned as a fix and the resolve agent returns an entry with `mitigation: 'none'`. The draft is filed as an issue and the reply ends 'Deferred to #N'. If the implementer skips the fix, the check passes with no stop. The strayWorded test pins this as intended, and the comment posted on #99 covers both the widened trigger and the lost demand. Round 1 also set it aside as already tracked."
+      }
+    ]
+  }
+}

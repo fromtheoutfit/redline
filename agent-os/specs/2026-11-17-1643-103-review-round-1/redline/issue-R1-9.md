@@ -1,0 +1,9 @@
+# Count a deferred draft's version over what its stop shows, so a change to what ships is raised again
+
+At a Redline stop each deferred draft is shown with `ships`, `files` and the mitigation's words beside the issue text, but its version (`draftsOf` in `workflows/redline-loop.js`) counts only the issue text that `issueDraft` composes (the title, what was found, the place, why it is not fixed and the proposed fix), and an answer covers every version up to the one it named (`draftAnswered`). So when a reshape after a bounced plan changes only a deferral's `files` or its mitigation words, an answered draft is not raised again: a person who let a draft go ahead when it was shown with `ships: false` is never told that a mitigation now ships, and the build commits it and the reply reads `Mitigated in ...`. The gap is as old as the version: a reshape that rewrote the mitigation words had it before `ships` and `files` were shown.
+
+- **Where:** `workflows/redline-loop.js:3644`
+- **Why it is not fixed in #103:** The version is defined over the issue as it will be filed (the workflow/replay standard and the comment above `draftsOf`), and that guarantee still holds in this case, since the filed text is unchanged; counting what the stop shows changes when a person is asked again, a change to the stop's contract that goes beyond reading a deferral's mitigation from the round's record.
+- **Proposed fix:** Keep a second fingerprint beside `text` in `record.drafts[id]`, built from the files and the mitigation words the stop shows, and raise the version when either changes; reword the replay standard's line on versions and the comment above `draftsOf` to say a version counts what the stop shows; add a loop check that lets version 1 go ahead at a stop showing `ships: false`, bounces the plan, has the reshape list files, and expects a second stop for the draft.
+
+Deferred from pull request #103 by Redline (round 1, finding R1-9).

@@ -1,0 +1,1 @@
+Redline round 2: fixed in c5c1862 (redline: R2-1 say in the done rule's comment that a deferral buys a round only through its own commit (#100)) and f8dbd3b (redline: record what PR #103 round 2 taught in the agent standard, finishing R2-1 and R2-4 (#100)). · decided by: redline
