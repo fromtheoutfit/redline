@@ -3075,6 +3075,34 @@ function samePrefix(name, first, second, n) {
   // A deferral the person chose is their decision: its reply and its line keep the decision and end with where it went.
   const chosen = await go('filing: a fix the person changes to a deferral on the plan dial', { ...filedArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-16', disposition: 'defer' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], resolveDeferred: [{ id: 'R1-1', mitigation: 'a log line', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }] })
   check('filing: a deferral the person chose is filed, and its reply ends with where it went, as their decision', chosen.res.status === 'done' && labels(chosen.calls).includes('file deferred r1') && replyFor(chosen.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Defer it behind a log line. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author', [chosen.res.status, chosen.res.error, replyFor(chosen.calls, 'push and reply r1', 'R1-1')])
+  // The plan approver is shown the files the workflow reads (#103, R1-2): for a deferral the
+  // person decided, the task the resolve agent planned, never the shaper's list for the finding's
+  // old disposition. An absent heading or JSON that does not parse reads as null, so a run that
+  // took another path fails the check and does not throw.
+  const approverFiles = (r, id) => {
+    const p = (pick(r.calls, 'plan approver r1') || { prompt: '' }).prompt
+    const head = "The shaper's dispositions and deferred list, as JSON:\n"
+    const a = p.indexOf(head)
+    const b = a < 0 ? -1 : p.indexOf('\n\nDecisions made outside the shaper', a)
+    if (a < 0 || b < 0) {
+      return null
+    }
+    try {
+      const entry = JSON.parse(p.slice(a + head.length, b)).findings.find((x) => x.id === id)
+      return entry ? JSON.stringify([entry.disposition, entry.files]) : null
+    } catch {
+      return null
+    }
+  }
+  const draftFor = (id) => ({ fullFix: 'a lock', title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}` })
+  const toDefer = (notes) => ({ 'R1-1': { choice: 'defer', notes, date: '2026-11-17', disposition: 'defer' } })
+  const declineToDefer = await go('filing: a decline the person overrules to a deferral with a mitigation', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: toDefer('Defer it behind a guard.'), deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: 'a guard', ...draftFor('R1-1') }], commitIds: [['R1-1']] })
+  check('filing: the plan approver is shown the resolve agent\'s files for a decline the person overruled to a deferral with a task', approverFiles(declineToDefer, 'R1-1') === '["defer",["app/x.php"]]', [declineToDefer.res.status, declineToDefer.res.error, approverFiles(declineToDefer, 'R1-1')])
+  const fixToDefer = await go('filing: a fix the person changes to a deferral that ships nothing', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: toDefer('Defer it; nothing ships now.'), deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], acceptedCalls: ['R1-1'], resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draftFor('R1-1') }], commitIds: [[]] })
+  check('filing: the plan approver is shown no files for a fix the person changed to a deferral with no task, whatever the shaper listed', approverFiles(fixToDefer, 'R1-1') === '["defer",[]]', [fixToDefer.res.status, fixToDefer.res.error, approverFiles(fixToDefer, 'R1-1')])
+  // The neighbour: a deferral nobody decided is shown with the shaper's own list, as before.
+  const ownDefer = await go('filing: the shaper\'s own deferral, as the plan approver is shown it', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], files: { 'R1-1': ['app/y.php'] }, commitIds: [['R1-1']] })
+  check('filing: the plan approver is shown the shaper\'s own files for a deferral nobody decided', approverFiles(ownDefer, 'R1-1') === '["defer",["app/y.php"]]', [ownDefer.res.status, ownDefer.res.error, approverFiles(ownDefer, 'R1-1')])
   // A finding the person decided is a deferral only when the decision made it one (#97, R1-10): a
   // resolve agent's entry that ships nothing beside a call it planned as a fix, and a reshape's
   // entry beside a decided call, leave the fix a fix; a call answered with a deferral that ships

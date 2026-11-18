@@ -3789,6 +3789,11 @@ async function revise(record, inScope, reviewedKind) {
   const plannedFiles = (id) => (roundDecisions[id]
     ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files))
     : shaperPlanned(id) ? shaperFiles(id) : [])
+  // What the plan approver is shown of each finding (#103, R1-2): its disposition after the
+  // overrides, and for a deferral the person or autopilot decided, the files of the task the round
+  // planned for it (plannedFiles), which is the list the workflow reads, never the shaper's list
+  // for the finding's old disposition. Every other finding is shown as the shaper returned it.
+  const approverFindings = () => effectiveDispositions().map((f) => (roundDecisions[f.id] && f.disposition === 'defer' ? { ...f, files: plannedFiles(f.id) } : f))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
@@ -3835,7 +3840,7 @@ async function revise(record, inScope, reviewedKind) {
   for (let adjustment = 0; ; adjustment++) {
     const suffix = adjustment ? ` #${adjustment + 1}` : ''
     const approvals = await parallel([
-      () => run('approve', planPrompt(pass, specFolder, inScope, { findings: effectiveDispositions(), deferred }, roundDecisions, adjustment, approvedPaths), {
+      () => run('approve', planPrompt(pass, specFolder, inScope, { findings: approverFindings(), deferred }, roundDecisions, adjustment, approvedPaths), {
         agentType: 'redline:redline-plan-approver', ...modelOpts('planApprover'), label: `plan approver ${pass.tag}${suffix}`, phase: 'Approve', schema: PLAN_SCHEMA,
       }),
       () => run('approve', standardsPrompt(pass, specFolder), {
