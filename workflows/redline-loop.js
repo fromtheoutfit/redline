@@ -457,6 +457,9 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
+// The files of the tasks a list holds for one finding (#108, R1-7): the resolve-time checks read
+// one resolve's tasks, plannedFiles every resolve's of the round, and both read them this way.
+const taskFilesOf = (tasks, id) => unique(tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
 
 // The glob dialect of a paths ask rule, shared with the guard (glob_regex in
 // scripts/redline-guard.sh) and pinned by the same cases on both sides: ** spans segments, * and ?
@@ -3852,7 +3855,7 @@ async function revise(record, inScope, reviewedKind) {
     // resume at the build, which cannot replan. An accept has no task with files: the workflow
     // cannot take one out of plan.md, and the implementer builds the plan as written. An entry
     // short of a draft field stopped above, and an entry beside a fix or an accept was dropped.
-    const taskFiles = (id) => unique(out.tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
+    const taskFiles = (id) => taskFilesOf(out.tasks, id)
     const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
     const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
     if (undeferred.length) {
@@ -3901,7 +3904,7 @@ async function revise(record, inScope, reviewedKind) {
   // mitigation says, and shaperFiles reads only a finding the shaper deferred, so no other test
   // of the list is needed (#103, R2-9). Nothing is demanded of the gate for it: no deferral's
   // commit is (#100).
-  const plannedFiles = (id) => (roundDecisions[id] ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files)) : shaperFiles(id))
+  const plannedFiles = (id) => (roundDecisions[id] ? taskFilesOf(resolvedTasks, id) : shaperFiles(id))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, and no other override whatever
