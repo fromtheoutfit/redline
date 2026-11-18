@@ -575,11 +575,14 @@ function resumeLine(opts) {
   const shaper = opts.agentType === 'redline:redline-shaper'
     ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
     : ''
-  // A resolve stop is the workflow's check of what the resolve agent returned (#95, #97 R2-13,
-  // #99), not a cause the person fixes by hand, and its first attempt has already turned the
-  // pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
-  // (#108, R3-4).
-  const resolveFix = opts.agentType === 'redline:redline-resolve'
+  // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
+  // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
+  // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
+  // (#108, R3-4). The clause is chosen by the stop, not by the agent alone (#108, R4-4): each of
+  // those checks opens its error with "the resolve agent ", and neither the autopilot stop nor a
+  // crash does. The autopilot stop is raised from the agent's own unresolved list, whose entries
+  // its rules keep pending, so its rerun is told nothing more.
+  const resolveFix = opts.agentType === 'redline:redline-resolve' && String(entry.error || '').startsWith('the resolve agent ')
     ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
     : ''
   const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub

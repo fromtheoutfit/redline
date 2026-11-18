@@ -1473,6 +1473,19 @@ function samePrefix(name, first, second, n) {
   const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
   check('resume: the resolve agent\'s file says the same of a resumed resolve, as the resume line does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again'))
+  // The clause is chosen by the stop (#108, R4-4): the autopilot stop is raised from the resolve
+  // agent's own unresolved list, which its rules keep pending, so its resumed prompt ends with the
+  // line alone. `resumedResolve` above is the neighbour: a check of the returned result keeps it.
+  const unappliedStop = await go('resume: autopilot could not apply a recommendation', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], unresolved: [{ id: 'R1-1', why: 'no such option' }], commitIds: [['R1-1']] })
+  const unappliedError = (unappliedStop.res || {}).error || ''
+  const resumedUnapplied = await go('resume: autopilot could not apply a recommendation, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: unappliedError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedUnappliedPrompt = (pick(resumedUnapplied.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('resume: a resumed resolve after autopilot could not apply a recommendation ends with the resume line alone, with no clause to correct what it wrote', unappliedError.startsWith('autopilot could not apply the shaper\'s recommendation for R1-1') && resumedUnappliedPrompt.endsWith(line(unappliedError)) && !resumedUnappliedPrompt.includes(resolveClause), [unappliedError, resumedUnappliedPrompt.slice(-600)])
+  check('resume: the resolve agent\'s file says a decision it could not apply stays pending on a resume, as the resume line leaves it', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('An error that says autopilot could not apply a decision is not that check'))
+  // The predicate rests on every check of the resolve agent's returned result opening its error
+  // with "the resolve agent ", and on the autopilot stop being the one resolve stop that does not.
+  const opening = (text) => src.split(text).length - 1
+  check('resume: every resolve stage error but the autopilot stop opens with "the resolve agent "', opening("stageError('resolve', `") === opening("stageError('resolve', `the resolve agent ") + 1 && opening("stageError('resolve', `autopilot could not apply ") === 1, [opening("stageError('resolve', `"), opening("stageError('resolve', `the resolve agent ")])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
