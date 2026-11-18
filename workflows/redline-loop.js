@@ -853,7 +853,7 @@ function shapeSchema(reasons, dispositions) {
             secondLook: { type: 'string', enum: ['confirmed', 'refuted', 'unconfirmed'] },
             // The paths the finding's task would touch, an empty list when it has no task, and the
             // repository ask rule the shaper judged it under (#49); forceAskRules reads both, and
-            // shaperPlanned reads the paths of a deferral (#100).
+            // plannedFiles reads the paths of a deferral (#100).
             files: strings,
             askRule: str,
           },
@@ -3794,19 +3794,15 @@ async function revise(record, inScope, reviewedKind) {
   })
   // A task one of the round's resolves planned with files for a finding: what needCommits demands.
   const plannedTask = (id) => resolvedTasks.some((task) => task.finding === id && task.files.length > 0)
-  // A task the shaper planned with files for one of its own deferrals (#97, R2-6): a finding's
-  // `files` are the paths its task touches (the shaper's schema), so a deferral listed with files
-  // has a task whatever its mitigation says, and the commit that task makes is the item's, never
-  // zeroed as shipping nothing. A finding the person or autopilot decided is read from the
-  // resolve's tasks instead (plannedTask), whatever the shaper listed for it. Nothing is demanded
-  // of the gate for it: no deferral's commit is (#100).
-  const shaperPlanned = (id) => !roundDecisions[id] && shaped.findings.some((s) => s.id === id && s.disposition === 'defer' && Array.isArray(s.files) && s.files.length > 0)
-  // The files of the task the round planned for a deferral (#100), none when it planned no task:
-  // the resolve's tasks for a finding the person or autopilot decided, the shaper's own list for
-  // one nobody decided (R2-6's split).
-  const plannedFiles = (id) => (roundDecisions[id]
-    ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files))
-    : shaperPlanned(id) ? shaperFiles(id) : [])
+  // The files of the task the round planned for a deferral (#100), none when it planned no task.
+  // A finding the person or autopilot decided is read from the resolve's tasks (plannedTask reads
+  // the same tasks), whatever the shaper listed for it. One nobody decided is read from the
+  // shaper's own list for its deferral (#97, R2-6): a finding's `files` are the paths its task
+  // touches (the shaper's schema), so a deferral listed with files has a task whatever its
+  // mitigation says, and shaperFiles reads only a finding the shaper deferred, so no other test of
+  // the list is needed (#103, R2-9). Nothing is demanded of the gate for it: no deferral's commit
+  // is (#100).
+  const plannedFiles = (id) => (roundDecisions[id] ? unique(resolvedTasks.filter((task) => task.finding === id).flatMap((task) => task.files)) : shaperFiles(id))
   // What the plan approver is shown of each finding (#103, R1-2): its disposition after the
   // overrides, and for a deferral the person or autopilot decided, the files of the task the round
   // planned for it (plannedFiles), which is the list the workflow reads, never the shaper's list
