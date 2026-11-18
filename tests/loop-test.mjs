@@ -2834,6 +2834,7 @@ function samePrefix(name, first, second, n) {
     ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision']],
     ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**', 'read by no Redline pass']],
     ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;']],
+    ['the skill\'s closing summary', read('skills', 'redline', 'SKILL.md'), ['and what shipped, from `ships` and never from whether `mitigation` is empty', 'and what shipped, from `ships`, as that section says']],
   ]) {
     for (const phrase of phrases) {
       check(`defer: ${name} says "${phrase}"`, text.includes(phrase))
@@ -2843,6 +2844,7 @@ function samePrefix(name, first, second, n) {
   check('defer: the script\'s comment on the mitigation field says the words are shown only beside a mitigation that ships', src.includes('only beside a mitigation the record says ships'))
   check('defer: every call of draftsOf passes its files reader, with no default that names a later declaration', !src.includes('filesOf = plannedFiles'))
   check('defer: a deferred outcome carries no mitigation words, so no reply or outcome line can post them without a commit of its own', !src.includes('outcome.mitigation') && !src.includes('mitigation: shipsNothing ? \'\' : deferredItem.mitigation'))
+  check('defer: the skill\'s closing summary no longer reads an empty mitigation as nothing shipped', !read('skills', 'redline', 'SKILL.md').includes('(`mitigation` is empty when nothing shipped)'))
   for (const [name, text] of [['the plan approver\'s file', approverAgent], ['the implementer\'s file', implementerAgent]]) {
     check(`defer: ${name} no longer reads a deferral's task off an empty mitigation`, !text.includes('with an empty mitigation has no task'))
   }
@@ -2888,6 +2890,7 @@ function samePrefix(name, first, second, n) {
   const pinned = await go('defer: nothing ships, in words no list holds, and no task', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], mitigations: { 'R1-1': 'No code ships in this pull request.' }, files: { 'R1-1': [] }, commitIds: [[]] })
   check('defer: "No code ships in this pull request." with no task demands no commit, ends its round and is posted as shipping nothing, with no warning', pinned.res.status === 'done' && !(pinned.res.error || '').includes('no commit names') && replyFor(pinned.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. · decided by: redline' && !(pinned.res.warnings || []).some((w) => w.includes('R1-1')), [pinned.res.status, pinned.res.stage, pinned.res.error, replyFor(pinned.calls, 'push and reply r1', 'R1-1'), pinned.res.warnings])
   check('defer: the result\'s entry for the pinned case carries no mitigation words, since nothing shipped', ((pinned.res.deferred || [])[0] || {}).mitigation === '', pinned.res.deferred)
+  check('defer: the result\'s entry for the pinned case says nothing shipped', ((pinned.res.deferred || [])[0] || {}).ships === false, pinned.res.deferred)
   // A deferral's commit is never demanded (#100): a planned mitigation the build left out is a
   // warning naming the planned files, never a stop and never a repair pass, and its draft is filed.
   const unbuiltMitigation = await go('defer: a planned mitigation the build leaves out', { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], commitIds: [[]] })
@@ -2903,6 +2906,7 @@ function samePrefix(name, first, second, n) {
   for (const [word, name] of [['none', 'the word none'], ['', 'an empty string']]) {
     const mirror = await go(`defer: a task with files and a commit of its own, the mitigation worded as ${name}`, { ...baseArgs, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], defer: ['R1-1'], mitigations: { 'R1-1': word }, files: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1']] })
     check(`defer: a planned task with files and a commit of its own ships, with the mitigation worded as ${name}: posted as mitigated, the next round bought, no warning`, mirror.res.status === 'done' && replyFor(mirror.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: deferred to #301. Mitigated in 1bbbbbb (redline: R1-1 fix). · decided by: redline' && (mirror.res.rounds[1] || {}).reviewed === 'fix-diff' && ((mirror.res.deferred || [])[0] || {}).mitigation === word && !(mirror.res.warnings || []).some((w) => w.includes('R1-1')), [mirror.res.status, mirror.res.error, replyFor(mirror.calls, 'push and reply r1', 'R1-1'), mirror.res.rounds.map((r) => r.reviewed), mirror.res.deferred, mirror.res.warnings])
+    check(`defer: the result's entry says a mitigation shipped, read off its own commit, with the mitigation worded as ${name}`, ((mirror.res.deferred || [])[0] || {}).ships === true, mirror.res.deferred)
   }
   // A commit of its own counts with no files listed too (#100): the record after the build is the
   // commit. It is posted as the mitigation and buys the round, and a warning says the shaper

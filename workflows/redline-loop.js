@@ -3378,14 +3378,16 @@ async function fileDeferred(pass, record, drafts, phaseName) {
   return record.filed
 }
 
-// A deferred item as the result and the handoff carry it (#95): the finding, its mitigation (the
-// words as written when its outcome holds a commit, which is what says one shipped, #100) and
-// full fix, its draft as filed (for the session's closing summary, which prints it when the
-// setting is print), where it went, and its outcome as posted.
+// A deferred item as the result and the handoff carry it (#95): the finding, whether a mitigation
+// shipped (`ships`: its outcome holds a commit of the finding's own, #100, which the session's
+// closing summary reads, never the emptiness of the words; #103, R2-7), its mitigation (the words
+// as written when one shipped) and full fix, its draft as filed (for the session's closing
+// summary, which prints it when the setting is print), where it went, and its outcome as posted.
 function deferredEntry(pass, record, d, filedTo, outcome) {
+  const ships = Boolean(outcome && Array.isArray(outcome.commits) && outcome.commits.length)
   return {
     id: d.item.id, round: record.round, title: d.f.title, file: d.f.file, line: d.f.line, specFolder: record.specFolder, commentId: record.commentIds[d.item.id] || 0,
-    mitigation: outcome && Array.isArray(outcome.commits) && outcome.commits.length ? d.item.mitigation : '', fullFix: d.item.fullFix,
+    ships, mitigation: ships ? d.item.mitigation : '', fullFix: d.item.fullFix,
     draft: draftParts(issueDraft(pass, d.f, d.item, d.title || '')),
     ...filedTo,
     outcome: describeOutcome(outcome, pass.human),
