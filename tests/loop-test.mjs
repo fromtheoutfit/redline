@@ -258,10 +258,14 @@ function mock(scenario) {
       // scenario.resolveFiles[id] (#108, R1-5) scripts one task's files, [] for none, whatever its decision.
       const accepted = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "accept"/g)].map((m) => m[1]).concat(scenario.acceptedCalls || []))
       const left = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"rule": "/g)].map((m) => m[1]))
+      // A call whose decision carries its own disposition has no entry in decided (#108, R1-2,
+      // R2-1), as the prompt says, so the mock leaves it out as a real agent would, unless
+      // scenario.resolveDecided scripts a statement for it.
+      const named = new Set([...prompt.matchAll(/"([RH]\d+-\d+)": \{[^}]*"disposition": "/g)].map((m) => m[1]))
       const title = (id) => (accepted.has(id) ? `Accepted, no change: ${id}` : left.has(id) ? `Left to the person: ${id}` : `t ${id}`)
       // What each judgment call's decision ends in, as the resolve agent states it (#99): one entry
-      // per call of the prompt's calls block, none for a call left to the person under a rule. By
-      // default it states what a real agent would for what it returned: defer beside its own
+      // per call of the prompt's calls block, none for a call left to the person under a rule, and
+      // none for a call whose decision names its own disposition. By default it states what a real agent would for what it returned: defer beside its own
       // deferred entry, accept for a call it accepted, fix otherwise. scenario.resolveDecided[id]
       // scripts one, scenario.resolveUnstated lists the calls it leaves out,
       // scenario.resolveDecidedTwice[id] is a second statement for one, and
@@ -271,7 +275,7 @@ function mock(scenario) {
       const callIds = callsFrom < 0 || callsTo < 0 ? [] : [...new Set([...prompt.slice(callsFrom, callsTo).matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))]
       const states = (id) => (scenario.resolveDecided && scenario.resolveDecided[id]) || ((scenario.resolveDeferred || []).some((e) => e.id === id) ? 'defer' : (scenario.acceptedCalls || []).includes(id) ? 'accept' : 'fix')
       const decided = callIds
-        .filter((id) => !left.has(id) && !(scenario.resolveUnstated || []).includes(id))
+        .filter((id) => !left.has(id) && !(named.has(id) && !(scenario.resolveDecided && id in scenario.resolveDecided)) && !(scenario.resolveUnstated || []).includes(id))
         .flatMap((id) => [{ id, disposition: states(id) }].concat(scenario.resolveDecidedTwice && scenario.resolveDecidedTwice[id] ? [{ id, disposition: scenario.resolveDecidedTwice[id] }] : []))
       return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
@@ -3235,9 +3239,9 @@ function samePrefix(name, first, second, n) {
   // A call's decision that names a disposition itself decides, as an override's does (#103,
   // R1-11), so no statement is asked of it (#99): the round goes on without one, and the fix it
   // names is demanded and posted.
-  const namedCall = await go('filing: a call whose decision names its own disposition, with no statement', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const namedCall = await go('filing: a call whose decision names its own disposition, with no statement', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   check('filing: a call whose decision names its disposition needs no statement, and its fix is posted as applied', namedCall.res.status === 'done' && replyFor(namedCall.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it in full. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [namedCall.res.status, namedCall.res.stage, namedCall.res.error, replyFor(namedCall.calls, 'push and reply r1', 'R1-1')])
-  const namedUnbuilt = await go('filing: a call whose decision names its own disposition, the fix left out', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [[], []] })
+  const namedUnbuilt = await go('filing: a call whose decision names its own disposition, the fix left out', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [[], []] })
   check('filing: a call whose decision names a fix is demanded: left unbuilt, the round stops at the check', namedUnbuilt.res.status === 'error' && namedUnbuilt.res.stage === 'check' && (namedUnbuilt.res.error || '').includes('no commit names R1-1'), [namedUnbuilt.res.status, namedUnbuilt.res.stage, namedUnbuilt.res.error])
   // A call whose decision names its own disposition is asked for no statement (#108, R1-2), as
   // a call left to the person under a rule is not: the prompt says so only when a call carries
@@ -3274,7 +3278,7 @@ function samePrefix(name, first, second, n) {
   // above (a named fix with files), `fixAccepted` (an accept override with no files), and the
   // shaper's own deferral below, which stands in for a defer override's entry as before.
   const deferNamed = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a log line.', date: '2026-11-18', disposition: 'defer' } }
-  const namedDeferNoEntry = await go('filing: a call whose decision names a deferral, with no deferred entry', { ...baseArgs, decisions: deferNamed }, { ...oneCall, resolveUnstated: ['R1-1'] })
+  const namedDeferNoEntry = await go('filing: a call whose decision names a deferral, with no deferred entry', { ...baseArgs, decisions: deferNamed }, oneCall)
   check('filing: a call whose decision names a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(namedDeferNoEntry, 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue'), stopDetail(namedDeferNoEntry))
   const fixOverrideNoFiles = await go('filing: a decline the person overrules to a fix, planned with no task with files', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')]], decline: ['R1-1'], resolveFiles: { 'R1-1': [] }, commitIds: [['R1-1']] })
   check('filing: an override to fix planned with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixOverrideNoFiles, 'the resolve agent planned no task with files for R1-1, which a disposition override names as a fix; a fix names the files it changes'), stopDetail(fixOverrideNoFiles))
