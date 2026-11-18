@@ -3836,8 +3836,12 @@ async function revise(record, inScope, reviewedKind) {
     // sorted it to (a decline overruled to a fix included), and a call whose decision names its
     // own fix or accept was never a deferral either: each warning says whose decision it is and
     // what it names (#108, R2-3, R3-5). An override is never one of the round's calls (overridesFor).
+    // Whether a decision is a call's or an override's, read one way for the stray warnings and
+    // the named-check stops (#108, R3-6): `newCalls` is always within `calls`, and `overridesFor`
+    // never takes a call.
+    const isCall = (id) => calls.some((call) => call.id === id)
     const strayOverride = once.kept.filter((item) => awayFromDefer(item.id)).map((item) => item.id)
-    const strayNamed = strayOverride.filter((id) => calls.some((call) => call.id === id))
+    const strayNamed = strayOverride.filter(isCall)
     const strayChanged = strayOverride.filter((id) => !strayNamed.includes(id))
     for (const id of strayChanged) {
       warnings.push(`${pass.name}: the resolve agent listed ${id} as deferred, a finding whose disposition the person changed to ${roundDecisions[id].disposition}; the entry is dropped, since the decision stands`)
@@ -3866,7 +3870,7 @@ async function revise(record, inScope, reviewedKind) {
     // Until #108 only a defer override was checked, by its entry.
     const named = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id)).filter((id) => !record.forced[id] && roundDecisions[id].disposition)
     const namedAs = (disposition) => named.filter((id) => roundDecisions[id].disposition === disposition)
-    const whose = (id) => (newOverrides.some((f) => f.id === id) ? 'a disposition override' : 'its decision')
+    const whose = (id) => (isCall(id) ? 'its decision' : 'a disposition override')
     // A deferral the person chose comes back with its entry (#97, R2-13): one the resolve agent
     // left out would be neither drafted nor filed, and its reply would close the person's
     // deferral with no issue and no warning. An entry the round already holds for it (the
