@@ -2,6 +2,11 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.4.2 (2026-11-18)
+
+### Fixes
+
+- #108 What an answer to a judgment call ends in (fix, defer or accept) is stated by the resolve agent and checked against the tasks and drafts it returned, never inferred from a deferred entry: a stray entry beside a fix opens no issue, a fix is always demanded by the check, and a statement the plan cannot support stops the round at resolve before anything is built or posted (#99)
 
 ## 0.4.1 (2026-11-18)
 
