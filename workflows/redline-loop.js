@@ -3796,7 +3796,7 @@ async function revise(record, inScope, reviewedKind) {
   const approverFindings = () => effectiveDispositions().map((f) => (roundDecisions[f.id] && f.disposition === 'defer' ? { ...f, files: plannedFiles(f.id) } : f))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
-  // when the decision made it one (#97, R1-10): a defer override, or the resolve agent's own entry
+  // when the decision made it one (#97, R1-10): a defer override, and no other override whatever entry stands beside it (#103, R1-11), or, for a call, the resolve agent's own entry
   // when its mitigation field is filled or the finding has no planned task with files, since a
   // deferral that ships nothing has no task. The field is read as filled or empty, never by its
   // words (#100); the resolve agent naming each decision's disposition replaces this test (#99). A reshape's disposition or entry never makes a decided finding
@@ -3808,7 +3808,13 @@ async function revise(record, inScope, reviewedKind) {
     }
     const decision = roundDecisions[d.id]
     if (decision) {
-      return decision.disposition === 'defer' || (resolveDeferred.has(d.id) && (filled(d) || !plannedTask(d.id)))
+      // An override names its disposition, and that decides (#103, R1-11): an override to fix or
+      // accept leaves no deferral behind (awayFromDefer), whatever entry the resolve agent returns
+      // beside it. Only a call's decision, which names none, is read from the resolve agent's entry.
+      if (decision.disposition) {
+        return decision.disposition === 'defer'
+      }
+      return resolveDeferred.has(d.id) && (filled(d) || !plannedTask(d.id))
     }
     return effectiveDispositions().some((s) => s.id === d.id && s.disposition === 'defer')
   }
