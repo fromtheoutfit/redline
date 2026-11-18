@@ -605,6 +605,12 @@ function samePrefix(name, first, second, n) {
   // lower-case fix, runs on (`namedCall`), and so does a decision with no disposition at all.
   run = await go('bad decision disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'Fix' } } }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'] })
   check('bad decision disposition: refused before any agent runs', Boolean(run.thrown) && /args\.decisions must give a disposition of fix \| defer \| accept/.test(run.thrown.message) && run.calls.length === 0, run.thrown && run.thrown.message)
+  // An empty or a null disposition names none (#108, R3-1), as every reader of the field reads it:
+  // the decision runs on as a call with no disposition, its resolve prompt shows none, and the
+  // agent states one. The neighbour above, a value outside the three, is still refused.
+  run = await go('empty decision disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: '' }, 'R1-2': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: null } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1', 'R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  const emptyResolve = (pick(run.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('empty decision disposition: an empty and a null one each run on as no disposition, and the resolve prompt shows neither', !run.thrown && (run.res || {}).status === 'done' && emptyResolve !== '' && !emptyResolve.includes('"disposition": ""') && !emptyResolve.includes('"disposition": null'), [run.thrown && run.thrown.message, (run.res || {}).status, (run.res || {}).error])
   run = await go('no login', { ...baseArgs, login: undefined, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Kept.', date: '2026-10-20' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   check('no login: the person running Redline stands in, never the author', replyFor(run.calls, 'push and reply r1', 'R1-1').endsWith('· decided by: the person running Redline') && !comment(run.calls, 'handoff comment').includes('the author'), replyFor(run.calls, 'push and reply r1', 'R1-1'))
 }

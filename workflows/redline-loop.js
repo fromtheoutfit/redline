@@ -238,9 +238,14 @@ const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArr
 // A decision that names its own disposition names one of the three (#108, R2-6): the skill
 // records only fix, defer or accept, and every reader of the field matches those exact values,
 // so any other would be neither checked at resolve nor demanded at the check. Until #99 a
-// resolve task with files was demanded whatever the decision named.
+// resolve task with files was demanded whatever the decision named. An empty or a null one
+// names none, as every reader of the field reads it and as run() reads an agent's error (#42):
+// it is dropped from the run's copy of the decision, so the resolve prompt shows none either,
+// where the check above refused it and a relaunch threw before any agent ran (#108, R3-1).
 for (const [id, entry] of Object.entries(decisions)) {
-  if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
+  if (entry && typeof entry === 'object' && (entry.disposition === null || entry.disposition === '')) {
+    decisions[id] = Object.fromEntries(Object.entries(entry).filter(([key]) => key !== 'disposition'))
+  } else if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
     fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
   }
 }
