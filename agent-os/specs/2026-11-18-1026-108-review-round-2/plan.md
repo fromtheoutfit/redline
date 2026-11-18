@@ -445,3 +445,30 @@ Then, as written in the gate:
 11. **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.2`, as the pull request set them; this round adds no bump.
 12. **Standards retrospective.** The proposed edits are under `## Standards retrospective (proposed)` in `shape.md`. The standards approver judges them; apply the approved ones in their own commit, after the finding commits, or record "Standards retrospective: no changes" under Decisions in `shape.md` if none is approved.
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, Task 2's mutation run, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 2 for PR #108 (#99)`.
+
+---
+
+## As built
+
+Every gate run below is `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-18-1026-108-review-round-2/redline/snapshot.json`, each about two minutes. `checks.sh` records a harness's output only when it fails, so a green run's loop count is not printed; the counts below are read off the red runs, and the green ones are the loop exiting 0.
+
+| Task | Commit | Red run | Green run |
+| --- | --- | --- | --- |
+| 1 | `7483a79` | - | - |
+| 2 (R2-1) | `0096b84` | mutation run: `1423 checks passed, 3 failed` | seen in Task 4's red run |
+| 3 (R2-2) | `724e1ac` | none (a comment) | seen in Task 4's red run |
+| 4 (R2-3) | `feabf61` | `1428 checks passed, 1 failed` | loop exit 0 |
+| 5 (R2-4) | `a461d1e` | `1429 checks passed, 2 failed` | loop exit 0 |
+| 6 (R2-5) | `9d138a3` | `1431 checks passed, 2 failed` | loop exit 0 |
+| 7 (R2-6) | `6a35e67` | `1435 checks passed, 1 failed` | loop exit 0 |
+| Standards | `4c524aa` | - | - |
+
+- **Task 2's mutation run.** With `&& !roundDecisions[call.id].disposition` dropped from `asked` and the mock change in place, `namedCall`, `namedUnbuilt` and `namedDeferNoEntry` went red, each stopping at resolve with `the resolve agent stated no disposition for R1-1, a judgment call it applied`. 1423 + 3 = 1426, one under 1427 because `namedCall` no longer reached Finish and so added no run-record check. The mutation was reverted before the commit, and the workflow file was not committed in Task 2.
+- **Tasks 2 and 3, green.** Both were committed before a gate run of their own: Task 2 after its mutation run, Task 3 after its four `grep -c` proofs (`1`, `1`, `1`, `0`; the negatives of 2870 and 2890 occur nowhere). Their green is Task 4's red run, where only Task 4's new check failed: 1428 passed is 1427 plus `namedStray`'s run-record check, with the three source checks at 2865, 2870 and 2871 and the check at 2890 green. This is recorded as a deviation under Decisions in `shape.md`.
+- **Task 4.** The red run failed only the new check, its warning reading `a finding the person changed away from defer`. `overrideBuilt`'s check stayed green.
+- **Task 5.** Both text checks were red before the change (1429 = 1428 + Task 4's check).
+- **Task 6.** Both new checks were red before the change: the round stopped at the check after `repair r1` with `no commit names R1-1`, so there was no reply either. The reply check was red only because the round stopped, not because of how `outcomesFor` posts. `forcedLater` stayed green after the change (1431 = 1429 + Task 5's two checks).
+- **Task 7.** The red run failed only the refusal check. The unrefused run reached Finish and added a run-record check (1435 = 1431 + Task 6's two checks and its run-record check + 1). After the change the run is refused before any agent runs, so it gains the check and loses that run record, and the loop reads `1435 checks passed, 0 failed`, the plan's expected count. No existing scenario passes a decision disposition outside the three.
+- **The last gate run** exits 0 on every harness, with `git.unexpected_files` and `git.uncommitted` empty. Its JSON is the evidence.
+- **Standards.** The three approved edits were applied as worded, in their own commit. No finding is named in its message: `shape.md` sends no finding's fix through the retrospective.
+- **Version** stays `0.4.2` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
