@@ -2833,7 +2833,7 @@ function samePrefix(name, first, second, n) {
     ['the implementer\'s file', implementerAgent, ['with no task in `plan.md` gets no change and no commit', 'only a commit of the finding\'s own is counted']],
     ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision', 'except in the plan dial\'s list of the shaper\'s dispositions']],
     ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**', 'read by no Redline pass']],
-    ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;']],
+    ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;', 'for an ask, the paths its recommended change would touch; for a defer']],
     ['the skill\'s closing summary', read('skills', 'redline', 'SKILL.md'), ['and what shipped, from `ships` and never from whether `mitigation` is empty', 'and what shipped, from `ships`, as that section says']],
   ]) {
     for (const phrase of phrases) {
@@ -2862,6 +2862,7 @@ function samePrefix(name, first, second, n) {
   // whether a deferral planned a mitigation from them, never from the words of its mitigation.
   check('defer: the shaper\'s file says every finding lists its files and that a deferral\'s planned mitigation is read from them', shaperAgent.includes(FILES_ASKED) && shaperAgent.includes('never from the words of `mitigation`'), [shaperAgent.includes(FILES_ASKED), shaperAgent.includes('never from the words of `mitigation`')])
   check('defer: the shape prompt of a repository with no ask rules asks for every finding\'s files', shape.includes(FILES_ASKED), shape.slice(-900))
+  check('defer: the shape prompt asks an ask for the paths its recommended change would touch, as the ask-rules block does', shape.includes('for an ask, the paths its recommended change would touch'), shape.slice(-900))
   check('defer: the plan approver and the implementer are shown the entry with its draft', [(pick(mitigated.calls, 'plan approver r1') || { prompt: '' }).prompt, (pick(mitigated.calls, 'implement r1') || { prompt: '' }).prompt].every((p) => p.includes('"title": "Lock R1-1"') && p.includes('"why": "why R1-1"')))
 
   // No mitigation: no task, no commit demanded, nothing bought. The nit fixed beside it earns the

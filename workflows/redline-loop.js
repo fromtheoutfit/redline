@@ -866,7 +866,10 @@ function shapeSchema(reasons, dispositions) {
 }
 // How every shape prompt asks for a finding's files (#100). Until then only a repository with ask
 // rules was asked (rulesBlock), and a list left out read the same as a task that touches nothing.
-const FILES_ASK = 'files (the paths its task creates or changes, an empty list when it has no task)'
+// An ask's task holds options until the person decides, so its files are the paths its
+// recommended change would touch, as the ask-rules block asks for them and forceAskRules reads
+// them (#103, R2-5).
+const FILES_ASK = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask, the paths its recommended change would touch)'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {
