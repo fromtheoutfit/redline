@@ -427,3 +427,23 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 4 for PR #108 (#99)`.
 
 **Files** (this task): `agent-os/standards/workflow/agents.md` and `agent-os/standards/workflow/replay.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-18-1026-108-review-round-4/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built as planned, with no deviation; `shape.md` gains no Decisions entry.
+
+| Task | Commit | Evidence |
+| --- | --- | --- |
+| Task 1 | `af3de86` | spec folder only, nothing under `redline/` |
+| Task 2, R4-1 | `386cd20` | `grep -c "The first is kept whatever it holds" docs/running.md` printed `1` |
+| Task 3, R4-2 | `db80099` | `grep -c "where the check above refused it" workflows/redline-loop.js` printed `0` |
+| Task 4, R4-3 | `18675f7` | the two greps printed `0` and `1`; the red run of Task 5 passed every earlier check, `empty decision disposition` and `bad decision disposition` included |
+| Task 5, R4-4 | `6df0664` | red: `1446 checks passed, 2 failed`, the two expected checks (the resumed prompt ended with the line and the clause; the agent file held no such sentence); the source check held before the change, as planned. Green: loop exit 0, 1448 checks |
+| Task 6, R4-6 | `bbe52bc` | the two greps printed `1` and `0` |
+| Task 7, R4-7 (mitigation) | `ec6f563` | `grep -c "The entry is dropped from the run's list only" docs/running.md` printed `1` |
+| Task 8, R4-9 | `36f9bef` | red: `1448 checks passed, 1 failed`, the agent-file check; green: loop exit 0, 1449 checks. The four greps printed `0`, `1`, `1`, `0`; the staged names were the three files the task lists |
+| Standards | `14f26e8` | the three approved edits, to `workflow/agents.md` line 24 and `workflow/replay.md` lines 19 and 23, in a commit naming R4-2 |
+
+**Counts.** The loop reads 1449 checks, as planned (1444 before the round, 4 from Task 5, 1 from Task 8). `checks.sh` records a passing check's exit and no output, so each green count is the red run's total with its failures turned to passes; the final gate run, after the standards commit, returned `ok: true`, every check at exit 0, and no `unexpected_files` or `uncommitted` entry.
+
+**Gate items 10 to 12.** Docs entries are as each task names them. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.2`. The standards retrospective applied the three edits the standards approver approved, items 1 to 3 of `shape.md`'s proposal.
