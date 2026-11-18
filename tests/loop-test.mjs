@@ -1460,6 +1460,9 @@ function samePrefix(name, first, second, n) {
   // An override the resolve agent could not apply is restated, and the restatement replaces it in
   // the relaunch's decisions (#94, R5-4).
   check('resume: the relaunch note says a restated override replaces the one the resolve agent could not apply', first.res.relaunch.how.includes('For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply.'), first.res.relaunch.how)
+  // The plan clause gives an ask the shape the skill records for it, with no disposition, and a
+  // changed disposition its own (#108, R3-2): since #99 a disposition on a call's decision decides it.
+  check('resume: the relaunch note gives a plan dial ask no disposition, and a changed disposition its own', first.res.relaunch.how.includes('plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"})'), first.res.relaunch.how)
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
