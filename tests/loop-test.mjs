@@ -2831,8 +2831,8 @@ function samePrefix(name, first, second, n) {
   for (const [name, text, phrases] of [
     ['the plan approver\'s file', approverAgent, ['whose `files` list is empty has no task', 'lists `files` with no task for it in `plan.md`']],
     ['the implementer\'s file', implementerAgent, ['with no task in `plan.md` gets no change and no commit', 'only a commit of the finding\'s own is counted']],
-    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral']],
-    ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**']],
+    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass']],
+    ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**', 'read by no Redline pass']],
     ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;']],
   ]) {
     for (const phrase of phrases) {
