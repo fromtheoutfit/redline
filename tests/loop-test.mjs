@@ -1463,6 +1463,16 @@ function samePrefix(name, first, second, n) {
   // The plan clause gives an ask the shape the skill records for it, with no disposition, and a
   // changed disposition its own (#108, R3-2): since #99 a disposition on a call's decision decides it.
   check('resume: the relaunch note gives a plan dial ask no disposition, and a changed disposition its own', first.res.relaunch.how.includes('plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"})'), first.res.relaunch.how)
+  // A stop at resolve is the workflow's check of what the resolve agent returned, so its resume
+  // line tells the rerun to correct what its first attempt wrote, decided entries included (#108,
+  // R3-4). The recheck above is the neighbour: its resumed prompt ends with the line alone.
+  const resolveClause = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
+  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const resolveError = (stoppedAtResolve.res || {}).error || ''
+  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
+  check('resume: the resolve agent\'s file says the same of a resumed resolve, as the resume line does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again'))
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.

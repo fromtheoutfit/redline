@@ -571,13 +571,20 @@ function resumeLine(opts) {
   const shaper = opts.agentType === 'redline:redline-shaper'
     ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
     : ''
+  // A resolve stop is the workflow's check of what the resolve agent returned (#95, #97 R2-13,
+  // #99), not a cause the person fixes by hand, and its first attempt has already turned the
+  // pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
+  // (#108, R3-4).
+  const resolveFix = opts.agentType === 'redline:redline-resolve'
+    ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
+    : ''
   const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub
     ? ` Before Step 2, run \`${GH} pr-comments ${pr}\`: when a comment there has exactly the body of the file Step 1 wrote, an earlier attempt posted it, so post nothing, set posted true and comment_url to "" (the script prints no comment URL), and go on to Step 3.`
     : ''
   const recordCommit = opts.label === 'record commit'
     ? ` Before Step 1, run \`git -C ${repoRoot} status --porcelain --untracked-files=all -- <the paths Step 1 names>\`: when it prints nothing, an earlier attempt committed them, so skip Steps 1 and 2, set committed true and sha to the full SHA \`git -C ${repoRoot} rev-parse HEAD\` prints, and do Step 3.`
     : ''
-  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${finishComment}${recordCommit}`
+  return `\n\nResume attempt ${entry.attempt} of this step. The run stopped at this step with an error (${entry.error}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.${shaper}${resolveFix}${finishComment}${recordCommit}`
 }
 
 // The strings "" and '' and null, which a model writes for "nothing", count as empty (#34 round 2

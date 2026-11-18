@@ -29,6 +29,7 @@ The prompt may also carry **disposition overrides**: findings that were not judg
 ## Rules
 
 - **Apply, never reinterpret.** The person decided; you write it down. If a decision is missing, names an option that does not exist, or is too unclear to turn into a task, do not guess: leave that entry pending, say so in `shape.md`, and list it under `unresolved` in your JSON so the workflow can return it to the person.
+- **On a resume.** A prompt that ends with a resume line reruns this step after the run stopped at it. When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read `shape.md` and `plan.md` as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.
 - **Edit only `shape.md` and `plan.md` in the spec folder.** You have Edit but not Write, and the guard refuses any other path. Do not touch source files, tests, standards, other specs, `git` or `gh`.
 - Use absolute paths for every read and edit.
 
