@@ -43,6 +43,13 @@
 # $PAGES/issue.log (the search; the title and the body), a list is served from
 # $PAGES/issues-list.json and a create is answered with an issue URL numbered from 123, so the
 # cases pin that an issue is opened once, looked up before it is opened, and never opened twice.
+# PR 20 is the patch-less fixture (#96): a listing in which a text file past the listing's limit, a
+# removed file and a 22,000-change file have no patch, beside a binary file, a rename with nothing
+# changed and one small file with a patch, and a whole diff made by git in a throwaway repository,
+# which the shim serves for the pull request's own endpoint under the diff media type (and refuses
+# as GitHub does over 300 files when it has none, or with GH_FAKE_DIFF_FAIL=1). Every read is
+# appended to $PAGES/api.log, endpoint then header, so the cases pin that the whole diff is read
+# once when a comment names such a file and never otherwise.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -81,6 +88,61 @@ echo '{"login": "author"}' > "$WORK/pages/user.json"
 # what a command-line argument may carry (Losers League #778, 336 files, hit that limit).
 jq -n '[{filename: "public/build/vendor.js", status: "added", previous_filename: null, patch: ("@@ -0,0 +1,60000 @@\n" + ([range(60000) | "+line \(.)"] | join("\n")))}]' > "$WORK/pages/files-9-page1.json"
 jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", line: 59999, body: "**R1-1** · nit · low · likely\n\n**Deep in a generated file**"}, {path: "public/build/vendor.js", line: 60001, body: "**R1-2** · nit · low · likely\n\n**Past its end**"}]}' > "$WORK/review-9.json"
+# PR 20 (#96): files whose patch the listing omits. The listing is shaped as GitHub gave it for
+# the measurement's pull request: a text file past the listing's per-file limit has no patch and
+# `changes` above 0, a binary file no patch and `changes` 0. The whole diff is a real one, made by
+# git in a throwaway repository, so its sections are what GitHub serves: src/big.js with two hunks
+# in a section of about 290 KB, past the 100 KiB at which the listing drops a patch;
+# data/huge.json with 22,000 changed lines, the size GitHub refused a comment on; a binary; a
+# removed file; a rename with nothing changed. dist/absent.js is in the listing without a patch
+# and in no diff, so nothing supplies its hunks.
+GEN="$WORK/gen"
+mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
+git -C "$GEN" init -q
+gen_commit() { git -C "$GEN" add -A && git -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
+seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
+seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
+seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
+seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
+seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
+printf 'BIN\0base\n' > "$GEN/assets/logo.png"
+gen_commit base
+awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
+awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
+awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/small.js"
+rm "$GEN/lib/gone.txt"
+mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
+printf 'BIN\0head\n' > "$GEN/assets/logo.png"
+gen_commit head
+git -C "$GEN" diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M HEAD~1 HEAD > "$WORK/pages/diff-20.txt"
+jq -n '[
+    {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
+    {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
+    {filename: "dist/absent.js", status: "modified", previous_filename: null, additions: 250, deletions: 250, changes: 500, patch: null},
+    {filename: "lib/gone.txt", status: "removed", previous_filename: null, additions: 0, deletions: 2000, changes: 2000, patch: null},
+    {filename: "lib/renamed-only.txt", status: "renamed", previous_filename: "lib/was.txt", additions: 0, deletions: 0, changes: 0, patch: null},
+    {filename: "src/big.js", status: "modified", previous_filename: null, additions: 1501, deletions: 1501, changes: 3002, patch: null},
+    {filename: "src/small.js", status: "modified", previous_filename: null, additions: 1, deletions: 1, changes: 2, patch: "@@ -7,7 +7,7 @@ small 6\n small 7\n small 8\n small 9\n-small 10\n+small 10 changed\n small 11\n small 12\n small 13"}
+]' > "$WORK/pages/files-20-page1.json"
+jq -n '{body: "Redline round 1\n\nThree findings.", comments: [
+    {path: "src/big.js", line: 1500, body: "**R1-1** · correctness · high · confirmed\n\n**On an added line**"},
+    {path: "src/big.js", line: 1500, side: "LEFT", body: "**R1-2** · correctness · low · confirmed\n\n**On a removed line**"},
+    {path: "src/big.js", line: 98, body: "**R1-3** · nit · low · confirmed\n\n**On a context line**"}
+]}' > "$WORK/review-20-text.json"
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [
+    {path: "assets/logo.png", line: 1, body: "**R1-1** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-binary.json"
+jq -n '{body: "Redline round 1\n\nNine findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "dist/absent.js", line: 5, body: "**R1-2** · nit · low · confirmed\n\n**No source has it**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-3** · nit · low · confirmed\n\n**In an image**"},
+    {path: "src/big.js", line: 500, body: "**R1-4** · nit · low · confirmed\n\n**Between the hunks**"},
+    {path: "README.md", line: 1, body: "**R1-5** · nit · low · confirmed\n\n**Outside the pull request**"},
+    {path: "lib/renamed-only.txt", line: 1, body: "**R1-6** · nit · low · confirmed\n\n**Only renamed**"},
+    {path: "src/big.js", line: 1500, body: "**R1-7** · nit · low · confirmed\n\n**On an added line**"},
+    {path: "src/small.js", line: 1, body: "**R1-8** · nit · low · confirmed\n\n**Above the hunk**"},
+    {path: "lib/gone.txt", line: 10, side: "LEFT", body: "**R1-9** · nit · low · confirmed\n\n**In a removed file**"}
+]}' > "$WORK/review-20-causes.json"
 
 cat > "$WORK/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
@@ -155,17 +217,33 @@ if [[ "${1:-}" == "graphql" ]]; then
     if [[ "$slurp" == 1 ]]; then jq -s '.' "${pages[@]}"; else cat "${pages[@]}"; fi
     exit 0
 fi
-paginate=0; slurp=0; filter=""; endpoint=""
+paginate=0; slurp=0; filter=""; endpoint=""; header=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --paginate) paginate=1; shift ;;
         --slurp) slurp=1; shift ;;
         --jq) filter="$2"; shift 2 ;;
+        -H) header="$2"; shift 2 ;;
         --method|--input|-X|-f|-F) echo "fake gh: write call refused: $*" >&2; exit 1 ;;
         *) endpoint="$1"; shift ;;
     esac
 done
 if [[ "$slurp" == 1 && "${GH_FAKE_OLD:-0}" == 1 ]]; then echo "unknown flag: --slurp" >&2; exit 1; fi
+# Every read is logged, endpoint then header, so a case can pin how many calls a subcommand made.
+printf '%s\t%s\n' "$endpoint" "$header" >> "$PAGES/api.log"
+# The whole-pull-request diff (#96): the pull request's own endpoint under the diff media type,
+# served from $PAGES/diff-<n>.txt. With no such file, or with GH_FAKE_DIFF_FAIL=1, it is refused
+# the way GitHub refuses a pull request over 300 files: the JSON on stdout, gh's line on stderr.
+if [[ "$header" == "Accept: application/vnd.github.diff" ]]; then
+    n="${endpoint##*/}"
+    if [[ "$endpoint" == "repos/{owner}/{repo}/pulls/$n" && -f "$PAGES/diff-$n.txt" && "${GH_FAKE_DIFF_FAIL:-0}" != 1 ]]; then
+        cat "$PAGES/diff-$n.txt"
+        exit 0
+    fi
+    echo '{"message":"Sorry, the diff exceeded the maximum number of files (300). Consider using the List pull requests files API or locally cloning the repository instead.","errors":[{"resource":"PullRequest","field":"diff","code":"too_large"}],"status":"406"}'
+    echo "gh: Sorry, the diff exceeded the maximum number of files (300). (HTTP 406)" >&2
+    exit 1
+fi
 case "$endpoint" in
     "repos/{owner}/{repo}/pulls/7/files") pages=("$PAGES/files-7-page1.json" "$PAGES/files-7-page2.json") ;;
     "repos/{owner}/{repo}/pulls/7/reviews") pages=("$PAGES/reviews-7.json") ;;
@@ -200,6 +278,7 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/19/reviews") pages=("$PAGES/reviews-19.json") ;;
     "repos/{owner}/{repo}/pulls/19/comments") pages=("$PAGES/comments-19.json") ;;
     "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
+    "repos/{owner}/{repo}/pulls/20/files") pages=("$PAGES/files-20-page1.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -263,6 +342,34 @@ big="$(gh place 9 "$WORK/review-9.json" 2>"$WORK/err")"; code=$?
 is "place: a megabyte of positions does not overflow the command line" "$code" "0"
 is "place: the deep line anchors and the one past the end moves" "$(jq -r '[(.comments | length), (.moved | map(.id) | join(","))] | join(" ")' <<<"$big")" "1 R1-2"
 is "place: positions never reach a command-line argument" "$(grep -c 'Argument list too long' "$WORK/err")" "0"
+
+echo "# place: a file whose patch the listing omits (#96)"
+# diff_calls: how many times the whole-pull-request diff was read since api.log was emptied.
+diff_calls() { grep -c $'\tAccept: application/vnd.github.diff$' "$PAGES/api.log" || true; }
+: > "$PAGES/api.log"
+text="$(gh place 20 "$WORK/review-20-text.json" 2>"$WORK/err")"; code=$?
+is "place: a patch-less text file: exits 0" "$code" "0"
+is "place: a patch-less text file: an added, a removed and a context line stay inline" "$(jq -r '[.comments[] | .side + " " + (.line | tostring)] | join(",")' <<<"$text")" "RIGHT 1500,LEFT 1500,RIGHT 98"
+is "place: a patch-less text file: nothing is moved" "$(jq -c '.moved' <<<"$text")" "[]"
+is "place: a patch-less text file: the body is left alone" "$(jq -r '.body' <<<"$text")" $'Redline round 1\n\nThree findings.'
+is "place: a patch-less text file: the whole diff is read once" "$(diff_calls)" "1"
+is "place: a patch-less text file: nothing on stderr" "$(cat "$WORK/err")" ""
+: > "$PAGES/api.log"
+binary="$(gh place 20 "$WORK/review-20-binary.json")"
+is "place: a binary file: moved" "$(jq -c '.moved' <<<"$binary")" '[{"id":"R1-1","path":"assets/logo.png","line":1,"side":"RIGHT"}]'
+is "place: a binary file: the body says why in one line" "$(jq -r '.body' <<<"$binary")" $'Redline round 1\n\nOne finding.\n\n### Not placed inline\n\nThe file is binary and has no hunks:\n\n<!-- redline:R1-1 -->\n`assets/logo.png:1`\n\n**R1-1** · nit · low · confirmed\n\n**In an image**'
+is "place: a binary file: the listing says so, the whole diff is not read" "$(diff_calls)" "0"
+: > "$PAGES/api.log"
+causes="$(gh place 20 "$WORK/review-20-causes.json")"
+is "place: causes: a listed patch, a recovered hunk and a removed file's line stay inline" "$(jq -r '[.comments[].body | capture("^\\*\\*(?<id>R1-[0-9]+)\\*\\*").id] | join(",")' <<<"$causes")" "R1-1,R1-7,R1-9"
+is "place: causes: moved keeps the review's order and its shape" "$(jq -c '.moved' <<<"$causes")" '[{"id":"R1-2","path":"dist/absent.js","line":5,"side":"RIGHT"},{"id":"R1-3","path":"assets/logo.png","line":1,"side":"RIGHT"},{"id":"R1-4","path":"src/big.js","line":500,"side":"RIGHT"},{"id":"R1-5","path":"README.md","line":1,"side":"RIGHT"},{"id":"R1-6","path":"lib/renamed-only.txt","line":1,"side":"RIGHT"},{"id":"R1-8","path":"src/small.js","line":1,"side":"RIGHT"}]'
+is "place: causes: one line for each cause, in a fixed order, its comments under it" "$(jq -r '.body' <<<"$causes")" $'Redline round 1\n\nNine findings.\n\n### Not placed inline\n\nThe file is not in this pull request:\n\n<!-- redline:R1-5 -->\n`README.md:1`\n\n**R1-5** · nit · low · confirmed\n\n**Outside the pull request**\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-4 -->\n`src/big.js:500`\n\n**R1-4** · nit · low · confirmed\n\n**Between the hunks**\n\n<!-- redline:R1-8 -->\n`src/small.js:1`\n\n**R1-8** · nit · low · confirmed\n\n**Above the hunk**\n\nThe file is binary and has no hunks:\n\n<!-- redline:R1-3 -->\n`assets/logo.png:1`\n\n**R1-3** · nit · low · confirmed\n\n**In an image**\n\nThe file was renamed with no text changes and has no hunks:\n\n<!-- redline:R1-6 -->\n`lib/renamed-only.txt:1`\n\n**R1-6** · nit · low · confirmed\n\n**Only renamed**\n\nThe file\'s patch could not be had from GitHub\'s listing, its whole diff or this clone:\n\n<!-- redline:R1-2 -->\n`dist/absent.js:5`\n\n**R1-2** · nit · low · confirmed\n\n**No source has it**'
+is "place: causes: three patch-less text files named, the whole diff read once" "$(diff_calls)" "1"
+: > "$PAGES/api.log"
+gh place 7 "$FIX/review-7.json" >/dev/null; gh place 7 "$FIX/review-7-placed.json" >/dev/null
+is "place: no patch-less text file named, the whole diff is not read" "$(diff_calls)" "0"
+has "place: PR 7's off-hunk comment sits under its cause" "$body" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->'
+has "place: PR 7's no-patch comment sits under its cause" "$body" $'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->'
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"

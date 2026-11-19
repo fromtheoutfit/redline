@@ -97,10 +97,18 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  files endpoint (gh pr view --json files stops at 100)
 #   login                          the gh login Redline posts as
 #   place <n> <json-file>          the post-review file as it would be posted: comments off the
-#                                  hunks of their file's patch moved into the body under "Not
-#                                  placed inline", each behind a marker <!-- redline:<finding> -->
-#                                  (the id read from the comment body's leading **R1-2**), with a
-#                                  `moved` list [{id, path, line, side}]. Nothing is posted
+#                                  hunks of their file moved into the body under "Not placed
+#                                  inline", each behind a marker <!-- redline:<finding> --> (the
+#                                  id read from the comment body's leading **R1-2**), with a
+#                                  `moved` list [{id, path, line, side}]. A file's hunks are its
+#                                  patch in the files listing or, when GitHub omits that from a
+#                                  text file (a patch over about 100 KiB), the file's section of
+#                                  the whole-PR diff, read once and only when a comment names such
+#                                  a file on a PR of 300 files or fewer (#96). The moved comments
+#                                  are grouped under one line per cause: the file is not in the
+#                                  pull request, the line is not in its diff, the file is binary,
+#                                  it was renamed with nothing changed, or its patch could not be
+#                                  had. Nothing is posted
 #   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
 #                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
 #                                  id is the thread's node id (what resolveReviewThread takes),

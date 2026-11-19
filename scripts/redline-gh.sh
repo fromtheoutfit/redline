@@ -87,10 +87,18 @@
 #                                  files endpoint (gh pr view --json files stops at 100)
 #   login                          the gh login Redline posts as
 #   place <n> <json-file>          the post-review file as it would be posted: comments off the
-#                                  hunks of their file's patch moved into the body under "Not
-#                                  placed inline", each behind a marker <!-- redline:<finding> -->
-#                                  (the id read from the comment body's leading **R1-2**), with a
-#                                  `moved` list [{id, path, line, side}]. Nothing is posted
+#                                  hunks of their file moved into the body under "Not placed
+#                                  inline", each behind a marker <!-- redline:<finding> --> (the
+#                                  id read from the comment body's leading **R1-2**), with a
+#                                  `moved` list [{id, path, line, side}]. A file's hunks are its
+#                                  patch in the files listing or, when GitHub omits that from a
+#                                  text file (a patch over about 100 KiB), the file's section of
+#                                  the whole-PR diff, read once and only when a comment names such
+#                                  a file on a PR of 300 files or fewer (#96). The moved comments
+#                                  are grouped under one line per cause: the file is not in the
+#                                  pull request, the line is not in its diff, the file is binary,
+#                                  it was renamed with nothing changed, or its patch could not be
+#                                  had. Nothing is posted
 #   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
 #                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
 #                                  id is the thread's node id (what resolveReviewThread takes),
@@ -223,8 +231,9 @@ defer_print() {
 
 # Every file of the PR as one JSON array, every page of the files endpoint: each item carries
 # filename, status, previous_filename and, unless GitHub omits it (binary, or over its per-file
-# limit), patch. The whole-PR diff endpoint refuses a PR over 300 files, so every file list and
-# every anchor comes from here. An older gh without --slurp stops with one line, exit 2.
+# limit), patch. The whole-PR diff endpoint refuses a PR over 300 files, so every file list comes
+# from here, and every anchor but those of a file whose patch is omitted (recover_hunks, #96). An
+# older gh without --slurp stops with one line, exit 2.
 pr_files() {
     local err pages
     err="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
@@ -258,12 +267,63 @@ synthesize_diff() {
            else "(no patch: binary or too large for GitHub)" end)'
 }
 
+# The files a comment of the review names whose patch the listing omits though their text changed
+# (`changes` above 0; a binary file and a rename with nothing changed have `changes` 0 and no
+# hunks to find), one per line as "path<TAB>previous path", the second empty unless renamed (#96).
+# Takes the pr_files JSON on stdin; $1 is the review file.
+wanted_files() {
+    jq -r --slurpfile review "$1" '
+        ([$review[0].comments[].path] | unique) as $named
+        | .[] | select(.patch == null and (.changes // 0) > 0)
+        | select(.filename as $f | $named | index($f) != null)
+        | [.filename, (if .status == "renamed" then (.previous_filename // "") else "" end)] | join("\t")'
+}
+
+# recover_hunks <pr> <pr_files JSON> <review file> <out>: the hunks of the wanted files, from a
+# source other than the listing, written to <out> in the stream diff_positions reads: one line
+# "@@@redline-file<TAB>path", then that file's hunks (#96). GitHub omits a patch over about 100 KiB
+# from the listing and still takes a comment on the file's lines, so the hunks are read from the
+# whole-PR diff: the pull request's own endpoint under the diff media type, one call however many
+# files are wanted, made only when one is and the listing counts 300 files or fewer (past that
+# GitHub refuses it). Each section's path is read from its "+++ b/" line, or "--- a/" for a
+# removed file, while still in the section's header, so a hunk line that looks like one is never
+# taken for it. A refused call is not an error: the file stays without hunks. With no wanted file
+# nothing is called and <out> is empty.
+recover_hunks() {
+    local wanted whole count
+    : > "$4"
+    wanted="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    wanted_files "$3" <<<"$2" > "$wanted"
+    if [[ ! -s "$wanted" ]]; then
+        rm -f "$wanted"
+        return 0
+    fi
+    count="$(jq 'length' <<<"$2")"
+    if [[ "$count" -le 300 ]]; then
+        whole="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        if gh api "repos/{owner}/{repo}/pulls/$1" -H "Accept: application/vnd.github.diff" > "$whole" 2>/dev/null; then
+            awk -F'\t' '
+                NR == FNR { want[$1] = 1; next }
+                /^diff --git / { header = 1; emit = 0; path = ""; old = ""; next }
+                header && /^--- a\// { old = substr($0, 7); sub(/\t$/, "", old); next }
+                header && /^\+\+\+ b\// { path = substr($0, 7); sub(/\t$/, "", path); next }
+                header && /^\+\+\+ \/dev\/null/ { path = old; next }
+                header && /^@@ / { header = 0; if (path in want) { emit = 1; print "@@@redline-file\t" path } }
+                emit && !header { print }
+            ' "$wanted" "$whole" >> "$4"
+        fi
+        rm -f "$whole"
+    fi
+    rm -f "$wanted"
+}
+
 # Every position an inline comment may sit on: the added, removed and context lines of each
 # file's patch, one per line as "path<TAB>side<TAB>line". GitHub resolves a comment on `line` of
 # `side` (RIGHT: the new file, LEFT: the old) only inside a hunk; a context line is on both sides.
-# Takes the pr_files JSON on stdin; a file without a patch has no position.
+# Takes the pr_files JSON on stdin and, as $1, the hunks recover_hunks found for the files the
+# listing gives no patch for; a file with neither has no position.
 diff_positions() {
-    jq -r '.[] | select(.patch != null) | "@@@redline-file\t\(.filename)", .patch' | awk '
+    { jq -r '.[] | select(.patch != null) | "@@@redline-file\t\(.filename)", .patch'; cat "$1"; } | awk '
         /^@@@redline-file\t/ { path = substr($0, 17); inhunk = 0; next }
         /^@@ / {
             split($2, old, ","); split($3, new, ",")
@@ -281,26 +341,53 @@ diff_positions() {
 # The review file with every comment GitHub could not anchor moved into the body: prints
 # {body, comments, moved}. `side` defaults to RIGHT, as post-review sends it. A moved comment
 # sits behind <!-- redline:<id> --> (its id from the leading **R1-2** of its body), so a later
-# round can reply to it with an issue comment that quotes the marker. $1 is the pr_files JSON.
+# round can reply to it with an issue comment that quotes the marker. $1 is the pr_files JSON, $2
+# the review file, $3 the hunks recover_hunks found.
+# The moved comments are grouped by why they could not be anchored, each group under one line
+# that says so, in this order, the comments of a group in the review's order (#96): the file is
+# not in the pull request; the line is outside the file's hunks; the file is binary (no patch and
+# `changes` 0 in the listing); it was renamed with nothing changed (the same, status renamed); no
+# source gave its patch. `moved` keeps the review's order.
 place_comments() {
     # The positions go through a file: on a PR of hundreds of files the list is megabytes, past
-    # what --argjson may carry on the command line ("Argument list too long").
-    local positions
+    # what --argjson may carry on the command line ("Argument list too long"). So does the kind
+    # of each file, which grows with the listing.
+    local positions kinds recovered
     positions="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-    diff_positions <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
-    jq --slurpfile positions "$positions" '
+    kinds="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    recovered="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    diff_positions "$3" <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
+    { grep $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered"
+    jq --rawfile recovered "$recovered" '
+        ($recovered | split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries) as $found
+        | map({key: .filename, value: (
+            if .patch != null then "hunks"
+            elif (.changes // 0) == 0 then (if .status == "renamed" then "renamed" else "binary" end)
+            elif $found[.filename] == true then "hunks"
+            else "nopatch" end)}) | from_entries' <<<"$1" > "$kinds"
+    jq --slurpfile positions "$positions" --slurpfile kinds "$kinds" \
+        --arg absent "The file is not in this pull request:" \
+        --arg offhunk "The line is not in the pull request's diff:" \
+        --arg binary "The file is binary and has no hunks:" \
+        --arg renamed "The file was renamed with no text changes and has no hunks:" \
+        --arg nopatch "The file's patch could not be had from GitHub's listing, its whole diff or this clone:" '
         ($positions[0] | map({key: ., value: true}) | from_entries) as $ok
+        | $kinds[0] as $kind
+        | [["absent", $absent], ["offhunk", $offhunk], ["binary", $binary], ["renamed", $renamed], ["nopatch", $nopatch]] as $causes
         | def key: .path + "\t" + (.side // "RIGHT") + "\t" + (.line | tostring);
         def id: (.body | capture("^\\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\*") | .id) // "";
-        (.comments | map(select($ok[key] == true))) as $placed
-        | (.comments | map(select($ok[key] != true))) as $moved
+        def placed: $kind[.path] == "hunks" and $ok[key] == true;
+        def cause: ($kind[.path] // "absent") as $k | if $k == "hunks" then "offhunk" else $k end;
+        def block: (if id == "" then "" else "<!-- redline:" + id + " -->\n" end) + "`" + .path + ":" + (.line | tostring) + "`\n\n" + .body;
+        (.comments | map(select(placed))) as $placed
+        | (.comments | map(select(placed | not))) as $moved
         | {
             body: (if ($moved | length) == 0 then .body
-                   else .body + "\n\n### Not placed inline\n\n" + ($moved | map((if id == "" then "" else "<!-- redline:" + id + " -->\n" end) + "`" + .path + ":" + (.line | tostring) + "`\n\n" + .body) | join("\n\n")) end),
+                   else .body + "\n\n### Not placed inline\n\n" + ([$causes[] | . as $c | ($moved | map(select(cause == $c[0]))) | select(length > 0) | $c[1] + "\n\n" + (map(block) | join("\n\n"))] | join("\n\n")) end),
             comments: ($placed | map(.side = (.side // "RIGHT"))),
             moved: ($moved | map({id: id, path, line, side: (.side // "RIGHT")}))
           }' "$2"
-    rm -f "$positions"
+    rm -f "$positions" "$kinds" "$recovered"
 }
 
 # Every review thread of PR $1 as the `threads` list: the pages slurped into a temp file (a PR of
@@ -373,7 +460,10 @@ case "$cmd" in
         need_int "$1" "pr number"
         need_file "$2" "review json"
         all="$(pr_files "$1")"
-        place_comments "$all" "$2"
+        hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -f "$hunks"' EXIT
+        recover_hunks "$1" "$all" "$2" "$hunks"
+        place_comments "$all" "$2" "$hunks"
         ;;
 
     has-review)
@@ -536,10 +626,12 @@ case "$cmd" in
             exit 2
         fi
         all="$(pr_files "$1")"
-        placed="$(place_comments "$all" "$2")"
-        payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
+        hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         response="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$response"' EXIT
+        trap 'rm -f "$hunks" "$response"' EXIT
+        recover_hunks "$1" "$all" "$2" "$hunks"
+        placed="$(place_comments "$all" "$2" "$hunks")"
+        payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
         if ! gh api --method POST "repos/{owner}/{repo}/pulls/$1/reviews" --input - <<<"$payload" >"$response"; then
             # gh prints only the status line; the body carries GitHub's reason.
             jq -r '.message, (.errors // [] | .[] | tostring)' "$response" >&2 2>/dev/null || cat "$response" >&2
