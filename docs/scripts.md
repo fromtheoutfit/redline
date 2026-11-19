@@ -129,7 +129,9 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  whole post with a 422 that names no line); prints
 #                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}.
 #                                  A refused post posts nothing, and two refusals are answered
-#                                  with a different review, never the same one again (#96). A 422
+#                                  with a different review, never the same one again (#96). A
+#                                  refusal is a 422 by the status in GitHub's body or, when the
+#                                  body has none, by the "(HTTP 422)" gh prints (#112, R1-10). A 422
 #                                  naming "Diff entry <path> diff is too large", for a file whose
 #                                  hunks did not come from the listing: GitHub takes no comment on
 #                                  that file (its limit, measured between 290 KB and 1.25 MB of

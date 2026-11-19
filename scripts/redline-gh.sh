@@ -119,7 +119,9 @@
 #                                  whole post with a 422 that names no line); prints
 #                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}.
 #                                  A refused post posts nothing, and two refusals are answered
-#                                  with a different review, never the same one again (#96). A 422
+#                                  with a different review, never the same one again (#96). A
+#                                  refusal is a 422 by the status in GitHub's body or, when the
+#                                  body has none, by the "(HTTP 422)" gh prints (#112, R1-10). A 422
 #                                  naming "Diff entry <path> diff is too large", for a file whose
 #                                  hunks did not come from the listing: GitHub takes no comment on
 #                                  that file (its limit, measured between 290 KB and 1.25 MB of
@@ -724,6 +726,9 @@ case "$cmd" in
                 break
             fi
             status="$(jq -r '.status // ""' "$response" 2>/dev/null || true)"
+            # A host's error body may carry no status; gh's own line names the code whatever the
+            # body holds (#112, R1-10).
+            if [[ -z "$status" ]] && grep -qF '(HTTP 422)' "$gh_err"; then status=422; fi
             if [[ "$status" == "422" && "$listing_only" == 0 ]]; then
                 named="$(jq -r '[.errors[]? | strings | capture("^Diff entry (?<path>.+) diff is too large$").path] | first // ""' "$response" 2>/dev/null || true)"
                 if [[ -n "$named" ]] && grep -qxF -- "$named" "$sourced" && ! grep -qxF -- "$named" "$too_large"; then

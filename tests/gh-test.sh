@@ -59,8 +59,9 @@
 # to $PAGES/posts.log, and the post is refused with the 422 bodies GitHub gave the measurement,
 # "Diff entry <path> diff is too large" for a comment on a path listed in $PAGES/too-large.txt
 # and "Line could not be resolved" for one on a path in $PAGES/unresolved.txt or, with
-# GH_FAKE_REFUSE_ALL=1, for every post; a post it takes is served back as the pull request's
-# review comments, so the cases pin how many reviews were sent and what each one held.
+# GH_FAKE_REFUSE_ALL=1, for every post, each body without its status field with
+# GH_FAKE_NO_STATUS=1, as a host may give it; a post it takes is served back as the pull
+# request's review comments, so the cases pin how many reviews were sent and what each one held.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -289,8 +290,9 @@ if [[ -n "$method" || -n "$input" ]]; then
     fi
     payload="$(cat)"
     jq -c . <<<"$payload" >> "$PAGES/posts.log"
+    # GH_FAKE_NO_STATUS=1 leaves the body's status field out, as a host's error body may (#112, R1-10).
     refuse() {
-        jq -cn --arg e "$1" '{message: "Unprocessable Entity", errors: [$e], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request", status: "422"}'
+        jq -cn --arg e "$1" --arg nostatus "${GH_FAKE_NO_STATUS:-0}" '{message: "Unprocessable Entity", errors: [$e], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request"} + (if $nostatus == "1" then {} else {status: "422"} end)'
         echo "gh: Unprocessable Entity (HTTP 422)" >&2
         exit 1
     }
@@ -576,6 +578,18 @@ out="$(gh post-review 20 "$WORK/review-20-unplaceable.json" 2>"$WORK/err")"; cod
 is "post-review: comments that cannot be placed: exit 2, nothing on stdout" "$code $out" "2 "
 has "post-review: comments that cannot be placed: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-unplaceable.json; nothing was posted"
 is "post-review: comments that cannot be placed: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+
+# A 422 whose body carries no status (#112, R1-10): gh's own line says 422, and the refusal is acted on.
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 body with no status: the fallback still posts, from the listing's patches" "$code $(posts) $(post_paths 2)" "0 2 src/small.js"
+is "post-review: a 422 body with no status: one line on stderr" "$(cat "$WORK/err")" "redline-gh.sh: GitHub refused the review (Line could not be resolved); posting again with only the comments on files the listing gives a patch for"
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"
+out="$(GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a too-large 422 with no status: posted again without that file's comment" "$code $(posts) $(post_paths 2)" "0 2 src/small.js,src/big.js"
+fresh_posts
+out="$(GH_FAKE_REFUSE_ALL=1 GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 with no status and nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
