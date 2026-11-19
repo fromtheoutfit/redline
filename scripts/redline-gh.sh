@@ -325,8 +325,9 @@ diff_sections() {
 #    not hold): this clone. One call reads the base and head shas; when both commits are here,
 #    `git diff` of their merge base against the head for that path, and for a rename its previous
 #    path, gives the hunks, measured byte-identical to GitHub's whole diff. Its flags are pinned
-#    (algorithm, context, prefixes, rename detection, no external diff, no textconv) so the
-#    user's git configuration cannot move a hunk, and the paths are literal, never patterns.
+#    (algorithm, context, prefixes, rename detection, no external diff, no textconv), and it
+#    runs with GIT_DIFF_OPTS unset, which git lets override -U (#112, R1-4), so the user's git
+#    configuration and environment cannot move a hunk; the paths are literal, never patterns.
 #    A diff header quotes a path that holds a byte outside ASCII ("b/lib/\345\220\215.txt"), which
 #    step 1 does not match, so such a file is found here, where git is told not to quote it. A
 #    path git quotes regardless (a tab, a newline, a quote or a backslash in it) is found by
@@ -362,7 +363,7 @@ recover_hunks() {
             && fork="$(git merge-base "$base" "$head" 2>/dev/null)"; then
             one="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
             while IFS=$'\t' read -r path prev; do
-                if git --literal-pathspecs -c core.quotepath=off diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M \
+                if env -u GIT_DIFF_OPTS git --literal-pathspecs -c core.quotepath=off diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M \
                     --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
                     "$fork" "$head" -- "$path" ${prev:+"$prev"} > "$one" 2>/dev/null; then
                     diff_sections "$missing" "$one" >> "$4"

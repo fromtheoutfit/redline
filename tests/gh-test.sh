@@ -465,6 +465,8 @@ is "place: over 300 files: the two shas are read once" "$(sha_calls 21)" "1"
 is "place: over 300 files: nothing on stderr" "$(cat "$WORK/err")" ""
 pinned="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig" gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff is pinned against the user's git configuration" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$pinned")" '[[1500,98,1300],["R1-3","R1-5"]]'
+diffopts="$(GIT_DIFF_OPTS=-u0 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff is pinned against GIT_DIFF_OPTS, which git lets override -U" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$diffopts")" '[[1500,98,1300],["R1-3","R1-5"]]'
 cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
 echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
 nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
