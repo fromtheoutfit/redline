@@ -12,7 +12,8 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #
 # Redline's one door to GitHub. Every body comes from a file, never inline text.
 # Authenticated as whoever ran `gh auth login`. Any gh failure prints gh's own
-# error to stderr and exits non-zero; nothing here retries.
+# error to stderr and exits non-zero; nothing here retries a call that failed.
+# post-review alone posts again, a different review, in the two cases its entry names.
 #
 # Read-only:
 #   pr <n>                         PR facts as JSON
@@ -111,7 +112,8 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  are grouped under one line per cause: the file is not in the
 #                                  pull request, the line is not in its diff, the file is binary,
 #                                  it was renamed with nothing changed, or its patch could not be
-#                                  had. Nothing is posted
+#                                  had. A file GitHub takes no comment on is known only to
+#                                  post-review, which learns it by posting. Nothing is posted
 #   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
 #                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
 #                                  id is the thread's node id (what resolveReviewThread takes),
@@ -125,7 +127,19 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #   post-review <n> <json-file>    {body, comments:[{path,line,side,body}]} posted with event COMMENT
 #                                  after `place` (a comment GitHub could not anchor would fail the
 #                                  whole post with a 422 that names no line); prints
-#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}
+#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}.
+#                                  A refused post posts nothing, and two refusals are answered
+#                                  with a different review, never the same one again (#96). A 422
+#                                  naming "Diff entry <path> diff is too large", for a file whose
+#                                  hunks did not come from the listing: GitHub takes no comment on
+#                                  that file (its limit, measured between 290 KB and 1.25 MB of
+#                                  diff), so its comments move into the body under that cause, once
+#                                  per such file. Any other 422 while a comment sits on such a
+#                                  file: all of those move into the body under GitHub's message
+#                                  and the review is posted from the listing's patches only, once.
+#                                  Each says so in one line on stderr, and the exit is still 0.
+#                                  A 422 with no such comment, or after the second case, is the
+#                                  failure it always was: GitHub's reason on stderr, exit 1
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
