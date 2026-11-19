@@ -444,8 +444,8 @@ place_comments() {
         | [["absent", $absent], ["offhunk", $offhunk], ["binary", $binary], ["renamed", $renamed], ["toolarge", $toolarge], ["nopatch", $nopatch], ["refused", $refused]] as $causes
         | def key: .path + "\t" + (.side // "RIGHT") + "\t" + (.line | tostring);
         def id: (.body | capture("^\\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\*") | .id) // "";
-        def placed: $kind[.path] == "hunks" and $ok[key] == true;
-        def cause: ($kind[.path] // "absent") as $k | if $k == "hunks" then "offhunk" else $k end;
+        def placed: $kind[(.path // "")] == "hunks" and $ok[key] == true;
+        def cause: ($kind[(.path // "")] // "absent") as $k | if $k == "hunks" then "offhunk" else $k end;
         def block: (if id == "" then "" else "<!-- redline:" + id + " -->\n" end) + "`" + .path + ":" + (.line | tostring) + "`\n\n" + .body;
         (.comments | map(select(placed))) as $placed
         | (.comments | map(select(placed | not))) as $moved

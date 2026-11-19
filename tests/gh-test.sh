@@ -449,6 +449,15 @@ gh place 7 "$FIX/review-7.json" >/dev/null; gh place 7 "$FIX/review-7-placed.jso
 is "place: no patch-less text file named, the whole diff is not read" "$(diff_calls)" "0"
 has "place: PR 7's off-hunk comment sits under its cause" "$body" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->'
 has "place: PR 7's no-patch comment sits under its cause" "$body" $'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->'
+# A comment with no path, as only a hand-written review file has (#112, R1-8): moved into the
+# body, as before #96, never a jq error.
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {line: 3, body: "**R1-1** · nit · low · confirmed\n\n**No path**"},
+    {path: "README.md", line: 1, body: "**R1-2** · nit · low · confirmed\n\n**Outside the pull request**"}
+]}' > "$WORK/review-20-nopath.json"
+nopath_out="$(gh place 20 "$WORK/review-20-nopath.json" 2>"$WORK/err")"; code=$?
+is "place: a comment with no path: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: a comment with no path: moved into the body, with the other" "$(jq -c '.moved' <<<"$nopath_out")" '[{"id":"R1-1","path":null,"line":3,"side":"RIGHT"},{"id":"R1-2","path":"README.md","line":1,"side":"RIGHT"}]'
 
 echo "# place: the clone as the second source (#96)"
 # sha_calls <n>: how many times the pull request's base and head shas were read since api.log was emptied.
