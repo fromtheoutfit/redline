@@ -2,7 +2,8 @@
 #
 # Redline's one door to GitHub. Every body comes from a file, never inline text.
 # Authenticated as whoever ran `gh auth login`. Any gh failure prints gh's own
-# error to stderr and exits non-zero; nothing here retries.
+# error to stderr and exits non-zero; nothing here retries a call that failed.
+# post-review alone posts again, a different review, in the two cases its entry names.
 #
 # Read-only:
 #   pr <n>                         PR facts as JSON
@@ -101,7 +102,8 @@
 #                                  are grouped under one line per cause: the file is not in the
 #                                  pull request, the line is not in its diff, the file is binary,
 #                                  it was renamed with nothing changed, or its patch could not be
-#                                  had. Nothing is posted
+#                                  had. A file GitHub takes no comment on is known only to
+#                                  post-review, which learns it by posting. Nothing is posted
 #   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
 #                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
 #                                  id is the thread's node id (what resolveReviewThread takes),
@@ -115,7 +117,19 @@
 #   post-review <n> <json-file>    {body, comments:[{path,line,side,body}]} posted with event COMMENT
 #                                  after `place` (a comment GitHub could not anchor would fail the
 #                                  whole post with a 422 that names no line); prints
-#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}
+#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}.
+#                                  A refused post posts nothing, and two refusals are answered
+#                                  with a different review, never the same one again (#96). A 422
+#                                  naming "Diff entry <path> diff is too large", for a file whose
+#                                  hunks did not come from the listing: GitHub takes no comment on
+#                                  that file (its limit, measured between 290 KB and 1.25 MB of
+#                                  diff), so its comments move into the body under that cause, once
+#                                  per such file. Any other 422 while a comment sits on such a
+#                                  file: all of those move into the body under GitHub's message
+#                                  and the review is posted from the listing's patches only, once.
+#                                  Each says so in one line on stderr, and the exit is still 0.
+#                                  A 422 with no such comment, or after the second case, is the
+#                                  failure it always was: GitHub's reason on stderr, exit 1
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
@@ -313,6 +327,10 @@ diff_sections() {
 #    path, gives the hunks, measured byte-identical to GitHub's whole diff. Its flags are pinned
 #    (algorithm, context, prefixes, rename detection, no external diff, no textconv) so the
 #    user's git configuration cannot move a hunk, and the paths are literal, never patterns.
+#    A diff header quotes a path that holds a byte outside ASCII ("b/lib/\345\220\215.txt"), which
+#    step 1 does not match, so such a file is found here, where git is told not to quote it. A
+#    path git quotes regardless (a tab, a newline, a quote or a backslash in it) is found by
+#    neither and stays without hunks.
 # Neither source failing is an error: the file stays without hunks, and place_comments says why
 # its comments are in the body.
 recover_hunks() {
@@ -344,7 +362,7 @@ recover_hunks() {
             && fork="$(git merge-base "$base" "$head" 2>/dev/null)"; then
             one="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
             while IFS=$'\t' read -r path prev; do
-                if git --literal-pathspecs diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M \
+                if git --literal-pathspecs -c core.quotepath=off diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M \
                     --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
                     "$fork" "$head" -- "$path" ${prev:+"$prev"} > "$one" 2>/dev/null; then
                     diff_sections "$missing" "$one" >> "$4"
@@ -381,38 +399,48 @@ diff_positions() {
 # {body, comments, moved}. `side` defaults to RIGHT, as post-review sends it. A moved comment
 # sits behind <!-- redline:<id> --> (its id from the leading **R1-2** of its body), so a later
 # round can reply to it with an issue comment that quotes the marker. $1 is the pr_files JSON, $2
-# the review file, $3 the hunks recover_hunks found.
+# the review file, $3 the hunks recover_hunks found. The rest is post-review's, after a refusal:
+# $4 a file listing the paths GitHub took no comment on, $5 1 to place from the listing's patches
+# only, and $6 GitHub's message for the refusal that caused that.
 # The moved comments are grouped by why they could not be anchored, each group under one line
 # that says so, in this order, the comments of a group in the review's order (#96): the file is
 # not in the pull request; the line is outside the file's hunks; the file is binary (no patch and
 # `changes` 0 in the listing); it was renamed with nothing changed (the same, status renamed); no
-# source gave its patch (the listing, the whole diff, the clone). `moved` keeps the review's order.
+# source gave its patch (the listing, the whole diff, the clone). Two more follow a refused post:
+# GitHub took no comment on the file ($4), listed before the missing patch; and, last, the file's
+# hunks came from a source and GitHub refused the review that used them ($5). `moved` keeps the
+# review's order.
 place_comments() {
     # The positions go through a file: on a PR of hundreds of files the list is megabytes, past
     # what --argjson may carry on the command line ("Argument list too long"). So does the kind
     # of each file, which grows with the listing.
-    local positions kinds recovered
+    local positions kinds recovered large="${4:-/dev/null}" only="${5:-0}" message="${6:-}"
     positions="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     kinds="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     recovered="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     diff_positions "$3" <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
     { grep $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered"
-    jq --rawfile recovered "$recovered" '
-        ($recovered | split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries) as $found
+    jq --rawfile recovered "$recovered" --rawfile large "$large" --arg only "$only" '
+        def set: split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries;
+        ($recovered | set) as $found
+        | ($large | set) as $refused
         | map({key: .filename, value: (
             if .patch != null then "hunks"
             elif (.changes // 0) == 0 then (if .status == "renamed" then "renamed" else "binary" end)
-            elif $found[.filename] == true then "hunks"
+            elif $refused[.filename] == true then "toolarge"
+            elif $found[.filename] == true then (if $only == "1" then "refused" else "hunks" end)
             else "nopatch" end)}) | from_entries' <<<"$1" > "$kinds"
     jq --slurpfile positions "$positions" --slurpfile kinds "$kinds" \
         --arg absent "The file is not in this pull request:" \
         --arg offhunk "The line is not in the pull request's diff:" \
         --arg binary "The file is binary and has no hunks:" \
         --arg renamed "The file was renamed with no text changes and has no hunks:" \
-        --arg nopatch "The file's patch could not be had from GitHub's listing, its whole diff or this clone:" '
+        --arg toolarge "GitHub takes no comment on a diff this large:" \
+        --arg nopatch "The file's patch could not be had from GitHub's listing, its whole diff or this clone:" \
+        --arg refused "GitHub refused a review that placed these inline ($message), so they are here:" '
         ($positions[0] | map({key: ., value: true}) | from_entries) as $ok
         | $kinds[0] as $kind
-        | [["absent", $absent], ["offhunk", $offhunk], ["binary", $binary], ["renamed", $renamed], ["nopatch", $nopatch]] as $causes
+        | [["absent", $absent], ["offhunk", $offhunk], ["binary", $binary], ["renamed", $renamed], ["toolarge", $toolarge], ["nopatch", $nopatch], ["refused", $refused]] as $causes
         | def key: .path + "\t" + (.side // "RIGHT") + "\t" + (.line | tostring);
         def id: (.body | capture("^\\*\\*(?<id>R[0-9]+-[0-9]+)\\*\\*") | .id) // "";
         def placed: $kind[.path] == "hunks" and $ok[key] == true;
@@ -667,15 +695,46 @@ case "$cmd" in
         all="$(pr_files "$1")"
         hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         response="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$hunks" "$response"' EXIT
+        gh_err="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        sourced="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        too_large="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -f "$hunks" "$response" "$gh_err" "$sourced" "$too_large"' EXIT
         recover_hunks "$1" "$all" "$2" "$hunks"
-        placed="$(place_comments "$all" "$2" "$hunks")"
-        payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
-        if ! gh api --method POST "repos/{owner}/{repo}/pulls/$1/reviews" --input - <<<"$payload" >"$response"; then
+        # The files whose hunks did not come from the listing: the only ones a refusal is acted on for.
+        { grep $'^@@@redline-file\t' "$hunks" || true; } | cut -f2 > "$sourced"
+        listing_only=0 refusal=''
+        # Each pass ends the loop, adds one sourced file to too_large, or sets listing_only, which
+        # is set once: at most one post per sourced file, one more, and the last (#96).
+        while :; do
+            placed="$(place_comments "$all" "$2" "$hunks" "$too_large" "$listing_only" "$refusal")"
+            payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
+            if gh api --method POST "repos/{owner}/{repo}/pulls/$1/reviews" --input - <<<"$payload" >"$response" 2>"$gh_err"; then
+                cat "$gh_err" >&2
+                break
+            fi
+            status="$(jq -r '.status // ""' "$response" 2>/dev/null || true)"
+            if [[ "$status" == "422" && "$listing_only" == 0 ]]; then
+                named="$(jq -r '[.errors[]? | strings | capture("^Diff entry (?<path>.+) diff is too large$").path] | first // ""' "$response" 2>/dev/null || true)"
+                if [[ -n "$named" ]] && grep -qxF -- "$named" "$sourced" && ! grep -qxF -- "$named" "$too_large"; then
+                    printf '%s\n' "$named" >> "$too_large"
+                    echo "redline-gh.sh: GitHub takes no comment on $named (its diff is too large); posting again with its comments in the review body" >&2
+                    continue
+                fi
+                on_sourced="$(jq --rawfile sourced "$sourced" '($sourced | split("\n") | map(select(length > 0))) as $s | [.comments[].path | select(. as $p | $s | index($p) != null)] | length' <<<"$placed")"
+                if [[ "$on_sourced" -gt 0 ]]; then
+                    refusal="$(jq -r '[.errors[]? | if type == "string" then . else (.message // tostring) end] | if length > 0 then join("; ") else "" end' "$response" 2>/dev/null || true)"
+                    if [[ -z "$refusal" ]]; then refusal="$(jq -r '.message // "422"' "$response" 2>/dev/null || echo 422)"; fi
+                    refusal="${refusal//$'\n'/ }"
+                    listing_only=1
+                    echo "redline-gh.sh: GitHub refused the review ($refusal); posting again with only the comments on files the listing gives a patch for" >&2
+                    continue
+                fi
+            fi
             # gh prints only the status line; the body carries GitHub's reason.
+            cat "$gh_err" >&2
             jq -r '.message, (.errors // [] | .[] | tostring)' "$response" >&2 2>/dev/null || cat "$response" >&2
             exit 1
-        fi
+        done
         review_id="$(jq -r '.id' "$response")"
         review="$(cat "$response")"
         # The reviews/{id}/comments endpoint omits `line`; the PR comments list has it. Slurp the

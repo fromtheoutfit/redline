@@ -5,7 +5,8 @@
 # issue (#95), against the fixtures under tests/gh-fixtures/.
 # Nothing reaches GitHub: a `gh` shim first on PATH serves the fixtures by endpoint (an array of
 # pages for --paginate --slurp, the pages' lines for --paginate --jq, applied with the real jq),
-# refuses `gh pr diff` the way GitHub does over 300 files, refuses every write, and, with
+# refuses `gh pr diff` the way GitHub does over 300 files, refuses every write but the three named
+# below (the thread mutation, `gh issue create` and PR 20's review), and, with
 # GH_FAKE_OLD=1, rejects --slurp the way a gh before 2.48.0 does. PR 7 has 150 files over two
 # pages (100 generated, then 44 generated and the six special files in files-7-special.json:
 # two hunks, no patch, a rename with a patch, a patch-less rename with no text changes, a
@@ -53,7 +54,13 @@
 # whole diff's limit: 301 files over four pages, two of them without a patch, whose hunks can only
 # come from the clone, which is the throwaway repository itself, with a base that moved on after
 # the head branched and a rename that changed; the shim serves the pull request's base and head
-# shas from $PAGES/pull-<n>.json, and the cases swap in shas the clone does not hold.
+# shas from $PAGES/pull-<n>.json, and the cases swap in shas the clone does not hold. PR 20's
+# review is the one REST write the shim answers, for `post-review` (#96): each payload is appended
+# to $PAGES/posts.log, and the post is refused with the 422 bodies GitHub gave the measurement,
+# "Diff entry <path> diff is too large" for a comment on a path listed in $PAGES/too-large.txt
+# and "Line could not be resolved" for one on a path in $PAGES/unresolved.txt or, with
+# GH_FAKE_REFUSE_ALL=1, for every post; a post it takes is served back as the pull request's
+# review comments, so the cases pin how many reviews were sent and what each one held.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -118,6 +125,8 @@ seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
 printf 'BIN\0base\n' > "$GEN/assets/logo.png"
 seq 1 2400 | awk '{printf "local %05d %080d\n", $1, 0}' > "$GEN/lib/local.txt"
 seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
+# A name git quotes in a diff header ("b/lib/\345\220\215.txt"), as GitHub's whole diff does.
+seq 1 2000 | awk '{printf "quoted %05d %080d\n", $1, 0}' > "$GEN/lib/名.txt"
 gen_commit base
 awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
 awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
@@ -127,6 +136,7 @@ mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
 printf 'BIN\0head\n' > "$GEN/assets/logo.png"
 awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
 awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
+awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/名.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/名.txt"
 gen_commit head
 HEAD_SHA="$(git -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(git -C "$GEN" rev-parse HEAD~1)"
 git -C "$GEN" checkout -q --detach "$FORK_SHA"
@@ -153,13 +163,14 @@ jq -n '{body: "Redline round 1\n\nFive findings.", comments: [
 ]}' > "$WORK/review-21.json"
 # A git configuration that would move every hunk if the script did not pin its own flags.
 printf '[diff]\n\tcontext = 0\n\tnoprefix = true\n\talgorithm = patience\n\tinterHunkContext = 40\n\trenames = false\n' > "$WORK/gitconfig"
-git -C "$GEN" diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M HEAD~1 HEAD > "$WORK/pages/diff-20.txt"
+git -C "$GEN" -c core.quotepath=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M HEAD~1 HEAD > "$WORK/pages/diff-20.txt"
 jq -n '[
     {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
     {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
     {filename: "dist/absent.js", status: "modified", previous_filename: null, additions: 250, deletions: 250, changes: 500, patch: null},
     {filename: "lib/gone.txt", status: "removed", previous_filename: null, additions: 0, deletions: 2000, changes: 2000, patch: null},
     {filename: "lib/renamed-only.txt", status: "renamed", previous_filename: "lib/was.txt", additions: 0, deletions: 0, changes: 0, patch: null},
+    {filename: "lib/名.txt", status: "modified", previous_filename: null, additions: 600, deletions: 600, changes: 1200, patch: null},
     {filename: "src/big.js", status: "modified", previous_filename: null, additions: 1501, deletions: 1501, changes: 3002, patch: null},
     {filename: "src/small.js", status: "modified", previous_filename: null, additions: 1, deletions: 1, changes: 2, patch: "@@ -7,7 +7,7 @@ small 6\n small 7\n small 8\n small 9\n-small 10\n+small 10 changed\n small 11\n small 12\n small 13"}
 ]' > "$WORK/pages/files-20-page1.json"
@@ -256,17 +267,42 @@ if [[ "${1:-}" == "graphql" ]]; then
     if [[ "$slurp" == 1 ]]; then jq -s '.' "${pages[@]}"; else cat "${pages[@]}"; fi
     exit 0
 fi
-paginate=0; slurp=0; filter=""; endpoint=""; header=""
+paginate=0; slurp=0; filter=""; endpoint=""; header=""; method=""; input=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --paginate) paginate=1; shift ;;
         --slurp) slurp=1; shift ;;
         --jq) filter="$2"; shift 2 ;;
         -H) header="$2"; shift 2 ;;
-        --method|--input|-X|-f|-F) echo "fake gh: write call refused: $*" >&2; exit 1 ;;
+        --method) method="$2"; shift 2 ;;
+        --input) input="$2"; shift 2 ;;
+        -X|-f|-F) echo "fake gh: write call refused: $*" >&2; exit 1 ;;
         *) endpoint="$1"; shift ;;
     esac
 done
+# PR 20's review (#96), the one REST write that is answered: the payload is logged, then refused
+# as GitHub refused the measurement's reviews (the JSON on stdout, gh's line on stderr, exit 1) or
+# taken, in which case its comments become the pull request's review comments.
+if [[ -n "$method" || -n "$input" ]]; then
+    if [[ "$method" != "POST" || "$input" != "-" || "$endpoint" != "repos/{owner}/{repo}/pulls/20/reviews" ]]; then
+        echo "fake gh: write call refused: $method $endpoint" >&2; exit 1
+    fi
+    payload="$(cat)"
+    jq -c . <<<"$payload" >> "$PAGES/posts.log"
+    refuse() {
+        jq -cn --arg e "$1" '{message: "Unprocessable Entity", errors: [$e], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request", status: "422"}'
+        echo "gh: Unprocessable Entity (HTTP 422)" >&2
+        exit 1
+    }
+    # named <file>: the first comment path of the payload that the file lists, or nothing.
+    named() { jq -r --rawfile t "$1" '($t | split("\n") | map(select(length > 0))) as $l | [.comments[].path | select(. as $p | $l | index($p) != null)] | first // ""' <<<"$payload"; }
+    large="$(named "$PAGES/too-large.txt")"
+    if [[ -n "$large" ]]; then refuse "Diff entry $large diff is too large"; fi
+    if [[ -n "$(named "$PAGES/unresolved.txt")" || "${GH_FAKE_REFUSE_ALL:-0}" == 1 ]]; then refuse "Line could not be resolved"; fi
+    jq '[.comments | to_entries[] | .value + {id: (9001 + .key), pull_request_review_id: 900, in_reply_to_id: null}]' <<<"$payload" > "$PAGES/comments-20.json"
+    echo '{"id": 900, "html_url": "https://github.com/o/r/pull/20#pullrequestreview-900"}'
+    exit 0
+fi
 if [[ "$slurp" == 1 && "${GH_FAKE_OLD:-0}" == 1 ]]; then echo "unknown flag: --slurp" >&2; exit 1; fi
 # Every read is logged, endpoint then header, so a case can pin how many calls a subcommand made.
 printf '%s\t%s\n' "$endpoint" "$header" >> "$PAGES/api.log"
@@ -319,6 +355,7 @@ case "$endpoint" in
     "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
     "repos/{owner}/{repo}/pulls/20/files") pages=("$PAGES/files-20-page1.json") ;;
     "repos/{owner}/{repo}/pulls/20") pages=("$PAGES/pull-20.json") ;;
+    "repos/{owner}/{repo}/pulls/20/comments") pages=("$PAGES/comments-20.json") ;;
     "repos/{owner}/{repo}/pulls/21/files") pages=("$PAGES/files-21-page1.json" "$PAGES/files-21-page2.json" "$PAGES/files-21-page3.json" "$PAGES/files-21-page4.json") ;;
     "repos/{owner}/{repo}/pulls/21") pages=("$PAGES/pull-21.json") ;;
     "user") pages=("$PAGES/user.json") ;;
@@ -446,6 +483,66 @@ is "place: the whole diff gave every file: the shas are not read" "$(diff_calls)
 : > "$PAGES/api.log"
 gh place 20 "$WORK/review-20-causes.json" >/dev/null
 is "place: a file the whole diff lacks: the clone is asked, once" "$(diff_calls) $(sha_calls 20)" "1 1"
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [{path: "lib/名.txt", line: 1300, body: "**R1-1** · nit · low · confirmed\n\n**In a file git quotes the name of**"}]}' > "$WORK/review-20-quoted.json"
+: > "$PAGES/api.log"
+quoted="$(gh place 20 "$WORK/review-20-quoted.json")"
+is "place: a name a diff header quotes: the whole diff holds it quoted" "$(grep -c '^+++ "b/lib/' "$PAGES/diff-20.txt")" "1"
+is "place: a name a diff header quotes: placed from the clone, which is asked not to quote it" "$(jq -c '[(.comments | length), (.moved | length)]' <<<"$quoted") $(diff_calls) $(sha_calls 20)" "[1,0] 1 1"
+
+echo "# post-review: a refusal the new sources can cause (#96)"
+jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"},
+    {path: "data/huge.json", line: 5000, body: "**R1-3** · nit · low · confirmed\n\n**In a very large diff**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-4** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-post.json"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-2** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-listed.json"
+# fresh_posts: no review sent yet, and GitHub refuses nothing.
+fresh_posts() { : > "$PAGES/posts.log"; : > "$PAGES/too-large.txt"; : > "$PAGES/unresolved.txt"; rm -f "$PAGES/comments-20.json"; }
+posts() { wc -l < "$PAGES/posts.log" | tr -d ' '; }
+# post_paths <k>: the paths of the inline comments the k-th review sent held.
+post_paths() { sed -n "$1p" "$PAGES/posts.log" | jq -r '[.comments[].path] | join(",")'; }
+post_body() { sed -n "$1p" "$PAGES/posts.log" | jq -r '.body'; }
+BINARY_GROUP=$'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->\n`assets/logo.png:1`\n\n**R1-4** · nit · low · confirmed\n\n**In an image**'
+
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a review GitHub takes: exits 0, posted once, nothing on stderr" "$code $(posts) $(cat "$WORK/err")" "0 1 "
+is "post-review: a review GitHub takes: the patch-less files' comments go inline" "$(post_paths 1)" "src/small.js,src/big.js,data/huge.json"
+is "post-review: a review GitHub takes: the output names the review, its comments and the moved one" "$(jq -c '[.review_id, [.comments[].id], [.moved[].id]]' <<<"$out")" '[900,[9001,9002,9003],["R1-4"]]'
+
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: too large: exits 0 after two posts" "$code $(posts)" "0 2"
+is "post-review: too large: the first review held the file's comment" "$(post_paths 1)" "src/small.js,src/big.js,data/huge.json"
+is "post-review: too large: the second review holds every other inline comment" "$(post_paths 2)" "src/small.js,src/big.js"
+is "post-review: too large: the body says why, under the binary file's line" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub takes no comment on a diff this large:\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: too large: moved names both, in the review's order" "$(jq -c '[.review_id, (.comments | length), [.moved[].id]]' <<<"$out")" '[900,2,["R1-3","R1-4"]]'
+is "post-review: too large: one line on stderr, and not gh's" "$(cat "$WORK/err")" "redline-gh.sh: GitHub takes no comment on data/huge.json (its diff is too large); posting again with its comments in the review body"
+
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 that names no file: exits 0 after two posts" "$code $(posts)" "0 2"
+is "post-review: a 422 that names no file: the second review holds only the listing's patches" "$(post_paths 2)" "src/small.js"
+is "post-review: a 422 that names no file: the body says so, with GitHub's message" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub refused a review that placed these inline (Line could not be resolved), so they are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: a 422 that names no file: moved names all three" "$(jq -c '[(.comments | length), [.moved[].id]]' <<<"$out")" '[1,["R1-2","R1-3","R1-4"]]'
+is "post-review: a 422 that names no file: one line on stderr" "$(cat "$WORK/err")" "redline-gh.sh: GitHub refused the review (Line could not be resolved); posting again with only the comments on files the listing gives a patch for"
+
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"; echo "src/small.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: the fallback refused as well: exits 1 after three posts, nothing on stdout" "$code $(posts) $out" "1 3 "
+is "post-review: the fallback refused as well: the third review was the listing's patches only" "$(post_paths 3)" "src/small.js"
+has "post-review: the fallback refused as well: the too-large file kept its own line in that review" "$(post_body 3)" $'GitHub takes no comment on a diff this large:\n\n<!-- redline:R1-3 -->'
+has "post-review: the fallback refused as well: gh's line reaches stderr" "$(cat "$WORK/err")" "gh: Unprocessable Entity (HTTP 422)"
+has "post-review: the fallback refused as well: so does GitHub's reason" "$(cat "$WORK/err")" $'Unprocessable Entity\nLine could not be resolved'
+
+fresh_posts
+out="$(GH_FAKE_REFUSE_ALL=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 with nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
+has "post-review: a 422 with nothing placed through a source: GitHub's reason on stderr" "$(cat "$WORK/err")" $'gh: Unprocessable Entity (HTTP 422)\nUnprocessable Entity\nLine could not be resolved'
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
