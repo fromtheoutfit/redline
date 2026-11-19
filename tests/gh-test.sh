@@ -87,6 +87,12 @@ leftover() {
     for f in "$1"/.redline-deferred.*; do [[ -e "$f" ]] && n=$((n + 1)); done
     printf '%s\n' "$n"
 }
+# leftover_gh <dir>: how many of redline-gh.sh's temp files or folders are left in the folder.
+leftover_gh() {
+    local f n=0
+    for f in "$1"/redline-gh.*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
 
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
@@ -590,6 +596,14 @@ is "post-review: a too-large 422 with no status: posted again without that file'
 fresh_posts
 out="$(GH_FAKE_REFUSE_ALL=1 GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$WORK/err")"; code=$?
 is "post-review: a 422 with no status and nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
+
+# A run that fails leaves no temp file behind (#112, R1-2): every one sits in a folder the trap removes.
+mkdir -p "$WORK/tmp-place" "$WORK/tmp-post"
+TMPDIR="$WORK/tmp-place" gh place 20 "$WORK/review-20-unplaceable.json" >/dev/null 2>&1
+is "place: a run that fails leaves no temp file behind" "$(leftover_gh "$WORK/tmp-place")" "0"
+fresh_posts
+TMPDIR="$WORK/tmp-post" gh post-review 20 "$WORK/review-20-unplaceable.json" >/dev/null 2>&1
+is "post-review: a run that fails leaves no temp file behind" "$(leftover_gh "$WORK/tmp-post")" "0"
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"

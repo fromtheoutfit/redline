@@ -533,8 +533,13 @@ case "$cmd" in
         need_int "$1" "pr number"
         need_file "$2" "review json"
         all="$(pr_files "$1")"
+        # Every temp file of this subcommand, the ones recover_hunks and place_comments make
+        # included, is made in one folder the EXIT trap removes, so a run that fails or is
+        # interrupted leaves none behind (#112, R1-2).
+        scratch="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -rf "$scratch"' EXIT
+        TMPDIR="$scratch"
         hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$hunks"' EXIT
         recover_hunks "$1" "$all" "$2" "$hunks"
         place_comments "$all" "$2" "$hunks"
         ;;
@@ -699,12 +704,17 @@ case "$cmd" in
             exit 2
         fi
         all="$(pr_files "$1")"
+        # Every temp file of this subcommand, the ones recover_hunks and place_comments make
+        # included, is made in one folder the EXIT trap removes, so a run that fails or is
+        # interrupted leaves none behind (#112, R1-2).
+        scratch="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+        trap 'rm -rf "$scratch"' EXIT
+        TMPDIR="$scratch"
         hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         response="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         gh_err="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         sourced="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         too_large="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-        trap 'rm -f "$hunks" "$response" "$gh_err" "$sourced" "$too_large"' EXIT
         recover_hunks "$1" "$all" "$2" "$hunks"
         # The files whose hunks did not come from the listing: the only ones a refusal is acted on for.
         { grep $'^@@@redline-file\t' "$hunks" || true; } | cut -f2 > "$sourced"
