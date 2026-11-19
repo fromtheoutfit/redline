@@ -39,6 +39,27 @@ Made while planning, shown to the author in the plan and approved with it:
 17. gh's own stderr for a refusal the script handles is held back and replaced by one line, and the exit code is 0.
 18. `place`, being read-only, cannot know the too-large cause; its header says so.
 
+Deviations from the shaped plan, as built:
+
+19. The fixture's whole diff is made by git in the harness's own repository, not in a second throwaway one, so the same commits are the clone Task 3's cases read.
+20. The clone is asked for any wanted file the whole diff gave no hunks for, not only over 300 files or after a refused call. The case that needs it: a diff header quotes a path holding a byte outside ASCII, the whole diff's section is then not matched, and the clone, where git is told `core.quotepath=off`, supplies the hunks. Added with Task 4's commit, with its own case seen red. A path git quotes regardless (a tab, a newline, a quote or a backslash in it) is found by neither source and its comments sit under the could-not-be-had line.
+21. The pinned `git diff` also runs with `--literal-pathspecs`, so a path is never read as a pattern.
+22. The stderr line for the too-large refusal names the reason in parentheses (`... on <path> (its diff is too large); posting again ...`), and the fallback has a line of its own (`redline-gh.sh: GitHub refused the review (<message>); posting again with only the comments on files the listing gives a patch for`). The agent file names both by their common opening, `redline-gh.sh: GitHub`.
+23. gh's stderr is held back only for a refused post; on a post GitHub takes it is passed through as before.
+24. Known edge, recorded and not handled: an empty file that was added has no patch and `changes` 0, so a comment on it would sit under the binary line.
+
+## Standards retrospective
+
+Listed mechanically from the decisions above, the deviations and the build. Five edits, approved by the author on 2026-11-19 and applied in their own commit:
+
+- **Contradicted:** `agent-os/standards/scripts/bash-conventions.md`, the line saying the paginated files endpoint "is the one source of the file list, the diff and the anchor positions" (decisions 2 and 12). Now: the one source of the file list and the diff, and of every anchor position but those of a file whose patch it omits, with when `place` reads the whole-PR diff and the clone.
+- **Missing:** the same file, a new line on what the listing says about a missing patch (`changes` 0 or above 0) and on a `git diff` that stands in for GitHub's hunks: merge base against head, pinned flags, literal paths; plain `diff -U3` and the compare endpoint ruled out (decisions 12, 15, 20 and 21, and the measurement).
+- **Missing:** the same file, a new line on when a write may post again: never the call that failed, `post-review` alone, a different review, bounded, one stderr line and exit 0, and a 422 with no sourced comment failing as before (decisions 11, 17, 22 and 23).
+- **Contradicted:** `agent-os/standards/testing/tests.md`, the gh-test entry, which said the shim refuses every write but the GraphQL call (stale since #95's `gh issue create`). Now: the three writes it answers and logs, the read log, and the patch-less fixtures made in the harness's own repository (decisions 4 and 19).
+- **Missing:** `agent-os/standards/workflow/agents.md`, the degraded-result line gains a sentence: a refusal `post-review` handled is a posted review, never an `error` (decision 14).
+
+Already in a standard, no edit: the measurement on a throwaway pull request (process/internal-notes, the throwaway draft; process/docs-gate, a measured behaviour stated as measured); red before green and a fixture large enough to hit its limit (testing/tests); the header as the documentation, quoted by `docs/scripts.md` in the same commit (scripts/bash-conventions); a growing value through a temp file (scripts/bash-conventions); no guard change without a row (scripts/guard); a rule corrected where the agent file states it (workflow/agents); the version (process/release); no attribution (prompts/attribution). No pattern was used that is not in `agent-os/standards/`: posting again after a refusal was decided with the author before it was built (decision 11) and is the third edit above.
+
 ## The measurement (2026-11-19)
 
 Read-only, on merged pull requests of this repository:
@@ -78,7 +99,24 @@ What it shows:
 
 ## Evidence on real pull requests
 
-(filled by Task 6)
+Both run on 2026-11-19 with the built script, before the pull request for this spec was opened.
+
+**A review posted on #111 through `post-review`.** #111 was reopened and `scripts/redline-gh.sh post-review 111 <file>` posted one review with a comment per cause (review 5982997016, event `COMMENT`). The script exited 0 after two posts, with one line on stderr: `redline-gh.sh: GitHub takes no comment on t96/huge.txt (its diff is too large); posting again with its comments in the review body`.
+
+| Comment | Where it ended | GitHub |
+| --- | --- | --- |
+| R1-1, `t96/mid.txt:1500` (no patch in the listing) | inline, comment 4634806985 | a thread, open |
+| R1-6, `t96/small.txt:10` (patch in the listing) | inline, comment 4634807005 | a thread, open |
+| R1-5, `README.md:1` | body, under `The file is not in this pull request:` | |
+| R1-2, `t96/mid.txt:500` | body, under `The line is not in the pull request's diff:` | |
+| R1-4, `t96/blob.bin:1` | body, under `The file is binary and has no hunks:` | |
+| R1-3, `t96/huge.txt:5000` | body, under `GitHub takes no comment on a diff this large:` | refused once with the 422 naming the file, then posted in the body |
+
+The body as GitHub returns it holds the four cause lines in that order, each over its marker, path line and comment. `moved` listed R1-2, R1-3, R1-4 and R1-5, in the review's order. #111 was closed again; the author deletes `throwaway/96-base` and `throwaway/96-head`.
+
+**#94's round 9, replayed through `place`.** `scripts/redline-gh.sh place 94 agent-os/specs/2026-11-15-0822-94-review-round-9/redline/round-9-review.json`, read-only, against #94 as merged (206 files, so the whole diff is the source). The round's seven comments are all on `workflows/redline-loop.js`, which has no patch in the listing, and none was placed inline when the round was posted. Now five are placed inline, and two are moved under `The line is not in the pull request's diff:` (R9-3 at `:1812` and R9-5 at `:2512`), which is what a count of the merged diff's hunks gave before the build.
+
+**The pinned local diff against GitHub's.** For the three patch-less files of #97, `git diff` with the script's pinned flags, merge base against head, gives hunks byte-identical to the file's section of GitHub's whole diff: `workflows/redline-loop.js` (120,796 bytes), `tests/loop-test.mjs` (164,658 bytes) and `agent-os/specs/2026-11-16-1026-95-defer-means-tracked/standards.md` (120,455 bytes).
 
 ## Context
 
