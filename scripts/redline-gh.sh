@@ -94,7 +94,10 @@
 #                                  patch in the files listing or, when GitHub omits that from a
 #                                  text file (a patch over about 100 KiB), the file's section of
 #                                  the whole-PR diff, read once and only when a comment names such
-#                                  a file on a PR of 300 files or fewer (#96). The moved comments
+#                                  a file on a PR of 300 files or fewer, or else, when this clone
+#                                  holds the base and the head commit (their shas read in one
+#                                  call), a local git diff of their merge base against the head
+#                                  for that path (#96). The moved comments
 #                                  are grouped under one line per cause: the file is not in the
 #                                  pull request, the line is not in its diff, the file is binary,
 #                                  it was renamed with nothing changed, or its patch could not be
@@ -279,18 +282,41 @@ wanted_files() {
         | [.filename, (if .status == "renamed" then (.previous_filename // "") else "" end)] | join("\t")'
 }
 
+# diff_sections <wanted> <diff>: the hunks of the files <wanted> lists (a path per line, before the
+# first tab) as a unified diff holds them, in the stream diff_positions reads: one line
+# "@@@redline-file<TAB>path", then that file's hunks. A section's path is read from its "+++ b/"
+# line, or "--- a/" for a removed file, while still in the section's header, so a hunk line that
+# looks like one is never taken for it; a section without hunks (a binary file) prints nothing.
+# <wanted> is never empty: recover_hunks returns before this when it is.
+diff_sections() {
+    awk -F'\t' '
+        NR == FNR { want[$1] = 1; next }
+        /^diff --git / { header = 1; emit = 0; path = ""; old = ""; next }
+        header && /^--- a\// { old = substr($0, 7); sub(/\t$/, "", old); next }
+        header && /^\+\+\+ b\// { path = substr($0, 7); sub(/\t$/, "", path); next }
+        header && /^\+\+\+ \/dev\/null/ { path = old; next }
+        header && /^@@ / { header = 0; if (path in want) { emit = 1; print "@@@redline-file\t" path } }
+        emit && !header { print }
+    ' "$1" "$2"
+}
+
 # recover_hunks <pr> <pr_files JSON> <review file> <out>: the hunks of the wanted files, from a
-# source other than the listing, written to <out> in the stream diff_positions reads: one line
-# "@@@redline-file<TAB>path", then that file's hunks (#96). GitHub omits a patch over about 100 KiB
-# from the listing and still takes a comment on the file's lines, so the hunks are read from the
-# whole-PR diff: the pull request's own endpoint under the diff media type, one call however many
-# files are wanted, made only when one is and the listing counts 300 files or fewer (past that
-# GitHub refuses it). Each section's path is read from its "+++ b/" line, or "--- a/" for a
-# removed file, while still in the section's header, so a hunk line that looks like one is never
-# taken for it. A refused call is not an error: the file stays without hunks. With no wanted file
-# nothing is called and <out> is empty.
+# source other than the listing, written to <out> in the stream diff_positions reads (#96). GitHub
+# omits a patch over about 100 KiB from the listing and still takes a comment on the file's lines.
+# With no wanted file nothing is called and <out> is empty. Otherwise, in order:
+# 1. The whole-PR diff: the pull request's own endpoint under the diff media type, one call
+#    however many files are wanted, made only when the listing counts 300 files or fewer (past
+#    that GitHub refuses it). These are GitHub's own hunks.
+# 2. For a file still without hunks (a PR over 300 files, a refused call, a section the diff does
+#    not hold): this clone. One call reads the base and head shas; when both commits are here,
+#    `git diff` of their merge base against the head for that path, and for a rename its previous
+#    path, gives the hunks, measured byte-identical to GitHub's whole diff. Its flags are pinned
+#    (algorithm, context, prefixes, rename detection, no external diff, no textconv) so the
+#    user's git configuration cannot move a hunk, and the paths are literal, never patterns.
+# Neither source failing is an error: the file stays without hunks, and place_comments says why
+# its comments are in the body.
 recover_hunks() {
-    local wanted whole count
+    local wanted whole count found missing shas base head fork one path prev
     : > "$4"
     wanted="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     wanted_files "$3" <<<"$2" > "$wanted"
@@ -302,19 +328,32 @@ recover_hunks() {
     if [[ "$count" -le 300 ]]; then
         whole="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         if gh api "repos/{owner}/{repo}/pulls/$1" -H "Accept: application/vnd.github.diff" > "$whole" 2>/dev/null; then
-            awk -F'\t' '
-                NR == FNR { want[$1] = 1; next }
-                /^diff --git / { header = 1; emit = 0; path = ""; old = ""; next }
-                header && /^--- a\// { old = substr($0, 7); sub(/\t$/, "", old); next }
-                header && /^\+\+\+ b\// { path = substr($0, 7); sub(/\t$/, "", path); next }
-                header && /^\+\+\+ \/dev\/null/ { path = old; next }
-                header && /^@@ / { header = 0; if (path in want) { emit = 1; print "@@@redline-file\t" path } }
-                emit && !header { print }
-            ' "$wanted" "$whole" >> "$4"
+            diff_sections "$wanted" "$whole" >> "$4"
         fi
         rm -f "$whole"
     fi
-    rm -f "$wanted"
+    found="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    missing="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+    { grep $'^@@@redline-file\t' "$4" || true; } | cut -f2 > "$found"
+    awk -F'\t' -v found="$found" 'BEGIN { while ((getline line < found) > 0) have[line] = 1 } !($1 in have)' "$wanted" > "$missing"
+    if [[ -s "$missing" ]] && shas="$(gh api "repos/{owner}/{repo}/pulls/$1" --jq '.base.sha, .head.sha' 2>/dev/null)"; then
+        base="$(sed -n 1p <<<"$shas")"
+        head="$(sed -n 2p <<<"$shas")"
+        if [[ "$base" =~ ^[0-9a-f]{40,64}$ && "$head" =~ ^[0-9a-f]{40,64}$ ]] \
+            && git cat-file -e "$base^{commit}" 2>/dev/null && git cat-file -e "$head^{commit}" 2>/dev/null \
+            && fork="$(git merge-base "$base" "$head" 2>/dev/null)"; then
+            one="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
+            while IFS=$'\t' read -r path prev; do
+                if git --literal-pathspecs diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M \
+                    --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ \
+                    "$fork" "$head" -- "$path" ${prev:+"$prev"} > "$one" 2>/dev/null; then
+                    diff_sections "$missing" "$one" >> "$4"
+                fi
+            done < "$missing"
+            rm -f "$one"
+        fi
+    fi
+    rm -f "$wanted" "$found" "$missing"
 }
 
 # Every position an inline comment may sit on: the added, removed and context lines of each
@@ -347,7 +386,7 @@ diff_positions() {
 # that says so, in this order, the comments of a group in the review's order (#96): the file is
 # not in the pull request; the line is outside the file's hunks; the file is binary (no patch and
 # `changes` 0 in the listing); it was renamed with nothing changed (the same, status renamed); no
-# source gave its patch. `moved` keeps the review's order.
+# source gave its patch (the listing, the whole diff, the clone). `moved` keeps the review's order.
 place_comments() {
     # The positions go through a file: on a PR of hundreds of files the list is megabytes, past
     # what --argjson may carry on the command line ("Argument list too long"). So does the kind

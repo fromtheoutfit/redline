@@ -49,7 +49,11 @@
 # which the shim serves for the pull request's own endpoint under the diff media type (and refuses
 # as GitHub does over 300 files when it has none, or with GH_FAKE_DIFF_FAIL=1). Every read is
 # appended to $PAGES/api.log, endpoint then header, so the cases pin that the whole diff is read
-# once when a comment names such a file and never otherwise.
+# once when a comment names such a file and never otherwise. PR 21 is its counterpart past the
+# whole diff's limit: 301 files over four pages, two of them without a patch, whose hunks can only
+# come from the clone, which is the throwaway repository itself, with a base that moved on after
+# the head branched and a rename that changed; the shim serves the pull request's base and head
+# shas from $PAGES/pull-<n>.json, and the cases swap in shas the clone does not hold.
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -96,9 +100,15 @@ jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", lin
 # data/huge.json with 22,000 changed lines, the size GitHub refused a comment on; a binary; a
 # removed file; a rename with nothing changed. dist/absent.js is in the listing without a patch
 # and in no diff, so nothing supplies its hunks.
-GEN="$WORK/gen"
+# The repository that makes the diff is the one the script runs in, so it is also the clone the
+# script reads when GitHub's whole diff cannot be had: PR 21 has 301 files, one past what that
+# endpoint takes, and two of them without a patch, lib/local.txt and lib/new-name.txt, renamed
+# from lib/old-name.txt with 600 of its 2,000 lines changed. Its base has moved on since the head
+# branched: the base tip changes line 500 of lib/local.txt, which the head does not, so that line
+# is in a diff against the base tip and in none against the merge base, which is the one GitHub
+# shows. The shim serves each pull request's base and head shas from $PAGES/pull-<n>.json.
+GEN="$WORK/repo"
 mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
-git -C "$GEN" init -q
 gen_commit() { git -C "$GEN" add -A && git -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
 seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
 seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
@@ -106,6 +116,8 @@ seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
 seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
 seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
 printf 'BIN\0base\n' > "$GEN/assets/logo.png"
+seq 1 2400 | awk '{printf "local %05d %080d\n", $1, 0}' > "$GEN/lib/local.txt"
+seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
 gen_commit base
 awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
 awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
@@ -113,7 +125,34 @@ awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" 
 rm "$GEN/lib/gone.txt"
 mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
 printf 'BIN\0head\n' > "$GEN/assets/logo.png"
+awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
 gen_commit head
+HEAD_SHA="$(git -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(git -C "$GEN" rev-parse HEAD~1)"
+git -C "$GEN" checkout -q --detach "$FORK_SHA"
+awk 'NR==500 {print $0 " on the base"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+gen_commit "the base moves on"
+BASE_TIP_SHA="$(git -C "$GEN" rev-parse HEAD)"
+git -C "$GEN" checkout -q -
+jq -n --arg base "$FORK_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-20.json"
+jq -n --arg base "$BASE_TIP_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-21.json"
+jq -n '[range(299) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, changes: 2, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + [
+    {filename: "lib/local.txt", status: "modified", previous_filename: null, additions: 1201, deletions: 1201, changes: 2402, patch: null},
+    {filename: "lib/new-name.txt", status: "renamed", previous_filename: "lib/old-name.txt", additions: 600, deletions: 600, changes: 1200, patch: null}
+]' > "$WORK/pages/files-21-all.json"
+jq '.[0:100]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page1.json"
+jq '.[100:200]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page2.json"
+jq '.[200:300]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page3.json"
+jq '.[300:]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page4.json"
+jq -n '{body: "Redline round 1\n\nFive findings.", comments: [
+    {path: "lib/local.txt", line: 1500, body: "**R1-1** · nit · low · confirmed\n\n**On an added line**"},
+    {path: "lib/local.txt", line: 98, body: "**R1-2** · nit · low · confirmed\n\n**On a context line**"},
+    {path: "lib/local.txt", line: 500, body: "**R1-3** · nit · low · confirmed\n\n**Changed on the base only**"},
+    {path: "lib/new-name.txt", line: 1300, body: "**R1-4** · nit · low · confirmed\n\n**In a renamed file**"},
+    {path: "lib/new-name.txt", line: 5, body: "**R1-5** · nit · low · confirmed\n\n**In its unchanged part**"}
+]}' > "$WORK/review-21.json"
+# A git configuration that would move every hunk if the script did not pin its own flags.
+printf '[diff]\n\tcontext = 0\n\tnoprefix = true\n\talgorithm = patience\n\tinterHunkContext = 40\n\trenames = false\n' > "$WORK/gitconfig"
 git -C "$GEN" diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M HEAD~1 HEAD > "$WORK/pages/diff-20.txt"
 jq -n '[
     {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
@@ -279,6 +318,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/19/comments") pages=("$PAGES/comments-19.json") ;;
     "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
     "repos/{owner}/{repo}/pulls/20/files") pages=("$PAGES/files-20-page1.json") ;;
+    "repos/{owner}/{repo}/pulls/20") pages=("$PAGES/pull-20.json") ;;
+    "repos/{owner}/{repo}/pulls/21/files") pages=("$PAGES/files-21-page1.json" "$PAGES/files-21-page2.json" "$PAGES/files-21-page3.json" "$PAGES/files-21-page4.json") ;;
+    "repos/{owner}/{repo}/pulls/21") pages=("$PAGES/pull-21.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -370,6 +412,40 @@ gh place 7 "$FIX/review-7.json" >/dev/null; gh place 7 "$FIX/review-7-placed.jso
 is "place: no patch-less text file named, the whole diff is not read" "$(diff_calls)" "0"
 has "place: PR 7's off-hunk comment sits under its cause" "$body" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->'
 has "place: PR 7's no-patch comment sits under its cause" "$body" $'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->'
+
+echo "# place: the clone as the second source (#96)"
+# sha_calls <n>: how many times the pull request's base and head shas were read since api.log was emptied.
+sha_calls() { grep -c "^repos/{owner}/{repo}/pulls/$1"$'\t$' "$PAGES/api.log" || true; }
+: > "$PAGES/api.log"
+local_out="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
+is "place: over 300 files: exits 0" "$code" "0"
+is "place: over 300 files: the listing has 301" "$(gh files 21 | jq 'length')" "301"
+is "place: over 300 files: added, context and renamed-file lines are placed from the clone" "$(jq -r '[.comments[].body | capture("^\\*\\*(?<id>R1-[0-9]+)\\*\\*").id] | join(",")' <<<"$local_out")" "R1-1,R1-2,R1-4"
+is "place: over 300 files: the diff is against the merge base and follows the rename" "$(jq -r '.moved | map(.id) | join(",")' <<<"$local_out")" "R1-3,R1-5"
+has "place: over 300 files: both off-hunk lines sit under their cause" "$(jq -r '.body' <<<"$local_out")" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->\n`lib/local.txt:500`\n\n**R1-3** · nit · low · confirmed\n\n**Changed on the base only**\n\n<!-- redline:R1-5 -->'
+is "place: over 300 files: the whole diff is not asked for" "$(diff_calls)" "0"
+is "place: over 300 files: the two shas are read once" "$(sha_calls 21)" "1"
+is "place: over 300 files: nothing on stderr" "$(cat "$WORK/err")" ""
+pinned="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff is pinned against the user's git configuration" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$pinned")" '[[1500,98,1300],["R1-3","R1-5"]]'
+cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
+echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
+nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
+is "place: commits the clone does not hold: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: commits the clone does not hold: nothing is placed" "$(jq -r '[(.comments | length), (.moved | length)] | join(" ")' <<<"$nopatch")" "0 5"
+has "place: commits the clone does not hold: the body says the patch could not be had" "$(jq -r '.body' <<<"$nopatch")" $'### Not placed inline\n\nThe file\'s patch could not be had from GitHub\'s listing, its whole diff or this clone:\n\n<!-- redline:R1-1 -->'
+cp "$WORK/pull-21.json" "$PAGES/pull-21.json"
+: > "$PAGES/api.log"
+refused="$(GH_FAKE_DIFF_FAIL=1 gh place 20 "$WORK/review-20-text.json" 2>"$WORK/err")"; code=$?
+is "place: the whole diff refused: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: the whole diff refused: the clone places all three" "$(jq -r '[(.comments | length), (.moved | length)] | join(" ")' <<<"$refused")" "3 0"
+is "place: the whole diff refused: asked once, then the shas once" "$(diff_calls) $(sha_calls 20)" "1 1"
+: > "$PAGES/api.log"
+gh place 20 "$WORK/review-20-text.json" >/dev/null
+is "place: the whole diff gave every file: the shas are not read" "$(diff_calls) $(sha_calls 20)" "1 0"
+: > "$PAGES/api.log"
+gh place 20 "$WORK/review-20-causes.json" >/dev/null
+is "place: a file the whole diff lacks: the clone is asked, once" "$(diff_calls) $(sha_calls 20)" "1 1"
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
