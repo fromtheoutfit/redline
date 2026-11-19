@@ -529,9 +529,20 @@ fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
 out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
 is "post-review: a 422 that names no file: exits 0 after two posts" "$code $(posts)" "0 2"
 is "post-review: a 422 that names no file: the second review holds only the listing's patches" "$(post_paths 2)" "src/small.js"
-is "post-review: a 422 that names no file: the body says so, with GitHub's message" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub refused a review that placed these inline (Line could not be resolved), so they are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: a 422 that names no file: the body says so, with GitHub's message" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub refused a review that placed comments through its whole diff or this clone (Line could not be resolved), so these comments, on files its listing gives no patch for, are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
 is "post-review: a 422 that names no file: moved names all three" "$(jq -c '[(.comments | length), [.moved[].id]]' <<<"$out")" '[1,["R1-2","R1-3","R1-4"]]'
 is "post-review: a 422 that names no file: one line on stderr" "$(cat "$WORK/err")" "redline-gh.sh: GitHub refused the review (Line could not be resolved); posting again with only the comments on files the listing gives a patch for"
+# The fallback with a comment the first pass found off the recovered hunks (#112, R1-6): it is
+# on a sourced file, so it sits under the refused line too, whose words claim no placement.
+jq -n '{body: "Redline round 1\n\nThree findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"},
+    {path: "src/big.js", line: 500, body: "**R1-3** · nit · low · confirmed\n\n**Off the recovered hunks**"}
+]}' > "$WORK/review-20-fallback.json"
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-fallback.json" 2>"$WORK/err")"; code=$?
+is "post-review: the fallback with an off-hunk comment: exits 0 after two posts, the second from the listing's patch" "$code $(posts) $(post_paths 2)" "0 2 src/small.js"
+is "post-review: the fallback with an off-hunk comment: both sit under the refused line, which claims no placement" "$(post_body 2)" $'Redline round 1\n\nThree findings.\n\n### Not placed inline\n\nGitHub refused a review that placed comments through its whole diff or this clone (Line could not be resolved), so these comments, on files its listing gives no patch for, are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`src/big.js:500`\n\n**R1-3** · nit · low · confirmed\n\n**Off the recovered hunks**'
 
 fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"; echo "src/small.js" > "$PAGES/unresolved.txt"
 out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?

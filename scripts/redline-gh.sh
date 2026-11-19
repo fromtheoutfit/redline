@@ -438,7 +438,7 @@ place_comments() {
         --arg renamed "The file was renamed with no text changes and has no hunks:" \
         --arg toolarge "GitHub takes no comment on a diff this large:" \
         --arg nopatch "The file's patch could not be had from GitHub's listing, its whole diff or this clone:" \
-        --arg refused "GitHub refused a review that placed these inline ($message), so they are here:" '
+        --arg refused "GitHub refused a review that placed comments through its whole diff or this clone ($message), so these comments, on files its listing gives no patch for, are here:" '
         ($positions[0] | map({key: ., value: true}) | from_entries) as $ok
         | $kinds[0] as $kind
         | [["absent", $absent], ["offhunk", $offhunk], ["binary", $binary], ["renamed", $renamed], ["toolarge", $toolarge], ["nopatch", $nopatch], ["refused", $refused]] as $causes
