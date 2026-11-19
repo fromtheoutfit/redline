@@ -605,6 +605,13 @@ fresh_posts
 TMPDIR="$WORK/tmp-post" gh post-review 20 "$WORK/review-20-unplaceable.json" >/dev/null 2>&1
 is "post-review: a run that fails leaves no temp file behind" "$(leftover_gh "$WORK/tmp-post")" "0"
 
+# Two files GitHub takes no comment on in one review (#112, R1-11): one post more for each, then the post.
+fresh_posts; printf 'data/huge.json\nsrc/big.js\n' > "$PAGES/too-large.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: two too-large files: exits 0 after three posts, the last with the listing's patch only" "$code $(posts) $(post_paths 3)" "0 3 src/small.js"
+is "post-review: two too-large files: both sit under the too-large line, in the review's order" "$(post_body 3)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub takes no comment on a diff this large:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: two too-large files: one stderr line each, in the order GitHub named them" "$(cat "$WORK/err")" $'redline-gh.sh: GitHub takes no comment on src/big.js (its diff is too large); posting again with its comments in the review body\nredline-gh.sh: GitHub takes no comment on data/huge.json (its diff is too large); posting again with its comments in the review body'
+
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
 is "last-round: a JSON number" "$(gh last-round 7 | jq -r 'type')" "number"
