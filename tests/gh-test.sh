@@ -566,6 +566,17 @@ out="$(GH_FAKE_REFUSE_ALL=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$
 is "post-review: a 422 with nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
 has "post-review: a 422 with nothing placed through a source: GitHub's reason on stderr" "$(cat "$WORK/err")" $'gh: Unprocessable Entity (HTTP 422)\nUnprocessable Entity\nLine could not be resolved'
 
+# Comments the placement cannot read (#112, R1-9): a moved comment whose body is no string, which
+# the jq that writes the review body cannot join, so post-review stops before it posts anything.
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [{path: "README.md", line: 1, body: 5}]}' > "$WORK/review-20-unplaceable.json"
+# taken: whether the shim took a review since fresh_posts, which a taken post writes comments-20.json for.
+taken() { if [[ -e "$PAGES/comments-20.json" ]]; then echo taken; else echo none; fi; }
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-unplaceable.json" 2>"$WORK/err")"; code=$?
+is "post-review: comments that cannot be placed: exit 2, nothing on stdout" "$code $out" "2 "
+has "post-review: comments that cannot be placed: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-unplaceable.json; nothing was posted"
+is "post-review: comments that cannot be placed: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
 is "last-round: a JSON number" "$(gh last-round 7 | jq -r 'type')" "number"

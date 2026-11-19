@@ -139,7 +139,10 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  and the review is posted from the listing's patches only, once.
 #                                  Each says so in one line on stderr, and the exit is still 0.
 #                                  A 422 with no such comment, or after the second case, is the
-#                                  failure it always was: GitHub's reason on stderr, exit 1
+#                                  failure it always was: GitHub's reason on stderr, exit 1.
+#                                  Comments the placement cannot read (its jq fails on one) stop
+#                                  it before anything is posted: one line on stderr naming the
+#                                  review file, exit 2
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer

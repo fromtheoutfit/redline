@@ -129,7 +129,10 @@
 #                                  and the review is posted from the listing's patches only, once.
 #                                  Each says so in one line on stderr, and the exit is still 0.
 #                                  A 422 with no such comment, or after the second case, is the
-#                                  failure it always was: GitHub's reason on stderr, exit 1
+#                                  failure it always was: GitHub's reason on stderr, exit 1.
+#                                  Comments the placement cannot read (its jq fails on one) stop
+#                                  it before anything is posted: one line on stderr naming the
+#                                  review file, exit 2
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
@@ -708,6 +711,13 @@ case "$cmd" in
         # is set once: at most one post per sourced file, one more, and the last (#96).
         while :; do
             placed="$(place_comments "$all" "$2" "$hunks" "$too_large" "$listing_only" "$refusal")"
+            # place_comments runs in a command substitution, where bash clears -e, so a jq that
+            # fails inside it does not stop it: what it printed is checked before anything is
+            # posted (#112, R1-9).
+            if ! jq -e '(.body | type == "string") and (.comments | type == "array") and (.moved | type == "array")' <<<"$placed" >/dev/null 2>&1; then
+                echo "redline-gh.sh: could not place the comments of $2; nothing was posted" >&2
+                exit 2
+            fi
             payload="$(jq '{event: "COMMENT", body: .body, comments: [.comments[] | {path, line, side, body}]}' <<<"$placed")"
             if gh api --method POST "repos/{owner}/{repo}/pulls/$1/reviews" --input - <<<"$payload" >"$response" 2>"$gh_err"; then
                 cat "$gh_err" >&2
