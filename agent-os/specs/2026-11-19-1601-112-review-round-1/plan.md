@@ -523,3 +523,35 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, the shellcheck result, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 1 for PR #112 (#96)`.
 
 **Files** (this task): `agent-os/standards/scripts/bash-conventions.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-19-1601-112-review-round-1/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `34acd12`, one commit per task, in the plan's order. Every red and green run is the gate, `.claude/redline/checks.sh <snapshot>`: the guard refuses `tests/gh-test.sh` run alone to the implementer role. The counts are those `tests/gh-test.sh` printed in each run.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `17aa584` `redline: save review round 1 spec for PR #112 (#96)` | | |
+| 2, R1-4 | `3626170` `redline: R1-4 run the pinned clone diff with GIT_DIFF_OPTS unset (#96)` | 237 passed, 1 failed: the new case, `[[1500,1300],["R1-2","R1-3","R1-5"]]`, as predicted | 238 passed, 0 failed |
+| 3, R1-6 | `85a9413` `redline: R1-6 reword the fallback line so it claims no comment was placed inline (#96)` | 238 passed, 2 failed: the edited expectation and the new body case | 240 passed, 0 failed |
+| 4, R1-8 | `1596b3e` `redline: R1-8 move a comment with no path into the body again (#96)` | 240 passed, 2 failed: both new cases | 242 passed, 0 failed |
+| 5, R1-9 | `e1d2e4d` `redline: R1-9 stop post-review before posting when its comments cannot be placed (#96)` | 243 passed, 2 failed: the stderr line (jq's own error instead) and `GitHub is sent no review` (`0 taken`); the exit-2 case held, as the plan says | 245 passed, 0 failed |
+| 6, R1-10 | `f484f67` `redline: R1-10 read a refusal as a 422 from the gh line when the body has no status (#96)` | 246 passed, 3 failed: the first three (`1 1`, gh's line on stderr); the neighbour held | 249 passed, 0 failed |
+| 7, R1-1 | `e1f7111` `redline: R1-1 list in Known limits every case that still lands in the review body (#96)` | no case | the loop check passed in Task 8's red run |
+| 8, R1-2 | `4563cae` `redline: R1-2 make the temp files of place and post-review in one folder their trap removes (#96)` | 250 passed, 1 failed: the `place` case, `3`; the `post-review` neighbour held | 251 passed, 0 failed |
+| 9, R1-3 | `eb19771` `redline: R1-3 state the base and head condition of the clone in the skill warning and the precheck docs (#96)` | no case | the gate passed after the standards commit |
+| 10, R1-11 | `dc426ff` `redline: R1-11 pin two too-large files in one review (#96)` | under the mutation, 252 passed, 2 failed: the body and stderr cases; the posts case held | 254 passed, 0 failed, after the mutation was undone (it was never staged) |
+| 11, standards | `c5e91f8` `redline: record the round 1 review lessons in the standards (#96)` | | the six approved edits, no more |
+
+Every proof grep printed what its task says. `env -u GIT_DIFF_OPTS git` gives 1. `placed these inline` gives nothing in `scripts`, `tests`, `docs` or `README.md`. `Comments the placement cannot read` gives 1 in each of `scripts/redline-gh.sh` and `docs/scripts.md`, and so does `body has none, by the`. The three Task 7 phrases give 1 each, and so do the two Task 9 phrases. `trap 'rm -rf` gives 2.
+
+The gate after the standards commit, at `c5e91f8`: `ok: true`, all nine checks exit 0, no `unexpected_files`, nothing in `uncommitted`. The counts: loop 1449, prefs 172, gate 117, setup 512 and background 39, each with 0 failed. `tests/gh-test.sh` printed `254 passed, 0 failed`, the count the plan expects.
+
+Version: `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` still read `0.4.3`, with no bump.
+
+Docs: each task's entry stands as written. `docs/scripts.md`'s quoted header changed with Tasks 5 and 6 in their own commits. `docs/running.md` changed with Tasks 7 and 9, and `README.md` with Task 7.
+
+Deviations, each also under Decisions in `shape.md`:
+
+- **CI's shellcheck command was not run** (Decision 12). The guard refuses `shellcheck` to the implementer role, so it is still to be run before the push that carries this round's `.sh` changes.
+- **The spec commit's subject** (Decision 13). It is `redline: save review round 1 spec for PR #112 (#96)`, as the implementer's instructions and earlier rounds have it, not the plan's `add the review round 1 spec` wording.
+- **Where three gate runs fell** (Decision 14). Tasks 7 and 9 were committed before their gate run. Task 10's green run was the run after the standards commit.

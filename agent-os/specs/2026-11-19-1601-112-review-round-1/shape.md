@@ -62,6 +62,12 @@ Out of scope, as the pull request has it (its `shape.md`, Scope): `workflows/red
     Decided by: redline
 11. **R1-7 (nit, decline).** Unattended answer 6. The line the comment gets is the one the pull request's design gives a path the listing lacks, and the path line under it, `(no file):12`, says the finding names no file. A seventh cause line would tie the script to a placeholder the workflow owns, for a reader who is already told; it is not worth doing.
     Decided by: redline
+12. **Deviation, at build: CI's shellcheck command was not run.** Task 11 asks for `shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh` after Task 10. The guard refused it to the implementer role ("'shellcheck' is not on the implementer's allowlist"), and `checks.sh` does not run shellcheck (scripts/bash-conventions, line 40). So it is still to be run, by a person or a role the guard allows it to, before the push that carries this round's `.sh` changes (`scripts/redline-gh.sh`, `tests/gh-test.sh`). The gate is green.
+    Decided by: redline
+13. **Deviation, at build: the spec commit's subject.** Task 1 names `redline: add the review round 1 spec for PR #112 (#96)`. The commit was made as `redline: save review round 1 spec for PR #112 (#96)`, the subject the implementer's instructions give and the one every earlier round's spec commit uses. Only the words differ: it is still the round's first commit, it holds only the spec folder, and it opens with `redline:`.
+    Decided by: redline
+14. **Deviation, at build: where three gate runs fell.** The two prose-only tasks were committed before their gate run. Task 7's run was Task 8's red run, whose only failure was Task 8's own case (the loop check passed). Task 9's run was the run after the standards commit. That same run was also Task 10's green run, after its cases were seen red under the mutation and the mutation was undone. Every task's red and green is still seen. All nine checks passed on that run, `tests/gh-test.sh` included.
+    Decided by: redline
 
 ### Proportionality
 
