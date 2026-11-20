@@ -503,6 +503,17 @@ pinned="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig" gh place 21 "$WORK/review-21.json"
 is "place: the clone's diff is pinned against the user's git configuration" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$pinned")" '[[1500,98,1300],["R1-3","R1-5"]]'
 diffopts="$(GIT_DIFF_OPTS=-u0 gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff is pinned against GIT_DIFF_OPTS, which git lets override -U" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$diffopts")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# Git's own binary test, which GitHub does not share (#112, R2-2): a user attributes file that
+# unsets diff for the file, and a big-file threshold between its size (223,200 bytes) and the
+# rename pair's (184,000 and 188,800). The clone's diff reads a wanted file as text, so both
+# place as the default run does.
+printf 'lib/local.txt -diff\n' > "$WORK/attributes"
+printf '[core]\n\tattributesFile = %s\n' "$WORK/attributes" > "$WORK/gitconfig-attributes"
+printf '[core]\n\tbigFileThreshold = 200k\n' > "$WORK/gitconfig-bigfile"
+attributes="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-attributes" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff reads a file a user attributes file marks -diff as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attributes")" '[[1500,98,1300],["R1-3","R1-5"]]'
+bigfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-bigfile" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff reads a file past core.bigFileThreshold as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$bigfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
 cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
 echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
 nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
