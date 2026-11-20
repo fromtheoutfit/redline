@@ -77,7 +77,12 @@ FIX="$PLUGIN/tests/gh-fixtures"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/pages"
-git -C "$WORK/repo" init -q
+# hgit: the harness's own git, with the developer's configuration and environment shut out, so a
+# fixture is the same on every machine: no global or system configuration, no user attributes
+# file, and GIT_DIFF_OPTS unset (#112, R2-4). The script under test runs its own git, which the
+# hostile-configuration cases reach on purpose.
+hgit() { env -u GIT_DIFF_OPTS GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null "$@"; }
+hgit -C "$WORK/repo" init -q
 pass=0; fail=0
 ok() { pass=$((pass+1)); printf 'ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf 'FAIL %s\n     got: %s\n' "$1" "$2"; }
@@ -132,7 +137,7 @@ jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", lin
 # shows. The shim serves each pull request's base and head shas from $PAGES/pull-<n>.json.
 GEN="$WORK/repo"
 mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
-gen_commit() { git -C "$GEN" add -A && git -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
+gen_commit() { hgit -C "$GEN" add -A && hgit -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
 seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
 seq 1 3000 | awk '{printf "nul %05d %080d\n", $1, 0}' > "$GEN/lib/nul.txt"
 seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
@@ -157,12 +162,12 @@ awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GE
 awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
 awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/名.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/名.txt"
 gen_commit head
-HEAD_SHA="$(git -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(git -C "$GEN" rev-parse HEAD~1)"
-git -C "$GEN" checkout -q --detach "$FORK_SHA"
+HEAD_SHA="$(hgit -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(hgit -C "$GEN" rev-parse HEAD~1)"
+hgit -C "$GEN" checkout -q --detach "$FORK_SHA"
 awk 'NR==500 {print $0 " on the base"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
 gen_commit "the base moves on"
-BASE_TIP_SHA="$(git -C "$GEN" rev-parse HEAD)"
-git -C "$GEN" checkout -q -
+BASE_TIP_SHA="$(hgit -C "$GEN" rev-parse HEAD)"
+hgit -C "$GEN" checkout -q -
 jq -n --arg base "$FORK_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-20.json"
 jq -n --arg base "$BASE_TIP_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-21.json"
 jq -n '[range(299) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, changes: 2, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + [
@@ -182,7 +187,9 @@ jq -n '{body: "Redline round 1\n\nFive findings.", comments: [
 ]}' > "$WORK/review-21.json"
 # A git configuration that would move every hunk if the script did not pin its own flags.
 printf '[diff]\n\tcontext = 0\n\tnoprefix = true\n\talgorithm = patience\n\tinterHunkContext = 40\n\trenames = false\n' > "$WORK/gitconfig"
-git -C "$GEN" -c core.quotepath=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M HEAD~1 HEAD > "$WORK/pages/diff-20.txt"
+# The whole diff the shim serves as GitHub's, from the fork to the head.
+whole_diff() { hgit -C "$GEN" -c core.quotepath=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M "$FORK_SHA" "$HEAD_SHA"; }
+whole_diff > "$WORK/pages/diff-20.txt"
 jq -n '[
     {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
     {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
@@ -553,6 +560,9 @@ is "place: a name a diff header quotes: placed from the clone, which is asked no
 nul_out="$(PATH="$WORK/gnu-awk:$PATH" gh place 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
 is "place: a NUL in a recovered hunk: both patch-less files stay inline, nothing on stderr" "$code $(jq -c '[(.comments | length), (.moved | length)]' <<<"$nul_out") $(cat "$WORK/err")" "0 [2,0] "
 is "place: a NUL in a recovered hunk: the whole diff gave both files, so the shas are not read" "$(diff_calls) $(sha_calls 20)" "1 0"
+# The fixture's whole diff is the same under a developer's diff settings and GIT_DIFF_OPTS
+# (#112, R2-4): made again under the hostile configuration above, it matches byte for byte.
+is "the fixture's whole diff ignores the developer's git configuration and GIT_DIFF_OPTS" "$(if GIT_DIFF_OPTS=-u0 GIT_CONFIG_GLOBAL="$WORK/gitconfig" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
 
 echo "# post-review: a refusal the new sources can cause (#96)"
 jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
