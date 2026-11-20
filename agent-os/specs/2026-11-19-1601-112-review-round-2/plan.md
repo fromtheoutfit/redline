@@ -364,3 +364,31 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, that CI's shellcheck command was not run here, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 2 for PR #112 (#96)`.
 
 **Files** (this task): `agent-os/standards/scripts/bash-conventions.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-19-1601-112-review-round-2/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `4c8ed6a`, one commit per task, in the plan's order. Every red and green run is the gate, `.claude/redline/checks.sh <snapshot>`, since the guard refuses `tests/gh-test.sh` run alone to the implementer role. The counts are what `tests/gh-test.sh` printed in each run, read from the kept result the gate names (`kept`), because a passing check prints no output.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `ea33462` `redline: save review round 2 spec for PR #112 (#96)` | | |
+| 2, R2-1 | `0d49a85` `redline: R2-1 read the file markers of the recovered hunks as text (#96)` | 254 passed, 3 failed: the three new cases, `0 [0,2] `, `1 1` and `0 1 `, as predicted, after the fixture deviation below | 257 passed, 0 failed |
+| 3, R2-2 | `332891e` `redline: R2-2 read every wanted file as text in the clone diff (#96)` | 257 passed, 2 failed: the two new cases (their `got` lines fell before the 200 lines the kept result holds) | 259 passed, 0 failed |
+| 4, R2-3 | `c1d6756` `redline: R2-3 make the scratch folder before the listing is read (#96)` | 259 passed, 1 failed: the new case, `1 1 `, as predicted | 260 passed, 0 failed |
+| 5, R2-4 | `7aec9ab` `redline: R2-4 run the gh harness git with the developer configuration shut out (#96)` | 260 passed, 1 failed: the new case, `differs`, as predicted | 261 passed, 0 failed |
+| 6, standards | `27e3714` `redline: record the round 2 review lessons in the standards (#96)` | | the six approved edits, no more |
+
+Every proof grep printed what its task says. `git grep -c -e 'grep -a '` gives `scripts/redline-gh.sh:3`, `no-textconv --text` gives `:1`, `the ones pr_files, recover_hunks` gives `:2`, and `GIT_CONFIG_NOSYSTEM=1` gives `tests/gh-test.sh:1`. `git grep -n -w -e 'git -C' -- tests/gh-test.sh` prints nothing.
+
+The gate after the standards commit, at `27e3714`: `ok: true`, all nine checks exit 0, no `unexpected_files`, nothing in `uncommitted`. The counts: loop 1449, prefs 172, gate 117, setup 512 and background 39, each with 0 failed, as the baseline has them. `tests/gh-test.sh` printed `261 passed, 0 failed`, the count the plan expects.
+
+Version: `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` still read `0.4.3`, with no bump.
+
+Docs: each task's entry stands as written: `scripts/redline-gh.sh` changed in Tasks 2, 3 and 4 with no reader-facing change, and no header changed, so `docs/scripts.md` did not either.
+
+CI's shellcheck command was not run here, as the plan says (see Shellcheck above): the guard refuses `shellcheck` to the implementer role, so it is still due before the push that carries this round's `.sh` changes, and CI's required `shellcheck` job runs it on the push.
+
+The deviation, also under Decisions in `shape.md`, and one note:
+
+- **The NUL fixture's path and layout** (Decision 5). As planned, `src/nul.js` put the NUL about 340 KB into the hunk stream, past the 32 KiB the system grep reads to call a file binary, so the three cases held before the fix. The fixture is `lib/nul.txt` instead, which opens the stream. Its line 1500, which holds the NUL, is a hunk of its own ahead of a changed block of lines 2001 to 3000. Its listing entry counts 1,001, 1,001 and 2,002. The cases, their expectations, the fix and the counts are as planned.
+- **A lesson the approved standards edits leave out.** The first R2-1 edit to bash-conventions says grep takes a file that holds a NUL for binary. That holds for GNU grep from the buffer that holds the NUL on, but BSD grep checks only the file's first 32 KiB. So a NUL case on macOS needs its NUL in the first 32 KiB of the stream, which the R2-1 edit to testing/tests does not say either. Neither edit was changed here, since only the approved text lands; this is for a later retrospective.
