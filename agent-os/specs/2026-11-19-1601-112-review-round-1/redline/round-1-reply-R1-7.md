@@ -1,0 +1,1 @@
+Redline round 1: declined: The pull request's design gives the not-in-the-pull-request line to every path the listing lacks (its `plan.md`, line 82), and the path line `(no file):12` printed right under it already tells the reader the finding names no file · decided by: redline

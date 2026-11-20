@@ -1,0 +1,1 @@
+Redline round 4: fixed in e92f71c (Say the clone fallback needs the merge base too (#96)). · decided by: @michaelfromtheoutfit

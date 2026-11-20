@@ -1,0 +1,35 @@
+{
+  "pr": 112,
+  "start_sha": "34acd127a3a86e88fd835f9a471205dc763a8512",
+  "round_sha": "34acd127a3a86e88fd835f9a471205dc763a8512",
+  "base_ref": "main",
+  "files": [
+    ".claude-plugin/marketplace.json",
+    ".claude-plugin/plugin.json",
+    "README.md",
+    "agent-os/specs/2026-11-19-1523-96-place-findings-on-patch-less-files/plan.md",
+    "agent-os/specs/2026-11-19-1523-96-place-findings-on-patch-less-files/references.md",
+    "agent-os/specs/2026-11-19-1523-96-place-findings-on-patch-less-files/shape.md",
+    "agent-os/specs/2026-11-19-1523-96-place-findings-on-patch-less-files/standards.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/standards/workflow/agents.md",
+    "agents/redline-github.md",
+    "docs/running.md",
+    "docs/scripts.md",
+    "scripts/redline-gh.sh",
+    "skills/redline/SKILL.md",
+    "tests/gh-test.sh"
+  ],
+  "plan_paths": [
+    "scripts/redline-gh.sh",
+    "tests/gh-test.sh",
+    "docs/scripts.md",
+    "docs/running.md",
+    "README.md",
+    "skills/redline/SKILL.md",
+    "agent-os/standards/scripts/bash-conventions.md",
+    "agent-os/standards/testing/tests.md",
+    "agent-os/specs/2026-11-19-1601-112-review-round-1/"
+  ]
+}

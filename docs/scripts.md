@@ -6,13 +6,14 @@ Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 o
 
 ## `redline-gh.sh`
 
-The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
+The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `post-review`, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`; for `post-review` the fake takes PR 20's review or refuses it with the 422 bodies GitHub gave the #96 measurement, so the cases pin every review the script sends after a refusal. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
 
 ```text
 #
 # Redline's one door to GitHub. Every body comes from a file, never inline text.
 # Authenticated as whoever ran `gh auth login`. Any gh failure prints gh's own
-# error to stderr and exits non-zero; nothing here retries.
+# error to stderr and exits non-zero; nothing here retries a call that failed.
+# post-review alone posts again, a different review, in the two cases its entry names.
 #
 # Read-only:
 #   pr <n>                         PR facts as JSON
@@ -97,10 +98,22 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  files endpoint (gh pr view --json files stops at 100)
 #   login                          the gh login Redline posts as
 #   place <n> <json-file>          the post-review file as it would be posted: comments off the
-#                                  hunks of their file's patch moved into the body under "Not
-#                                  placed inline", each behind a marker <!-- redline:<finding> -->
-#                                  (the id read from the comment body's leading **R1-2**), with a
-#                                  `moved` list [{id, path, line, side}]. Nothing is posted
+#                                  hunks of their file moved into the body under "Not placed
+#                                  inline", each behind a marker <!-- redline:<finding> --> (the
+#                                  id read from the comment body's leading **R1-2**), with a
+#                                  `moved` list [{id, path, line, side}]. A file's hunks are its
+#                                  patch in the files listing or, when GitHub omits that from a
+#                                  text file (a patch over about 100 KiB), the file's section of
+#                                  the whole-PR diff, read once and only when a comment names such
+#                                  a file on a PR of 300 files or fewer, or else, when this clone
+#                                  holds the base and the head commit (their shas read in one
+#                                  call) and their merge base, a local git diff of that merge
+#                                  base against the head for that path (#96). The moved comments
+#                                  are grouped under one line per cause: the file is not in the
+#                                  pull request, the line is not in its diff, the file is binary,
+#                                  it was renamed with nothing changed, or its patch could not be
+#                                  had. A file GitHub takes no comment on is known only to
+#                                  post-review, which learns it by posting. Nothing is posted
 #   threads <n>                    every review thread on the PR (GraphQL reviewThreads, every
 #                                  page) as JSON [{id, resolved, path, line, comments: [{id, user}]}]:
 #                                  id is the thread's node id (what resolveReviewThread takes),
@@ -114,7 +127,24 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #   post-review <n> <json-file>    {body, comments:[{path,line,side,body}]} posted with event COMMENT
 #                                  after `place` (a comment GitHub could not anchor would fail the
 #                                  whole post with a 422 that names no line); prints
-#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}
+#                                  {review_id, html_url, comments:[{id,path,line,side,body}], moved}.
+#                                  A refused post posts nothing, and two refusals are answered
+#                                  with a different review, never the same one again (#96). A
+#                                  refusal is a 422 by the status in GitHub's body or, when the
+#                                  body has none, by the "(HTTP 422)" gh prints (#112, R1-10). A 422
+#                                  naming "Diff entry <path> diff is too large", for a file whose
+#                                  hunks did not come from the listing: GitHub takes no comment on
+#                                  that file (its limit, measured between 290 KB and 1.25 MB of
+#                                  diff), so its comments move into the body under that cause, once
+#                                  per such file. Any other 422 while a comment sits on such a
+#                                  file: all of those move into the body under GitHub's message
+#                                  and the review is posted from the listing's patches only, once.
+#                                  Each says so in one line on stderr, and the exit is still 0.
+#                                  A 422 with no such comment, or after the second case, is the
+#                                  failure it always was: GitHub's reason on stderr, exit 1.
+#                                  Comments the placement cannot read (its jq fails on one), or
+#                                  a step of the placement that fails, stop it before anything
+#                                  is posted: one line on stderr naming the review file, exit 2
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer

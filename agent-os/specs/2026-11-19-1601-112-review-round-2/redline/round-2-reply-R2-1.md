@@ -1,0 +1,1 @@
+Redline round 2: fixed in 0d49a85 (redline: R2-1 read the file markers of the recovered hunks as text (#96)). · decided by: redline

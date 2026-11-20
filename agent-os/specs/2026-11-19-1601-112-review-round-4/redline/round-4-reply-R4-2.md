@@ -1,0 +1,1 @@
+Redline round 4: fixed in cd8ebc3 (Close the gh shim's write-list parenthesis in the testing standard (#96)). · decided by: @michaelfromtheoutfit

@@ -1,0 +1,1 @@
+Redline round 3: fixed in 2dd1833 (redline: R3-2 refuse a review file whose comments are not all objects before the listing is read (#96)). · decided by: redline

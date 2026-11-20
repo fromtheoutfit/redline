@@ -1,0 +1,1 @@
+Redline round 1: fixed in 1596b3e (redline: R1-8 move a comment with no path into the body again (#96)). · decided by: redline

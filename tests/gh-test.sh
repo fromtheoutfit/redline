@@ -5,7 +5,8 @@
 # issue (#95), against the fixtures under tests/gh-fixtures/.
 # Nothing reaches GitHub: a `gh` shim first on PATH serves the fixtures by endpoint (an array of
 # pages for --paginate --slurp, the pages' lines for --paginate --jq, applied with the real jq),
-# refuses `gh pr diff` the way GitHub does over 300 files, refuses every write, and, with
+# refuses `gh pr diff` the way GitHub does over 300 files, refuses every write but the three named
+# below (the thread mutation, `gh issue create` and PR 20's review), and, with
 # GH_FAKE_OLD=1, rejects --slurp the way a gh before 2.48.0 does. PR 7 has 150 files over two
 # pages (100 generated, then 44 generated and the six special files in files-7-special.json:
 # two hunks, no patch, a rename with a patch, a patch-less rename with no text changes, a
@@ -43,6 +44,28 @@
 # $PAGES/issue.log (the search; the title and the body), a list is served from
 # $PAGES/issues-list.json and a create is answered with an issue URL numbered from 123, so the
 # cases pin that an issue is opened once, looked up before it is opened, and never opened twice.
+# PR 20 is the patch-less fixture (#96): a listing in which a text file past the listing's limit, a
+# removed file, a 22,000-change file and a text file whose changed line holds a NUL past byte 8,000
+# (#112, R2-1) have no patch, beside a binary file, a rename with nothing changed and one
+# small file with a patch, and a whole diff made by git in a throwaway repository,
+# which the shim serves for the pull request's own endpoint under the diff media type (and refuses
+# as GitHub does over 300 files when it has none, or with GH_FAKE_DIFF_FAIL=1). Every read is
+# appended to $PAGES/api.log, endpoint then header, so the cases pin that the whole diff is read
+# once when a comment names such a file and never otherwise. PR 21 is its counterpart past the
+# whole diff's limit: 301 files over four pages, two of them without a patch, whose hunks can only
+# come from the clone, which is the throwaway repository itself, with a base that moved on after
+# the head branched and a rename that changed; the shim serves the pull request's base and head
+# shas from $PAGES/pull-<n>.json, and the cases swap in shas the clone does not hold. PR 20's
+# review is the one REST write the shim answers, for `post-review` (#96): each payload is appended
+# to $PAGES/posts.log, and the post is refused with the 422 bodies GitHub gave the measurement,
+# "Diff entry <path> diff is too large" for a comment on a path listed in $PAGES/too-large.txt
+# and "Line could not be resolved" for one on a path in $PAGES/unresolved.txt or, with
+# GH_FAKE_REFUSE_ALL=1, for every post, each body without its status field with
+# GH_FAKE_NO_STATUS=1, as a host may give it; a post it takes is served back as the pull
+# request's review comments, so the cases pin how many reviews were sent and what each one held.
+# With GH_FAKE_TMP_WATCH=<dir>, a files read logs to $PAGES/tmp-watch.log how many of the
+# script's temp files sit directly in <dir> while it is in flight, which is what an interrupt
+# then would leave behind (#112, R2-3).
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -54,7 +77,38 @@ FIX="$PLUGIN/tests/gh-fixtures"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/pages"
-git -C "$WORK/repo" init -q
+# The harness starts with no GIT_ variable, so the script under test reads the fixture's
+# repository and never one the caller's environment names: it only reads through git, so an
+# inherited GIT_DIR could not make it write anywhere, but it would read that repository in place
+# of the fixture and the clone cases would fail wherever the harness runs from a hook (#112,
+# R4-6). A hostile case sets what it needs on the script's call. Here, outside any function,
+# unset is enough.
+unset "${!GIT_@}"
+# hgit: the harness's own git, with the developer's configuration and environment shut out by
+# channel, so a fixture is the same on every machine and is built in its own folder only:
+# - no GIT_ variable, each one the shell holds taken out of git's environment with env -u, found
+#   by prefix and never listed by hand, so none has to be named again. Not `unset`: inside a
+#   function whose call carries the variable (GIT_DIR=... again ...), bash's unset removes that
+#   one and uncovers the exported value beneath it, which git would then follow. What they are:
+#   GIT_DIFF_OPTS (#112, R2-4); configuration given through the environment, GIT_CONFIG_COUNT
+#   with its key and value pairs or the GIT_CONFIG_PARAMETERS that git -c hands to what it runs
+#   (#112, R3-3); the variables that name another repository or its index, as git exports
+#   GIT_DIR and GIT_INDEX_FILE to a hook, which git -C does not override (#112, R4-6);
+#   GIT_TEMPLATE_DIR, which git init reads ahead of init.templateDir (#112, R4-7);
+# - no global or system configuration;
+# - no user attributes file, and no user ignore file: both default to a path under
+#   $XDG_CONFIG_HOME/git or ~/.config/git whatever GIT_CONFIG_GLOBAL says, and an ignore file that
+#   lists lib/ or *.json would keep the fixture's own files out of add -A (#112, the round 4
+#   spec);
+# - no hook, whatever put one in the repository (#112, R4-7).
+# The script under test runs its own git, which the hostile-configuration cases reach on
+# purpose, each setting what it needs on the script's call.
+hgit() {
+    local v drop=()
+    for v in "${!GIT_@}"; do drop+=(-u "$v"); done
+    env ${drop[@]+"${drop[@]}"} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null -c core.excludesFile=/dev/null -c core.hooksPath=/dev/null "$@"
+}
+hgit -C "$WORK/repo" init -q
 pass=0; fail=0
 ok() { pass=$((pass+1)); printf 'ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf 'FAIL %s\n     got: %s\n' "$1" "$2"; }
@@ -66,6 +120,12 @@ has() { [[ "$2" == *"$3"* ]] && ok "$1" || bad "$1" "$(printf '%s' "$2" | head -
 leftover() {
     local f n=0
     for f in "$1"/.redline-deferred.*; do [[ -e "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n"
+}
+# leftover_gh <dir>: how many of redline-gh.sh's temp files or folders are left in the folder.
+leftover_gh() {
+    local f n=0
+    for f in "$1"/redline-gh.*; do [[ -e "$f" ]] && n=$((n + 1)); done
     printf '%s\n' "$n"
 }
 
@@ -81,6 +141,130 @@ echo '{"login": "author"}' > "$WORK/pages/user.json"
 # what a command-line argument may carry (Losers League #778, 336 files, hit that limit).
 jq -n '[{filename: "public/build/vendor.js", status: "added", previous_filename: null, patch: ("@@ -0,0 +1,60000 @@\n" + ([range(60000) | "+line \(.)"] | join("\n")))}]' > "$WORK/pages/files-9-page1.json"
 jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", line: 59999, body: "**R1-1** · nit · low · likely\n\n**Deep in a generated file**"}, {path: "public/build/vendor.js", line: 60001, body: "**R1-2** · nit · low · likely\n\n**Past its end**"}]}' > "$WORK/review-9.json"
+# PR 20 (#96): files whose patch the listing omits. The listing is shaped as GitHub gave it for
+# the measurement's pull request: a text file past the listing's per-file limit has no patch and
+# `changes` above 0, a binary file no patch and `changes` 0. The whole diff is a real one, made by
+# git in a throwaway repository, so its sections are what GitHub serves: src/big.js with two hunks
+# in a section of about 290 KB, past the 100 KiB at which the listing drops a patch;
+# data/huge.json with 22,000 changed lines, the size GitHub refused a comment on; a binary; a
+# removed file; a rename with nothing changed. dist/absent.js is in the listing without a patch
+# and in no diff, so nothing supplies its hunks.
+# lib/nul.txt holds a NUL on its changed line 1500, past the 8,000 bytes git's binary test reads,
+# so git diffs it as text and the NUL reaches the recovered hunks. That line is a hunk of its own,
+# ahead of the file's other changes, and the file sorts before src/big.js, so the NUL sits in the
+# first 32 KiB of the hunk stream, which is all of a file macOS's grep reads to call it binary
+# (#112, R2-1).
+# The repository that makes the diff is the one the script runs in, so it is also the clone the
+# script reads when GitHub's whole diff cannot be had: PR 21 has 301 files, one past what that
+# endpoint takes, and two of them without a patch, lib/local.txt and lib/new-name.txt, renamed
+# from lib/old-name.txt with 600 of its 2,000 lines changed. Its base has moved on since the head
+# branched: the base tip changes line 500 of lib/local.txt, which the head does not, so that line
+# is in a diff against the base tip and in none against the merge base, which is the one GitHub
+# shows. The shim serves each pull request's base and head shas from $PAGES/pull-<n>.json.
+GEN="$WORK/repo"
+gen_commit() { hgit -C "$GEN" add -A && hgit -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
+# make_fixture: the fixture above, built in $GEN, a repository hgit has made there, with its three
+# shas set. A function, so a case can make the fixture again in another folder under an
+# environment the harness's own git must not follow (#112, R4-6, R4-7).
+make_fixture() {
+    mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
+    seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
+    seq 1 3000 | awk '{printf "nul %05d %080d\n", $1, 0}' > "$GEN/lib/nul.txt"
+    seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
+    seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
+    seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
+    seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
+    printf 'BIN\0base\n' > "$GEN/assets/logo.png"
+    seq 1 2400 | awk '{printf "local %05d %080d\n", $1, 0}' > "$GEN/lib/local.txt"
+    seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
+    # A name git quotes in a diff header ("b/lib/\345\220\215.txt"), as GitHub's whole diff does.
+    seq 1 2000 | awk '{printf "quoted %05d %080d\n", $1, 0}' > "$GEN/lib/名.txt"
+    gen_commit base
+    awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
+    awk 'NR>=2001 {print $0 " changed"; next} {print}' "$GEN/lib/nul.txt" > "$GEN/t"
+    { head -n 1499 "$GEN/t"; printf 'nul 01500 changed, a NUL \0 past byte 8,000\n'; tail -n +1501 "$GEN/t"; } > "$GEN/lib/nul.txt" && rm "$GEN/t"
+    awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
+    awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/small.js"
+    rm "$GEN/lib/gone.txt"
+    mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
+    printf 'BIN\0head\n' > "$GEN/assets/logo.png"
+    awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+    awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
+    awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/名.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/名.txt"
+    gen_commit head
+    HEAD_SHA="$(hgit -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(hgit -C "$GEN" rev-parse HEAD~1)"
+    hgit -C "$GEN" checkout -q --detach "$FORK_SHA"
+    awk 'NR==500 {print $0 " on the base"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+    gen_commit "the base moves on"
+    BASE_TIP_SHA="$(hgit -C "$GEN" rev-parse HEAD)"
+    hgit -C "$GEN" checkout -q -
+}
+make_fixture
+jq -n --arg base "$FORK_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-20.json"
+jq -n --arg base "$BASE_TIP_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-21.json"
+jq -n '[range(299) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, changes: 2, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + [
+    {filename: "lib/local.txt", status: "modified", previous_filename: null, additions: 1201, deletions: 1201, changes: 2402, patch: null},
+    {filename: "lib/new-name.txt", status: "renamed", previous_filename: "lib/old-name.txt", additions: 600, deletions: 600, changes: 1200, patch: null}
+]' > "$WORK/pages/files-21-all.json"
+jq '.[0:100]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page1.json"
+jq '.[100:200]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page2.json"
+jq '.[200:300]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page3.json"
+jq '.[300:]' "$WORK/pages/files-21-all.json" > "$WORK/pages/files-21-page4.json"
+jq -n '{body: "Redline round 1\n\nFive findings.", comments: [
+    {path: "lib/local.txt", line: 1500, body: "**R1-1** · nit · low · confirmed\n\n**On an added line**"},
+    {path: "lib/local.txt", line: 98, body: "**R1-2** · nit · low · confirmed\n\n**On a context line**"},
+    {path: "lib/local.txt", line: 500, body: "**R1-3** · nit · low · confirmed\n\n**Changed on the base only**"},
+    {path: "lib/new-name.txt", line: 1300, body: "**R1-4** · nit · low · confirmed\n\n**In a renamed file**"},
+    {path: "lib/new-name.txt", line: 5, body: "**R1-5** · nit · low · confirmed\n\n**In its unchanged part**"}
+]}' > "$WORK/review-21.json"
+# A git configuration that would move every hunk if the script did not pin its own flags.
+printf '[diff]\n\tcontext = 0\n\tnoprefix = true\n\talgorithm = patience\n\tinterHunkContext = 40\n\trenames = false\n' > "$WORK/gitconfig"
+# The whole diff the shim serves as GitHub's, from the fork to the head.
+whole_diff() { hgit -C "$GEN" -c core.quotepath=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M "$FORK_SHA" "$HEAD_SHA"; }
+whole_diff > "$WORK/pages/diff-20.txt"
+# again <dir>: the fixture made again from nothing in <dir>, by the same steps, and its whole diff
+# on stdout. In a subshell, so the fixture's own GEN and shas stay as they are; git's complaints
+# are dropped, since a fixture that could not be made shows in the diff that is compared.
+again() { ( GEN="$1"; mkdir -p "$GEN" && hgit -C "$GEN" init -q && make_fixture && whole_diff ) 2>/dev/null; }
+jq -n '[
+    {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
+    {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
+    {filename: "dist/absent.js", status: "modified", previous_filename: null, additions: 250, deletions: 250, changes: 500, patch: null},
+    {filename: "lib/gone.txt", status: "removed", previous_filename: null, additions: 0, deletions: 2000, changes: 2000, patch: null},
+    {filename: "lib/nul.txt", status: "modified", previous_filename: null, additions: 1001, deletions: 1001, changes: 2002, patch: null},
+    {filename: "lib/renamed-only.txt", status: "renamed", previous_filename: "lib/was.txt", additions: 0, deletions: 0, changes: 0, patch: null},
+    {filename: "lib/名.txt", status: "modified", previous_filename: null, additions: 600, deletions: 600, changes: 1200, patch: null},
+    {filename: "src/big.js", status: "modified", previous_filename: null, additions: 1501, deletions: 1501, changes: 3002, patch: null},
+    {filename: "src/small.js", status: "modified", previous_filename: null, additions: 1, deletions: 1, changes: 2, patch: "@@ -7,7 +7,7 @@ small 6\n small 7\n small 8\n small 9\n-small 10\n+small 10 changed\n small 11\n small 12\n small 13"}
+]' > "$WORK/pages/files-20-page1.json"
+jq -n '{body: "Redline round 1\n\nThree findings.", comments: [
+    {path: "src/big.js", line: 1500, body: "**R1-1** · correctness · high · confirmed\n\n**On an added line**"},
+    {path: "src/big.js", line: 1500, side: "LEFT", body: "**R1-2** · correctness · low · confirmed\n\n**On a removed line**"},
+    {path: "src/big.js", line: 98, body: "**R1-3** · nit · low · confirmed\n\n**On a context line**"}
+]}' > "$WORK/review-20-text.json"
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [
+    {path: "assets/logo.png", line: 1, body: "**R1-1** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-binary.json"
+jq -n '{body: "Redline round 1\n\nNine findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "dist/absent.js", line: 5, body: "**R1-2** · nit · low · confirmed\n\n**No source has it**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-3** · nit · low · confirmed\n\n**In an image**"},
+    {path: "src/big.js", line: 500, body: "**R1-4** · nit · low · confirmed\n\n**Between the hunks**"},
+    {path: "README.md", line: 1, body: "**R1-5** · nit · low · confirmed\n\n**Outside the pull request**"},
+    {path: "lib/renamed-only.txt", line: 1, body: "**R1-6** · nit · low · confirmed\n\n**Only renamed**"},
+    {path: "src/big.js", line: 1500, body: "**R1-7** · nit · low · confirmed\n\n**On an added line**"},
+    {path: "src/small.js", line: 1, body: "**R1-8** · nit · low · confirmed\n\n**Above the hunk**"},
+    {path: "lib/gone.txt", line: 10, side: "LEFT", body: "**R1-9** · nit · low · confirmed\n\n**In a removed file**"}
+]}' > "$WORK/review-20-causes.json"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "lib/nul.txt", line: 1500, body: "**R1-1** · nit · low · confirmed\n\n**On a line that holds a NUL**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On another patch-less file**"}
+]}' > "$WORK/review-20-nul.json"
+# GNU awk keeps a NUL that macOS's awk drops, so the NUL cases run under it when it is installed:
+# a folder holding awk as a link to gawk goes first on PATH for them. On a Linux runner the
+# system awk keeps a NUL already (#112, R2-1).
+mkdir -p "$WORK/gnu-awk"
+if command -v gawk >/dev/null 2>&1; then ln -s "$(command -v gawk)" "$WORK/gnu-awk/awk"; fi
 
 cat > "$WORK/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
@@ -155,17 +339,66 @@ if [[ "${1:-}" == "graphql" ]]; then
     if [[ "$slurp" == 1 ]]; then jq -s '.' "${pages[@]}"; else cat "${pages[@]}"; fi
     exit 0
 fi
-paginate=0; slurp=0; filter=""; endpoint=""
+paginate=0; slurp=0; filter=""; endpoint=""; header=""; method=""; input=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --paginate) paginate=1; shift ;;
         --slurp) slurp=1; shift ;;
         --jq) filter="$2"; shift 2 ;;
-        --method|--input|-X|-f|-F) echo "fake gh: write call refused: $*" >&2; exit 1 ;;
+        -H) header="$2"; shift 2 ;;
+        --method) method="$2"; shift 2 ;;
+        --input) input="$2"; shift 2 ;;
+        -X|-f|-F) echo "fake gh: write call refused: $*" >&2; exit 1 ;;
         *) endpoint="$1"; shift ;;
     esac
 done
+# PR 20's review (#96), the one REST write that is answered: the payload is logged, then refused
+# as GitHub refused the measurement's reviews (the JSON on stdout, gh's line on stderr, exit 1) or
+# taken, in which case its comments become the pull request's review comments.
+if [[ -n "$method" || -n "$input" ]]; then
+    if [[ "$method" != "POST" || "$input" != "-" || "$endpoint" != "repos/{owner}/{repo}/pulls/20/reviews" ]]; then
+        echo "fake gh: write call refused: $method $endpoint" >&2; exit 1
+    fi
+    payload="$(cat)"
+    jq -c . <<<"$payload" >> "$PAGES/posts.log"
+    # GH_FAKE_NO_STATUS=1 leaves the body's status field out, as a host's error body may (#112, R1-10).
+    refuse() {
+        jq -cn --arg e "$1" --arg nostatus "${GH_FAKE_NO_STATUS:-0}" '{message: "Unprocessable Entity", errors: [$e], documentation_url: "https://docs.github.com/rest/pulls/reviews#create-a-review-for-a-pull-request"} + (if $nostatus == "1" then {} else {status: "422"} end)'
+        echo "gh: Unprocessable Entity (HTTP 422)" >&2
+        exit 1
+    }
+    # named <file>: the first comment path of the payload that the file lists, or nothing.
+    named() { jq -r --rawfile t "$1" '($t | split("\n") | map(select(length > 0))) as $l | [.comments[].path | select(. as $p | $l | index($p) != null)] | first // ""' <<<"$payload"; }
+    large="$(named "$PAGES/too-large.txt")"
+    if [[ -n "$large" ]]; then refuse "Diff entry $large diff is too large"; fi
+    if [[ -n "$(named "$PAGES/unresolved.txt")" || "${GH_FAKE_REFUSE_ALL:-0}" == 1 ]]; then refuse "Line could not be resolved"; fi
+    jq '[.comments | to_entries[] | .value + {id: (9001 + .key), pull_request_review_id: 900, in_reply_to_id: null}]' <<<"$payload" > "$PAGES/comments-20.json"
+    echo '{"id": 900, "html_url": "https://github.com/o/r/pull/20#pullrequestreview-900"}'
+    exit 0
+fi
 if [[ "$slurp" == 1 && "${GH_FAKE_OLD:-0}" == 1 ]]; then echo "unknown flag: --slurp" >&2; exit 1; fi
+# Every read is logged, endpoint then header, so a case can pin how many calls a subcommand made.
+printf '%s\t%s\n' "$endpoint" "$header" >> "$PAGES/api.log"
+# GH_FAKE_TMP_WATCH=<dir>: on a files read, how many of redline-gh.sh's temp files sit directly
+# in <dir> while the call is in flight, which is what an interrupt then would leave (#112, R2-3).
+if [[ -n "${GH_FAKE_TMP_WATCH:-}" && "$endpoint" == */files ]]; then
+    n=0
+    for f in "$GH_FAKE_TMP_WATCH"/redline-gh.*; do [[ -f "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n" >> "$PAGES/tmp-watch.log"
+fi
+# The whole-pull-request diff (#96): the pull request's own endpoint under the diff media type,
+# served from $PAGES/diff-<n>.txt. With no such file, or with GH_FAKE_DIFF_FAIL=1, it is refused
+# the way GitHub refuses a pull request over 300 files: the JSON on stdout, gh's line on stderr.
+if [[ "$header" == "Accept: application/vnd.github.diff" ]]; then
+    n="${endpoint##*/}"
+    if [[ "$endpoint" == "repos/{owner}/{repo}/pulls/$n" && -f "$PAGES/diff-$n.txt" && "${GH_FAKE_DIFF_FAIL:-0}" != 1 ]]; then
+        cat "$PAGES/diff-$n.txt"
+        exit 0
+    fi
+    echo '{"message":"Sorry, the diff exceeded the maximum number of files (300). Consider using the List pull requests files API or locally cloning the repository instead.","errors":[{"resource":"PullRequest","field":"diff","code":"too_large"}],"status":"406"}'
+    echo "gh: Sorry, the diff exceeded the maximum number of files (300). (HTTP 406)" >&2
+    exit 1
+fi
 case "$endpoint" in
     "repos/{owner}/{repo}/pulls/7/files") pages=("$PAGES/files-7-page1.json" "$PAGES/files-7-page2.json") ;;
     "repos/{owner}/{repo}/pulls/7/reviews") pages=("$PAGES/reviews-7.json") ;;
@@ -200,6 +433,11 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/19/reviews") pages=("$PAGES/reviews-19.json") ;;
     "repos/{owner}/{repo}/pulls/19/comments") pages=("$PAGES/comments-19.json") ;;
     "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
+    "repos/{owner}/{repo}/pulls/20/files") pages=("$PAGES/files-20-page1.json") ;;
+    "repos/{owner}/{repo}/pulls/20") pages=("$PAGES/pull-20.json") ;;
+    "repos/{owner}/{repo}/pulls/20/comments") pages=("$PAGES/comments-20.json") ;;
+    "repos/{owner}/{repo}/pulls/21/files") pages=("$PAGES/files-21-page1.json" "$PAGES/files-21-page2.json" "$PAGES/files-21-page3.json" "$PAGES/files-21-page4.json") ;;
+    "repos/{owner}/{repo}/pulls/21") pages=("$PAGES/pull-21.json") ;;
     "user") pages=("$PAGES/user.json") ;;
     *) echo "fake gh: no fixture for $endpoint" >&2; exit 1 ;;
 esac
@@ -263,6 +501,302 @@ big="$(gh place 9 "$WORK/review-9.json" 2>"$WORK/err")"; code=$?
 is "place: a megabyte of positions does not overflow the command line" "$code" "0"
 is "place: the deep line anchors and the one past the end moves" "$(jq -r '[(.comments | length), (.moved | map(.id) | join(","))] | join(" ")' <<<"$big")" "1 R1-2"
 is "place: positions never reach a command-line argument" "$(grep -c 'Argument list too long' "$WORK/err")" "0"
+
+echo "# place: a file whose patch the listing omits (#96)"
+# diff_calls: how many times the whole-pull-request diff was read since api.log was emptied.
+diff_calls() { grep -c $'\tAccept: application/vnd.github.diff$' "$PAGES/api.log" || true; }
+: > "$PAGES/api.log"
+text="$(gh place 20 "$WORK/review-20-text.json" 2>"$WORK/err")"; code=$?
+is "place: a patch-less text file: exits 0" "$code" "0"
+is "place: a patch-less text file: an added, a removed and a context line stay inline" "$(jq -r '[.comments[] | .side + " " + (.line | tostring)] | join(",")' <<<"$text")" "RIGHT 1500,LEFT 1500,RIGHT 98"
+is "place: a patch-less text file: nothing is moved" "$(jq -c '.moved' <<<"$text")" "[]"
+is "place: a patch-less text file: the body is left alone" "$(jq -r '.body' <<<"$text")" $'Redline round 1\n\nThree findings.'
+is "place: a patch-less text file: the whole diff is read once" "$(diff_calls)" "1"
+is "place: a patch-less text file: nothing on stderr" "$(cat "$WORK/err")" ""
+: > "$PAGES/api.log"
+binary="$(gh place 20 "$WORK/review-20-binary.json")"
+is "place: a binary file: moved" "$(jq -c '.moved' <<<"$binary")" '[{"id":"R1-1","path":"assets/logo.png","line":1,"side":"RIGHT"}]'
+is "place: a binary file: the body says why in one line" "$(jq -r '.body' <<<"$binary")" $'Redline round 1\n\nOne finding.\n\n### Not placed inline\n\nThe file is binary and has no hunks:\n\n<!-- redline:R1-1 -->\n`assets/logo.png:1`\n\n**R1-1** · nit · low · confirmed\n\n**In an image**'
+is "place: a binary file: the listing says so, the whole diff is not read" "$(diff_calls)" "0"
+: > "$PAGES/api.log"
+causes="$(gh place 20 "$WORK/review-20-causes.json")"
+is "place: causes: a listed patch, a recovered hunk and a removed file's line stay inline" "$(jq -r '[.comments[].body | capture("^\\*\\*(?<id>R1-[0-9]+)\\*\\*").id] | join(",")' <<<"$causes")" "R1-1,R1-7,R1-9"
+is "place: causes: moved keeps the review's order and its shape" "$(jq -c '.moved' <<<"$causes")" '[{"id":"R1-2","path":"dist/absent.js","line":5,"side":"RIGHT"},{"id":"R1-3","path":"assets/logo.png","line":1,"side":"RIGHT"},{"id":"R1-4","path":"src/big.js","line":500,"side":"RIGHT"},{"id":"R1-5","path":"README.md","line":1,"side":"RIGHT"},{"id":"R1-6","path":"lib/renamed-only.txt","line":1,"side":"RIGHT"},{"id":"R1-8","path":"src/small.js","line":1,"side":"RIGHT"}]'
+is "place: causes: one line for each cause, in a fixed order, its comments under it" "$(jq -r '.body' <<<"$causes")" $'Redline round 1\n\nNine findings.\n\n### Not placed inline\n\nThe file is not in this pull request:\n\n<!-- redline:R1-5 -->\n`README.md:1`\n\n**R1-5** · nit · low · confirmed\n\n**Outside the pull request**\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-4 -->\n`src/big.js:500`\n\n**R1-4** · nit · low · confirmed\n\n**Between the hunks**\n\n<!-- redline:R1-8 -->\n`src/small.js:1`\n\n**R1-8** · nit · low · confirmed\n\n**Above the hunk**\n\nThe file is binary and has no hunks:\n\n<!-- redline:R1-3 -->\n`assets/logo.png:1`\n\n**R1-3** · nit · low · confirmed\n\n**In an image**\n\nThe file was renamed with no text changes and has no hunks:\n\n<!-- redline:R1-6 -->\n`lib/renamed-only.txt:1`\n\n**R1-6** · nit · low · confirmed\n\n**Only renamed**\n\nThe file\'s patch could not be had from GitHub\'s listing, its whole diff or this clone:\n\n<!-- redline:R1-2 -->\n`dist/absent.js:5`\n\n**R1-2** · nit · low · confirmed\n\n**No source has it**'
+is "place: causes: three patch-less text files named, the whole diff read once" "$(diff_calls)" "1"
+: > "$PAGES/api.log"
+gh place 7 "$FIX/review-7.json" >/dev/null; gh place 7 "$FIX/review-7-placed.json" >/dev/null
+is "place: no patch-less text file named, the whole diff is not read" "$(diff_calls)" "0"
+has "place: PR 7's off-hunk comment sits under its cause" "$body" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->'
+has "place: PR 7's no-patch comment sits under its cause" "$body" $'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->'
+# A comment with no path, as only a hand-written review file has (#112, R1-8): moved into the
+# body, as before #96, never a jq error.
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {line: 3, body: "**R1-1** · nit · low · confirmed\n\n**No path**"},
+    {path: "README.md", line: 1, body: "**R1-2** · nit · low · confirmed\n\n**Outside the pull request**"}
+]}' > "$WORK/review-20-nopath.json"
+nopath_out="$(gh place 20 "$WORK/review-20-nopath.json" 2>"$WORK/err")"; code=$?
+is "place: a comment with no path: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: a comment with no path: moved into the body, with the other" "$(jq -c '.moved' <<<"$nopath_out")" '[{"id":"R1-1","path":null,"line":3,"side":"RIGHT"},{"id":"R1-2","path":"README.md","line":1,"side":"RIGHT"}]'
+
+echo "# place: the clone as the second source (#96)"
+# sha_calls <n>: how many times the pull request's base and head shas were read since api.log was emptied.
+sha_calls() { grep -c "^repos/{owner}/{repo}/pulls/$1"$'\t$' "$PAGES/api.log" || true; }
+: > "$PAGES/api.log"
+local_out="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
+is "place: over 300 files: exits 0" "$code" "0"
+is "place: over 300 files: the listing has 301" "$(gh files 21 | jq 'length')" "301"
+is "place: over 300 files: added, context and renamed-file lines are placed from the clone" "$(jq -r '[.comments[].body | capture("^\\*\\*(?<id>R1-[0-9]+)\\*\\*").id] | join(",")' <<<"$local_out")" "R1-1,R1-2,R1-4"
+is "place: over 300 files: the diff is against the merge base and follows the rename" "$(jq -r '.moved | map(.id) | join(",")' <<<"$local_out")" "R1-3,R1-5"
+has "place: over 300 files: both off-hunk lines sit under their cause" "$(jq -r '.body' <<<"$local_out")" $'### Not placed inline\n\nThe line is not in the pull request\'s diff:\n\n<!-- redline:R1-3 -->\n`lib/local.txt:500`\n\n**R1-3** · nit · low · confirmed\n\n**Changed on the base only**\n\n<!-- redline:R1-5 -->'
+is "place: over 300 files: the whole diff is not asked for" "$(diff_calls)" "0"
+is "place: over 300 files: the two shas are read once" "$(sha_calls 21)" "1"
+is "place: over 300 files: nothing on stderr" "$(cat "$WORK/err")" ""
+pinned="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff is pinned against the user's git configuration" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$pinned")" '[[1500,98,1300],["R1-3","R1-5"]]'
+diffopts="$(GIT_DIFF_OPTS=-u0 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff is pinned against GIT_DIFF_OPTS, which git lets override -U" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$diffopts")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# Git's own binary test, which GitHub does not share (#112, R2-2): a user attributes file that
+# unsets diff for the file, and a big-file threshold between its size (223,200 bytes) and the
+# rename pair's (184,000 and 188,800). The clone's diff reads a wanted file as text, so both
+# place as the default run does.
+printf 'lib/local.txt -diff\n' > "$WORK/attributes"
+printf '[core]\n\tattributesFile = %s\n' "$WORK/attributes" > "$WORK/gitconfig-attributes"
+printf '[core]\n\tbigFileThreshold = 200k\n' > "$WORK/gitconfig-bigfile"
+attributes="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-attributes" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff reads a file a user attributes file marks -diff as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attributes")" '[[1500,98,1300],["R1-3","R1-5"]]'
+bigfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-bigfile" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff reads a file past core.bigFileThreshold as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$bigfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# A diff.orderFile git cannot read (#112, R4-4): a relative one is read against the repository
+# root, and git ends a porcelain diff whose order file it cannot read, so the script cancels the
+# setting on that call (-O/dev/null), and the run places as the default one does.
+printf '[diff]\n\torderFile = .redline-no-such-orderfile\n' > "$WORK/gitconfig-orderfile"
+orderfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-orderfile" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff cancels a diff.orderFile git cannot read" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$orderfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# A global pathspec setting beside the clone diff's --literal-pathspecs (#112, R3-1): git refuses
+# glob or icase together with literal and exits, so the script unsets them on that call, and both
+# place as the default run does.
+icase="$(GIT_ICASE_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_ICASE_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$icase")" '[[1500,98,1300],["R1-3","R1-5"]]'
+globbed="$(GIT_GLOB_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_GLOB_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$globbed")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# GIT_ATTR_SOURCE naming a tree the repository does not hold (#112, the round 4 spec's sweep): git
+# ends a diff that cannot read its attributes from there, while the script's rev-parse, cat-file
+# and merge-base all pass, so the script unsets it on that call, and the run places as the
+# default one does.
+attrsource="$(GIT_ATTR_SOURCE=refs/heads/redline-no-such-ref gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_ATTR_SOURCE unset, which ends git when it names no tree here" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attrsource")" '[[1500,98,1300],["R1-3","R1-5"]]'
+cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
+echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
+nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
+is "place: commits the clone does not hold: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: commits the clone does not hold: nothing is placed" "$(jq -r '[(.comments | length), (.moved | length)] | join(" ")' <<<"$nopatch")" "0 5"
+has "place: commits the clone does not hold: the body says the patch could not be had" "$(jq -r '.body' <<<"$nopatch")" $'### Not placed inline\n\nThe file\'s patch could not be had from GitHub\'s listing, its whole diff or this clone:\n\n<!-- redline:R1-1 -->'
+cp "$WORK/pull-21.json" "$PAGES/pull-21.json"
+: > "$PAGES/api.log"
+refused="$(GH_FAKE_DIFF_FAIL=1 gh place 20 "$WORK/review-20-text.json" 2>"$WORK/err")"; code=$?
+is "place: the whole diff refused: exits 0, nothing on stderr" "$code $(cat "$WORK/err")" "0 "
+is "place: the whole diff refused: the clone places all three" "$(jq -r '[(.comments | length), (.moved | length)] | join(" ")' <<<"$refused")" "3 0"
+is "place: the whole diff refused: asked once, then the shas once" "$(diff_calls) $(sha_calls 20)" "1 1"
+: > "$PAGES/api.log"
+gh place 20 "$WORK/review-20-text.json" >/dev/null
+is "place: the whole diff gave every file: the shas are not read" "$(diff_calls) $(sha_calls 20)" "1 0"
+: > "$PAGES/api.log"
+gh place 20 "$WORK/review-20-causes.json" >/dev/null
+is "place: a file the whole diff lacks: the clone is asked, once" "$(diff_calls) $(sha_calls 20)" "1 1"
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [{path: "lib/名.txt", line: 1300, body: "**R1-1** · nit · low · confirmed\n\n**In a file git quotes the name of**"}]}' > "$WORK/review-20-quoted.json"
+: > "$PAGES/api.log"
+quoted="$(gh place 20 "$WORK/review-20-quoted.json")"
+is "place: a name a diff header quotes: the whole diff holds it quoted" "$(grep -c '^+++ "b/lib/' "$PAGES/diff-20.txt")" "1"
+is "place: a name a diff header quotes: placed from the clone, which is asked not to quote it" "$(jq -c '[(.comments | length), (.moved | length)]' <<<"$quoted") $(diff_calls) $(sha_calls 20)" "[1,0] 1 1"
+# A NUL in a recovered hunk (#112, R2-1): the file markers are still read, so both patch-less
+# files keep their hunks and the whole diff is enough.
+: > "$PAGES/api.log"
+nul_out="$(PATH="$WORK/gnu-awk:$PATH" gh place 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
+is "place: a NUL in a recovered hunk: both patch-less files stay inline, nothing on stderr" "$code $(jq -c '[(.comments | length), (.moved | length)]' <<<"$nul_out") $(cat "$WORK/err")" "0 [2,0] "
+is "place: a NUL in a recovered hunk: the whole diff gave both files, so the shas are not read" "$(diff_calls) $(sha_calls 20)" "1 0"
+# The fixture's whole diff is the same under a developer's diff settings and GIT_DIFF_OPTS
+# (#112, R2-4): made again under the hostile configuration above, it matches byte for byte.
+is "the fixture's whole diff ignores the developer's git configuration and GIT_DIFF_OPTS" "$(if GIT_DIFF_OPTS=-u0 GIT_CONFIG_GLOBAL="$WORK/gitconfig" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# The same under configuration given through the environment rather than a file (#112, R3-3):
+# GIT_CONFIG_COUNT with a key and value pair, and GIT_CONFIG_PARAMETERS, which git -c hands to
+# what it runs (an alias, a hook). Either would shrink the whole diff's context to none.
+is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_COUNT" "$(if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=0 whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_PARAMETERS" "$(if GIT_CONFIG_PARAMETERS="'diff.context=0'" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# The fixture made again from nothing in a second folder is the same fixture, byte for byte: what
+# the cases below compare, seen first with nothing hostile set.
+is "the fixture made again in a second folder is the same fixture" "$(if again "$WORK/again-plain" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# Made again where the environment names another repository (#112, R4-6): git -C changes the
+# directory, and GIT_DIR still names the repository and GIT_INDEX_FILE the index, as git exports
+# them to a hook. The harness's git drops every GIT_ variable, so the fixture is built in its own
+# folder and the other repository's HEAD and index are as they were.
+mkdir -p "$WORK/other" && hgit -C "$WORK/other" init -q
+printf 'kept\n' > "$WORK/other/kept.txt"
+( GEN="$WORK/other"; gen_commit kept )
+other_state() { printf '%s %s' "$(hgit -C "$WORK/other" rev-parse HEAD)" "$(cksum < "$WORK/other/.git/index")"; }
+other_before="$(other_state)"
+is "the fixture made again under GIT_DIR and GIT_INDEX_FILE is the same fixture" "$(if GIT_DIR="$WORK/other/.git" GIT_INDEX_FILE="$WORK/other/.git/index" again "$WORK/again-dir" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+is "the fixture made again under GIT_DIR and GIT_INDEX_FILE leaves that repository's HEAD and index alone" "$(other_state)" "$other_before"
+# Made again under a template whose pre-commit hook refuses every commit (#112, R4-7): git init
+# reads GIT_TEMPLATE_DIR ahead of init.templateDir, and a hook it copies in would stop the
+# fixture's commits or change them. No GIT_ variable reaches the harness's git, and it runs no hook.
+mkdir -p "$WORK/template/hooks"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/template/hooks/pre-commit"
+chmod +x "$WORK/template/hooks/pre-commit"
+is "the fixture made again under a GIT_TEMPLATE_DIR whose hook refuses commits is the same fixture" "$(if GIT_TEMPLATE_DIR="$WORK/template" again "$WORK/again-template" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# Made again under a per-user ignore file that lists the fixture's own paths (#112, the round 4
+# spec): core.excludesFile defaults to $XDG_CONFIG_HOME/git/ignore, or ~/.config/git/ignore,
+# whatever GIT_CONFIG_GLOBAL says, and add -A leaves out what it lists. The harness's git reads
+# none.
+mkdir -p "$WORK/xdg/git"
+printf 'lib/\n*.json\n' > "$WORK/xdg/git/ignore"
+is "the fixture made again under a per-user ignore file that lists its paths is the same fixture" "$(if XDG_CONFIG_HOME="$WORK/xdg" again "$WORK/again-ignore" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+
+echo "# post-review: a refusal the new sources can cause (#96)"
+jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"},
+    {path: "data/huge.json", line: 5000, body: "**R1-3** · nit · low · confirmed\n\n**In a very large diff**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-4** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-post.json"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "assets/logo.png", line: 1, body: "**R1-2** · nit · low · confirmed\n\n**In an image**"}
+]}' > "$WORK/review-20-listed.json"
+# fresh_posts: no review sent yet, and GitHub refuses nothing.
+fresh_posts() { : > "$PAGES/posts.log"; : > "$PAGES/too-large.txt"; : > "$PAGES/unresolved.txt"; rm -f "$PAGES/comments-20.json"; }
+posts() { wc -l < "$PAGES/posts.log" | tr -d ' '; }
+# post_paths <k>: the paths of the inline comments the k-th review sent held.
+post_paths() { sed -n "$1p" "$PAGES/posts.log" | jq -r '[.comments[].path] | join(",")'; }
+post_body() { sed -n "$1p" "$PAGES/posts.log" | jq -r '.body'; }
+BINARY_GROUP=$'The file is binary and has no hunks:\n\n<!-- redline:R1-4 -->\n`assets/logo.png:1`\n\n**R1-4** · nit · low · confirmed\n\n**In an image**'
+
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a review GitHub takes: exits 0, posted once, nothing on stderr" "$code $(posts) $(cat "$WORK/err")" "0 1 "
+is "post-review: a review GitHub takes: the patch-less files' comments go inline" "$(post_paths 1)" "src/small.js,src/big.js,data/huge.json"
+is "post-review: a review GitHub takes: the output names the review, its comments and the moved one" "$(jq -c '[.review_id, [.comments[].id], [.moved[].id]]' <<<"$out")" '[900,[9001,9002,9003],["R1-4"]]'
+
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: too large: exits 0 after two posts" "$code $(posts)" "0 2"
+is "post-review: too large: the first review held the file's comment" "$(post_paths 1)" "src/small.js,src/big.js,data/huge.json"
+is "post-review: too large: the second review holds every other inline comment" "$(post_paths 2)" "src/small.js,src/big.js"
+is "post-review: too large: the body says why, under the binary file's line" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub takes no comment on a diff this large:\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: too large: moved names both, in the review's order" "$(jq -c '[.review_id, (.comments | length), [.moved[].id]]' <<<"$out")" '[900,2,["R1-3","R1-4"]]'
+is "post-review: too large: one line on stderr, and not gh's" "$(cat "$WORK/err")" "redline-gh.sh: GitHub takes no comment on data/huge.json (its diff is too large); posting again with its comments in the review body"
+
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 that names no file: exits 0 after two posts" "$code $(posts)" "0 2"
+is "post-review: a 422 that names no file: the second review holds only the listing's patches" "$(post_paths 2)" "src/small.js"
+is "post-review: a 422 that names no file: the body says so, with GitHub's message" "$(post_body 2)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub refused a review that placed comments through its whole diff or this clone (Line could not be resolved), so these comments, on files its listing gives no patch for, are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: a 422 that names no file: moved names all three" "$(jq -c '[(.comments | length), [.moved[].id]]' <<<"$out")" '[1,["R1-2","R1-3","R1-4"]]'
+is "post-review: a 422 that names no file: one line on stderr" "$(cat "$WORK/err")" "redline-gh.sh: GitHub refused the review (Line could not be resolved); posting again with only the comments on files the listing gives a patch for"
+# The fallback with a comment the first pass found off the recovered hunks (#112, R1-6): it is
+# on a sourced file, so it sits under the refused line too, whose words claim no placement.
+jq -n '{body: "Redline round 1\n\nThree findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"},
+    {path: "src/big.js", line: 500, body: "**R1-3** · nit · low · confirmed\n\n**Off the recovered hunks**"}
+]}' > "$WORK/review-20-fallback.json"
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-fallback.json" 2>"$WORK/err")"; code=$?
+is "post-review: the fallback with an off-hunk comment: exits 0 after two posts, the second from the listing's patch" "$code $(posts) $(post_paths 2)" "0 2 src/small.js"
+is "post-review: the fallback with an off-hunk comment: both sit under the refused line, which claims no placement" "$(post_body 2)" $'Redline round 1\n\nThree findings.\n\n### Not placed inline\n\nGitHub refused a review that placed comments through its whole diff or this clone (Line could not be resolved), so these comments, on files its listing gives no patch for, are here:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`src/big.js:500`\n\n**R1-3** · nit · low · confirmed\n\n**Off the recovered hunks**'
+
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"; echo "src/small.js" > "$PAGES/unresolved.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: the fallback refused as well: exits 1 after three posts, nothing on stdout" "$code $(posts) $out" "1 3 "
+is "post-review: the fallback refused as well: the third review was the listing's patches only" "$(post_paths 3)" "src/small.js"
+has "post-review: the fallback refused as well: the too-large file kept its own line in that review" "$(post_body 3)" $'GitHub takes no comment on a diff this large:\n\n<!-- redline:R1-3 -->'
+has "post-review: the fallback refused as well: gh's line reaches stderr" "$(cat "$WORK/err")" "gh: Unprocessable Entity (HTTP 422)"
+has "post-review: the fallback refused as well: so does GitHub's reason" "$(cat "$WORK/err")" $'Unprocessable Entity\nLine could not be resolved'
+
+fresh_posts
+out="$(GH_FAKE_REFUSE_ALL=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 with nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
+has "post-review: a 422 with nothing placed through a source: GitHub's reason on stderr" "$(cat "$WORK/err")" $'gh: Unprocessable Entity (HTTP 422)\nUnprocessable Entity\nLine could not be resolved'
+
+# Comments the placement cannot read (#112, R1-9): a moved comment whose body is no string, which
+# the jq that writes the review body cannot join, so post-review stops before it posts anything.
+jq -n '{body: "Redline round 1\n\nOne finding.", comments: [{path: "README.md", line: 1, body: 5}]}' > "$WORK/review-20-unplaceable.json"
+# taken: whether the shim took a review since fresh_posts, which a taken post writes comments-20.json for.
+taken() { if [[ -e "$PAGES/comments-20.json" ]]; then echo taken; else echo none; fi; }
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-unplaceable.json" 2>"$WORK/err")"; code=$?
+is "post-review: comments that cannot be placed: exit 2, nothing on stdout" "$code $out" "2 "
+has "post-review: comments that cannot be placed: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-unplaceable.json; nothing was posted"
+is "post-review: comments that cannot be placed: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+# A step of the placement that fails (#112, R4-5): the step that writes each file's kind fails
+# and leaves its file empty, which the last step reads as every file absent, so what it prints is
+# well formed and every comment sits under "The file is not in this pull request:". The
+# placement's status is what stops the post. The jq here fails that one step (the only call that
+# takes --rawfile recovered) and is the real jq for every other, the shim's own --rawfile call
+# included.
+mkdir -p "$WORK/old-jq"
+printf '#!/bin/sh\ncase " $* " in *" --rawfile recovered "*) exit 2 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$WORK/old-jq/jq"
+chmod +x "$WORK/old-jq/jq"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"}
+]}' > "$WORK/review-20-kinds.json"
+fresh_posts
+out="$(PATH="$WORK/old-jq:$PATH" gh post-review 20 "$WORK/review-20-kinds.json" 2>"$WORK/err")"; code=$?
+is "post-review: a placement step that fails: exit 2, nothing on stdout" "$code $out" "2 "
+has "post-review: a placement step that fails: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-kinds.json; nothing was posted"
+is "post-review: a placement step that fails: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-kinds.json" 2>"$WORK/err")"; code=$?
+is "post-review: the same review with every step working: one post, both comments inline" "$code $(posts) $(jq -c '[(.comments | length), (.moved | length)]' <<<"$out")" "0 1 [2,0]"
+# A comment that is not an object (#112, R3-2): the review file's own check reads every comment's
+# shape, so post-review stops before the listing is read, with its own line and exit 2, never jq's.
+jq -n '{body: "Redline round 1", comments: [1]}' > "$WORK/review-20-nonobject.json"
+fresh_posts; : > "$PAGES/api.log"
+out="$(gh post-review 20 "$WORK/review-20-nonobject.json" 2>"$WORK/err")"; code=$?
+is "post-review: a comment that is not an object: exit 2, nothing on stdout" "$code $out" "2 "
+is "post-review: a comment that is not an object: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: $WORK/review-20-nonobject.json must be JSON with body (string) and comments (an array of objects)"
+is "post-review: a comment that is not an object: nothing is read and no review is sent" "$(wc -l < "$PAGES/api.log" | tr -d ' ') $(posts) $(taken)" "0 0 none"
+
+# A 422 whose body carries no status (#112, R1-10): gh's own line says 422, and the refusal is acted on.
+fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
+out="$(GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 body with no status: the fallback still posts, from the listing's patches" "$code $(posts) $(post_paths 2)" "0 2 src/small.js"
+is "post-review: a 422 body with no status: one line on stderr" "$(cat "$WORK/err")" "redline-gh.sh: GitHub refused the review (Line could not be resolved); posting again with only the comments on files the listing gives a patch for"
+fresh_posts; echo "data/huge.json" > "$PAGES/too-large.txt"
+out="$(GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: a too-large 422 with no status: posted again without that file's comment" "$code $(posts) $(post_paths 2)" "0 2 src/small.js,src/big.js"
+fresh_posts
+out="$(GH_FAKE_REFUSE_ALL=1 GH_FAKE_NO_STATUS=1 gh post-review 20 "$WORK/review-20-listed.json" 2>"$WORK/err")"; code=$?
+is "post-review: a 422 with no status and nothing placed through a source: one post, exit 1, as before" "$code $(posts) $out" "1 1 "
+
+# A run that fails leaves no temp file behind (#112, R1-2): every one sits in a folder the trap removes.
+mkdir -p "$WORK/tmp-place" "$WORK/tmp-post"
+TMPDIR="$WORK/tmp-place" gh place 20 "$WORK/review-20-unplaceable.json" >/dev/null 2>&1
+is "place: a run that fails leaves no temp file behind" "$(leftover_gh "$WORK/tmp-place")" "0"
+fresh_posts
+TMPDIR="$WORK/tmp-post" gh post-review 20 "$WORK/review-20-unplaceable.json" >/dev/null 2>&1
+is "post-review: a run that fails leaves no temp file behind" "$(leftover_gh "$WORK/tmp-post")" "0"
+
+# Two files GitHub takes no comment on in one review (#112, R1-11): one post more for each, then the post.
+fresh_posts; printf 'data/huge.json\nsrc/big.js\n' > "$PAGES/too-large.txt"
+out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
+is "post-review: two too-large files: exits 0 after three posts, the last with the listing's patch only" "$code $(posts) $(post_paths 3)" "0 3 src/small.js"
+is "post-review: two too-large files: both sit under the too-large line, in the review's order" "$(post_body 3)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub takes no comment on a diff this large:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
+is "post-review: two too-large files: one stderr line each, in the order GitHub named them" "$(cat "$WORK/err")" $'redline-gh.sh: GitHub takes no comment on src/big.js (its diff is too large); posting again with its comments in the review body\nredline-gh.sh: GitHub takes no comment on data/huge.json (its diff is too large); posting again with its comments in the review body'
+
+# A NUL in a recovered hunk (#112, R2-1): post-review reads which files were sourced as place
+# does, so GitHub's too-large refusal on that file is acted on.
+fresh_posts; echo "lib/nul.txt" > "$PAGES/too-large.txt"
+out="$(PATH="$WORK/gnu-awk:$PATH" gh post-review 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
+is "post-review: a NUL in a recovered hunk: the too-large refusal on that file is acted on" "$code $(posts) $(post_paths 2)" "0 2 src/big.js"
+# An interrupt while the listing is read leaves nothing behind (#112, R2-3): pr_files' own temp
+# file is made in the scratch folder too, so none sits directly in the temp directory then.
+mkdir -p "$WORK/tmp-watch"; : > "$PAGES/tmp-watch.log"
+GH_FAKE_TMP_WATCH="$WORK/tmp-watch" TMPDIR="$WORK/tmp-watch" gh place 20 "$WORK/review-20-text.json" >/dev/null 2>&1
+fresh_posts
+GH_FAKE_TMP_WATCH="$WORK/tmp-watch" TMPDIR="$WORK/tmp-watch" gh post-review 20 "$WORK/review-20-listed.json" >/dev/null 2>&1
+is "place and post-review: no temp file sits outside the scratch folder while the listing is read" "$(tr '\n' ' ' < "$PAGES/tmp-watch.log")" "0 0 "
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"

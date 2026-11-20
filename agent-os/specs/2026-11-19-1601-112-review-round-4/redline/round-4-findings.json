@@ -1,0 +1,225 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "e068d94a4a92116d5cffa7e67e08c383560eb9e2",
+    "to": "9432853f7c0b9d651d1d15a3f1a73ede1423619b"
+  },
+  "summary": "Round 3's fixes hold: the clone's diff now runs with the global pathspec variables unset, a review file whose comments are not all objects stops with the documented line and exit 2 before anything is read, the fixture's git ignores configuration given through the environment, and docs/scripts.md names post-review among what the gh harness pins; each fix has a case. The findings left are inputs the new paths still assume away (a diff.orderFile git cannot read, a failing kinds step that the output check cannot see, repository and template variables hgit does not unset), one missing merge-base condition in the texts, and two slips in the standards lines. Nothing in this repository is scheduled or queued against these files, so no overlap applies.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "README.md",
+      "line": 114,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Known limits and the place header leave out that the clone also needs the merge base of the PR's base and head",
+      "description": "README.md:114 says a patch-less file's finding stays in the body only \"when the clone does not hold the PR's base and head commits\", and the `place` header (scripts/redline-gh.sh:98-101, quoted verbatim in docs/scripts.md:108) says the clone supplies the hunks \"when this clone holds the base and the head commit\". The code also needs `git merge-base` to succeed (scripts/redline-gh.sh:376, `&& fork=\"$(git merge-base \"$base\" \"$head\" 2>/dev/null)\"`): in a shallow clone that holds both tips but not their common ancestor (`git clone --depth 1` plus `git fetch --depth 1 origin <base> <head>`), both `git cat-file -e` checks on line 375 pass, merge-base finds no common ancestor and exits 1, and every comment on a file only the clone could give goes under the could-not-be-had line while the texts say the clone would place it. Traced through lines 371-387; not run, since the guard refuses git outside the repository root. R1-3 added the base-and-head condition to these texts; the merge-base condition is a separate one it did not cover. Needs a shallow clone of that shape on a PR whose patch-less files the whole diff does not give.",
+      "proposedFix": "Add \"and their merge base\" (or \"and the history between them\") to the condition in README.md's Known limits line, the `place` header in scripts/redline-gh.sh and its verbatim quote in docs/scripts.md, in one commit as the bash conventions ask.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "agent-os/standards/testing/tests.md",
+      "line": 22,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The gh-test standards entry opens a parenthesis it never closes",
+      "description": "Line 22 (the `tests/gh-test.sh` entry) holds 12 opening and 11 closing parentheses; main's line had 7 and 7. The unclosed one is the list of the three writes the shim answers, \"(the one `gh api graphql` call, ...\": it runs on past \"#96, or, with `GH_FAKE_NO_STATUS=1`, ... (#112, R1-10)\" with no closing parenthesis, so the `GH_FAKE_TMP_WATCH`, read-log and old-gh clauses read as part of the list of answered writes. Counted with awk over the file and over `git show origin/main:agent-os/standards/testing/tests.md`.",
+      "proposedFix": "Close the parenthesis after \"(#112, R1-10)\" so the list of the three answered writes ends there, before \"; with `GH_FAKE_TMP_WATCH=<dir>`\".",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "agent-os/standards/testing/tests.md",
+      "line": 28,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The NUL-case standards line ends with a doubled citation",
+      "description": "Round 3's edit of line 28 appended a new citation and kept the old one, so the line ends \"(#112, R2-1, round 2's Decision 5) (#112, R2-1)\". The coverage pass's candidate 6 names this beside R4-2; its cause is in the round 3 fix diff (the tests.md hunk at line 38-39 of that diff).",
+      "proposedFix": "Drop the trailing \"(#112, R2-1)\".",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "scripts/redline-gh.sh",
+      "line": 380,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A diff.orderFile the repository root cannot read makes the clone's git diff die, so every comment the clone would place goes to the body",
+      "description": "The clone's pinned `git diff` (lines 379-382) does not override `diff.orderFile`. git reads that setting for porcelain diff and, when the file cannot be read, dies in diffcore-order's prepare_order with `fatal: failed to read orderfile '<path>'` (exit 128). A relative path in a global config (`[diff] orderFile = .gitorder`) is read against the repository root the script cds to (line 321), so in any repository that lacks that file the call fails; stderr goes to /dev/null and the `if` on line 379 skips `diff_sections`, so every wanted file stays without hunks and its comments go under \"The file's patch could not be had ...\" with nothing printed. This is the same class as R1-4, R2-2 and R3-1 (fixed), but none of the pinned flags covers it, and the standards line in agent-os/standards/scripts/bash-conventions.md (\"so the user's git configuration cannot move a hunk\") and the comment at lines 339-340 say the user's configuration cannot reach the result. An orderFile that exists only reorders files and leaves each path's hunks unchanged. Traced through the code and git's diff setup; not run, since the guard refuses `git -c` and a `GIT_CONFIG_GLOBAL=` prefix for the reviewer. Needs a developer whose git configuration names an orderFile that is missing from the repository Redline runs in.",
+      "proposedFix": "Add `-O/dev/null` to the pinned flags on line 380 (it overrides the configured orderFile), and a hostile-config case in tests/gh-test.sh beside the attributes and bigFileThreshold ones: a gitconfig holding `[diff] orderFile = .redline-no-such-orderfile`, `GIT_CONFIG_GLOBAL=<it> gh place 21 review-21.json`, expecting `[[1500,98,1300],[\"R1-3\",\"R1-5\"]]`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-5",
+      "file": "scripts/redline-gh.sh",
+      "line": 438,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A failing kinds step inside place_comments still yields a well-formed placement, so post-review posts every comment under \"not in this pull request\"",
+      "description": "R1-9 was fixed with a shape check on place_comments' output (line 741), but that check cannot see a failure of the kinds step this pull request added. place_comments runs in a command substitution (line 737) with -e off. If the jq on lines 438-447 fails (a jq without `--rawfile`, which jq added in 1.6, or a write of the kinds temp file that fails), the kinds file is empty; `--slurpfile kinds` on line 448 then gives `[]`, `$kinds[0]` (line 457) is null, `$kind[(.path // \"\")]` is null for every comment, `placed` (line 461) is false and `cause` (line 462) falls back to \"absent\". The final jq succeeds and prints a valid {body, comments, moved} with no inline comment and every finding under \"The file is not in this pull request:\"; line 741 accepts it and line 746 posts it, exit 0. A failure of the positions step, by contrast, makes `$positions[0] | map(...)` error and is caught, which is how the base's single step behaved. Traced through lines 433-471 and 737-748; not run, since the guard refuses a PATH prefix. The conditions: jq older than 1.6 on PATH (the base's `reply` and checks-template already use `--rawfile`, so such a jq breaks those too, and no doc states a jq minimum), or a failed write in the scratch folder.",
+      "proposedFix": "Make place_comments return non-zero when any step fails (`|| { rm -f ...; return 1; }` after the positions, recovered and kinds steps, or check `[[ -s \"$kinds\" ]]`), and treat a non-zero status at line 737 (`placed=\"$(place_comments ...)\" || { echo 'redline-gh.sh: could not place the comments of ...; nothing was posted' >&2; exit 2; }`) as the existing exit-2 case. A case: a jq wrapper first on PATH that exits 2 on `--rawfile` and otherwise runs the real jq, `post-review 20` on a review with src/small.js:10 and src/big.js:1500, expecting exit 2 and `0 none` from posts and taken.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-6",
+      "file": "tests/gh-test.sh",
+      "line": 86,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "hgit leaves GIT_DIR and GIT_INDEX_FILE in place, so the fixture's commits and index entries land in another repository when they are set",
+      "description": "hgit (line 86) unsets the configuration variables but not the ones that say which repository git works on (`GIT_DIR`, `GIT_WORK_TREE`, `GIT_INDEX_FILE`, `GIT_OBJECT_DIRECTORY`, `GIT_COMMON_DIR`). `git -C \"$GEN\"` only changes the working directory; a set `GIT_DIR` still names the repository and `GIT_INDEX_FILE` the index. So gen_commit's `add -A` and `commit` (line 142), the `checkout -q --detach` / `checkout -q -` pair (lines 168 and 172) and whole_diff (line 193) act on that repository: with `GIT_DIR` set, the fixture's `base`, `head` and `the base moves on` commits go onto its branch and its HEAD moves; with an absolute `GIT_INDEX_FILE`, its index is rewritten with the fixture's files (src/big.js, data/huge.json, ...) whose objects live in $WORK/repo, so that repository's `git status` then fails on missing objects. git exports these to hooks (GIT_INDEX_FILE to a pre-commit hook, an absolute one under `commit -a`; GIT_DIR in a linked worktree), so a developer who runs the gate from a pre-commit or pre-push hook has the harness write into their own repository, against the standard in tests.md that the tests write only under the temp directory and ~/.cache/redline/. Traced through lines 86, 142 and 166-172 against git's documented GIT_DIR and GIT_INDEX_FILE behaviour; the coverage pass reports a scratch run showing both effects. Not run here, since the guard refuses git outside the repository root and environment prefixes. The base harness ran only `git init` in the temp folder (main's line 57); the add, commit and checkout steps are this pull request's. Needs the gate run with those variables set, as from a hook.",
+      "proposedFix": "Add `-u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR` to hgit's `env` (or unset them once at the top of the harness, which also covers the script under test), update the hgit comment and the tests.md line, and add a case that sets `GIT_INDEX_FILE` and `GIT_DIR` to a scratch repository made in $WORK, rebuilds the fixture and proves that repository's HEAD and index are unchanged.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-7",
+      "file": "tests/gh-test.sh",
+      "line": 86,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "hgit leaves GIT_TEMPLATE_DIR in place, so a developer's template hooks run on the fixture's commits",
+      "description": "hgit shuts out `init.templateDir` by pointing GIT_CONFIG_GLOBAL at /dev/null, but git init also reads the `GIT_TEMPLATE_DIR` variable, ahead of that setting. `hgit -C \"$WORK/repo\" init -q` (line 87) then copies that template's hooks into the fixture repository, and gen_commit's `commit` (line 142, no `--no-verify`) runs its pre-commit and commit-msg hooks. A template hook that refuses, or that rewrites files, stops or changes the fixture, and the patch-less placement cases that read it fail: the coverage pass reports `220 passed, 48 failed` with a refusing template hook against 268 passed without it. This contradicts the hgit comment (lines 80-85) and the tests.md line saying the developer's configuration and environment are shut out. R3-3 (fixed) closed configuration given through the environment; this variable is not configuration and was not part of it. Traced through lines 86-87 and 142 against git-init's documented template order; not run here, since the guard refuses an environment prefix. Needs a developer who exports GIT_TEMPLATE_DIR with a hook in it.",
+      "proposedFix": "Add `-u GIT_TEMPLATE_DIR` to hgit's `env` and pass `--no-verify` on gen_commit's commit (or `-c core.hooksPath=/dev/null` in hgit), with a case that rebuilds the fixture under a GIT_TEMPLATE_DIR whose pre-commit hook exits 1 and compares its whole diff with diff-20.txt.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "9432853f7c0b9d651d1d15a3f1a73ede1423619b",
+    "candidates": 6,
+    "counts": {
+      "verified": 6,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R4-6"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R4-4"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R4-5"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R4-7"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R4-1"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R4-2"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "tests/gh-test.sh",
+        "line": 86,
+        "summary": "Running the gate from a git hook writes the fixture's commits and index entries into the developer's own repository. `hgit` shuts out configuration but not the variables that say which repository git works on (`GIT_DIR`, `GIT_INDEX_FILE`, `GIT_WORK_TREE`, `GIT_OBJECT_DIRECTORY`). Git exports them to a pre-commit hook (an absolute `GIT_INDEX_FILE` under `commit -a`, and `GIT_DIR` in a linked worktree) and to a pre-push hook in a worktree. `gen_commit`'s `add -A` and `commit` and the `checkout --detach` / `checkout -` pair (lines 142-172) then act on that repository instead of `$WORK/repo`. Fix: add `-u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY -u GIT_COMMON_DIR` to `hgit`'s `env`, or unset them once at the top of the harness, and add a case that sets `GIT_INDEX_FILE` and `GIT_DIR` to a scratch repository and proves it is untouched.",
+        "failure_scenario": "Shown in a scratch run. With GIT_DIR set to a dummy repo, the harness added commits `base` and `head` to the dummy's branch and moved its HEAD (5 cases failed). With GIT_INDEX_FILE set to a dummy repo's absolute index, all 268 cases passed, but the dummy's index then listed the fixture files (src/big.js, data/huge.json, ...) and `git status` failed with `fatal: unable to read 78a74c0...`. A pre-commit hook in a linked worktree gets both variables (confirmed), so a commit made with the gate as its hook commits or corrupts the fixture tree."
+      },
+      {
+        "index": 2,
+        "file": "scripts/redline-gh.sh",
+        "line": 380,
+        "summary": "With `diff.orderFile` in the user's git configuration pointing at a file this repository lacks (a relative path such as `.gitorder` in a global config), the clone fallback silently does nothing. The pinned `git diff` fails with `fatal: failed to read orderfile` (exit 128). The script discards git's stderr, so every wanted file gets no hunks and its comments go under the could-not-be-had line, with nothing printed. This is the same class as R1-4, R2-2 and R3-1, but none of the pinned flags covers it. The standards line claiming the user's configuration 'cannot move a hunk' is therefore not true either. Fix: add `-O/dev/null` to the pinned flags; it overrides the config, and the command then exits 0. Add a hostile-config case with `diff.orderFile` set to a missing file.",
+        "failure_scenario": "GIT_CONFIG_GLOBAL holding `[diff] orderFile = .gitorder` and `gh place 21 review-21.json` gives comments [] and moved [R1-1..R1-5]. Without the setting the result is [[1500,98,1300],[R1-3,R1-5]]. A plain `git diff` under that config prints `fatal: failed to read orderfile '.gitorder'` and exits 128."
+      },
+      {
+        "index": 3,
+        "file": "scripts/redline-gh.sh",
+        "line": 741,
+        "summary": "`post-review` can post a wrong review and exit 0 when a step inside `place_comments` fails. The R1-9 check only tests the shape of the final jq's output. In the command substitution `-e` is off, so if the earlier jq that builds the per-file kinds (line 438) or the position step (line 436) fails, `$kinds[0]` is null. The final jq then still prints a well-formed `{body, comments, moved}` with every comment moved under 'The file is not in this pull request', and it is posted. Fix: have `place_comments` return non-zero when any of its steps fails (`|| return 1` after each, or `set -e` inside a subshell body) and treat a non-zero result as the exit-2 'could not place' case, not only a bad shape.",
+        "failure_scenario": "Shown with a jq on PATH that rejects `--rawfile`, as jq 1.5 does. `post-review 20` on a review with src/small.js:10 (listing patch) and src/big.js:1500 printed `jq: Unknown option: --rawfile` three times and exited 0. It posted a review with no inline comment and both findings under 'The file is not in this pull request:'. The base script used no `--rawfile` in this path and placed src/small.js:10 inline."
+      },
+      {
+        "index": 4,
+        "file": "tests/gh-test.sh",
+        "line": 86,
+        "summary": "The patch-less fixtures fail to build for a developer who exports `GIT_TEMPLATE_DIR`, and most of the new placement cases then fail. `hgit` shuts out `init.templateDir` from the global config but not this variable. `hgit init` copies that template's hooks into the fixture repository, and `gen_commit` runs them. This contradicts the hgit comment and the tests.md line saying the developer's configuration and environment are shut out. Fix: unset `GIT_TEMPLATE_DIR` in `hgit` and pass `-c core.hooksPath=/dev/null` on `gen_commit`, or `--no-verify` on its commit.",
+        "failure_scenario": "With GIT_TEMPLATE_DIR set to a folder whose `hooks/pre-commit` exits 1, `tests/gh-test.sh` prints 'template hook refuses' and ends `220 passed, 48 failed`. The same tree passes all 268 without it."
+      },
+      {
+        "index": 5,
+        "file": "README.md",
+        "line": 114,
+        "summary": "Known limits and the `place` header (scripts/redline-gh.sh:98-101, quoted in docs/scripts.md) say the clone supplies the hunks whenever it holds the PR's base and head commits. The code also needs `git merge-base` to succeed (line 376). In a shallow clone that holds both tips but not their common ancestor, merge-base fails and the file's comments go to the body. This is the same kind of missing condition as R1-1 and R1-3. Fix: add 'and their merge base' (or 'and the history between them') to the README line, the script header and docs/scripts.md. To check, run `place` in a `--depth 1` clone that fetched both shas.",
+        "failure_scenario": "In a clone made with `git clone --depth 1`, plus `git fetch --depth 1 origin <base> <head>`, a PR over 300 files: `git cat-file -e` passes for both shas, but `git merge-base` exits 1. Every comment on a patch-less file goes under the could-not-be-had line, while the README says the clone would place it."
+      },
+      {
+        "index": 6,
+        "file": "agent-os/standards/testing/tests.md",
+        "line": 22,
+        "summary": "Two text slips in the new standards lines. The gh-test entry opens '(the one `gh api graphql` call, ...' and never closes it (12 opening and 11 closing parentheses; main's line was balanced). As a result, the tmp-watch, read-log and old-gh clauses read as part of the list of writes the shim answers. Line 28 also ends with a doubled citation, '(#112, R2-1, round 2's Decision 5) (#112, R2-1)'. Fix: close the parenthesis after '#96, R1-10' and drop the second '(#112, R2-1)'.",
+        "failure_scenario": "Broken rule: the standards are the operating documents a Redline agent reads before changing a run (CLAUDE.md). A reader of line 22 cannot tell where the list of the three answered writes ends and the other harness behaviours begin."
+      }
+    ]
+  }
+}

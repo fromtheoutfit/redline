@@ -1,0 +1,1 @@
+Redline round 2: fixed in c1d6756 (redline: R2-3 make the scratch folder before the listing is read (#96)). · decided by: redline

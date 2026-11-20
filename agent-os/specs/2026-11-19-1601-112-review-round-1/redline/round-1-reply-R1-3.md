@@ -1,0 +1,1 @@
+Redline round 1: fixed in eb19771 (redline: R1-3 state the base and head condition of the clone in the skill warning and the precheck docs (#96)). · decided by: redline

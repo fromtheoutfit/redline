@@ -1,0 +1,1 @@
+Redline round 1: fixed in e1d2e4d (redline: R1-9 stop post-review before posting when its comments cannot be placed (#96)). · decided by: redline

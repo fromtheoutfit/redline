@@ -1,0 +1,1 @@
+Redline round 1: declined: could not confirm: needs the files listing of a pull request whose only change to a text file is `chmod +x`, and of one that removes an empty file, read for whether `patch` is absent and `changes` is 0 · decided by: redline
