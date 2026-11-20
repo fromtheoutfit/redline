@@ -572,9 +572,17 @@ const FINISH_COMMENT_LABELS = ['handoff comment', 'cap-hit comment', 'summary co
 
 function resumeLine(opts) {
   const entry = resume[opts.label]
-  const shaper = opts.agentType === 'redline:redline-shaper'
-    ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
-    : ''
+  // A reshape stop that is the workflow's check of the task it left a decided finding (#106) is
+  // not a cause the person fixes by hand either, and the folder holds the entries and tasks the
+  // resolve agent wrote for the round's decisions, so the rerun is told to correct the task and
+  // keep them, never to rewrite the folder. The clause is chosen by the stop, as the resolve's
+  // is below: each of those checks opens its error with "the reshape left ".
+  const reshapeFix = String(entry.error || '').startsWith('the reshape left ')
+  const shaper = opts.agentType !== 'redline:redline-shaper'
+    ? ''
+    : reshapeFix
+      ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again.'
+      : ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
   // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
   // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
   // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
@@ -4044,7 +4052,13 @@ async function revise(record, inScope, reviewedKind) {
       break
     }
     if (adjustment >= maxPlanAdjustments) {
-      throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes }, `plan approver ${pass.tag}${suffix}`)
+      // The cap is the only bound on bounces (#106): the workflow is told a bounce by task number
+      // and free text, so it cannot tell that one repeats on a decided finding's task. What it
+      // does know goes with the stop: each decided finding whose task a reshape changed, with the
+      // list as its resolve planned it and then as each such reshape left it, so the person sees
+      // which decision the approver and the shaper did not settle. Absent when there is none.
+      const reshaped = inScope.map((f) => f.id).filter((id) => reshapedTasks[id]).map((id) => ({ id, decidedBy: roundDecisions[id].decidedBy, files: reshapedTasks[id] }))
+      throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes, ...(reshaped.length ? { reshaped } : {}) }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
     shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked)), {
@@ -4071,6 +4085,26 @@ async function revise(record, inScope, reviewedKind) {
       warnings.push(`${pass.name}: the reshape changed the files of ${id}'s task, a finding decided by ${roundDecisions[id].decidedBy}, from ${said(before)} to ${said(now)}`)
       reshapedTasks[id] = (reshapedTasks[id] || [before]).concat([now])
       decidedFiles[id] = now
+    }
+    // The decision is held to its task again, as it is when its resolve returns (#99; #108,
+    // R1-5): a fix has a task with files and an accept has none, whatever the reshape made of the
+    // plan (#106). The stop sits here, where a resume reruns the reshape and can replan: a fix
+    // with no task would otherwise fail the check for no commit and stop after a repair, whose
+    // resume starts at the build, and an accepted finding would be built against the decision.
+    // What a decision ends in is its own disposition when it names one, an override's or a
+    // call's, and else what the resolve agent stated for the call. A deferral is not held: its
+    // mitigation is optional, and no commit is demanded of one (#100). Both messages open with
+    // the same words, which the resume line reads (resumeLine).
+    const heldIds = inScope.map((f) => f.id).filter(tracked)
+    const endsIn = (id) => roundDecisions[id].disposition || stated[id]
+    const saidBy = (id) => (roundDecisions[id].disposition ? (calls.some((call) => call.id === id) ? 'its decision names' : 'a disposition override names') : 'the resolve agent stated')
+    const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
+    if (taskless.length) {
+      throw stageError('shape', `the reshape left ${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
+    }
+    const tasked = heldIds.filter((id) => endsIn(id) === 'accept' && decidedFiles[id].length > 0)
+    if (tasked.length) {
+      throw stageError('shape', `the reshape left ${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
     }
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.

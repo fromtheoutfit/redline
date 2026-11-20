@@ -3352,6 +3352,68 @@ function samePrefix(name, first, second, n) {
   const raisedStop = await go('reshape: a reshape in a round with a decided finding raises a call, unanswered', { ...raisedArgs, decisions: toDefer('Defer it behind a guard.') }, raisedScenario)
   check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1. `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])
   samePrefix('reshape: the relaunch replays every prompt before a stop that follows a reshape of a decided round', raisedStop.calls, raisedLater.calls, raisedStop.calls.length)
+  // A decision is held to its task after each reshape, as it is when its resolve returns (#99;
+  // #108, R1-5): a decided fix the reshape leaves with no files, or a decided accept it leaves
+  // with any, stops the round at that reshape, where a resume replans (#106). Left to run, the
+  // fix would reach the check with no commit and stop after a repair, whose resume starts at the
+  // build and cannot replan, and the accepted finding would be built against the decision. Each
+  // way a decision ends in a fix or an accept has its case: an override, a call whose decision
+  // names it, and a call the resolve agent stated.
+  const RESHAPE_1 = 'reshape r1 #1'
+  const stopsAtReshape = (r, error) => r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === RESHAPE_1 && !labels(r.calls).includes(PASS_2)
+  const stopOf = (r) => [r.res.status, r.res.stage, r.res.error, r.res.resumeFrom, labels(r.calls).slice(-3)]
+  const toFix = { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-20', disposition: 'fix' } }
+  const toAccept = { 'R1-1': { choice: 'accept', notes: 'Keep it as it is.', date: '2026-11-20', disposition: 'accept' } }
+  const keepIt = { 'R1-1': { choice: 'Keep it', notes: 'Keep it as it is.', date: '2026-11-20' } }
+  const overrideDial = { ...baseArgs, interrupt: 'plan', approvedPlans: [1] }
+  const declined = { reviews: [[f('R1-1', 'correctness')]], decline: ['R1-1'], planBounce: 1, commitIds: [[]] }
+  const asked = { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], planBounce: 1, commitIds: [[]] }
+  const NO_TASK = (how) => `the reshape left R1-1, which ${how} as a fix, with no task with files; a fix names the files it changes`
+  const A_TASK = (how) => `the reshape left R1-1, which ${how} as accepted, with a task with files (app/y.php); an accepted finding changes nothing`
+  const fixEmptied = await go('reshape: an override to fix whose task the reshape removes', { ...overrideDial, decisions: toFix }, { ...declined, reshapeFiles: { 'R1-1': [] } })
+  check('reshape: an override to fix the reshape leaves with no task stops at that reshape, resumable there, before the next plan approver pass', stopsAtReshape(fixEmptied, NO_TASK('a disposition override names')), stopOf(fixEmptied))
+  const namedFixEmptied = await go('reshape: a call whose decision names a fix, its task removed by the reshape', { ...baseArgs, decisions: toFix }, { ...asked, reshapeFiles: { 'R1-1': [] } })
+  check('reshape: a call whose decision names a fix that the reshape leaves with no task stops at that reshape', stopsAtReshape(namedFixEmptied, NO_TASK('its decision names')), stopOf(namedFixEmptied))
+  const statedFixEmptied = await go('reshape: a call stated as a fix, its task removed by the reshape', { ...baseArgs, decisions: changeIt }, { ...asked, reshapeFiles: { 'R1-1': [] } })
+  check('reshape: a call stated as a fix that the reshape leaves with no task stops at that reshape', stopsAtReshape(statedFixEmptied, NO_TASK('the resolve agent stated')), stopOf(statedFixEmptied))
+  const acceptTasked = await go('reshape: an override to accept that the reshape gives a task', { ...overrideDial, decisions: toAccept }, { ...declined, reshapeFiles: { 'R1-1': ['app/y.php'] } })
+  check('reshape: an override to accept the reshape gives a task with files stops at that reshape', stopsAtReshape(acceptTasked, A_TASK('a disposition override names')), stopOf(acceptTasked))
+  const statedAcceptTasked = await go('reshape: a call stated as accepted that the reshape gives a task', { ...baseArgs, decisions: keepIt }, { ...asked, acceptedCalls: ['R1-1'], reshapeFiles: { 'R1-1': ['app/y.php'] } })
+  check('reshape: a call stated as accepted that the reshape gives a task with files stops at that reshape', stopsAtReshape(statedAcceptTasked, A_TASK('the resolve agent stated')), stopOf(statedAcceptTasked))
+  const twoEmptied = await go('reshape: two overrides to fix whose tasks the reshape removes', { ...overrideDial, decisions: { 'R1-1': toFix['R1-1'], 'R1-2': toFix['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], decline: ['R1-1', 'R1-2'], planBounce: 1, reshapeFiles: { 'R1-1': [], 'R1-2': [] }, commitIds: [[]] })
+  check('reshape: the stop names every decided fix the reshape left with no task', twoEmptied.res.status === 'error' && twoEmptied.res.error === 'the reshape left R1-1, which a disposition override names as a fix; R1-2, which a disposition override names as a fix, with no task with files; a fix names the files it changes', stopOf(twoEmptied))
+  // The neighbours. A deferral is never held: a mitigation is optional, and `emptied` above runs
+  // on. A fix whose task the reshape moves to other files still has one. A finding the reshape
+  // leaves to the person under a rule is skipped, its task having no files by rule. And an accept
+  // a reshape re-sorts with no task for it runs on (`acceptedResorted` below).
+  const fixMoved = await go('reshape: an override to fix whose task the reshape moves', { ...overrideDial, decisions: toFix }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], reshapeFiles: { 'R1-1': ['app/y.php'] }, commitIds: [['R1-1']] })
+  check('reshape: a decided fix whose task the reshape moved to other files runs on, shown the new files and warned about', fixMoved.res.status === 'done' && approverFiles(fixMoved, 'R1-1', PASS_2) === '["fix",["app/y.php"]]' && warned(fixMoved, CHANGED('app/x.php', 'app/y.php')), [stopOf(fixMoved), approverFiles(fixMoved, 'R1-1', PASS_2), (fixMoved.res || {}).warnings])
+  const forcedEmptied = await go('reshape: a call stated as a fix that the reshape leaves to the person under a rule, listing no files', { ...baseArgs, askRules: chargeRule, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
+  check('reshape: a decided fix the reshape leaves to the person under a rule is not held to a task', forcedEmptied.res.status === 'done' && labels(forcedEmptied.calls).includes(PASS_2), stopOf(forcedEmptied))
+  // The stop is the workflow's check of what the reshape returned, so its resume line tells the
+  // rerun to correct the task and keep the decided entries, as the resolve's does (#108, R3-4),
+  // never to rewrite the four files from scratch beside decisions the resolve agent wrote. The
+  // clause is chosen by the stop: a reshape resumed after another stop keeps the shaper's line.
+  const resumeLineFor = (e) => `Resume attempt 2 of this step. The run stopped at this step with an error (${e}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.`
+  const FROM_SCRATCH = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+  const CORRECT_TASK = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again.'
+  const resumeAt = (error) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] } } })
+  const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names')) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  const restoredPrompt = reshapePromptOf(fixRestored)
+  check('reshape: a reshape resumed after that stop is told to correct the task and keep the decided entries, never to rewrite the folder, and the relaunch finishes', restoredPrompt.endsWith(resumeLineFor(NO_TASK('a disposition override names')) + CORRECT_TASK) && !restoredPrompt.includes(FROM_SCRATCH) && fixRestored.res.status === 'done', [restoredPrompt.slice(-700), stopOf(fixRestored)])
+  const specLost = await go('reshape: a reshape of a decided round that leaves no shape.md', { ...overrideDial, decisions: toFix }, { ...declined, specMissing: { 'spec status r1 #1': 'shape' } })
+  const specLostError = (specLost.res || {}).error || ''
+  const specRestored = await go('reshape: a reshape of a decided round that left no shape.md, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(specLostError) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a reshape resumed after another stop keeps the shaper\'s own resume line', specLost.res.status === 'error' && specLostError !== '' && !specLostError.startsWith('the reshape left ') && reshapePromptOf(specRestored).endsWith(resumeLineFor(specLostError) + FROM_SCRATCH) && !reshapePromptOf(specRestored).includes(CORRECT_TASK), [specLostError, reshapePromptOf(specRestored).slice(-500)])
+  check('reshape: the shaper\'s file says the same of a reshape resumed after the workflow\'s check of a decided finding\'s task', shaperFile.includes('correct the task the error names'))
+  // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
+  // message and its label, and its detail names each decided finding whose task a reshape
+  // changed: the list as the resolve planned it, then as each reshape that changed it left it.
+  const atCap = await go('reshape: an override to defer whose task the reshape removes, bounced to the cap', deferArgs, { ...deferBounced, planBounce: 3, reshapeFiles: { 'R1-1': [] } })
+  check('reshape: the stop at the cap is the approve stop as before, and its detail names the decided task the reshapes changed', atCap.res.status === 'error' && atCap.res.stage === 'approve' && atCap.res.error === 'the plan approver did not approve the round 1 plan after 2 adjustments' && Boolean(atCap.res.resumeFrom) && atCap.res.resumeFrom.label === 'plan approver r1 #3' && JSON.stringify((atCap.res.detail || {}).reshaped) === '[{"id":"R1-1","decidedBy":"@author","files":[["app/x.php"],[]]}]' && Array.isArray((atCap.res.detail || {}).adjustments), [stopOf(atCap), atCap.res.detail])
+  const atCapPlain = await go('reshape: the same round with no decision, bounced to the cap', { ...baseArgs, interrupt: 'plan', approvedPlans: [1] }, { ...deferBounced, planBounce: 3 })
+  const atCapSame = await go('reshape: an override to defer whose task every reshape keeps, bounced to the cap', deferArgs, { ...deferBounced, planBounce: 3 })
+  check('reshape: the stop at the cap carries no such key when no reshape changed a decided finding\'s task', atCapPlain.res.status === 'error' && atCapPlain.res.stage === 'approve' && !('reshaped' in (atCapPlain.res.detail || {})) && atCapSame.res.stage === 'approve' && !('reshaped' in (atCapSame.res.detail || {})), [atCapPlain.res.detail, atCapSame.res.detail])
   // What a call's decision ends in is read from what the resolve agent states (#99), never from
   // its deferred entry or from whether its task has files, and the statement is checked against
   // the tasks and entries the same resolve returned. Four runs cover both statements over both
