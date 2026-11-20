@@ -531,6 +531,13 @@ attributes="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-attributes" gh place 21 "$WORK/
 is "place: the clone's diff reads a file a user attributes file marks -diff as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attributes")" '[[1500,98,1300],["R1-3","R1-5"]]'
 bigfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-bigfile" gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff reads a file past core.bigFileThreshold as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$bigfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# A global pathspec setting beside the clone diff's --literal-pathspecs (#112, R3-1): git refuses
+# glob or icase together with literal and exits, so the script unsets them on that call, and both
+# place as the default run does.
+icase="$(GIT_ICASE_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_ICASE_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$icase")" '[[1500,98,1300],["R1-3","R1-5"]]'
+globbed="$(GIT_GLOB_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_GLOB_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$globbed")" '[[1500,98,1300],["R1-3","R1-5"]]'
 cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
 echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
 nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
