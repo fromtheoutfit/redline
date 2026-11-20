@@ -537,13 +537,13 @@ case "$cmd" in
         [[ $# -eq 2 ]] || usage
         need_int "$1" "pr number"
         need_file "$2" "review json"
-        all="$(pr_files "$1")"
-        # Every temp file of this subcommand, the ones recover_hunks and place_comments make
-        # included, is made in one folder the EXIT trap removes, so a run that fails or is
-        # interrupted leaves none behind (#112, R1-2).
+        # Every temp file of this subcommand, the ones pr_files, recover_hunks and place_comments
+        # make included, is made in one folder the EXIT trap removes, made before the listing is
+        # read, so a run that fails or is interrupted leaves none behind (#112, R1-2, R2-3).
         scratch="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         trap 'rm -rf "$scratch"' EXIT
         TMPDIR="$scratch"
+        all="$(pr_files "$1")"
         hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         recover_hunks "$1" "$all" "$2" "$hunks"
         place_comments "$all" "$2" "$hunks"
@@ -708,13 +708,13 @@ case "$cmd" in
             echo "redline-gh.sh: $2 must be JSON with body (string) and comments (array)" >&2
             exit 2
         fi
-        all="$(pr_files "$1")"
-        # Every temp file of this subcommand, the ones recover_hunks and place_comments make
-        # included, is made in one folder the EXIT trap removes, so a run that fails or is
-        # interrupted leaves none behind (#112, R1-2).
+        # Every temp file of this subcommand, the ones pr_files, recover_hunks and place_comments
+        # make included, is made in one folder the EXIT trap removes, made before the listing is
+        # read, so a run that fails or is interrupted leaves none behind (#112, R1-2, R2-3).
         scratch="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         trap 'rm -rf "$scratch"' EXIT
         TMPDIR="$scratch"
+        all="$(pr_files "$1")"
         hunks="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         response="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         gh_err="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"

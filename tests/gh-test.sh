@@ -63,6 +63,9 @@
 # GH_FAKE_REFUSE_ALL=1, for every post, each body without its status field with
 # GH_FAKE_NO_STATUS=1, as a host may give it; a post it takes is served back as the pull
 # request's review comments, so the cases pin how many reviews were sent and what each one held.
+# With GH_FAKE_TMP_WATCH=<dir>, a files read logs to $PAGES/tmp-watch.log how many of the
+# script's temp files sit directly in <dir> while it is in flight, which is what an interrupt
+# then would leave behind (#112, R2-3).
 # Runs in a throwaway repository under the system temp directory.
 #
 #   tests/gh-test.sh
@@ -333,6 +336,13 @@ fi
 if [[ "$slurp" == 1 && "${GH_FAKE_OLD:-0}" == 1 ]]; then echo "unknown flag: --slurp" >&2; exit 1; fi
 # Every read is logged, endpoint then header, so a case can pin how many calls a subcommand made.
 printf '%s\t%s\n' "$endpoint" "$header" >> "$PAGES/api.log"
+# GH_FAKE_TMP_WATCH=<dir>: on a files read, how many of redline-gh.sh's temp files sit directly
+# in <dir> while the call is in flight, which is what an interrupt then would leave (#112, R2-3).
+if [[ -n "${GH_FAKE_TMP_WATCH:-}" && "$endpoint" == */files ]]; then
+    n=0
+    for f in "$GH_FAKE_TMP_WATCH"/redline-gh.*; do [[ -f "$f" ]] && n=$((n + 1)); done
+    printf '%s\n' "$n" >> "$PAGES/tmp-watch.log"
+fi
 # The whole-pull-request diff (#96): the pull request's own endpoint under the diff media type,
 # served from $PAGES/diff-<n>.txt. With no such file, or with GH_FAKE_DIFF_FAIL=1, it is refused
 # the way GitHub refuses a pull request over 300 files: the JSON on stdout, gh's line on stderr.
@@ -653,6 +663,13 @@ is "post-review: two too-large files: one stderr line each, in the order GitHub 
 fresh_posts; echo "lib/nul.txt" > "$PAGES/too-large.txt"
 out="$(PATH="$WORK/gnu-awk:$PATH" gh post-review 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
 is "post-review: a NUL in a recovered hunk: the too-large refusal on that file is acted on" "$code $(posts) $(post_paths 2)" "0 2 src/big.js"
+# An interrupt while the listing is read leaves nothing behind (#112, R2-3): pr_files' own temp
+# file is made in the scratch folder too, so none sits directly in the temp directory then.
+mkdir -p "$WORK/tmp-watch"; : > "$PAGES/tmp-watch.log"
+GH_FAKE_TMP_WATCH="$WORK/tmp-watch" TMPDIR="$WORK/tmp-watch" gh place 20 "$WORK/review-20-text.json" >/dev/null 2>&1
+fresh_posts
+GH_FAKE_TMP_WATCH="$WORK/tmp-watch" TMPDIR="$WORK/tmp-watch" gh post-review 20 "$WORK/review-20-listed.json" >/dev/null 2>&1
+is "place and post-review: no temp file sits outside the scratch folder while the listing is read" "$(tr '\n' ' ' < "$PAGES/tmp-watch.log")" "0 0 "
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"
