@@ -339,11 +339,14 @@ diff_sections() {
 #    against the repository root, #112, R4-4, and every file read as text: the listing counts
 #    the file's changed lines, while git's own binary test follows attributes and
 #    core.bigFileThreshold, #112, R2-2), and it runs with GIT_DIFF_OPTS unset, which git lets
-#    override -U (#112, R1-4), so the user's git configuration and environment cannot move a
-#    hunk; the paths are literal, never patterns,
-#    with every other global pathspec setting unset (GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS,
-#    GIT_ICASE_PATHSPECS): git refuses --literal-pathspecs beside glob or icase and exits, which
-#    left every such file without hunks (#112, R3-1).
+#    override -U (#112, R1-4), and with GIT_ATTR_SOURCE unset, which ends the diff when it
+#    names a tree this repository does not hold (#112, round 4), so the user's git
+#    configuration and environment cannot move a hunk: every diff.* and core.* key, attribute
+#    source and variable git 2.54 documents was set against this call, and the round 4 spec of
+#    #112 holds the table. The paths are literal, never patterns, with every other global
+#    pathspec setting unset (GIT_GLOB_PATHSPECS, GIT_NOGLOB_PATHSPECS, GIT_ICASE_PATHSPECS): git
+#    refuses --literal-pathspecs beside glob or icase and exits, which left every such file
+#    without hunks (#112, R3-1).
 #    A diff header quotes a path that holds a byte outside ASCII ("b/lib/\345\220\215.txt"), which
 #    step 1 does not match, so such a file is found here, where git is told not to quote it. A
 #    path git quotes regardless (a tab, a newline, a quote or a backslash in it) is found by
@@ -379,7 +382,7 @@ recover_hunks() {
             && fork="$(git merge-base "$base" "$head" 2>/dev/null)"; then
             one="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
             while IFS=$'\t' read -r path prev; do
-                if env -u GIT_DIFF_OPTS -u GIT_GLOB_PATHSPECS -u GIT_NOGLOB_PATHSPECS -u GIT_ICASE_PATHSPECS \
+                if env -u GIT_DIFF_OPTS -u GIT_GLOB_PATHSPECS -u GIT_NOGLOB_PATHSPECS -u GIT_ICASE_PATHSPECS -u GIT_ATTR_SOURCE \
                     git --literal-pathspecs -c core.quotepath=off diff --diff-algorithm=myers -U3 --inter-hunk-context=0 --indent-heuristic -M -O/dev/null \
                     --no-color --no-ext-diff --no-textconv --text --src-prefix=a/ --dst-prefix=b/ \
                     "$fork" "$head" -- "$path" ${prev:+"$prev"} > "$one" 2>/dev/null; then

@@ -546,6 +546,12 @@ icase="$(GIT_ICASE_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff runs with GIT_ICASE_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$icase")" '[[1500,98,1300],["R1-3","R1-5"]]'
 globbed="$(GIT_GLOB_PATHSPECS=1 gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff runs with GIT_GLOB_PATHSPECS unset, which git refuses beside literal pathspecs" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$globbed")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# GIT_ATTR_SOURCE naming a tree the repository does not hold (#112, the round 4 spec's sweep): git
+# ends a diff that cannot read its attributes from there, while the script's rev-parse, cat-file
+# and merge-base all pass, so the script unsets it on that call, and the run places as the
+# default one does.
+attrsource="$(GIT_ATTR_SOURCE=refs/heads/redline-no-such-ref gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff runs with GIT_ATTR_SOURCE unset, which ends git when it names no tree here" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attrsource")" '[[1500,98,1300],["R1-3","R1-5"]]'
 cp "$PAGES/pull-21.json" "$WORK/pull-21.json"
 echo '{"base": {"sha": "1111111111111111111111111111111111111111"}, "head": {"sha": "2222222222222222222222222222222222222222"}}' > "$PAGES/pull-21.json"
 nopatch="$(gh place 21 "$WORK/review-21.json" 2>"$WORK/err")"; code=$?
