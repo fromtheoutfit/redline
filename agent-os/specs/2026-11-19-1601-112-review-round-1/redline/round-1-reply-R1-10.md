@@ -1,0 +1,1 @@
+Redline round 1: fixed in f484f67 (redline: R1-10 read a refusal as a 422 from the gh line when the body has no status (#96)). · decided by: redline

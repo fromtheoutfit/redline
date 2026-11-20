@@ -1,0 +1,1 @@
+Redline round 1: fixed in 3626170 (redline: R1-4 run the pinned clone diff with GIT_DIFF_OPTS unset (#96)). · decided by: redline

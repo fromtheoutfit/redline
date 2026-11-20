@@ -1,0 +1,1 @@
+Redline round 2: fixed in 332891e (redline: R2-2 read every wanted file as text in the clone diff (#96)). · decided by: redline

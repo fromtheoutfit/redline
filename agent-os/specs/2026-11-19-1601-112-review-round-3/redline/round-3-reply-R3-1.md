@@ -1,0 +1,1 @@
+Redline round 3: fixed in 3ea38aa (redline: R3-1 unset the other global pathspec settings on the clone diff (#96)). · decided by: redline

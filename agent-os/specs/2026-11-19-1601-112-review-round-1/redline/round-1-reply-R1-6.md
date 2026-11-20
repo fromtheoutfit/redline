@@ -1,0 +1,1 @@
+Redline round 1: fixed in 85a9413 (redline: R1-6 reword the fallback line so it claims no comment was placed inline (#96)). · decided by: redline

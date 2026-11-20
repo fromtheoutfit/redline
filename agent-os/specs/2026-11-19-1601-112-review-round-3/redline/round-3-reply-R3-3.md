@@ -1,0 +1,1 @@
+Redline round 3: fixed in 1df13d7 (redline: R3-3 shut configuration given through the environment out of the gh harness git (#96)). · decided by: redline

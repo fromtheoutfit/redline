@@ -1,0 +1,1 @@
+Redline round 2: fixed in 7aec9ab (redline: R2-4 run the gh harness git with the developer configuration shut out (#96)). · decided by: redline
