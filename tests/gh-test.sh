@@ -79,9 +79,11 @@ trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/pages"
 # hgit: the harness's own git, with the developer's configuration and environment shut out, so a
 # fixture is the same on every machine: no global or system configuration, no user attributes
-# file, and GIT_DIFF_OPTS unset (#112, R2-4). The script under test runs its own git, which the
+# file, GIT_DIFF_OPTS unset (#112, R2-4), and no configuration given through the environment,
+# GIT_CONFIG_COUNT with its key and value pairs or the GIT_CONFIG_PARAMETERS that git -c hands to
+# what it runs (#112, R3-3). The script under test runs its own git, which the
 # hostile-configuration cases reach on purpose.
-hgit() { env -u GIT_DIFF_OPTS GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null "$@"; }
+hgit() { env -u GIT_DIFF_OPTS -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null "$@"; }
 hgit -C "$WORK/repo" init -q
 pass=0; fail=0
 ok() { pass=$((pass+1)); printf 'ok   %s\n' "$1"; }
@@ -570,6 +572,11 @@ is "place: a NUL in a recovered hunk: the whole diff gave both files, so the sha
 # The fixture's whole diff is the same under a developer's diff settings and GIT_DIFF_OPTS
 # (#112, R2-4): made again under the hostile configuration above, it matches byte for byte.
 is "the fixture's whole diff ignores the developer's git configuration and GIT_DIFF_OPTS" "$(if GIT_DIFF_OPTS=-u0 GIT_CONFIG_GLOBAL="$WORK/gitconfig" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# The same under configuration given through the environment rather than a file (#112, R3-3):
+# GIT_CONFIG_COUNT with a key and value pair, and GIT_CONFIG_PARAMETERS, which git -c hands to
+# what it runs (an alias, a hook). Either would shrink the whole diff's context to none.
+is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_COUNT" "$(if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=0 whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_PARAMETERS" "$(if GIT_CONFIG_PARAMETERS="'diff.context=0'" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
 
 echo "# post-review: a refusal the new sources can cause (#96)"
 jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
