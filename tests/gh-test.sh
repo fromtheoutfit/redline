@@ -45,8 +45,9 @@
 # $PAGES/issues-list.json and a create is answered with an issue URL numbered from 123, so the
 # cases pin that an issue is opened once, looked up before it is opened, and never opened twice.
 # PR 20 is the patch-less fixture (#96): a listing in which a text file past the listing's limit, a
-# removed file and a 22,000-change file have no patch, beside a binary file, a rename with nothing
-# changed and one small file with a patch, and a whole diff made by git in a throwaway repository,
+# removed file, a 22,000-change file and a text file whose changed line holds a NUL past byte 8,000
+# (#112, R2-1) have no patch, beside a binary file, a rename with nothing changed and one
+# small file with a patch, and a whole diff made by git in a throwaway repository,
 # which the shim serves for the pull request's own endpoint under the diff media type (and refuses
 # as GitHub does over 300 files when it has none, or with GH_FAKE_DIFF_FAIL=1). Every read is
 # appended to $PAGES/api.log, endpoint then header, so the cases pin that the whole diff is read
@@ -114,6 +115,11 @@ jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", lin
 # data/huge.json with 22,000 changed lines, the size GitHub refused a comment on; a binary; a
 # removed file; a rename with nothing changed. dist/absent.js is in the listing without a patch
 # and in no diff, so nothing supplies its hunks.
+# lib/nul.txt holds a NUL on its changed line 1500, past the 8,000 bytes git's binary test reads,
+# so git diffs it as text and the NUL reaches the recovered hunks. That line is a hunk of its own,
+# ahead of the file's other changes, and the file sorts before src/big.js, so the NUL sits in the
+# first 32 KiB of the hunk stream, which is all of a file macOS's grep reads to call it binary
+# (#112, R2-1).
 # The repository that makes the diff is the one the script runs in, so it is also the clone the
 # script reads when GitHub's whole diff cannot be had: PR 21 has 301 files, one past what that
 # endpoint takes, and two of them without a patch, lib/local.txt and lib/new-name.txt, renamed
@@ -125,6 +131,7 @@ GEN="$WORK/repo"
 mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
 gen_commit() { git -C "$GEN" add -A && git -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
 seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
+seq 1 3000 | awk '{printf "nul %05d %080d\n", $1, 0}' > "$GEN/lib/nul.txt"
 seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
 seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
 seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
@@ -136,6 +143,8 @@ seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
 seq 1 2000 | awk '{printf "quoted %05d %080d\n", $1, 0}' > "$GEN/lib/名.txt"
 gen_commit base
 awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
+awk 'NR>=2001 {print $0 " changed"; next} {print}' "$GEN/lib/nul.txt" > "$GEN/t"
+{ head -n 1499 "$GEN/t"; printf 'nul 01500 changed, a NUL \0 past byte 8,000\n'; tail -n +1501 "$GEN/t"; } > "$GEN/lib/nul.txt" && rm "$GEN/t"
 awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
 awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/small.js"
 rm "$GEN/lib/gone.txt"
@@ -176,6 +185,7 @@ jq -n '[
     {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
     {filename: "dist/absent.js", status: "modified", previous_filename: null, additions: 250, deletions: 250, changes: 500, patch: null},
     {filename: "lib/gone.txt", status: "removed", previous_filename: null, additions: 0, deletions: 2000, changes: 2000, patch: null},
+    {filename: "lib/nul.txt", status: "modified", previous_filename: null, additions: 1001, deletions: 1001, changes: 2002, patch: null},
     {filename: "lib/renamed-only.txt", status: "renamed", previous_filename: "lib/was.txt", additions: 0, deletions: 0, changes: 0, patch: null},
     {filename: "lib/名.txt", status: "modified", previous_filename: null, additions: 600, deletions: 600, changes: 1200, patch: null},
     {filename: "src/big.js", status: "modified", previous_filename: null, additions: 1501, deletions: 1501, changes: 3002, patch: null},
@@ -200,6 +210,15 @@ jq -n '{body: "Redline round 1\n\nNine findings.", comments: [
     {path: "src/small.js", line: 1, body: "**R1-8** · nit · low · confirmed\n\n**Above the hunk**"},
     {path: "lib/gone.txt", line: 10, side: "LEFT", body: "**R1-9** · nit · low · confirmed\n\n**In a removed file**"}
 ]}' > "$WORK/review-20-causes.json"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "lib/nul.txt", line: 1500, body: "**R1-1** · nit · low · confirmed\n\n**On a line that holds a NUL**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On another patch-less file**"}
+]}' > "$WORK/review-20-nul.json"
+# GNU awk keeps a NUL that macOS's awk drops, so the NUL cases run under it when it is installed:
+# a folder holding awk as a link to gawk goes first on PATH for them. On a Linux runner the
+# system awk keeps a NUL already (#112, R2-1).
+mkdir -p "$WORK/gnu-awk"
+if command -v gawk >/dev/null 2>&1; then ln -s "$(command -v gawk)" "$WORK/gnu-awk/awk"; fi
 
 cat > "$WORK/bin/gh" <<'SHIM'
 #!/usr/bin/env bash
@@ -507,6 +526,12 @@ jq -n '{body: "Redline round 1\n\nOne finding.", comments: [{path: "lib/名.txt"
 quoted="$(gh place 20 "$WORK/review-20-quoted.json")"
 is "place: a name a diff header quotes: the whole diff holds it quoted" "$(grep -c '^+++ "b/lib/' "$PAGES/diff-20.txt")" "1"
 is "place: a name a diff header quotes: placed from the clone, which is asked not to quote it" "$(jq -c '[(.comments | length), (.moved | length)]' <<<"$quoted") $(diff_calls) $(sha_calls 20)" "[1,0] 1 1"
+# A NUL in a recovered hunk (#112, R2-1): the file markers are still read, so both patch-less
+# files keep their hunks and the whole diff is enough.
+: > "$PAGES/api.log"
+nul_out="$(PATH="$WORK/gnu-awk:$PATH" gh place 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
+is "place: a NUL in a recovered hunk: both patch-less files stay inline, nothing on stderr" "$code $(jq -c '[(.comments | length), (.moved | length)]' <<<"$nul_out") $(cat "$WORK/err")" "0 [2,0] "
+is "place: a NUL in a recovered hunk: the whole diff gave both files, so the shas are not read" "$(diff_calls) $(sha_calls 20)" "1 0"
 
 echo "# post-review: a refusal the new sources can cause (#96)"
 jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
@@ -611,6 +636,12 @@ out="$(gh post-review 20 "$WORK/review-20-post.json" 2>"$WORK/err")"; code=$?
 is "post-review: two too-large files: exits 0 after three posts, the last with the listing's patch only" "$code $(posts) $(post_paths 3)" "0 3 src/small.js"
 is "post-review: two too-large files: both sit under the too-large line, in the review's order" "$(post_body 3)" $'Redline round 1\n\nFour findings.\n\n### Not placed inline\n\n'"$BINARY_GROUP"$'\n\nGitHub takes no comment on a diff this large:\n\n<!-- redline:R1-2 -->\n`src/big.js:1500`\n\n**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**\n\n<!-- redline:R1-3 -->\n`data/huge.json:5000`\n\n**R1-3** · nit · low · confirmed\n\n**In a very large diff**'
 is "post-review: two too-large files: one stderr line each, in the order GitHub named them" "$(cat "$WORK/err")" $'redline-gh.sh: GitHub takes no comment on src/big.js (its diff is too large); posting again with its comments in the review body\nredline-gh.sh: GitHub takes no comment on data/huge.json (its diff is too large); posting again with its comments in the review body'
+
+# A NUL in a recovered hunk (#112, R2-1): post-review reads which files were sourced as place
+# does, so GitHub's too-large refusal on that file is acted on.
+fresh_posts; echo "lib/nul.txt" > "$PAGES/too-large.txt"
+out="$(PATH="$WORK/gnu-awk:$PATH" gh post-review 20 "$WORK/review-20-nul.json" 2>"$WORK/err")"; code=$?
+is "post-review: a NUL in a recovered hunk: the too-large refusal on that file is acted on" "$code $(posts) $(post_paths 2)" "0 2 src/big.js"
 
 echo "# last-round and has-review"
 is "last-round: the highest posted Redline round" "$(gh last-round 7)" "2"

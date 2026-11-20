@@ -307,6 +307,9 @@ wanted_files() {
 # line, or "--- a/" for a removed file, while still in the section's header, so a hunk line that
 # looks like one is never taken for it; a section without hunks (a binary file) prints nothing.
 # <wanted> is never empty: recover_hunks returns before this when it is.
+# A hunk line is the diff's bytes as they are, a NUL included where awk keeps one (GNU awk and
+# mawk do; macOS's awk drops it), so every reader of the stream reads it as text, grep with -a:
+# grep takes a file holding a NUL for binary and prints no marker (#112, R2-1).
 diff_sections() {
     awk -F'\t' '
         NR == FNR { want[$1] = 1; next }
@@ -358,7 +361,7 @@ recover_hunks() {
     fi
     found="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     missing="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-    { grep $'^@@@redline-file\t' "$4" || true; } | cut -f2 > "$found"
+    { grep -a $'^@@@redline-file\t' "$4" || true; } | cut -f2 > "$found"
     awk -F'\t' -v found="$found" 'BEGIN { while ((getline line < found) > 0) have[line] = 1 } !($1 in have)' "$wanted" > "$missing"
     if [[ -s "$missing" ]] && shas="$(gh api "repos/{owner}/{repo}/pulls/$1" --jq '.base.sha, .head.sha' 2>/dev/null)"; then
         base="$(sed -n 1p <<<"$shas")"
@@ -425,7 +428,7 @@ place_comments() {
     kinds="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     recovered="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     diff_positions "$3" <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
-    { grep $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered"
+    { grep -a $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered"
     jq --rawfile recovered "$recovered" --rawfile large "$large" --arg only "$only" '
         def set: split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries;
         ($recovered | set) as $found
@@ -717,7 +720,7 @@ case "$cmd" in
         too_large="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
         recover_hunks "$1" "$all" "$2" "$hunks"
         # The files whose hunks did not come from the listing: the only ones a refusal is acted on for.
-        { grep $'^@@@redline-file\t' "$hunks" || true; } | cut -f2 > "$sourced"
+        { grep -a $'^@@@redline-file\t' "$hunks" || true; } | cut -f2 > "$sourced"
         listing_only=0 refusal=''
         # Each pass ends the loop, adds one sourced file to too_large, or sets listing_only, which
         # is set once: at most one post per sourced file, one more, and the last (#96).
