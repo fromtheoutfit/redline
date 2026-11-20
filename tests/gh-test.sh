@@ -533,6 +533,12 @@ attributes="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-attributes" gh place 21 "$WORK/
 is "place: the clone's diff reads a file a user attributes file marks -diff as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$attributes")" '[[1500,98,1300],["R1-3","R1-5"]]'
 bigfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-bigfile" gh place 21 "$WORK/review-21.json")"
 is "place: the clone's diff reads a file past core.bigFileThreshold as text" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$bigfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
+# A diff.orderFile git cannot read (#112, R4-4): a relative one is read against the repository
+# root, and git ends a porcelain diff whose order file it cannot read, so the script cancels the
+# setting on that call (-O/dev/null), and the run places as the default one does.
+printf '[diff]\n\torderFile = .redline-no-such-orderfile\n' > "$WORK/gitconfig-orderfile"
+orderfile="$(GIT_CONFIG_GLOBAL="$WORK/gitconfig-orderfile" gh place 21 "$WORK/review-21.json")"
+is "place: the clone's diff cancels a diff.orderFile git cannot read" "$(jq -c '[[.comments[].line], [.moved[].id]]' <<<"$orderfile")" '[[1500,98,1300],["R1-3","R1-5"]]'
 # A global pathspec setting beside the clone diff's --literal-pathspecs (#112, R3-1): git refuses
 # glob or icase together with literal and exits, so the script unsets them on that call, and both
 # place as the default run does.
