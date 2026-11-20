@@ -6,7 +6,7 @@ Every script starts `set -euo pipefail`, writes progress to stderr and exits 2 o
 
 ## `redline-gh.sh`
 
-The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
+The only door to GitHub. The reviewer, the shaper and the plan approver run its read subcommands (the guard group `gh-read`); the GitHub agent runs every subcommand (`gh-all`); `/redline:redline` runs `pr`, `files`, `login`, `last-round` and `prior-findings` in its precheck. `tests/gh-test.sh` pins the read subcommands, `post-review`, `resolve-threads` and `defer` against a fake `gh` that serves `tests/gh-fixtures/`; for `post-review` the fake takes PR 20's review or refuses it with the 422 bodies GitHub gave the #96 measurement, so the cases pin every review the script sends after a refusal. `defer` is the one subcommand that opens an issue (#95): it files a deferred finding's drafted issue from a file, keeps a record of what it filed beside the draft, and is safe to repeat.
 
 ```text
 #
