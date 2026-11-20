@@ -242,3 +242,28 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, that CI's shellcheck command was not run here, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 3 for PR #112 (#96)`.
 
 **Files** (this task): `agent-os/standards/scripts/bash-conventions.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-19-1601-112-review-round-3/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `e068d94`, one commit per task, in the plan's order. Every red and green run is the gate, `.claude/redline/checks.sh <snapshot>`, since the guard refuses `tests/gh-test.sh` run alone to the implementer role. The counts are what `tests/gh-test.sh` printed in each run, read from the kept result the gate keeps under `${TMPDIR}/redline-checks/`, because a passing check prints no output.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `9a61d58` `redline: save review round 3 spec for PR #112 (#96)` | | |
+| 2, R3-1 | `3ea38aa` `redline: R3-1 unset the other global pathspec settings on the clone diff (#96)` | 261 passed, 2 failed: the two new cases (their `got` lines fell before the 200 lines the kept result holds, as round 2's Task 3 found) | 263 passed, 0 failed |
+| 3, R3-2 | `2dd1833` `redline: R3-2 refuse a review file whose comments are not all objects before the listing is read (#96)` | 263 passed, 3 failed: the three new cases, `5 `, `jq: error (at <stdin>:83): Cannot index number with string ("path")` and `1 0 none`, as predicted; R1-9's three cases green | 266 passed, 0 failed |
+| 4, R3-3 | `1df13d7` `redline: R3-3 shut configuration given through the environment out of the gh harness git (#96)` | 266 passed, 2 failed: the two new cases, each `differs`, as predicted; the R2-4 case green | 268 passed, 0 failed |
+| 5, R3-4 | `bea67f0` `redline: R3-4 name post-review among what the gh harness pins (#96)` | | 268 passed, 0 failed |
+| 6, standards | `4dea612` `redline: record the round 3 review lessons in the standards (#96)` | | the six approved edits, no more |
+
+Every proof grep printed what its task says: `env -u GIT_DIFF_OPTS -u GIT_GLOB_PATHSPECS -u GIT_NOGLOB_PATHSPECS -u GIT_ICASE_PATHSPECS` gives `scripts/redline-gh.sh:1`, `all(type == "object")` gives `scripts/redline-gh.sh:1`, `env -u GIT_DIFF_OPTS -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT` gives `tests/gh-test.sh:1`, and `refuses it with the 422 bodies` gives `docs/scripts.md:1`.
+
+The gate after the standards commit, at `4dea612`: `ok: true`, all nine checks exit 0, no `unexpected_files`, nothing in `uncommitted`. The counts: loop 1449, prefs 172, gate 117, setup 512 and background 39, each with 0 failed, as the baseline has them. `tests/gh-test.sh` printed `268 passed, 0 failed`, the count the plan expects.
+
+Version: `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` still read `0.4.3`, with no bump.
+
+Docs: each task's entry stands as written: `scripts/redline-gh.sh` changed in Tasks 2 and 3 with no reader-facing change, and no header changed, so `docs/scripts.md`'s quoted block did not either; Task 5 changed only the prose sentence above it.
+
+CI's shellcheck command was not run here, as the plan says (see Shellcheck above): the guard refuses `shellcheck` to the implementer role, so it is still due before the push that carries this round's `.sh` changes, and CI's required `shellcheck` job runs it on the push.
+
+No deviation. One note: the sixth approved edit adds its text after "so git still diffs the file as text" in testing/tests, line 27, and the line's own "(#112, R2-1)" follows it, so the line now ends with two citations, "(#112, R2-1, round 2's Decision 5) (#112, R2-1)". The edit was applied as approved, with nothing removed; folding the two is for a later retrospective.
