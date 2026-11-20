@@ -3759,10 +3759,15 @@ async function revise(record, inScope, reviewedKind) {
   const awayFromDefer = (id) => Boolean(roundDecisions[id] && roundDecisions[id].disposition && roundDecisions[id].disposition !== 'defer')
   let deferred = shaped.deferred.slice()
   let resolved = null
-  // Every task the round's resolves planned (#97, R2-14): a reshape that raises a call runs a
-  // resolve for that call alone and `resolved` becomes it, so what the round planned is read from
-  // every resolve's tasks, never from the latest one's.
-  const resolvedTasks = []
+  // The files of each decided finding's task, by finding id, as last planned (#106). A resolve
+  // sets the list of each id it applied, from its own tasks: a reshape that raises a call runs a
+  // resolve for that call alone and `resolved` becomes it, so an earlier decision keeps the list
+  // its own resolve gave it (#97, R2-14). Until #106 the round kept every resolve's tasks and
+  // read a decided finding's files from them alone.
+  const decidedFiles = {}
+  // A finding whose task the round reads from that list: one the person or autopilot decided and
+  // that no repository rule leaves to the person, whose task has no files by rule (#49).
+  const tracked = (id) => Boolean(roundDecisions[id]) && !record.forced[id]
   // What each call's decision ends in, by finding id, as the round's resolves stated it (#99):
   // fix, defer or accept. It is how a call's answer shows a deferral, and what the check demands
   // of a call. Until #99 the resolve agent's own deferred entry showed one (#97, R1-10). A
@@ -3770,7 +3775,9 @@ async function revise(record, inScope, reviewedKind) {
   // reshape gives its finding (#94, R8-6).
   const stated = {}
   const resolveWith = async (newCalls, newOverrides, suffix) => {
-    for (const id of newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))) {
+    // The ids this resolve applies: its calls and its overrides.
+    const applied = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))
+    for (const id of applied) {
       const decision = withOwner(decisions[id])
       // A finding a repository ask rule covers stays the person's whatever the decision says: a
       // disposition on it (fix, defer) is not applied, and the rule travels with the decision so
@@ -3876,7 +3883,7 @@ async function revise(record, inScope, reviewedKind) {
     // one, is checked by what it names, as a stated call is by its statement (#108, R1-5); a
     // finding left to the person under a rule names none (its disposition was deleted above).
     // Until #108 only a defer override was checked, by its entry.
-    const named = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id)).filter((id) => !record.forced[id] && roundDecisions[id].disposition)
+    const named = applied.filter((id) => !record.forced[id] && roundDecisions[id].disposition)
     const namedAs = (disposition) => named.filter((id) => roundDecisions[id].disposition === disposition)
     const whose = (id) => (isCall(id) ? 'its decision' : 'a disposition override')
     // A deferral the person chose comes back with its entry (#97, R2-13): one the resolve agent
@@ -3922,31 +3929,36 @@ async function revise(record, inScope, reviewedKind) {
     if (namedPlanned.length) {
       throw stageError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
     }
-    resolvedTasks.push(...out.tasks)
+    for (const id of applied) {
+      decidedFiles[id] = taskFiles(id)
+    }
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
     return out
   }
   // Dispositions after the overrides: what the plan approver and the implementer are shown, what
-  // the implementer builds and the replies report. A deferral the person or autopilot decided
+  // the implementer builds and the replies report. A finding the person or autopilot decided
   // carries the files of the task the round planned for it (plannedFiles, below), the list the
-  // workflow reads, never the shaper's list for the finding's old disposition (#103, R1-2, R2-11);
-  // every other finding keeps the shaper's. Its first call comes after plannedFiles is declared.
+  // workflow reads, never the shaper's list for the finding's old disposition (#103, R1-2, R2-11).
+  // Until #106 only one shown as a deferral did, and a decided fix was shown the shaper's list
+  // from before the decision: a decline overruled to a fix was shown no files beside its task.
+  // Every other finding keeps the shaper's, one left to the person under a rule included. Its
+  // first call comes after plannedFiles is declared.
   const effectiveDispositions = () => shaped.findings.map((f) => {
     const decision = roundDecisions[f.id]
     const shown = decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
-    return decision && shown.disposition === 'defer' ? { ...shown, files: plannedFiles(f.id) } : shown
+    return tracked(f.id) ? { ...shown, files: plannedFiles(f.id) } : shown
   })
-  // The files of the task the round planned for a deferral (#100), none when it planned no task.
-  // A finding the person or autopilot decided is read from the resolve's tasks, whatever the
-  // shaper listed for it, so the stops, the prompts and the warning read one fact one way (#103,
-  // R3-6). isDeferral read this list too until #99, which reads a call's decision from what the
-  // resolve agent states and no longer from whether a task is planned. One nobody decided is read
-  // from the shaper's own list for its deferral (#97, R2-6): a finding's `files` are the paths its
-  // task touches (the shaper's schema), so a deferral listed with files has a task whatever its
-  // mitigation says, and shaperFiles reads only a finding the shaper deferred, so no other test
-  // of the list is needed (#103, R2-9). Nothing is demanded of the gate for it: no deferral's
-  // commit is (#100).
-  const plannedFiles = (id) => (roundDecisions[id] ? taskFilesOf(resolvedTasks, id) : shaperFiles(id))
+  // The files of the task the round planned for a finding, none when it planned no task (#100).
+  // A finding the person or autopilot decided is read from the round's own list of its task
+  // (decidedFiles, #106), whatever the shaper listed for it before the decision, so the stops,
+  // the prompts and the warnings read one fact one way (#103, R3-6). isDeferral read this list
+  // too until #99, which reads a call's decision from what the resolve agent states and no longer
+  // from whether a task is planned. One nobody decided is read from the shaper's own list for its
+  // deferral (#97, R2-6): a finding's `files` are the paths its task touches (the shaper's
+  // schema), so a deferral listed with files has a task whatever its mitigation says, and
+  // shaperFiles reads only a finding the shaper deferred, so no other test of the list is needed
+  // (#103, R2-9). Nothing is demanded of the gate for a deferral: no deferral's commit is (#100).
+  const plannedFiles = (id) => (tracked(id) ? (decidedFiles[id] || []).slice() : shaperFiles(id))
   // The round's deferrals as they stand (#95): an entry whose finding is deferred, by the shaper
   // or by the person's override. A finding the person or autopilot decided is a deferral only
   // when the decision made it one (#97, R1-10): a defer override, and no other override whatever

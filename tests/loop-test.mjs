@@ -2911,7 +2911,7 @@ function samePrefix(name, first, second, n) {
   check('defer: the deferred schema\'s comment says nothing reads the mitigation field to decide anything, since a call\'s decision is read from what is stated (#99)', src.includes('since #99 nothing reads the field to decide anything') && !src.includes('read once, as filled or empty, by isDeferral') && !src.includes('shown and never read to decide'))
   check('defer: the comment on the mitigation field names the plan dial\'s list as the one that shows the shaper\'s words', src.includes('the plan dial\'s list of the shaper\'s'))
   check('defer: plannedFiles reads the shaper\'s own list through shaperFiles alone, with no second test of it', !src.includes('shaperPlanned'))
-  check('defer: a finding\'s task files are read through one helper, by the resolve-time checks and by plannedFiles (#108, R1-7)', src.includes('const taskFilesOf = (tasks, id) =>') && src.includes('taskFilesOf(out.tasks, id)') && src.includes('taskFilesOf(resolvedTasks, id)') && !src.includes('unique(out.tasks.filter((task) => task.finding === id)') && !src.includes('unique(resolvedTasks.filter((task) => task.finding === id)'))
+  check('defer: a finding\'s task files are read through one helper, by the resolve-time checks and for the list plannedFiles reads (#108, R1-7; #106)', src.includes('const taskFilesOf = (tasks, id) =>') && src.includes('taskFilesOf(out.tasks, id)') && src.includes('decidedFiles[id] = taskFiles(id)') && !src.includes('unique(out.tasks.filter((task) => task.finding === id)') && !src.includes('resolvedTasks'))
   check('defer: the skill\'s plan dial no longer reads an empty mitigation in deferredPlanned as nothing shipping', !read('skills', 'redline', 'SKILL.md').includes('holds each defer\'s mitigation (empty when nothing ships now)'))
   check('defer: the skill\'s draft stop calls a mitigation with empty words a planned change only at a round\'s stop, and a change in its own commit at the end-of-run stop', read('skills', 'redline', 'SKILL.md').includes('"a change in its own commit" at the end-of-run stop') && !read('skills', 'redline', 'SKILL.md').includes('or "a planned change" when the words are empty'))
   // What shipped is stated from `ships` first, and the words follow it labelled as its words
@@ -3219,6 +3219,27 @@ function samePrefix(name, first, second, n) {
   check('filing: the implementer is shown no files for a fix the person changed to a deferral with no task, whatever the shaper listed', implementerFiles(fixToDefer, 'R1-1') === '["defer",[]]', [fixToDefer.res.status, implementerFiles(fixToDefer, 'R1-1')])
   // The neighbour: a deferral nobody decided is shown with the shaper's own list, as before.
   check('filing: the implementer is shown the shaper\'s own files for a deferral nobody decided', implementerFiles(ownDefer, 'R1-1') === '["defer",["app/y.php"]]', [ownDefer.res.status, implementerFiles(ownDefer, 'R1-1')])
+  // Every finding the person or autopilot decided is shown the files of its task, from the first
+  // plan approver pass on (#106): until then only one shown as a deferral was (#103, R2-11), and a
+  // decided fix was shown the shaper's list from before the decision. No reshape runs here, so the
+  // task is the resolve agent's.
+  const filesShown = (r, id) => [approverFiles(r, id), implementerFiles(r, id)]
+  const bothShown = (r, id, expected) => filesShown(r, id).every((x) => x === expected)
+  const declineToFix = await go('filing: a decline the person overrules to a fix, as the agents are shown it', { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-20', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], decline: ['R1-1'], commitIds: [['R1-1']] })
+  check('filing: the plan approver and the implementer are shown the task\'s files for a decline the person overruled to a fix, never the decline\'s empty list', bothShown(declineToFix, 'R1-1', '["fix",["app/x.php"]]'), [declineToFix.res.status, declineToFix.res.error, filesShown(declineToFix, 'R1-1')])
+  const changeIt = { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-20' } }
+  const answeredFix = await go('filing: a call answered with a fix, as the agents are shown it', { ...baseArgs, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], files: { 'R1-1': ['app/rec.php'] }, commitIds: [['R1-1']] })
+  check('filing: the plan approver and the implementer are shown the task\'s files for a call answered with a fix, never the paths of the shaper\'s recommended option', bothShown(answeredFix, 'R1-1', '["ask",["app/x.php"]]'), [answeredFix.res.status, answeredFix.res.error, filesShown(answeredFix, 'R1-1')])
+  const answeredKeep = await go('filing: a call answered with no change, as the agents are shown it', { ...baseArgs, decisions: { 'R1-1': { choice: 'Keep it', notes: 'Keep it as it is.', date: '2026-11-20' } } }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], acceptedCalls: ['R1-1'], files: { 'R1-1': ['app/rec.php'] }, commitIds: [[]] })
+  check('filing: the plan approver and the implementer are shown no files for a call answered with no change, whatever the shaper listed', bothShown(answeredKeep, 'R1-1', '["ask",[]]'), [answeredKeep.res.status, answeredKeep.res.error, filesShown(answeredKeep, 'R1-1')])
+  // The neighbours: a fix nobody decided keeps the shaper's list, and a finding left to the person
+  // under a repository rule keeps the list it had, since its task has no files by rule and the
+  // rule is matched on the shaper's.
+  const ownFix = await go('filing: the shaper\'s own fix, as the agents are shown it', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/y.php'] }, commitIds: [['R1-1']] })
+  check('filing: the plan approver and the implementer are shown the shaper\'s own files for a fix nobody decided', bothShown(ownFix, 'R1-1', '["fix",["app/y.php"]]'), [ownFix.res.status, ownFix.res.error, filesShown(ownFix, 'R1-1')])
+  const chargeRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
+  const leftCall = await go('filing: a call under a repository rule, answered, as the agents are shown it', { ...baseArgs, askRules: chargeRule, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], askRule: { 'R1-1': 'billing' }, files: { 'R1-1': ['app/rec.php'] }, commitIds: [[], []] })
+  check('filing: the plan approver and the implementer are shown the shaper\'s list for an answered call left to the person under a rule, as before', bothShown(leftCall, 'R1-1', '["ask",["app/rec.php"]]'), [leftCall.res.status, leftCall.res.error, filesShown(leftCall, 'R1-1')])
   // What a call's decision ends in is read from what the resolve agent states (#99), never from
   // its deferred entry or from whether its task has files, and the statement is checked against
   // the tasks and entries the same resolve returned. Four runs cover both statements over both
