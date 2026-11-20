@@ -132,9 +132,9 @@
 #                                  Each says so in one line on stderr, and the exit is still 0.
 #                                  A 422 with no such comment, or after the second case, is the
 #                                  failure it always was: GitHub's reason on stderr, exit 1.
-#                                  Comments the placement cannot read (its jq fails on one) stop
-#                                  it before anything is posted: one line on stderr naming the
-#                                  review file, exit 2
+#                                  Comments the placement cannot read (its jq fails on one), or
+#                                  a step of the placement that fails, stop it before anything
+#                                  is posted: one line on stderr naming the review file, exit 2
 #   reply <n> <comment-id> <file>  reply in an inline comment's thread
 #   comment <n> <file>             issue comment on the PR
 #   request-review <n> <user>      add a reviewer
@@ -431,16 +431,22 @@ diff_positions() {
 # GitHub took no comment on the file ($4), listed before the missing patch; and, last, the file's
 # hunks came from a source and GitHub refused the review that used them ($5). `moved` keeps the
 # review's order.
+# Returns non-zero when a step fails, with nothing more printed than the step's own message: a
+# caller that captures the output reads the status too, since a step that fails can leave the
+# last one a well-formed placement to print (an empty kinds file reads as every file absent,
+# #112, R4-5).
 place_comments() {
     # The positions go through a file: on a PR of hundreds of files the list is megabytes, past
     # what --argjson may carry on the command line ("Argument list too long"). So does the kind
     # of each file, which grows with the listing.
-    local positions kinds recovered large="${4:-/dev/null}" only="${5:-0}" message="${6:-}"
+    local positions kinds recovered status=0 large="${4:-/dev/null}" only="${5:-0}" message="${6:-}"
     positions="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     kinds="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
     recovered="$(mktemp "${TMPDIR:-/tmp}/redline-gh.XXXXXX")"
-    diff_positions "$3" <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions"
-    { grep -a $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered"
+    diff_positions "$3" <<<"$1" | jq -R -s 'split("\n") | map(select(length > 0))' > "$positions" \
+        || { rm -f "$positions" "$kinds" "$recovered"; return 1; }
+    { grep -a $'^@@@redline-file\t' "$3" || true; } | cut -f2 > "$recovered" \
+        || { rm -f "$positions" "$kinds" "$recovered"; return 1; }
     jq --rawfile recovered "$recovered" --rawfile large "$large" --arg only "$only" '
         def set: split("\n") | map(select(length > 0) | {key: ., value: true}) | from_entries;
         ($recovered | set) as $found
@@ -450,7 +456,8 @@ place_comments() {
             elif (.changes // 0) == 0 then (if .status == "renamed" then "renamed" else "binary" end)
             elif $refused[.filename] == true then "toolarge"
             elif $found[.filename] == true then (if $only == "1" then "refused" else "hunks" end)
-            else "nopatch" end)}) | from_entries' <<<"$1" > "$kinds"
+            else "nopatch" end)}) | from_entries' <<<"$1" > "$kinds" \
+        || { rm -f "$positions" "$kinds" "$recovered"; return 1; }
     jq --slurpfile positions "$positions" --slurpfile kinds "$kinds" \
         --arg absent "The file is not in this pull request:" \
         --arg offhunk "The line is not in the pull request's diff:" \
@@ -474,8 +481,9 @@ place_comments() {
                    else .body + "\n\n### Not placed inline\n\n" + ([$causes[] | . as $c | ($moved | map(select(cause == $c[0]))) | select(length > 0) | $c[1] + "\n\n" + (map(block) | join("\n\n"))] | join("\n\n")) end),
             comments: ($placed | map(.side = (.side // "RIGHT"))),
             moved: ($moved | map({id: id, path, line, side: (.side // "RIGHT")}))
-          }' "$2"
+          }' "$2" || status=$?
     rm -f "$positions" "$kinds" "$recovered"
+    return "$status"
 }
 
 # Every review thread of PR $1 as the `threads` list: the pages slurped into a temp file (a PR of
@@ -740,10 +748,14 @@ case "$cmd" in
         # Each pass ends the loop, adds one sourced file to too_large, or sets listing_only, which
         # is set once: at most one post per sourced file, one more, and the last (#96).
         while :; do
-            placed="$(place_comments "$all" "$2" "$hunks" "$too_large" "$listing_only" "$refusal")"
-            # place_comments runs in a command substitution, where bash clears -e, so a jq that
-            # fails inside it does not stop it: what it printed is checked before anything is
-            # posted (#112, R1-9).
+            # place_comments runs in a command substitution, where bash clears -e, so a step that
+            # fails inside it does not stop it. Its status is read, since a failed step can leave
+            # a well-formed placement behind (#112, R4-5), and what it printed is checked as well
+            # before anything is posted (#112, R1-9).
+            placed="$(place_comments "$all" "$2" "$hunks" "$too_large" "$listing_only" "$refusal")" || {
+                echo "redline-gh.sh: could not place the comments of $2; nothing was posted" >&2
+                exit 2
+            }
             if ! jq -e '(.body | type == "string") and (.comments | type == "array") and (.moved | type == "array")' <<<"$placed" >/dev/null 2>&1; then
                 echo "redline-gh.sh: could not place the comments of $2; nothing was posted" >&2
                 exit 2

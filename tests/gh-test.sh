@@ -666,6 +666,27 @@ out="$(gh post-review 20 "$WORK/review-20-unplaceable.json" 2>"$WORK/err")"; cod
 is "post-review: comments that cannot be placed: exit 2, nothing on stdout" "$code $out" "2 "
 has "post-review: comments that cannot be placed: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-unplaceable.json; nothing was posted"
 is "post-review: comments that cannot be placed: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+# A step of the placement that fails (#112, R4-5): the step that writes each file's kind fails
+# and leaves its file empty, which the last step reads as every file absent, so what it prints is
+# well formed and every comment sits under "The file is not in this pull request:". The
+# placement's status is what stops the post. The jq here fails that one step (the only call that
+# takes --rawfile recovered) and is the real jq for every other, the shim's own --rawfile call
+# included.
+mkdir -p "$WORK/old-jq"
+printf '#!/bin/sh\ncase " $* " in *" --rawfile recovered "*) exit 2 ;; esac\nexec "%s" "$@"\n' "$(command -v jq)" > "$WORK/old-jq/jq"
+chmod +x "$WORK/old-jq/jq"
+jq -n '{body: "Redline round 1\n\nTwo findings.", comments: [
+    {path: "src/small.js", line: 10, body: "**R1-1** · nit · low · confirmed\n\n**On a listed patch**"},
+    {path: "src/big.js", line: 1500, body: "**R1-2** · nit · low · confirmed\n\n**On a recovered hunk**"}
+]}' > "$WORK/review-20-kinds.json"
+fresh_posts
+out="$(PATH="$WORK/old-jq:$PATH" gh post-review 20 "$WORK/review-20-kinds.json" 2>"$WORK/err")"; code=$?
+is "post-review: a placement step that fails: exit 2, nothing on stdout" "$code $out" "2 "
+has "post-review: a placement step that fails: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-kinds.json; nothing was posted"
+is "post-review: a placement step that fails: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+fresh_posts
+out="$(gh post-review 20 "$WORK/review-20-kinds.json" 2>"$WORK/err")"; code=$?
+is "post-review: the same review with every step working: one post, both comments inline" "$code $(posts) $(jq -c '[(.comments | length), (.moved | length)]' <<<"$out")" "0 1 [2,0]"
 # A comment that is not an object (#112, R3-2): the review file's own check reads every comment's
 # shape, so post-review stops before the listing is read, with its own line and exit 2, never jq's.
 jq -n '{body: "Redline round 1", comments: [1]}' > "$WORK/review-20-nonobject.json"
