@@ -107,8 +107,8 @@ The only door to GitHub. The reviewer, the shaper and the plan approver run its 
 #                                  the whole-PR diff, read once and only when a comment names such
 #                                  a file on a PR of 300 files or fewer, or else, when this clone
 #                                  holds the base and the head commit (their shas read in one
-#                                  call), a local git diff of their merge base against the head
-#                                  for that path (#96). The moved comments
+#                                  call) and their merge base, a local git diff of that merge
+#                                  base against the head for that path (#96). The moved comments
 #                                  are grouped under one line per cause: the file is not in the
 #                                  pull request, the line is not in its diff, the file is binary,
 #                                  it was renamed with nothing changed, or its patch could not be

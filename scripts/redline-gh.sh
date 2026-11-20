@@ -97,8 +97,8 @@
 #                                  the whole-PR diff, read once and only when a comment names such
 #                                  a file on a PR of 300 files or fewer, or else, when this clone
 #                                  holds the base and the head commit (their shas read in one
-#                                  call), a local git diff of their merge base against the head
-#                                  for that path (#96). The moved comments
+#                                  call) and their merge base, a local git diff of that merge
+#                                  base against the head for that path (#96). The moved comments
 #                                  are grouped under one line per cause: the file is not in the
 #                                  pull request, the line is not in its diff, the file is binary,
 #                                  it was renamed with nothing changed, or its patch could not be
@@ -330,8 +330,9 @@ diff_sections() {
 #    however many files are wanted, made only when the listing counts 300 files or fewer (past
 #    that GitHub refuses it). These are GitHub's own hunks.
 # 2. For a file still without hunks (a PR over 300 files, a refused call, a section the diff does
-#    not hold): this clone. One call reads the base and head shas; when both commits are here,
-#    `git diff` of their merge base against the head for that path, and for a rename its previous
+#    not hold): this clone. One call reads the base and head shas; when both commits and their
+#    merge base are here (a shallow clone can hold the two tips and not their common ancestor),
+#    `git diff` of that merge base against the head for that path, and for a rename its previous
 #    path, gives the hunks, measured byte-identical to GitHub's whole diff. Its flags are pinned
 #    (algorithm, context, prefixes, rename detection, no external diff, no textconv, and every
 #    file read as text: the listing counts the file's changed lines, while git's own binary
