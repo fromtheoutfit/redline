@@ -49,6 +49,9 @@ function mock(scenario) {
   let postedRound = 0
   let planN = 0
   let approvedN = 0
+  // The files of each task the scripted resolve agent planned, by finding id (#106): a reshape
+  // asked for a decided finding's task lists them, as a real one reads them off plan.md.
+  const plannedByResolve = {}
   const agent = async (prompt, opts) => {
     calls.push({ label: opts.label, agentType: opts.agentType, prompt, opts })
     // scenario.nothing (#94, R6-10): the labels whose call returns nothing, as an agent that was
@@ -210,6 +213,12 @@ function mock(scenario) {
       // a second look only when its prompt asks for one (#94, R9-3).
       const reshape = typeof opts.label === 'string' && opts.label.startsWith('reshape')
       const onReshape = (key) => (reshape && scenario[key]) || []
+      // The findings a reshape prompt names as decided (#106): for each, files is its task as
+      // plan.md holds it, whatever disposition the reshape returns. By default that is what the
+      // scripted resolve planned; scenario.reshapeFiles[id] scripts a task the reshape changed.
+      const decidedLine = reshape ? prompt.match(/Findings the person or the autopilot decided: ([^.]*)\./) : null
+      const namedDecided = decidedLine ? decidedLine[1].split(', ') : []
+      const taskOf = (id) => (scenario.reshapeFiles && id in scenario.reshapeFiles ? scenario.reshapeFiles[id] : plannedByResolve[id] || [])
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : onReshape('reshapeDefer').includes(id) ? 'defer' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
       // workflow's check of it.
@@ -224,7 +233,7 @@ function mock(scenario) {
         // list, [] for no task. scenario.askRule (#49) adds the shaper's ask-rule tag, only when scripted.
         findings: ids.map((id) => ({
           id, disposition: disposition(id), decidedBy: owner(id), recommendation: `${disposition(id)} ${id} this way`,
-          files: scenario.files && id in scenario.files ? scenario.files[id] : disposition(id) === 'fix' || (disposition(id) === 'defer' && mitigationOf(id) !== '') ? ['app/x.php'] : [],
+          files: namedDecided.includes(id) ? taskOf(id).slice() : scenario.files && id in scenario.files ? scenario.files[id] : disposition(id) === 'fix' || (disposition(id) === 'defer' && mitigationOf(id) !== '') ? ['app/x.php'] : [],
           ...(scenario.askRule && scenario.askRule[id] ? { askRule: scenario.askRule[id] } : {}),
           // scenario.reshapeAskRule (#108, R1-8) adds an ask-rule tag on a reshape alone, as a
           // reshape that newly puts a decided call under a rule returns it.
@@ -277,7 +286,13 @@ function mock(scenario) {
       const decided = callIds
         .filter((id) => !left.has(id) && !(named.has(id) && !(scenario.resolveDecided && id in scenario.resolveDecided)) && !(scenario.resolveUnstated || []).includes(id))
         .flatMap((id) => [{ id, disposition: states(id) }].concat(scenario.resolveDecidedTwice && scenario.resolveDecidedTwice[id] ? [{ id, disposition: scenario.resolveDecidedTwice[id] }] : []))
-      return { specFolder: 'x', tasks: ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })), deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
+      // scenario.resolveExtraTasks (#106): tasks the resolve agent returns beside the ones for the
+      // decisions it was given, as an agent that returns the plan's whole task list does.
+      const tasks = ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })).concat(scenario.resolveExtraTasks || [])
+      for (const id of ids) {
+        plannedByResolve[id] = tasks.filter((task) => task.finding === id).flatMap((task) => task.files)
+      }
+      return { specFolder: 'x', tasks, deferred: scenario.resolveDeferred ? scenario.resolveDeferred.slice() : [], ...(scenario.resolveNoDecided ? {} : { decided }), unresolved: scenario.unresolved ? scenario.unresolved.slice() : [] }
     }
     if (t === 'redline:redline-plan-approver') {
       // scenario.planBounce (#10): the plan approver bounces the plan this many times first.
@@ -347,6 +362,10 @@ const baseArgs = {
 // No review, reply or closing comment of any scenario holds a For the person section (#93): every
 // prompt of every run is read, and one check at the end says so.
 const forThePerson = []
+// No reshape prompt of a round with no decided finding holds the decided-findings block (#106):
+// every run is read, and one check at the end names the offenders.
+const DECIDED_BLOCK = 'Findings the person or the autopilot decided: '
+const strayDecidedBlock = []
 
 async function go(name, args, scenario, script = body) {
   const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
@@ -363,6 +382,15 @@ async function go(name, args, scenario, script = body) {
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
   forThePerson.push(...calls.filter((c) => c.prompt.includes('### For the person') || c.prompt.includes('forThePerson')).map((c) => `${name}: ${c.label}`))
+  calls.forEach((c, i) => {
+    if (c.agentType !== 'redline:redline-shaper' || !c.prompt.includes(DECIDED_BLOCK)) {
+      return
+    }
+    const approver = calls.slice(0, i).reverse().find((x) => x.agentType === 'redline:redline-plan-approver')
+    if (!approver || approver.prompt.includes('(these are decided, not pending): none')) {
+      strayDecidedBlock.push(`${name}: ${c.label}`)
+    }
+  })
   // Every run that reaches Finish ends with the run-record commit: after the closing comment, or
   // after the post of a review-only run or the replies of a revise-only run (#10).
   if (!thrown && (res.status === 'capped' || res.status === 'review-only' || 'handoffPosted' in res || 'humanReview' in res) && !scenario.recordFiles) {
@@ -3172,8 +3200,8 @@ function samePrefix(name, first, second, n) {
   // person decided, the task the resolve agent planned, never the shaper's list for the finding's
   // old disposition. An absent heading or JSON that does not parse reads as null, so a run that
   // took another path fails the check and does not throw.
-  const approverFiles = (r, id) => {
-    const p = (pick(r.calls, 'plan approver r1') || { prompt: '' }).prompt
+  const approverFiles = (r, id, label = 'plan approver r1') => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
     const head = "The shaper's dispositions and deferred list, as JSON:\n"
     const a = p.indexOf(head)
     const b = a < 0 ? -1 : p.indexOf('\n\nDecisions made outside the shaper', a)
@@ -3240,6 +3268,90 @@ function samePrefix(name, first, second, n) {
   const chargeRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
   const leftCall = await go('filing: a call under a repository rule, answered, as the agents are shown it', { ...baseArgs, askRules: chargeRule, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], askRule: { 'R1-1': 'billing' }, files: { 'R1-1': ['app/rec.php'] }, commitIds: [[], []] })
   check('filing: the plan approver and the implementer are shown the shaper\'s list for an answered call left to the person under a rule, as before', bothShown(leftCall, 'R1-1', '["ask",["app/rec.php"]]'), [leftCall.res.status, leftCall.res.error, filesShown(leftCall, 'R1-1')])
+  // The list follows a reshape (#106). Until then a decided finding's task was read from the
+  // resolve agent's tasks alone, so after a bounced plan and a reshape that changed or removed
+  // the task, the plan approver's next pass, the implementer, a held draft and the warning were
+  // shown the files as first planned, and an approver that holds the list to the plan (its rule
+  // 1) could bounce to the cap. The issue's case: an override to defer whose resolve plans
+  // app/x.php, a bounced plan, and a reshape that lists no files for it.
+  const PASS_2 = 'plan approver r1 #2'
+  const guardEntry = { id: 'R1-1', mitigation: 'a guard', ...draftFor('R1-1') }
+  const deferArgs = { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: toDefer('Defer it behind a guard.'), deferrals: goAhead('R1-1') }
+  const deferBounced = { reviews: [[f('R1-1', 'correctness')]], decline: ['R1-1'], planBounce: 1, resolveDeferred: [guardEntry], commitIds: [[]] }
+  const CHANGED = (from, to) => `round 1: the reshape changed the files of R1-1's task, a finding decided by @author, from ${from} to ${to}`
+  const warned = (r, text) => ((r.res || {}).warnings || []).includes(text)
+  const anyWarning = (r, part) => ((r.res || {}).warnings || []).some((w) => w.includes(part))
+  const emptied = await go('reshape: an override to defer whose task the reshape removes', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': [] } })
+  check('reshape: the second plan approver pass is shown no files for a decided deferral whose task the reshape removed, where the first was shown the resolve agent\'s', emptied.res.status === 'done' && approverFiles(emptied, 'R1-1') === '["defer",["app/x.php"]]' && approverFiles(emptied, 'R1-1', PASS_2) === '["defer",[]]', [emptied.res.status, emptied.res.stage, emptied.res.error, approverFiles(emptied, 'R1-1'), approverFiles(emptied, 'R1-1', PASS_2)])
+  check('reshape: the implementer is shown the same empty list', implementerFiles(emptied, 'R1-1') === '["defer",[]]', implementerFiles(emptied, 'R1-1'))
+  check('reshape: a change to a decided finding\'s files is warned about, with its owner, and a task the reshape removed is no planned mitigation left unbuilt', warned(emptied, CHANGED('app/x.php', 'none')) && !anyWarning(emptied, 'planned a mitigation in'), (emptied.res || {}).warnings)
+  // Its neighbour: a reshape that lists the same files, in another order, changes nothing. The
+  // list is kept as it was, so the second pass is shown what the first was, and nothing is warned.
+  const findingsShown = (r, label) => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    const a = p.indexOf("The shaper's dispositions and deferred list, as JSON:\n")
+    const b = a < 0 ? -1 : p.indexOf('\n\nDecisions made outside the shaper', a)
+    return a < 0 || b < 0 ? '' : p.slice(a, b)
+  }
+  const sameFiles = await go('reshape: an override to defer whose task the reshape lists as it was', deferArgs, { ...deferBounced, resolveFiles: { 'R1-1': ['app/x.php', 'app/z.php'] }, reshapeFiles: { 'R1-1': ['app/z.php', 'app/x.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a reshape that lists the same files leaves the list as it was: the second pass is shown what the first was, and nothing is warned', sameFiles.res.status === 'done' && approverFiles(sameFiles, 'R1-1', PASS_2) === '["defer",["app/x.php","app/z.php"]]' && findingsShown(sameFiles, 'plan approver r1') !== '' && findingsShown(sameFiles, PASS_2) === findingsShown(sameFiles, 'plan approver r1') && !anyWarning(sameFiles, 'the reshape changed'), [sameFiles.res.status, sameFiles.res.error, approverFiles(sameFiles, 'R1-1', PASS_2), (sameFiles.res || {}).warnings])
+  // The other way about: the resolve agent planned no task, and the reshape adds one.
+  const added = await go('reshape: an override to defer with no task, and the reshape adds one', deferArgs, { ...deferBounced, resolveFiles: { 'R1-1': [] }, reshapeFiles: { 'R1-1': ['app/y.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: the second pass is shown the task a reshape added for a decided deferral the resolve agent planned none for, and its commit raises no warning', added.res.status === 'done' && approverFiles(added, 'R1-1') === '["defer",[]]' && approverFiles(added, 'R1-1', PASS_2) === '["defer",["app/y.php"]]' && warned(added, CHANGED('none', 'app/y.php')) && !anyWarning(added, 'has a commit of its own'), [added.res.status, added.res.error, approverFiles(added, 'R1-1', PASS_2), (added.res || {}).warnings])
+  // The two warnings read the list as the reshape left it: a mitigation moved to another file and
+  // not built is named by that file, and a commit beside a task the reshape emptied says the
+  // reshape left it so, since the resolve agent did plan one. The resolve agent's own wording is
+  // pinned by `chosenUnlisted` below.
+  const moved = await go('reshape: an override to defer whose task the reshape moves, nothing built', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': ['app/y.php'] } })
+  check('reshape: a planned mitigation the build left out is named by the files the reshape gave its task', moved.res.status === 'done' && warned(moved, 'round 1: R1-1 planned a mitigation in app/y.php and no commit of its own landed; posted as shipping nothing') && !anyWarning(moved, 'planned a mitigation in app/x.php'), [moved.res.status, moved.res.error, (moved.res || {}).warnings])
+  const emptiedBuilt = await go('reshape: an override to defer whose task the reshape removes, and a commit of its own lands', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': [] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a commit beside a task the reshape emptied is warned about as the reshape\'s doing, never as the resolve agent planning none', emptiedBuilt.res.status === 'done' && warned(emptiedBuilt, 'round 1: R1-1 has a commit of its own (1bbbbbb) and the reshape left its task with no files; posted with its decision') && !anyWarning(emptiedBuilt, 'the resolve agent planned no task with files'), [emptiedBuilt.res.status, emptiedBuilt.res.error, (emptiedBuilt.res || {}).warnings])
+  // The end-of-run stop shows the list too. No round's stop can: a decided deferral's draft is
+  // answered before a reshape can run, and an answered draft is not raised again (#104).
+  const heldEmptied = await go('reshape: an override to defer whose task the reshape removes, held to the end', { ...deferArgs, deferAt: 'end', deferrals: {} }, { ...deferBounced, reshapeFiles: { 'R1-1': [] } })
+  const heldDraft = ((heldEmptied.res || {}).drafts || [])[0] || {}
+  check('reshape: the end-of-run stop shows a held draft with the files the reshape left its task', heldEmptied.res.status === 'handoff' && heldEmptied.res.handoffKind === 'deferred' && JSON.stringify([heldDraft.id, heldDraft.ships, heldDraft.mitigation, heldDraft.files]) === '["R1-1",false,"",[]]', [heldEmptied.res.status, heldEmptied.res.handoffKind, heldEmptied.res.error, heldDraft])
+  // The reshape prompt says what files means for a decided finding, in a block only a round with
+  // one carries (#106): "for an ask" means the paths of the recommended option everywhere else,
+  // the wrong list for a call the person answered. The block names the decided findings no rule
+  // leaves to the person, and nothing else in the prompt changes: with the block cut out, the
+  // prompt is the one the same round has with no decision.
+  const reshapePromptOf = (r, label = 'reshape r1 #1') => (pick(r.calls, label) || { prompt: '' }).prompt
+  const withoutBlock = (p) => {
+    const a = p.indexOf(`\n\n${DECIDED_BLOCK}`)
+    const b = a < 0 ? -1 : p.indexOf('\n\nReturn only', a)
+    return a < 0 || b < 0 ? null : p.slice(0, a) + p.slice(b)
+  }
+  const undecided = await go('reshape: the same round with no decision', { ...baseArgs, interrupt: 'plan', approvedPlans: [1] }, { ...deferBounced, reviews: [[f('R1-1', 'correctness')]] })
+  check('reshape: the reshape prompt of a round with a decided finding names it and says its files are its task as plan.md holds it, whatever disposition is returned', reshapePromptOf(emptied).includes(`${DECIDED_BLOCK}R1-1. `) && reshapePromptOf(emptied).includes('as plan.md holds it when you are done') && reshapePromptOf(emptied).includes('whatever disposition you return for it') && reshapePromptOf(emptied).includes('keeps a task with files'), reshapePromptOf(emptied).slice(-1600))
+  check('reshape: the reshape prompt of a round with no decided finding has no such block, and is the decided round\'s prompt with the block cut out', reshapePromptOf(undecided) !== '' && !reshapePromptOf(undecided).includes(DECIDED_BLOCK) && withoutBlock(reshapePromptOf(emptied)) === reshapePromptOf(undecided), [reshapePromptOf(undecided).length, (withoutBlock(reshapePromptOf(emptied)) || '').length])
+  const twoDecided = await go('reshape: a decided fix beside a call left to the person under a rule and a fix nobody decided', { ...baseArgs, askRules: chargeRule, decisions: { 'R1-1': changeIt['R1-1'], 'R1-2': changeIt['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], askRule: { 'R1-2': 'billing' }, planBounce: 1, commitIds: [['R1-1', 'R1-3'], []] })
+  check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1. `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  const shaperFile = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
+  check('reshape: the shaper\'s file states the same rule for a finding the invoking prompt names as decided', shaperFile.includes('as `plan.md` holds it when you are done') && shaperFile.includes('whatever disposition you return for it') && shaperFile.includes('keeps a task with files'))
+  // A call answered with a fix whose reshape still returns it as an ask lists its task, never the
+  // recommended option's paths, so the second pass is shown the task as the first was.
+  const askedAgain = await go('reshape: a call answered with a fix, the plan bounced', { ...baseArgs, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], files: { 'R1-1': ['app/rec.php'] }, planBounce: 1, commitIds: [['R1-1']] })
+  check('reshape: a call answered with a fix is shown its task\'s files on the second pass too, with nothing warned', askedAgain.res.status === 'done' && approverFiles(askedAgain, 'R1-1', PASS_2) === '["ask",["app/x.php"]]' && !anyWarning(askedAgain, 'the reshape changed'), [askedAgain.res.status, askedAgain.res.error, approverFiles(askedAgain, 'R1-1', PASS_2), (askedAgain.res || {}).warnings])
+  // A finding a reshape newly leaves to the person under a rule is not read from the list any
+  // more: its task has no files by rule, and it is shown the reshape's own list, as every finding
+  // left to the person is. Only a call whose decision names defer reaches this with a deferral
+  // still shown, and no skill path writes one; an override goes through a second resolve, which
+  // drops its disposition.
+  const namedDefer = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a guard.', date: '2026-11-20', disposition: 'defer' } }
+  const forcedDefer = await go('reshape: a call whose decision names defer, left to the person under a rule by the reshape', { ...baseArgs, askRules: chargeRule, decisions: namedDefer, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': ['app/y.php'] }, resolveDeferred: [guardEntry], commitIds: [[], []] })
+  check('reshape: a decided finding the reshape leaves to the person under a rule is shown the reshape\'s own list, and its files are not taken or warned about', approverFiles(forcedDefer, 'R1-1', PASS_2) === '["defer",["app/y.php"]]' && !anyWarning(forcedDefer, 'the reshape changed'), [forcedDefer.res.status, forcedDefer.res.error, approverFiles(forcedDefer, 'R1-1', PASS_2), (forcedDefer.res || {}).warnings])
+  // A resolve sets the list of the ids it applied and no other (#97, R2-14): a reshape that
+  // raises a call runs a resolve for that call alone, and a task that resolve returns for an
+  // earlier decision does not undo what the reshape made of it.
+  const raisedArgs = { ...baseArgs, interrupt: 'plan', approvedPlans: [1], decisions: { ...toDefer('Defer it behind a guard.'), 'R1-2': changeIt['R1-1'] }, deferrals: goAhead('R1-1') }
+  const raisedScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], reshapeFiles: { 'R1-1': ['app/y.php'] }, resolveDeferred: [guardEntry], resolveDecided: { 'R1-2': 'fix' }, resolveExtraTasks: [{ n: 9, title: 't R1-1', files: ['app/x.php'], finding: 'R1-1' }], commitIds: [['R1-1', 'R1-2']] }
+  const raisedLater = await go('reshape: a reshape moves a decided task and raises a call, whose resolve returns the old task too', raisedArgs, raisedScenario)
+  check('reshape: a resolve for a raised call leaves an earlier decision\'s list as the reshape left it', labels(raisedLater.calls).includes('resolve r1 #1') && approverFiles(raisedLater, 'R1-1', PASS_2) === '["defer",["app/y.php"]]', [raisedLater.res.status, raisedLater.res.error, labels(raisedLater.calls).slice(4, 16), approverFiles(raisedLater, 'R1-1', PASS_2)])
+  // Replay: a stop that follows a reshape in a round with a decided finding, and its relaunch.
+  const raisedStop = await go('reshape: a reshape in a round with a decided finding raises a call, unanswered', { ...raisedArgs, decisions: toDefer('Defer it behind a guard.') }, raisedScenario)
+  check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1. `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])
+  samePrefix('reshape: the relaunch replays every prompt before a stop that follows a reshape of a decided round', raisedStop.calls, raisedLater.calls, raisedStop.calls.length)
   // What a call's decision ends in is read from what the resolve agent states (#99), never from
   // its deferred entry or from whether its task has files, and the statement is checked against
   // the tasks and entries the same resolve returned. Four runs cover both statements over both
@@ -3876,6 +3988,7 @@ function samePrefix(name, first, second, n) {
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
+check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)
 for (const failure of failures) {

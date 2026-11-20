@@ -2043,7 +2043,16 @@ Investigate first: open the files named, their callers and tests, and the standa
 Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn).`
 }
 
-function reshapePrompt(pass, specFolder, inScope, adjustments, attempt) {
+// `decided` is the ids of the findings the person or autopilot decided whose task the round reads
+// from its own list (#106). The block that names them says what `files` means for each: every
+// shape prompt asks, for an ask, for the paths of the recommended change, which is the wrong list
+// for a call the person answered, and after a reshape the workflow takes a decided finding's task
+// from this list. The whole ask sits in the block, and the block is in the prompt only when the
+// round has such a finding, so a reshape of any other round keeps the prompt it had before #106.
+function reshapePrompt(pass, specFolder, inScope, adjustments, attempt, decided) {
+  const decidedBlock = decided.length
+    ? `\n\nFindings the person or the autopilot decided: ${decided.join(', ')}. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none.`
+    : ''
   return `This is a Redline run; follow shape-spec in unattended mode.
 
 ${RUN_LINE}
@@ -2056,7 +2065,7 @@ ${json(adjustments)}
 The round's findings, as JSON:
 ${json(inScope)}
 
-Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}
+Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
 Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
@@ -3765,6 +3774,9 @@ async function revise(record, inScope, reviewedKind) {
   // its own resolve gave it (#97, R2-14). Until #106 the round kept every resolve's tasks and
   // read a decided finding's files from them alone.
   const decidedFiles = {}
+  // Each list a reshape changed, by finding id: the list as its resolve planned it, then as each
+  // reshape that changed it left it. A finding no reshape touched has no entry.
+  const reshapedTasks = {}
   // A finding whose task the round reads from that list: one the person or autopilot decided and
   // that no repository rule leaves to the person, whose task has no files by rule (#49).
   const tracked = (id) => Boolean(roundDecisions[id]) && !record.forced[id]
@@ -4035,10 +4047,31 @@ async function revise(record, inScope, reviewedKind) {
       throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
-    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1), {
+    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked)), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
+    // A decided finding's task is the reshape's to correct after a bounce, so its list follows
+    // the reshape (#106): the files the reshape returns for it, which its prompt asks for as the
+    // task plan.md now holds. Until #106 the list stayed as the resolve planned it, so the plan
+    // approver's next pass, the implementer, a held draft and the warnings were shown a task the
+    // plan no longer held, and an approver holding the list to the plan could bounce to the cap.
+    // What the reshape says was decided, its disposition and its deferred entry, is still dropped
+    // (#94, R8-6; #97, R3-6). The lists are compared as sets, and an equal one is kept as it was,
+    // so the prompts that follow do not change; a change is warned about with the decision's
+    // owner. A finding this reshape left to the person under a rule is no longer tracked.
+    for (const id of inScope.map((f) => f.id).filter(tracked)) {
+      const listed = shaped.findings.find((s) => s.id === id)
+      const now = unique(listed && Array.isArray(listed.files) ? listed.files : [])
+      const before = decidedFiles[id] || []
+      if (now.length === before.length && now.every((path) => before.includes(path))) {
+        continue
+      }
+      const said = (list) => (list.length ? list.join(', ') : 'none')
+      warnings.push(`${pass.name}: the reshape changed the files of ${id}'s task, a finding decided by ${roundDecisions[id].decidedBy}, from ${said(before)} to ${said(now)}`)
+      reshapedTasks[id] = (reshapedTasks[id] || [before]).concat([now])
+      decidedFiles[id] = now
+    }
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
     const raised = shaped.judgmentCalls.filter((call) => !calls.some((known) => known.id === call.id))
@@ -4238,9 +4271,12 @@ async function revise(record, inScope, reviewedKind) {
       warnings.push(`${pass.name}: ${d.item.id} planned a mitigation in ${files.join(', ')} and no commit of its own landed; posted as shipping nothing`)
     } else if (!files.length && landed(d.item.id)) {
       // The other way about: a commit of its own with no task planned with files. The commit is the
-      // record, so it counts, and the warning says whose list was empty.
+      // record, so it counts, and the warning says whose list was empty: a reshape's, when one
+      // changed a decided finding's task and left it with none (#106), since the resolve agent
+      // may well have planned one.
       const shas = andList(roundCommits.filter((c) => ownCommit(c, d.item.id)).map((c) => short(c.sha)))
-      warnings.push(`${pass.name}: ${d.item.id} has a commit of its own (${shas}) and ${roundDecisions[d.item.id] ? 'the resolve agent planned no task with files for it; posted with its decision' : 'the shaper listed no files for its task; posted as its mitigation'}`)
+      const emptyBy = reshapedTasks[d.item.id] ? 'the reshape left its task with no files; posted with its decision' : roundDecisions[d.item.id] ? 'the resolve agent planned no task with files for it; posted with its decision' : 'the shaper listed no files for its task; posted as its mitigation'
+      warnings.push(`${pass.name}: ${d.item.id} has a commit of its own (${shas}) and ${emptyBy}`)
     }
   }
   for (const d of toFile) {
