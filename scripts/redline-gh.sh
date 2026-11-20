@@ -708,8 +708,11 @@ case "$cmd" in
         [[ $# -eq 2 ]] || usage
         need_int "$1" "pr number"
         need_file "$2" "review json"
-        if ! jq -e '(.body | type == "string") and (.comments | type == "array")' "$2" >/dev/null 2>&1; then
-            echo "redline-gh.sh: $2 must be JSON with body (string) and comments (array)" >&2
+        # Every comment is an object: recover_hunks reads each one's path before the placement's
+        # own check below, and a jq error there stops the script under set -e with jq's exit 5
+        # and message, not the exit 2 and line the header promises (#112, R3-2).
+        if ! jq -e '(.body | type == "string") and (.comments | type == "array") and (.comments | all(type == "object"))' "$2" >/dev/null 2>&1; then
+            echo "redline-gh.sh: $2 must be JSON with body (string) and comments (an array of objects)" >&2
             exit 2
         fi
         # Every temp file of this subcommand, the ones pr_files, recover_hunks and place_comments

@@ -647,6 +647,14 @@ out="$(gh post-review 20 "$WORK/review-20-unplaceable.json" 2>"$WORK/err")"; cod
 is "post-review: comments that cannot be placed: exit 2, nothing on stdout" "$code $out" "2 "
 has "post-review: comments that cannot be placed: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: could not place the comments of $WORK/review-20-unplaceable.json; nothing was posted"
 is "post-review: comments that cannot be placed: GitHub is sent no review" "$(posts) $(taken)" "0 none"
+# A comment that is not an object (#112, R3-2): the review file's own check reads every comment's
+# shape, so post-review stops before the listing is read, with its own line and exit 2, never jq's.
+jq -n '{body: "Redline round 1", comments: [1]}' > "$WORK/review-20-nonobject.json"
+fresh_posts; : > "$PAGES/api.log"
+out="$(gh post-review 20 "$WORK/review-20-nonobject.json" 2>"$WORK/err")"; code=$?
+is "post-review: a comment that is not an object: exit 2, nothing on stdout" "$code $out" "2 "
+is "post-review: a comment that is not an object: one line naming the review file" "$(cat "$WORK/err")" "redline-gh.sh: $WORK/review-20-nonobject.json must be JSON with body (string) and comments (an array of objects)"
+is "post-review: a comment that is not an object: nothing is read and no review is sent" "$(wc -l < "$PAGES/api.log" | tr -d ' ') $(posts) $(taken)" "0 0 none"
 
 # A 422 whose body carries no status (#112, R1-10): gh's own line says 422, and the refusal is acted on.
 fresh_posts; echo "src/big.js" > "$PAGES/unresolved.txt"
