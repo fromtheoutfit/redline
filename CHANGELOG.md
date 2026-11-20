@@ -2,6 +2,12 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.4.3 (2026-11-20)
+
+### Fixes
+
+- #112 A finding on a text file whose patch GitHub's files listing omits (over about 100 KiB) is placed inline with a thread: the hunks come from GitHub's whole-PR diff or, on a PR over 300 files, from the clone. A finding that still cannot be anchored sits in the review body under one line that says why, and a review GitHub refuses because a file's diff is too large is posted again with that file's findings in the body (#96)
+
 ## 0.4.2 (2026-11-18)
 
 ### Fixes
