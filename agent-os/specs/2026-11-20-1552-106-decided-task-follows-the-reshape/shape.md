@@ -147,7 +147,28 @@ No resolve prompt differs in any scenario, so a paused run relaunched after the 
 
 ## Standards retrospective
 
-Done at the gate (Task 7) and recorded here then.
+Listed from decisions 1 to 20, the as-built deviations and the red runs, and put to the person before any edit. All seven edits were approved on 2026-11-20 and applied in their own commit, `bc5287c`.
+
+The edits:
+
+1. `agent-os/standards/workflow/agents.md`, line 47, appended: **contradicted in part** (decisions 10, 11, 17). The line said the workflow reads a decided finding's task from the resolve agent's tasks, and R2-11's clause showed it beside a deferral only. Appended: the list read for a decided finding is its task as last planned, set by the resolve that applied the decision and replaced by each reshape's `files`, read for every decided finding no rule leaves to the person, from the first plan approver pass on; what a reshape says was decided is still dropped, and a change is warned about with the decision's owner.
+2. `agent-os/standards/workflow/agents.md`, line 38, appended: **missing** (decision 13). The hold of a decision to its task runs again after each reshape, on the list the reshape left; a deferral is not held.
+3. `agent-os/standards/workflow/agents.md`, line 10, appended: **missing** (decisions 2, 18). A spec shaped by hand settles a class by listing every read and every text shown, each row traced to a path a run can take: the draft-stop row, taken from the issue's words, had none.
+4. `agent-os/standards/workflow/replay.md`, line 19, appended: **missing** (decision 13). A reshape stopped by the workflow's check of the task it left a decided finding is told to correct the task and keep the decided entries, chosen by how the error opens; any other reshape resume keeps the shaper's sentence.
+5. `agent-os/standards/workflow/replay.md`, line 23, appended: **missing** (decision 10). A block that only says what an existing field means for the findings it names needs no new key.
+6. `agent-os/standards/testing/tests.md`, line 7, appended: **missing** (decision 20). A reshape mock asked what a decided finding's task is lists what the scripted resolve planned, kept from the resolve's own result.
+7. `agent-os/standards/testing/tests.md`, a new bullet after "A bug fix lands red before green": **missing** (decision 4, the sweep; the equivalent mutation). A byte-identical claim is proven by a sweep of every scenario under the script before and after, with each difference explained; a green mutation is called an equivalent only with the reason and the red neighbour.
+
+Already in a standard, no edit:
+
+- A stage error names the label a resume reruns and is pinned by it (`workflow/agents.md`, line 37; `testing/tests.md`, the `resumeFrom` bullet).
+- A message worded by a condition is pinned in each wording, and says when it fires in the words of the decision behind it (`testing/tests.md`; `workflow/agents.md`, line 16).
+- A rule a prompt states is changed in the role's agent file too (`workflow/agents.md`, line 17), which is why `agents/redline-shaper.md` changed in Task 4.
+- A stop takes only a decision whose prompt comes after it (`workflow/replay.md`, line 6), which ruled out the early stop of decision 12.
+- A value a later pass rebuilds keeps what an earlier pass recorded (`workflow/agents.md`, line 41): a second resolve sets only the ids it applied.
+- One Docs entry per touched plugin file (`process/docs-gate.md`); a patch bump in both manifests (`process/release.md`).
+
+No pattern was used that the standards do not hold. No code enforces a new rule beyond the loop checks each task landed with.
 
 ## Context
 
