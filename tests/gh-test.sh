@@ -77,13 +77,34 @@ FIX="$PLUGIN/tests/gh-fixtures"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-gh-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
 mkdir -p "$WORK/bin" "$WORK/repo" "$WORK/pages"
-# hgit: the harness's own git, with the developer's configuration and environment shut out, so a
-# fixture is the same on every machine: no global or system configuration, no user attributes
-# file, GIT_DIFF_OPTS unset (#112, R2-4), and no configuration given through the environment,
-# GIT_CONFIG_COUNT with its key and value pairs or the GIT_CONFIG_PARAMETERS that git -c hands to
-# what it runs (#112, R3-3). The script under test runs its own git, which the
-# hostile-configuration cases reach on purpose.
-hgit() { env -u GIT_DIFF_OPTS -u GIT_CONFIG_PARAMETERS -u GIT_CONFIG_COUNT GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null "$@"; }
+# The harness starts with no GIT_ variable, so the script under test reads the fixture's
+# repository and never one the caller's environment names: it only reads through git, so an
+# inherited GIT_DIR could not make it write anywhere, but it would read that repository in place
+# of the fixture and the clone cases would fail wherever the harness runs from a hook (#112,
+# R4-6). A hostile case sets what it needs on the script's call. Here, outside any function,
+# unset is enough.
+unset "${!GIT_@}"
+# hgit: the harness's own git, with the developer's configuration and environment shut out by
+# channel, so a fixture is the same on every machine and is built in its own folder only:
+# - no GIT_ variable, each one the shell holds taken out of git's environment with env -u, found
+#   by prefix and never listed by hand, so none has to be named again. Not `unset`: inside a
+#   function whose call carries the variable (GIT_DIR=... again ...), bash's unset removes that
+#   one and uncovers the exported value beneath it, which git would then follow. What they are:
+#   GIT_DIFF_OPTS (#112, R2-4); configuration given through the environment, GIT_CONFIG_COUNT
+#   with its key and value pairs or the GIT_CONFIG_PARAMETERS that git -c hands to what it runs
+#   (#112, R3-3); the variables that name another repository or its index, as git exports
+#   GIT_DIR and GIT_INDEX_FILE to a hook, which git -C does not override (#112, R4-6);
+#   GIT_TEMPLATE_DIR, which git init reads ahead of init.templateDir (#112, R4-7);
+# - no global or system configuration;
+# - no user attributes file;
+# - no hook, whatever put one in the repository (#112, R4-7).
+# The script under test runs its own git, which the hostile-configuration cases reach on
+# purpose, each setting what it needs on the script's call.
+hgit() {
+    local v drop=()
+    for v in "${!GIT_@}"; do drop+=(-u "$v"); done
+    env ${drop[@]+"${drop[@]}"} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null -c core.hooksPath=/dev/null "$@"
+}
 hgit -C "$WORK/repo" init -q
 pass=0; fail=0
 ok() { pass=$((pass+1)); printf 'ok   %s\n' "$1"; }
@@ -138,38 +159,44 @@ jq -n '{body: "Redline round 1", comments: [{path: "public/build/vendor.js", lin
 # is in a diff against the base tip and in none against the merge base, which is the one GitHub
 # shows. The shim serves each pull request's base and head shas from $PAGES/pull-<n>.json.
 GEN="$WORK/repo"
-mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
 gen_commit() { hgit -C "$GEN" add -A && hgit -C "$GEN" -c user.name=redline -c user.email=redline@example.invalid -c commit.gpgsign=false commit -q -m "$1"; }
-seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
-seq 1 3000 | awk '{printf "nul %05d %080d\n", $1, 0}' > "$GEN/lib/nul.txt"
-seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
-seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
-seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
-seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
-printf 'BIN\0base\n' > "$GEN/assets/logo.png"
-seq 1 2400 | awk '{printf "local %05d %080d\n", $1, 0}' > "$GEN/lib/local.txt"
-seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
-# A name git quotes in a diff header ("b/lib/\345\220\215.txt"), as GitHub's whole diff does.
-seq 1 2000 | awk '{printf "quoted %05d %080d\n", $1, 0}' > "$GEN/lib/名.txt"
-gen_commit base
-awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
-awk 'NR>=2001 {print $0 " changed"; next} {print}' "$GEN/lib/nul.txt" > "$GEN/t"
-{ head -n 1499 "$GEN/t"; printf 'nul 01500 changed, a NUL \0 past byte 8,000\n'; tail -n +1501 "$GEN/t"; } > "$GEN/lib/nul.txt" && rm "$GEN/t"
-awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
-awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/small.js"
-rm "$GEN/lib/gone.txt"
-mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
-printf 'BIN\0head\n' > "$GEN/assets/logo.png"
-awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
-awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
-awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/名.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/名.txt"
-gen_commit head
-HEAD_SHA="$(hgit -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(hgit -C "$GEN" rev-parse HEAD~1)"
-hgit -C "$GEN" checkout -q --detach "$FORK_SHA"
-awk 'NR==500 {print $0 " on the base"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
-gen_commit "the base moves on"
-BASE_TIP_SHA="$(hgit -C "$GEN" rev-parse HEAD)"
-hgit -C "$GEN" checkout -q -
+# make_fixture: the fixture above, built in $GEN, a repository hgit has made there, with its three
+# shas set. A function, so a case can make the fixture again in another folder under an
+# environment the harness's own git must not follow (#112, R4-6, R4-7).
+make_fixture() {
+    mkdir -p "$GEN/src" "$GEN/data" "$GEN/assets" "$GEN/lib"
+    seq 1 3000 | awk '{printf "big %05d %080d\n", $1, 0}' > "$GEN/src/big.js"
+    seq 1 3000 | awk '{printf "nul %05d %080d\n", $1, 0}' > "$GEN/lib/nul.txt"
+    seq 1 12000 | awk '{printf "huge %05d %040d\n", $1, 0}' > "$GEN/data/huge.json"
+    seq 1 20 | awk '{print "small " $1}' > "$GEN/src/small.js"
+    seq 1 2000 | awk '{printf "gone %05d %050d\n", $1, 0}' > "$GEN/lib/gone.txt"
+    seq 1 5 | awk '{print "was " $1}' > "$GEN/lib/was.txt"
+    printf 'BIN\0base\n' > "$GEN/assets/logo.png"
+    seq 1 2400 | awk '{printf "local %05d %080d\n", $1, 0}' > "$GEN/lib/local.txt"
+    seq 1 2000 | awk '{printf "name %05d %080d\n", $1, 0}' > "$GEN/lib/old-name.txt"
+    # A name git quotes in a diff header ("b/lib/\345\220\215.txt"), as GitHub's whole diff does.
+    seq 1 2000 | awk '{printf "quoted %05d %080d\n", $1, 0}' > "$GEN/lib/名.txt"
+    gen_commit base
+    awk 'NR==100 || (NR>=1001 && NR<=2500) {print $0 " changed"; next} {print}' "$GEN/src/big.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/big.js"
+    awk 'NR>=2001 {print $0 " changed"; next} {print}' "$GEN/lib/nul.txt" > "$GEN/t"
+    { head -n 1499 "$GEN/t"; printf 'nul 01500 changed, a NUL \0 past byte 8,000\n'; tail -n +1501 "$GEN/t"; } > "$GEN/lib/nul.txt" && rm "$GEN/t"
+    awk 'NR<=11000 {print $0 " changed"; next} {print}' "$GEN/data/huge.json" > "$GEN/t" && mv "$GEN/t" "$GEN/data/huge.json"
+    awk 'NR==10 {print $0 " changed"; next} {print}' "$GEN/src/small.js" > "$GEN/t" && mv "$GEN/t" "$GEN/src/small.js"
+    rm "$GEN/lib/gone.txt"
+    mv "$GEN/lib/was.txt" "$GEN/lib/renamed-only.txt"
+    printf 'BIN\0head\n' > "$GEN/assets/logo.png"
+    awk 'NR==100 || (NR>=1001 && NR<=2200) {print $0 " changed"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+    awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/old-name.txt" > "$GEN/lib/new-name.txt" && rm "$GEN/lib/old-name.txt"
+    awk 'NR>=1001 && NR<=1600 {print $0 " changed"; next} {print}' "$GEN/lib/名.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/名.txt"
+    gen_commit head
+    HEAD_SHA="$(hgit -C "$GEN" rev-parse HEAD)"; FORK_SHA="$(hgit -C "$GEN" rev-parse HEAD~1)"
+    hgit -C "$GEN" checkout -q --detach "$FORK_SHA"
+    awk 'NR==500 {print $0 " on the base"; next} {print}' "$GEN/lib/local.txt" > "$GEN/t" && mv "$GEN/t" "$GEN/lib/local.txt"
+    gen_commit "the base moves on"
+    BASE_TIP_SHA="$(hgit -C "$GEN" rev-parse HEAD)"
+    hgit -C "$GEN" checkout -q -
+}
+make_fixture
 jq -n --arg base "$FORK_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-20.json"
 jq -n --arg base "$BASE_TIP_SHA" --arg head "$HEAD_SHA" '{base: {sha: $base}, head: {sha: $head}}' > "$WORK/pages/pull-21.json"
 jq -n '[range(299) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, changes: 2, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + [
@@ -192,6 +219,10 @@ printf '[diff]\n\tcontext = 0\n\tnoprefix = true\n\talgorithm = patience\n\tinte
 # The whole diff the shim serves as GitHub's, from the fork to the head.
 whole_diff() { hgit -C "$GEN" -c core.quotepath=true diff --no-color --no-ext-diff --src-prefix=a/ --dst-prefix=b/ -M "$FORK_SHA" "$HEAD_SHA"; }
 whole_diff > "$WORK/pages/diff-20.txt"
+# again <dir>: the fixture made again from nothing in <dir>, by the same steps, and its whole diff
+# on stdout. In a subshell, so the fixture's own GEN and shas stay as they are; git's complaints
+# are dropped, since a fixture that could not be made shows in the diff that is compared.
+again() { ( GEN="$1"; mkdir -p "$GEN" && hgit -C "$GEN" init -q && make_fixture && whole_diff ) 2>/dev/null; }
 jq -n '[
     {filename: "assets/logo.png", status: "modified", previous_filename: null, additions: 0, deletions: 0, changes: 0, patch: null},
     {filename: "data/huge.json", status: "modified", previous_filename: null, additions: 11000, deletions: 11000, changes: 22000, patch: null},
@@ -589,6 +620,27 @@ is "the fixture's whole diff ignores the developer's git configuration and GIT_D
 # what it runs (an alias, a hook). Either would shrink the whole diff's context to none.
 is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_COUNT" "$(if GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=diff.context GIT_CONFIG_VALUE_0=0 whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
 is "the fixture's whole diff ignores git configuration given through GIT_CONFIG_PARAMETERS" "$(if GIT_CONFIG_PARAMETERS="'diff.context=0'" whole_diff | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# The fixture made again from nothing in a second folder is the same fixture, byte for byte: what
+# the cases below compare, seen first with nothing hostile set.
+is "the fixture made again in a second folder is the same fixture" "$(if again "$WORK/again-plain" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# Made again where the environment names another repository (#112, R4-6): git -C changes the
+# directory, and GIT_DIR still names the repository and GIT_INDEX_FILE the index, as git exports
+# them to a hook. The harness's git drops every GIT_ variable, so the fixture is built in its own
+# folder and the other repository's HEAD and index are as they were.
+mkdir -p "$WORK/other" && hgit -C "$WORK/other" init -q
+printf 'kept\n' > "$WORK/other/kept.txt"
+( GEN="$WORK/other"; gen_commit kept )
+other_state() { printf '%s %s' "$(hgit -C "$WORK/other" rev-parse HEAD)" "$(cksum < "$WORK/other/.git/index")"; }
+other_before="$(other_state)"
+is "the fixture made again under GIT_DIR and GIT_INDEX_FILE is the same fixture" "$(if GIT_DIR="$WORK/other/.git" GIT_INDEX_FILE="$WORK/other/.git/index" again "$WORK/again-dir" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+is "the fixture made again under GIT_DIR and GIT_INDEX_FILE leaves that repository's HEAD and index alone" "$(other_state)" "$other_before"
+# Made again under a template whose pre-commit hook refuses every commit (#112, R4-7): git init
+# reads GIT_TEMPLATE_DIR ahead of init.templateDir, and a hook it copies in would stop the
+# fixture's commits or change them. No GIT_ variable reaches the harness's git, and it runs no hook.
+mkdir -p "$WORK/template/hooks"
+printf '#!/bin/sh\nexit 1\n' > "$WORK/template/hooks/pre-commit"
+chmod +x "$WORK/template/hooks/pre-commit"
+is "the fixture made again under a GIT_TEMPLATE_DIR whose hook refuses commits is the same fixture" "$(if GIT_TEMPLATE_DIR="$WORK/template" again "$WORK/again-template" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
 
 echo "# post-review: a refusal the new sources can cause (#96)"
 jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
