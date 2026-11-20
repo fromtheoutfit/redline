@@ -96,14 +96,17 @@ unset "${!GIT_@}"
 #   GIT_DIR and GIT_INDEX_FILE to a hook, which git -C does not override (#112, R4-6);
 #   GIT_TEMPLATE_DIR, which git init reads ahead of init.templateDir (#112, R4-7);
 # - no global or system configuration;
-# - no user attributes file;
+# - no user attributes file, and no user ignore file: both default to a path under
+#   $XDG_CONFIG_HOME/git or ~/.config/git whatever GIT_CONFIG_GLOBAL says, and an ignore file that
+#   lists lib/ or *.json would keep the fixture's own files out of add -A (#112, the round 4
+#   spec);
 # - no hook, whatever put one in the repository (#112, R4-7).
 # The script under test runs its own git, which the hostile-configuration cases reach on
 # purpose, each setting what it needs on the script's call.
 hgit() {
     local v drop=()
     for v in "${!GIT_@}"; do drop+=(-u "$v"); done
-    env ${drop[@]+"${drop[@]}"} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null -c core.hooksPath=/dev/null "$@"
+    env ${drop[@]+"${drop[@]}"} GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -c core.attributesFile=/dev/null -c core.excludesFile=/dev/null -c core.hooksPath=/dev/null "$@"
 }
 hgit -C "$WORK/repo" init -q
 pass=0; fail=0
@@ -641,6 +644,13 @@ mkdir -p "$WORK/template/hooks"
 printf '#!/bin/sh\nexit 1\n' > "$WORK/template/hooks/pre-commit"
 chmod +x "$WORK/template/hooks/pre-commit"
 is "the fixture made again under a GIT_TEMPLATE_DIR whose hook refuses commits is the same fixture" "$(if GIT_TEMPLATE_DIR="$WORK/template" again "$WORK/again-template" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
+# Made again under a per-user ignore file that lists the fixture's own paths (#112, the round 4
+# spec): core.excludesFile defaults to $XDG_CONFIG_HOME/git/ignore, or ~/.config/git/ignore,
+# whatever GIT_CONFIG_GLOBAL says, and add -A leaves out what it lists. The harness's git reads
+# none.
+mkdir -p "$WORK/xdg/git"
+printf 'lib/\n*.json\n' > "$WORK/xdg/git/ignore"
+is "the fixture made again under a per-user ignore file that lists its paths is the same fixture" "$(if XDG_CONFIG_HOME="$WORK/xdg" again "$WORK/again-ignore" | cmp -s - "$PAGES/diff-20.txt"; then echo same; else echo differs; fi)" "same"
 
 echo "# post-review: a refusal the new sources can cause (#96)"
 jq -n '{body: "Redline round 1\n\nFour findings.", comments: [
