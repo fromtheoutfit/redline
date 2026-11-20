@@ -1,0 +1,1 @@
+Redline round 4: fixed in 027f720 (Stop post-review when a placement step fails (#96)). · decided by: @michaelfromtheoutfit

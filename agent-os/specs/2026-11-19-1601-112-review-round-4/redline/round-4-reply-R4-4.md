@@ -1,0 +1,1 @@
+Redline round 4: fixed in c97b396 (Cancel diff.orderFile on the clone fallback's diff (#96)). · decided by: @michaelfromtheoutfit

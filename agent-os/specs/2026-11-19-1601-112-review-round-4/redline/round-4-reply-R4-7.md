@@ -1,0 +1,1 @@
+Redline round 4: fixed in 8797ef3 (Shut every GIT_ variable and hook out of the gh harness's git (#96)). · decided by: @michaelfromtheoutfit
