@@ -114,6 +114,37 @@ Whichever is chosen is pinned by a loop case: a decline overruled to a fix whose
 - **A relaunch after an update can rerun steps.** On a repository that is not the plugin's own, nothing pins the script. A run paused in a round with a tracked decided finding and relaunched after the update replays through that round's resolve, whose prompt is unchanged, and reruns from the first prompt that differs: the plan approver's, when a decided finding's shown files differ from the shaper's list, or else the reshape's. A run with no tracked decided finding replays whole. This is what `workflow/replay` allows a prompt change to cost, and what #99 accepted for every resolve with a call.
 - **The shaper's resume line on other reshape stops.** A reshape resumed after another shape-stage stop (a missing spec file, a decline with no reason) is still told to rewrite the four files from scratch, beside entries the resolve agent decided. Only the stops of decision 13 get the correct-what-you-wrote clause. Not changed here.
 
+## As built: what changed from the shaped decisions
+
+- **Decision 15's edge is narrower than written.** The finding that changes is a call whose decision names `defer` and that a reshape newly puts under a rule, not a defer override. An override so placed becomes a call the round has not seen, so a second resolve applies it and drops its disposition, and it was already shown the reshape's list. No skill path writes a call that names `defer` (#108, R1-5's note); the case is pinned all the same (`forcedDefer`).
+- **`agents/redline-shaper.md` changed in Task 4 as well as Task 3.** Its rule 9 said to rewrite the four files from scratch on any resume. It now names the exception the new resume line makes, so the prompt and the file state one rule (`workflow/agents`, line 17).
+- **No existing expectation moved** (decision 20). The reshape mock lists, for each finding the block names, what the scripted resolve planned, so every earlier scenario with a bounce and a decided finding ends as it did.
+- **One mutation of twenty-eight stayed green, as an equivalent** (three in Task 2, ten in Task 3, fifteen in Task 4, each applied alone). Widening the hold to a finding left to the person under a rule changes nothing: the list of such a finding is never replaced, so no reshape can empty it. That neighbour is pinned through the mutation of the update loop, which is red.
+
+## The prompt sweep (decision 4)
+
+Every scenario of `tests/loop-test.mjs` as built, 564 runs, was run twice from a copy of the harness in the scratchpad: once against `workflows/redline-loop.js` as it read at `6d769f5`, before this spec, and once against the built file. Each call's label, prompt and options were hashed and the two sequences compared.
+
+| | Scenarios |
+|---|---|
+| Every prompt identical | 451 |
+| A prompt differs | 113 |
+| No plan approver was shown a decision | 418, all identical |
+| A plan approver was shown a decision | 146 |
+| ...one not left to the person under a rule (tracked) | 133 |
+| A prompt differs with no decision shown | 0 |
+| A prompt differs with decisions shown and none tracked | 0 |
+
+Where the 113 first differ:
+
+| First prompt that differs | Scenarios | Why |
+|---|---|---|
+| The round's first plan approver pass | 96 | A decided fix, accept or answered call is shown its task's files where it was shown the shaper's list from before the decision (decision 11). |
+| A reshape | 16 | The block names the round's decided findings (decision 10). The first pass was the same: a decided deferral, already shown its task. |
+| A later plan approver pass | 1 | The decision was applied by the resolve that follows a reshape, for a call that reshape raised. |
+
+No resolve prompt differs in any scenario, so a paused run relaunched after the update replays through the round's resolve. Twenty scenarios with a tracked decided finding are identical throughout: a decided deferral with no bounce, or a list the shaper and the resolve agree on. Six of the 113 also end at another call, the stops of decision 13.
+
 ## Standards retrospective
 
 Done at the gate (Task 7) and recorded here then.
