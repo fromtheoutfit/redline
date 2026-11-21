@@ -4085,7 +4085,16 @@ async function revise(record, inScope, reviewedKind) {
     // A decision that names a fix or an accept is held to its tasks the same way (#108, R1-5):
     // until #108 a named fix with no task with files stopped at the check after a repair, which
     // resumes at the build and cannot replan, and a named accept beside a task with files was built.
-    const namedUnplanned = namedAs('fix').filter((id) => taskFiles(id).length === 0)
+    // A resolve that applies a decision again, an override a reshape returned as a call (raised),
+    // is not held to a task for the fix (#114, R4-5): the round reads that finding's task from
+    // its list, which this resolve does not set (R3-4, below) and which the hold after the
+    // reshape has just checked, so a task this resolve did not restate is no fault. Until R4-5
+    // it stopped the round here for a task the list held. The accept is still held to what this
+    // resolve returned: a task with files written for an accepted finding is this resolve's own
+    // contradiction, and it stops here, where a resume reruns the agent, before a plan approver
+    // pass. So after the first resolve two checks hold a decision to its task, each on its own
+    // source: the hold after a reshape reads the list, and this one reads this resolve's tasks.
+    const namedUnplanned = namedAs('fix').filter((id) => !(id in decidedFiles) && taskFiles(id).length === 0)
     if (namedUnplanned.length) {
       throw stageError('resolve', `the resolve agent planned no task with files for ${namedUnplanned.map((id) => `${id}, which ${whose(id)} names as a fix`).join('; ')}; a fix names the files it changes`)
     }
@@ -4096,7 +4105,8 @@ async function revise(record, inScope, reviewedKind) {
     // Only an id with no list yet takes this resolve's tasks (#114, R3-4): an override a reshape
     // returned as a call is applied again by the resolve that call sets off (raised), and its
     // tasks alone replaced the list its first resolve set and the reshape kept, so a task it did
-    // not restate was shown as none and one it moved was shown with no warning.
+    // not restate was shown as none and one it moved was shown with no warning. The named-fix
+    // check above leaves such an id out for the same reason (R4-5).
     for (const id of applied.filter((x) => !(x in decidedFiles))) {
       decidedFiles[id] = taskFiles(id)
     }
