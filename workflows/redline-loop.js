@@ -478,20 +478,53 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
-// The repository root taken off a path, then a leading ./ (#49). The paths ask rules read a path
-// through it as written, and through cleanPaths, which is built on it, as the round keeps it
-// (ruleForPaths, #114, R3-3). It sits here, above the ask rules, so cleanPaths reads it too
-// (#114, R2-2).
-const relPath = (path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path).replace(/^\.\//, '')
-// A list of paths as an agent returned it, read one way (#114, R1-6, R2-2): each path trimmed,
-// its repeated slashes made one and its ./ segments folded, the repository root and then a
-// leading ./ taken off as relPath takes them (planPaths takes the root off the approver's list
-// too), a trailing slash dropped, and a blank or a bare . dropped, so one file written two ways
+// The segments of a path once folded: an empty one (a repeated or trailing slash) and a . are
+// skipped, and a .. takes the last one off, as os.path.normpath does.
+function pathSegments(text) {
+  const segments = []
+  for (const segment of text.split('/')) {
+    if (segment === '' || segment === '.') {
+      continue
+    }
+    if (segment === '..') {
+      segments.pop()
+      continue
+    }
+    segments.push(segment)
+  }
+  return segments
+}
+// A path as an agent wrote it, read once, as the guard reads the target of a write (#114, R4-2):
+// os.path.normpath of the path joined to the repository, then taken relative to it (writable and
+// ask_rule in scripts/redline-guard.sh). The text is trimmed, joined to the root unless it is
+// absolute, and folded. `path` is what is left with the root taken off: '' for a blank or the
+// root itself, which name no file; relative for a path inside the repository; and for one outside
+// it (`outside`), the absolute folded path, which equals no repository file. `dir` says the text
+// was written as a directory: it ends in /, /. or /.., which a list of files drops and the paths
+// rules keep. Two things the guard does differently, on purpose: it takes padding literally,
+// where a path in an agent's JSON is trimmed, and it resolves symlinks, where the workflow reads
+// no disk. The decided lists and the paths rules read through it. Until R4-2 each read part of it
+// its own way: relPath (#49) took off the root and then a leading ./, for the paths rules, and
+// cleanPaths folded what R1-6 and R2-2 named and kept .. segments and a trailing /. as written.
+function repoPath(raw) {
+  const text = String(raw === null || raw === undefined ? '' : raw).trim()
+  if (text === '') {
+    return { path: '', outside: false, dir: false }
+  }
+  const root = pathSegments(repoRoot)
+  const segments = pathSegments(text.startsWith('/') ? text : `${repoRoot}/${text}`)
+  const outside = segments.length < root.length || root.some((segment, i) => segments[i] !== segment)
+  return { path: outside ? `/${segments.join('/')}` : segments.slice(root.length).join('/'), outside, dir: /(?:^|\/)\.{0,2}$/.test(text) }
+}
+// A list of paths as an agent returned it, read one way (#114, R1-6, R2-2, R4-2): each through
+// repoPath, a blank and the root itself dropped, and each path once, so one file written two ways
 // is one file and a list of blanks is no list. A finding's task is read through it from a
 // resolve's tasks and from a reshape's list alike, so the holds, the warnings and the list the
-// round keeps compare one form. Until R2-2 it took off the root or a leading ./, never both, and
-// kept a doubled slash, a ./ segment and a trailing slash as written.
-const cleanPaths = (list) => unique(list.map((path) => relPath(String(path).trim().replace(/\/+/g, '/').replace(/\/(?:\.\/)+/g, '/')).replace(/\/$/, '')).filter((path) => path !== '' && path !== '.'))
+// round keeps compare one form. A path outside the repository is kept, absolute: the list names
+// it, and it is no repository file. R1-6 took off the root or a leading ./, never both; R2-2
+// folded a doubled slash, a ./ segment and a trailing slash; R4-2 made it the guard's reading,
+// .. segments and a trailing /. included.
+const cleanPaths = (list) => unique(list.map((path) => repoPath(path).path).filter((path) => path !== ''))
 // The files of the tasks a list holds for one finding (#108, R1-7), read through cleanPaths: the
 // resolve-time checks read one resolve's tasks this way, and so does the list the round keeps for
 // each decided finding (decidedFiles, #106).
@@ -533,21 +566,27 @@ function globToRegExp(pattern) {
 }
 const pathRules = askRules.filter((rule) => rule.when.paths).map((rule) => ({ rule, regexes: rule.when.paths.map(globToRegExp) }))
 // The first paths rule, in list order, that one of the paths falls under; null when none does.
-// A path is read two ways (#114, R3-3): as cleanPaths reads it, the form the round keeps and
-// shows a task's paths in (the guard folds a target's repeated slashes and ./ segments the same
-// way before it matches); and as written, after relPath, so a form cleanPaths drops, a
-// directory's trailing slash, stays under the rule it was under. A rule matches when either
-// form is under it. Until R3-3 only the written form was read, so a task listed as
-// app//billing/x.php, app/./billing/x.php or with padding was never left to the person, while
-// the round kept and showed app/billing/x.php.
+// A path is read through repoPath, as the guard reads the target of a write, and matched
+// case-folded (#114, R4-2, R4-3); one written as a directory is also matched with its slash, so
+// config//project/ is under config/project/** as config/project/ is. A blank and a path outside
+// the repository are under no rule, as for the guard. Until R3-3 only the text as written was
+// read, so a task listed as app//billing/x.php was never left to the person. R3-3 read the
+// cleaned path beside the written one, and no reading was both folded and a directory, so
+// config//project/ was under neither (R4-3); and the written reading put
+// app/../config/project/x.yaml under no rule and config/project/../other.yaml, which is
+// config/other.yaml, under one (R4-2). A rule's own root with no trailing slash, and a directory
+// above it, are not matched here, though the guard refuses a write to either as holding the
+// rule's files: the issue drafted in the #114 round 4 by-hand spec.
 function ruleForPaths(paths) {
   for (const { rule, regexes } of pathRules) {
-    for (const path of paths) {
-      const raw = String(path || '')
-      for (const rel of unique([relPath(raw), cleanPaths([raw])[0] || '']).map((form) => form.toLowerCase())) {
-        if (rel !== '' && regexes.some((re) => re.test(rel))) {
-          return rule
-        }
+    for (const raw of paths) {
+      const read = repoPath(raw)
+      if (read.path === '' || read.outside) {
+        continue
+      }
+      const forms = (read.dir ? [read.path, `${read.path}/`] : [read.path]).map((form) => form.toLowerCase())
+      if (forms.some((form) => regexes.some((re) => re.test(form)))) {
+        return rule
       }
     }
   }

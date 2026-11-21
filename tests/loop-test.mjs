@@ -1454,6 +1454,43 @@ function samePrefix(name, first, second, n) {
   }
   const foldedOutside = await go('rules: a task listed with a path that folds to one outside the paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', 'config//project.yaml'] }, commitIds: [['R1-1']] })
   check('rules: a path that folds to one outside the paths rule forces nothing, and the fix is built', (foldedOutside.res || {}).status === 'done' && JSON.stringify((foldedOutside.res || {}).forced || []) === '[]', [(foldedOutside.res || {}).status, (foldedOutside.res || {}).error, (foldedOutside.res || {}).forced])
+  // A paths rule reads a path once, as the guard reads a write target (#114, R4-2, R4-3): joined
+  // to the root and folded, `..` segments and a trailing /. included, and matched with its slash
+  // when it was written as a directory. Until then the rules read it as written and as cleanPaths
+  // kept it, and no reading was both folded and a directory, so a directory written with a doubled
+  // slash, a ./ segment or padding was never forced, and neither was a path that reaches the rule
+  // through `..`. The last form held before by accident of its text, and is seen red under a
+  // mutation of the directory test.
+  for (const form of ['config//project/', 'config/./project/', ' config/project/ ', 'config/other/../project/', 'app/../config/project/x.yaml', '../r/config/project/x.yaml', 'config/project/.']) {
+    const r = await go(`rules: a task that writes under a paths rule, listed as ${JSON.stringify(form)}`, ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', form] }, commitIds: [[]] })
+    check(`rules: the shaper's files force the ask when they list ${JSON.stringify(form)}`, (r.res || {}).status === 'handoff' && forcedAs(r) === 'craft-config', [(r.res || {}).status, (r.res || {}).error, forcedAs(r)])
+  }
+  // The match is case-folded, as the guard's is and as it was before R4-2 rewrote the loop that
+  // does it: held before, and seen red under a mutation that drops the fold.
+  const otherCase = await go('rules: a task that writes under a paths rule, listed in another case', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', 'Config/Project/Project.yaml'] }, commitIds: [[]] })
+  check('rules: the shaper\'s files force the ask when they list the path in another case', (otherCase.res || {}).status === 'handoff' && forcedAs(otherCase) === 'craft-config', [(otherCase.res || {}).status, (otherCase.res || {}).error, forcedAs(otherCase)])
+  // The other way about: a path the guard reads as outside the rule forces nothing, where the
+  // written reading matched its text. `..` out of the rule's directory is the file beside it, and
+  // a path outside the repository is under no rule, a rule with no slash included, which matches
+  // at any depth inside it.
+  const secretRules = rules.concat([{ id: 'secrets', when: { paths: ['*.secret.yaml'] }, reason: 'A secret file is rotated by hand' }])
+  for (const form of ['config/project/../other.yaml', 'config/project/sub/../../other.yaml', '/etc/a.secret.yaml']) {
+    const r = await go(`rules: a task listed with ${JSON.stringify(form)}, which is outside every paths rule`, { ...baseArgs, askRules: secretRules }, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', form] }, commitIds: [['R1-1']] })
+    check(`rules: ${JSON.stringify(form)} forces nothing, and the fix is built`, (r.res || {}).status === 'done' && JSON.stringify((r.res || {}).forced || []) === '[]', [(r.res || {}).status, (r.res || {}).error, (r.res || {}).forced])
+  }
+  const secretInside = await go('rules: a task that writes under a paths rule with no slash, inside the repository', { ...baseArgs, askRules: secretRules }, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', 'app/keys/../a.secret.yaml'] }, commitIds: [[]] })
+  check('rules: a rule with no slash still takes a path at any depth inside the repository', (secretInside.res || {}).status === 'handoff' && forcedAs(secretInside) === 'secrets', [(secretInside.res || {}).status, (secretInside.res || {}).error, forcedAs(secretInside)])
+  // What the workflow does not read as the guard does, pinned as it stands: a rule's own root
+  // written with no trailing slash, and a directory above it. The guard refuses a write to either
+  // as holding the rule's files; the workflow has only the glob, and a path with no trailing slash
+  // is a file. The follow-up is the issue drafted under "For you to open" in
+  // agent-os/specs/2026-11-21-1501-114-review-round-4-by-hand/shape.md. `config/project/..` is
+  // the directory above the root: the written reading forced it by accident of its text until
+  // this change, and that issue restores it with the rest.
+  for (const form of ['config/project', 'config/', 'config/project/..']) {
+    const r = await go(`rules: a task listed with ${JSON.stringify(form)}, a paths rule's root or the directory above it`, ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', form] }, commitIds: [['R1-1']] })
+    check(`rules: ${JSON.stringify(form)} is not left to the person, as the drafted issue records`, (r.res || {}).status === 'done' && JSON.stringify((r.res || {}).forced || []) === '[]', [(r.res || {}).status, (r.res || {}).error, (r.res || {}).forced])
+  }
   // The reshape's list is read the same way (#114, R3-3): a call answered with a fix whose task a
   // reshape lists under a paths rule with a doubled slash is left to the person under the rule at
   // that reshape, as one listed as written is, and the round finishes with no repair. Until R3-3
@@ -1462,7 +1499,7 @@ function samePrefix(name, first, second, n) {
   const reshapedUnder = await go('rules: a call answered with a fix whose task a reshape lists under a paths rule with a doubled slash', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFiles: { 'R1-1': ['app//billing/charge.php'] }, commitIds: [[], []] })
   const reshapedUnderReply = replyFor(reshapedUnder.calls, 'push and reply r1', 'R1-1')
   check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash is left to the person under the rule, with no repair', (reshapedUnder.res || {}).status === 'done' && !labels(reshapedUnder.calls).includes('repair r1') && reshapedUnderReply.startsWith('Redline round 1: left to @author under repository rule billing-code'), [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6), reshapedUnderReply])
-  check('rules: docs/contract.md says a paths rule reads a path as listed and as the run keeps it', fs.readFileSync(path.join(here, '..', 'docs', 'contract.md'), 'utf8').includes('read as listed and also as the run keeps a task'))
+  check('rules: docs/contract.md says a paths rule reads a path once, as the guard reads a write target', fs.readFileSync(path.join(here, '..', 'docs', 'contract.md'), 'utf8').includes('which the workflow reads once, as the guard reads a write target'))
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
   check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · left to @author under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
@@ -3484,6 +3521,30 @@ function samePrefix(name, first, second, n) {
   }
   const resolvedOtherForm = await go('reshape: an override to defer whose resolve plans its file with a doubled slash and a trailing slash', deferArgs, { ...deferBounced, resolveFiles: { 'R1-1': ['app//x.php/'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   check('reshape: a resolve that plans a file with a doubled slash and a trailing slash is read as that file on both passes, and a reshape that lists it as planned changes nothing', resolvedOtherForm.res.status === 'done' && approverFiles(resolvedOtherForm, 'R1-1') === '["defer",["app/x.php"]]' && approverFiles(resolvedOtherForm, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(resolvedOtherForm, 'the reshape changed'), [resolvedOtherForm.res.status, resolvedOtherForm.res.error, approverFiles(resolvedOtherForm, 'R1-1'), approverFiles(resolvedOtherForm, 'R1-1', PASS_2)])
+  // The cleanup is one function that reads a path as the guard reads a write target (#114, R4-2):
+  // joined to the root, then folded, `..` segments and a trailing /. included. R2-2 folded the
+  // forms above and kept these as written, so a reshape that wrote the resolve's file through a
+  // `..` segment, with a trailing /. or out of the repository and back was warned about as a change.
+  for (const form of ['app/sub/../x.php', 'app/x.php/.', '../r/app/x.php']) {
+    const r = await go(`reshape: an override to defer whose task the reshape lists as ${form}`, deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': [form] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+    check(`reshape: a reshape that lists the resolve's app/x.php as ${form} changes nothing: the second pass is shown app/x.php, and nothing is warned`, r.res.status === 'done' && approverFiles(r, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(r, 'the reshape changed'), [r.res.status, r.res.error, approverFiles(r, 'R1-1', PASS_2), (r.res || {}).warnings])
+  }
+  const resolvedDotDot = await go('reshape: an override to defer whose resolve plans its file through a .. segment', deferArgs, { ...deferBounced, resolveFiles: { 'R1-1': ['app/sub/../x.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a resolve that plans a file through a .. segment is read as that file on both passes, and a reshape that lists it as planned changes nothing', resolvedDotDot.res.status === 'done' && approverFiles(resolvedDotDot, 'R1-1') === '["defer",["app/x.php"]]' && approverFiles(resolvedDotDot, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(resolvedDotDot, 'the reshape changed'), [resolvedDotDot.res.status, resolvedDotDot.res.error, approverFiles(resolvedDotDot, 'R1-1'), approverFiles(resolvedDotDot, 'R1-1', PASS_2)])
+  // The repository root names no file, however it is written, so a decided fix left with it alone
+  // is held as one left with a blank is. Until R4-2 the root with no slash after it, and a path
+  // that folds to it, counted as a file.
+  for (const root of ['/r', 'app/..']) {
+    const r = await go(`reshape: an override to fix whose task the reshape lists as the repository root, ${root}`, { ...overrideDial, decisions: toFix }, { ...declined, reshapeFiles: { 'R1-1': [root] } })
+    check(`reshape: an override to fix the reshape leaves with only ${root} stops at that reshape, as one with no files does`, stopsAtReshape(r, NO_TASK('a disposition override names')), stopOf(r))
+  }
+  // A path outside the repository is kept, in its absolute folded form: it is no repository file,
+  // so it is a change, and it is shown as what it is. The second held before, as written, and is
+  // seen red under a mutation that drops an outside path.
+  const climbed = await go('reshape: an override to defer whose task the reshape lists above the repository', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': ['../x.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a reshape that lists a path above the repository is warned about as a change to that path, folded', climbed.res.status === 'done' && approverFiles(climbed, 'R1-1', PASS_2) === '["defer",["/x.php"]]' && warned(climbed, CHANGED('app/x.php', '/x.php')), [climbed.res.status, climbed.res.error, approverFiles(climbed, 'R1-1', PASS_2), (climbed.res || {}).warnings])
+  const elsewhere = await go('reshape: an override to defer whose task the reshape lists elsewhere on the disk', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': ['/etc/x.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a reshape that lists an absolute path elsewhere is warned about as a change to that path, and it is kept', elsewhere.res.status === 'done' && approverFiles(elsewhere, 'R1-1', PASS_2) === '["defer",["/etc/x.php"]]' && warned(elsewhere, CHANGED('app/x.php', '/etc/x.php')), [elsewhere.res.status, elsewhere.res.error, approverFiles(elsewhere, 'R1-1', PASS_2), (elsewhere.res || {}).warnings])
   // The neighbours. A deferral is never held: a mitigation is optional, and `emptied` above runs
   // on. A fix whose task the reshape moves to other files still has one. A finding the reshape
   // leaves to the person under a rule is skipped, its task having no files by rule. And an accept
