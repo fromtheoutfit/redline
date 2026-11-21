@@ -242,26 +242,66 @@ Whether the five threads are resolved after the replies. `scripts/redline-gh.sh 
 
 ## Standards retrospective (proposed)
 
-Drafted while shaping, from the decisions above; redrafted after the build from what went red. Put to @michaelfromtheoutfit at the gate, and applied in its own commit.
+Gate step 12, item by item: the decisions above, the As built deviations, and the checks that went red. Drafted while shaping and redrafted after the build, which taught E7.
 
 **Already in a standard:**
 
 - Decision 2 (a class settled once, with a table of every reader in `shape.md`, and a mechanism that needs no list): `workflow/agents.md`, line 10.
-- Decision 5 (a resume changes exactly one prompt; a claim of byte-identical prompts is proven by a sweep as well as a check): `workflow/replay.md`; `testing/tests.md`, line 36.
+- Decision 5 (a resume changes exactly one prompt; a claim of byte-identical prompts is proven by a sweep as well as a check): `workflow/replay.md`, line 19; `testing/tests.md`, line 36.
 - Decision 6 (red before green; the version kept in a round of the same pull request): `testing/tests.md`, line 35; `process/release.md`.
 - Decision 8 (replies in Redline's form): `workflow/agents.md`, the line on a disposition's evidence.
 - Decision 10: `prompts/attribution.md`.
 - Decision 15 (the earlier rounds' cases kept unedited as the proof of the new mechanism): `workflow/agents.md`, line 10, as #112 did.
-- Decision 23: `testing/tests.md`, line 35.
+- Decision 23 (a pin that held before is seen red under a mutation): `testing/tests.md`, line 35.
+- Task 3's case-fold pin, which a mutation found missing after `ruleForPaths`' loop was rewritten (a rewritten clause is listed with every exclusion the clause it replaces carried, each pinned): `testing/tests.md`, line 30.
+- A mutation that crashed the harness in an existing check and was replaced by one that does not (a run that prints no count crashed and is reported so): `testing/tests.md`, line 14.
+- Task 6's sentence in `docs/running.md` (an exception a change adds to a rule is stated wherever the rule is): `workflow/agents.md`, line 17.
 
-**Missing or contradicted**, each drafted as a clause on the line named:
+**Missing or contradicted**, each drafted as the text to land:
 
-- **E1**, `workflow/agents.md`, line 50 (decisions 9, 11, 15, 19, 20; contradicted: "read through one cleanup before it is compared, stored or counted" did not hold for the shaper's own list, the plan approver's list or `..`, and "reads both forms" is no longer what the rules do). The account from "and a list of paths an agent returns" to the end of the line is reworded to what is true: a path an agent returns is read through one function (`repoPath`), which reads it as the guard reads a write target, where the list is taken in, before it is compared, stored, counted, shown or matched; what the function folds; the directory mark and its three uses; the two differences from the guard and the rule's-root issue; and the history kept as history (R1-6, R2-2, R3-3, R4-2 to R4-4).
-- **E2**, `workflow/agents.md`, line 10 (decision 2): one clause. A class of the form "the same thing is read two ways" is settled against the component that has the last word (the guard decides a write), with a column for it in the table, and a row that disagrees says why.
-- **E3**, `workflow/agents.md`, the line on a fact an agent states (decisions 12, 17): a list the workflow passes on as a permission (the gate's allowed list) is never made broader by reading it more kindly: an entry the reading would turn into the root, into a path outside the repository or into a wider prefix is dropped and warned about.
-- **E4**, `workflow/agents.md`, line 47 (decision 14; R3-4's clause): a change that stops reading an agent's output for one purpose revisits, in the same change, every check that still demands that output: R3-4 stopped setting the list from a second resolve's tasks and left the named-fix check demanding them, until #114, R4-5.
-- **E5**, `workflow/replay.md`, the resume line (R4-6): a stop whose resume line tells the rerun to correct what the error names names every failure of its check in one error, since a second failure is a second relaunch.
-- **E6**, `workflow/agents.md`, line 17 (R4-1): an exception written after two rules says which one it lifts, and the sentence that states the exception restates the rule it leaves standing.
+- **E1**, `workflow/agents.md`, line 50, contradicted (decisions 9, 11, 15, 18 to 20): "read through one cleanup before it is compared, stored or counted" did not hold for the shaper's own list, the plan approver's list or `..`, and "which reads both forms" is no longer what the rules do. The line's tail, from `; and a list of paths an agent returns` to its end, is replaced by:
+
+  ```
+  ; and a path an agent returns for a task is read through one function before it is compared, stored, counted, shown or matched (`repoPath`), which reads it as the guard reads the target of a write: trimmed, joined to the repository root, repeated slashes, `./` and `..` segments and a trailing `/` or `/.` folded, and the root taken off, so one file written two ways is one file, a blank or the root itself is no file, and a path outside the repository is kept, absolute, and equals none. Every list goes through it where it is taken in: a resolve's tasks and a reshape's list for a decided finding (`cleanPaths`), the shaper's own list for every finding (`vetShape`, after the paths rules have read it), the plan approver's list (`planEntry`), and the reviewer's file where it is matched or compared. A path written as a directory (it ends in `/`, `/.` or `/..`) keeps that mark where a directory means something: the paths rules match it with its slash, and the plan approver's list writes it as a prefix. Two things differ from the guard on purpose, padding (trimmed here, literal there) and symlinks (the workflow reads no disk), and one by omission: a rule's own root, or a directory above it, which the guard refuses and the workflow does not leave to the person (the issue drafted in the #114 round 4 by-hand spec). It took four rounds of #114 to get here, a form or a reader at a time: a reshape's `./app/x.php` was warned about as a change from the resolve's `app/x.php`, and `['']` passed the hold that stops a decided fix with no files (R1-6); the cleanup took off the root or a leading `./`, never both, and kept `app//x.php`, `app/./x.php` and a trailing slash as written (R2-2); the paths rules matched the list as written while the round kept it folded, so `app//billing/x.php` under `app/billing/**` was never left to the person (R3-3, which read both forms); and `..` and a trailing `/.` were still kept as written, a directory written `config//project/` was under neither reading, and the shaper's own list and the plan approver's were read as written, so `['']` counted as a planned mitigation (R4-2 to R4-4), until the round finished by hand set every reader against every form and against the guard, by running them, and put the one function in their place
+  ```
+
+- **E2**, `workflow/agents.md`, line 10, missing (decision 2). Appended after `(#114, R1-7)`:
+
+  ```
+  ; and a class of the kind "the same thing is read two ways" is settled against the component that has the last word on it (the guard decides a write), with a column for that component in the table, each cell measured by running the code, never traced, and each row where the two still differ saying why: #114's first three rounds each set one path reader against the forms its finding named, and the table set every reader against every form and the guard's reading of it (#114, R4-2 to R4-4)
+  ```
+
+- **E3**, `workflow/agents.md`, line 47, missing (decision 14). Appended after `until #114, R3-4`:
+
+  ```
+  ; and a change that stops reading an agent's output for one purpose revisits, in the same change, every check that still demands that output: R3-4 stopped setting the list from a second resolve's tasks and left the named-fix check demanding a task of that resolve, a stop for a task the list held, until #114, R4-5, which drops that demand for a finding that already has a list and keeps the accept check on what that resolve itself returned, since a task with files written for an accepted finding is that resolve's own contradiction
+  ```
+
+- **E4**, `workflow/agents.md`, line 47, missing (decisions 12 and 17). Appended after E3's clause:
+
+  ```
+  ; and a list the workflow passes on as a permission (the plan approver's paths, which become the gate's allowed list) is never made broader by reading it more kindly: an entry the reading would turn into the repository root, a path outside the repository or a prefix wider than any the agent wrote out (a directory through a `..` segment) is left out and warned about by name, and a case pins that no entry is a prefix the agent did not write (the #114 round 4 by-hand spec)
+  ```
+
+- **E5**, `workflow/replay.md`, line 19, missing (R4-6, R4-1). Appended after `keeps the shaper's sentence (#106)`:
+
+  ```
+  ; and a stop whose resume line tells the rerun to correct what the error names names every failure of its check in one error, since each one it leaves out is one more relaunch: the hold after a reshape named only the fixes left with no task when the same reshape also gave an accepted finding one, until #114, R4-6; and a resume sentence that states an exception restates the rule it leaves standing: the correct-in-place sentence left out the from-scratch sentence's ban on touching `redline/`, until #114, R4-1
+  ```
+
+- **E6**, `workflow/agents.md`, line 17, missing (R4-1). Appended after `until #114, R3-2`:
+
+  ```
+  ; and an exception written straight after two rules says which one it lifts: rule 9 of the shaper's file put "The one exception" after the sentence that bans touching `redline/`, where it could be read as lifting that ban too, until #114, R4-1
+  ```
+
+- **E7**, `testing/tests.md`, line 36, missing (As built, Task 8). Appended at the end of the line:
+
+  ```
+  ; and the sweep runs the whole harness once under each script and compares the two records, never both scripts inside one `go()`: the mock consumes what a scenario holds (the heads a gather reads, a filed record kept across launches), so a second run in the same process showed 11 scenarios as differing that were identical (the #114 round 4 by-hand spec: 618 scenarios, 590 identical, the 28 that differ being 25 of the spec's own cases and 3 earlier ones, two that script a path the shaper's list now folds and one that reads the resume line R4-1 changed)
+  ```
+
+No pattern is used that the standards do not hold. No heading changes, and `index.yml` is unchanged.
 
 ## Context
 
