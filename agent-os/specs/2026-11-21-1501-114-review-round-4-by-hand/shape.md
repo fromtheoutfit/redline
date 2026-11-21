@@ -17,7 +17,7 @@ Before the first commit (2026-11-21, `4200467`, tree clean), `node tests/loop-te
 
 ## Decisions
 
-Decisions 1 to 10 are @michaelfromtheoutfit's, given with the request. Decisions 11 to 16 are their answers while shaping. Decisions 17 to 24 were made while shaping, from the code, and approved with the plan.
+Decisions 1 to 10 are @michaelfromtheoutfit's, given with the request. Decisions 11 to 16 are their answers while shaping. Decisions 17 to 24 were made while shaping, from the code, and approved with the plan. Decision 25 records the build.
 
 1. **All six findings are handled here.** R4-1 and R4-6 are fixed as the review proposes.
 2. **R4-2, R4-3 and R4-4 are settled as their class, once,** and not one form at a time. The table under "The table" below is the ground: every place the workflow reads a path an agent returned, against every form a path can take, with what each reader does today and after, measured by running the functions. The reference is the guard, which decides a write: for each form the table says how the guard reads it, and the workflow's reading agrees with it or the table says why not. The guard is not changed.
@@ -61,6 +61,14 @@ Decisions 1 to 10 are @michaelfromtheoutfit's, given with the request. Decisions
     - #104 describes a draft's version being counted over its issue text and not over what its stop shows. After decision 20 a shaper deferral's `files` at a draft stop can read differently (folded, or none for a blank) with no new version. The version rule is not touched.
     - #115, #105 and #109 are not touched: `effectiveDispositions` is not edited (decision 20 changes what it is handed), the unattended section's return example is not edited, and no deferred entry is removed from a `shape.md`.
     - The paths ask rules on a resolve's task: `forceAskRules` still never reads a resolve's tasks.
+
+25. **As built, where the build left the shaped plan.** Each is told in full in `plan.md`'s As built.
+    - Task 3 has three cases beyond the plan's list, one of them a pin the mutations showed was missing: the rules' case fold, which no loop case held before `ruleForPaths`' loop was rewritten.
+    - `repoPath` stands on a helper, `pathSegments`, and gained `up` and `blank` in Task 5's commit, where `planEntry` first reads them.
+    - Task 4 has one neighbour beyond the plan: a finding returned with no list keeps none.
+    - The plan approver's list holds each entry once.
+    - Task 6 added one sentence to `docs/running.md`, which the task allowed for.
+    - The sweep ran the whole harness once under each script. Both scripts in one `go()` showed eleven identical scenarios as differing.
 
 ### Proportionality
 
@@ -106,7 +114,7 @@ Paths an agent relays or reports, which are not a task's paths. Each is compared
 
 ## The table
 
-Measured on 2026-11-21 at `4200467` by a throwaway script. The workflow's functions (`relPath`, `cleanPaths`, `globToRegExp`, `ruleForPaths`, `underPaths`) were lifted from the source as it stood and run under node 22.23.2 with the repository root `/r`, the harness's own. The guard was run as it stands, as the implementer's `Write`, on its harness's ask-rules fixture (`~/.cache/redline/guard-test-askrules`: the rules `config/project/**` and `*.secret.yaml`, and a link `cfg` to `config/project`), with no log written; a form written under `/r` was given to the guard under the fixture's own root. "Guard reads it as" is the two calls the guard makes on a target, `os.path.normpath(os.path.join(repository, target))` and then `os.path.relpath` (lines 518 and 394), under Python 3.14.7. The "after" side of each cell is the draft of the normaliser, run on the same forms; `plan.md`'s As built records the same script run against the code as built.
+Measured on 2026-11-21 at `4200467` by a throwaway script. The workflow's functions (`relPath`, `cleanPaths`, `globToRegExp`, `ruleForPaths`, `underPaths`) were lifted from the source as it stood and run under node 22.23.2 with the repository root `/r`, the harness's own. The guard was run as it stands, as the implementer's `Write`, on its harness's ask-rules fixture (`~/.cache/redline/guard-test-askrules`: the rules `config/project/**` and `*.secret.yaml`, and a link `cfg` to `config/project`), with no log written; a form written under `/r` was given to the guard under the fixture's own root. "Guard reads it as" is the two calls the guard makes on a target, `os.path.normpath(os.path.join(repository, target))` and then `os.path.relpath` (lines 518 and 394), under Python 3.14.7. The "after" side of each cell is the draft of the normaliser, run on the same forms; `plan.md`'s As built records the same script run against the code as built. It did, after Task 5, and printed these tables byte for byte.
 
 How to read it:
 
@@ -241,6 +249,8 @@ One form was left to the person before the #114 round 4 follow-up and no longer 
 Whether the five threads are resolved after the replies. `scripts/redline-gh.sh resolve-threads 114 <the five comment ids> <the five reply ids>` resolves a thread only when every comment in it is Redline's. R4-4 has no thread.
 
 ## Standards retrospective (proposed)
+
+All seven edits below were approved by @michaelfromtheoutfit and landed in `8319e8a`.
 
 Gate step 12, item by item: the decisions above, the As built deviations, and the checks that went red. Drafted while shaping and redrafted after the build, which taught E7.
 
