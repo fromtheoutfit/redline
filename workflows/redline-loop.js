@@ -909,6 +909,13 @@ function shapeSchema(reasons, dispositions) {
 // recommended change would touch, as the ask-rules block asks for them and forceAskRules reads
 // them (#103, R2-5).
 const FILES_ASK = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask, the paths its recommended change would touch)'
+// The same ask in a reshape prompt whose block names decided findings (#114, R1-4): the block
+// gives a named finding's files one meaning, its task as plan.md holds it, whatever disposition
+// is returned, so this clause keeps the recommended paths for an ask still pending and sends a
+// named finding to the block, and no sentence of that prompt gives one finding two meanings
+// (#103, R2-5). It is used only beside the block, so a reshape prompt with no block keeps
+// FILES_ASK, byte for byte.
+const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask still pending, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {
@@ -2082,7 +2089,7 @@ ${json(inScope)}
 
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
