@@ -501,21 +501,50 @@ function pathSegments(text) {
 // root itself, which name no file; relative for a path inside the repository; and for one outside
 // it (`outside`), the absolute folded path, which equals no repository file. `dir` says the text
 // was written as a directory: it ends in /, /. or /.., which a list of files drops and the paths
-// rules keep. Two things the guard does differently, on purpose: it takes padding literally,
-// where a path in an agent's JSON is trimmed, and it resolves symlinks, where the workflow reads
-// no disk. The decided lists, the shaper's own list (vetShape, R4-4) and the paths rules read
-// through it. Until R4-2 each read part of it its own way: relPath (#49) took off the root and
-// then a leading ./, for the paths rules, and cleanPaths folded what R1-6 and R2-2 named and kept
-// .. segments and a trailing /. as written.
+// rules and the plan approver's list keep. `up` says the text holds a .. segment, and `blank`
+// that it holds nothing, which the plan approver's list reads (planEntry). Two things the guard
+// does differently, on purpose: it takes padding literally, where a path in an agent's JSON is
+// trimmed, and it resolves symlinks, where the workflow reads no disk. Every path an agent
+// returns for a task is read through it: the decided lists, the shaper's own list (vetShape,
+// R4-4), the plan approver's list (planEntry), the paths rules, and the reviewer's file where it
+// is matched or compared. Until R4-2 each read part of it its own way: relPath (#49) took off the
+// root and then a leading ./, for the paths rules, cleanPaths folded what R1-6 and R2-2 named
+// and kept .. segments and a trailing /. as written, and the plan approver's list had only the
+// root taken off.
 function repoPath(raw) {
   const text = String(raw === null || raw === undefined ? '' : raw).trim()
   if (text === '') {
-    return { path: '', outside: false, dir: false }
+    return { path: '', outside: false, dir: false, up: false, blank: true }
   }
   const root = pathSegments(repoRoot)
   const segments = pathSegments(text.startsWith('/') ? text : `${repoRoot}/${text}`)
   const outside = segments.length < root.length || root.some((segment, i) => segments[i] !== segment)
-  return { path: outside ? `/${segments.join('/')}` : segments.slice(root.length).join('/'), outside, dir: /(?:^|\/)\.{0,2}$/.test(text) }
+  return { path: outside ? `/${segments.join('/')}` : segments.slice(root.length).join('/'), outside, dir: /(?:^|\/)\.{0,2}$/.test(text), up: text.split('/').includes('..'), blank: false }
+}
+// A path the plan approver listed, as the allowed list takes it: `entry`, or `dropped`, why it is
+// left out. The list becomes the snapshot's plan_paths, which checks.sh reads as what the round
+// may change, an entry that ends in a slash as a prefix, so reading it through repoPath must
+// never make it broader than the approver wrote it (the #114 round 4 by-hand spec, decisions 12
+// and 17). An entry that is the repository root, or outside the repository, is left out, never
+// written as a prefix. So is a directory written through a .. segment (app/sub/../): the fold
+// would make its prefix, app/, broader than any the approver wrote out. A file written through
+// one (app/sub/../x.php) is that one file. A path written as a directory keeps its slash, and a
+// blank is no entry and has no reason.
+function planEntry(raw) {
+  const read = repoPath(raw)
+  if (read.blank) {
+    return { entry: '', dropped: '' }
+  }
+  if (read.outside) {
+    return { entry: '', dropped: 'is outside the repository' }
+  }
+  if (read.path === '') {
+    return { entry: '', dropped: 'is the repository root' }
+  }
+  if (read.dir && read.up) {
+    return { entry: '', dropped: 'names a directory through a .. segment' }
+  }
+  return { entry: read.dir ? `${read.path}/` : read.path, dropped: '' }
 }
 // A list of paths as an agent returned it, read one way (#114, R1-6, R2-2, R4-2): each through
 // repoPath, a blank and the root itself dropped, and each path once, so one file written two ways
@@ -4273,7 +4302,19 @@ async function revise(record, inScope, reviewedKind) {
 
   // The snapshot's plan_paths is every path approved so far in this run: the git block
   // measures from start_sha, so earlier rounds' files are still changed in later rounds.
-  const planPaths = plan.planPaths.map((path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path))
+  // Each path the approver listed is read as the guard reads the target of a write (planEntry),
+  // once, and one left out is warned about by name: a narrower allowed list can fail the gate on a
+  // file the plan meant, and the person should see why. Until the #114 round 4 by-hand spec only
+  // the repository root was taken off, so app//x.php named no file the gate would see changed.
+  const planPaths = []
+  for (const raw of plan.planPaths) {
+    const { entry, dropped } = planEntry(raw)
+    if (dropped) {
+      warnings.push(`${pass.name}: the plan approver listed \`${String(raw).trim()}\`, which ${dropped}; it is not among the allowed paths`)
+    } else if (entry !== '' && !planPaths.includes(entry)) {
+      planPaths.push(entry)
+    }
+  }
   // The round keeps the paths its own plan named (#95): the next round's fix diff is this round's
   // fixes, and a finding the verifier places in it must sit under one of them. The run's list
   // below is every round's, so it cannot say which round touched a file.
@@ -5252,7 +5293,7 @@ try {
           ? 'this round reviewed the whole pull request, not a fix diff'
           : range.empty
             ? `round ${round - 1} changed no code, so this round had no fix diff`
-            : underPaths(f.file, (before && before.planPaths) || [])
+            : underPaths(repoPath(f.file).path, (before && before.planPaths) || [])
               ? ''
               : `\`${f.file}\` is not among the paths round ${round - 1}'s plan named`
         if (why) {

@@ -4140,6 +4140,44 @@ function samePrefix(name, first, second, n) {
   check('fix-diff: a plan path ending in a slash covers the files under it', labels(folder.calls).includes('final nit pass r3') && minorOf(folder.res, 1).join(',') === 'R2-1' && about(folder.res, 'R2-1').length === 0, [labels(folder.calls), folder.res.warnings])
   const sibling = await go('fix-diff: a file beside a named one', baseArgs, two([low('R2-1', { file: 'app/Services.php' })], { planPaths: ['app/Services/', 'app/Service'] }))
   check('fix-diff: a folder path covers nothing beside it, and a file path only itself', labels(sibling.calls).includes('re-review r3') && about(sibling.res, 'R2-1').length === 1, [labels(sibling.calls), sibling.res.warnings])
+  // Both sides of the compare are read through the one path function (the #114 round 4 by-hand
+  // spec): the reviewer's file, and each path the plan approver listed. Until then the file was
+  // compared as written, against a list with only the repository root taken off, so a file
+  // written with a leading ./ was under no folder, and a plan path written in another form named
+  // no file.
+  const dotted = await go('fix-diff: a file the reviewer writes with a leading ./', baseArgs, two([low('R2-1', { file: './app/Services/Retry.php' })], { planPaths: ['app/Services/', 'tests/'] }))
+  check('fix-diff: a file written with a leading ./ is under the folder the plan named', labels(dotted.calls).includes('final nit pass r3') && minorOf(dotted.res, 1).join(',') === 'R2-1' && about(dotted.res, 'R2-1').length === 0, [labels(dotted.calls), dotted.res.warnings])
+  const respelled = await go('fix-diff: a plan path the approver writes in another form', baseArgs, two([low('R2-1', { file: 'app/x.php' })], { planPaths: [' ./app//x.php'] }))
+  check('fix-diff: a plan path written with a leading ./, a doubled slash and padding names its file', labels(respelled.calls).includes('final nit pass r3') && minorOf(respelled.res, 1).join(',') === 'R2-1' && about(respelled.res, 'R2-1').length === 0, [labels(respelled.calls), respelled.res.warnings])
+  // The plan approver's list becomes the snapshot's plan_paths, which checks.sh reads as the
+  // allowed list, an entry that ends in a slash as a prefix. Each path is read as the guard reads
+  // the target of a write, and a path written as a directory keeps its slash. Reading the list
+  // this way never makes the allowed list broader than the approver wrote it: an entry that is
+  // the repository root, that is outside the repository, or that names a directory through a ..
+  // segment is left out and warned about by name, and never written as a prefix; a blank is left
+  // out with no warning.
+  const planPathsOf = (r, label = 'snapshot r1') => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    try {
+      return JSON.parse(p.slice(p.indexOf('{'), p.lastIndexOf('}') + 1)).plan_paths || []
+    } catch {
+      return []
+    }
+  }
+  const KEPT = { ' ./app//x.php': 'app/x.php', '/r/app/sub/../y.php': 'app/y.php', 'app/Services/': 'app/Services/', 'tests/./': 'tests/', 'app/z/.': 'app/z/', 'app/x.php/': 'app/x.php/' }
+  const LEFT_OUT = { '.': 'is the repository root', '/r': 'is the repository root', 'app/..': 'is the repository root', '../x.php': 'is outside the repository', '/etc/x.php': 'is outside the repository', 'app/sub/../': 'names a directory through a .. segment', 'app/sub/..': 'names a directory through a .. segment' }
+  const everyForm = await go('plan paths: the approver lists paths in every form', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], planPaths: Object.keys(KEPT).concat(Object.keys(LEFT_OUT), ['', '  ']) })
+  const everyFormPaths = planPathsOf(everyForm)
+  check('plan paths: the snapshot holds each path the approver listed, read as the guard reads a write target, a directory with its slash, and then the spec folder', (everyForm.res || {}).status === 'done' && JSON.stringify(everyFormPaths.slice(0, -1)) === JSON.stringify(Object.values(KEPT)) && String(everyFormPaths[everyFormPaths.length - 1]).endsWith('-review-round-1/'), [(everyForm.res || {}).status, (everyForm.res || {}).error, everyFormPaths])
+  const leftOutWarning = (entry) => `round 1: the plan approver listed \`${entry}\`, which ${LEFT_OUT[entry]}; it is not among the allowed paths`
+  check('plan paths: each entry left out is warned about by name with its reason, and a blank is not', Object.keys(LEFT_OUT).every((entry) => ((everyForm.res || {}).warnings || []).includes(leftOutWarning(entry))) && ((everyForm.res || {}).warnings || []).filter((w) => w.includes('the plan approver listed')).length === Object.keys(LEFT_OUT).length, (everyForm.res || {}).warnings)
+  // The allowed list is never widened: nothing in it is the root, absolute or holds a .. segment,
+  // and an entry is a prefix only where the approver wrote that directory, slash by slash. `app/`
+  // is what app/sub/../ and app/sub/.. fold to, and the root what app/.. folds to. Seen red under
+  // a mutation that writes a directory through .. as its folded prefix, and under one that keeps
+  // the root.
+  const prefixesWritten = Object.values(KEPT).filter((entry) => entry.endsWith('/'))
+  check('plan paths: reading the list never widens it: no root, no path outside, no .. segment, and no prefix the approver did not write', everyFormPaths.length > 1 && !everyFormPaths.some((entry) => entry === '' || entry.startsWith('/') || entry.split('/').includes('..') || entry === 'app/' || entry === 'app') && JSON.stringify(everyFormPaths.slice(0, -1).filter((entry) => entry.endsWith('/'))) === JSON.stringify(prefixesWritten), everyFormPaths)
   // The previous round's plan, never the run's: round 1 named app/a.php, round 2 app/b.php, and a
   // round 3 finding on app/a.php is not in round 2's fix diff.
   const perRound = { reviews: [[f('R1-1', 'correctness')], [f('R2-1', 'correctness')], [low('R3-1', { file: 'app/a.php' })], []], commitIds: [['R1-1'], ['R2-1'], ['R3-1']], planPaths: [['app/a.php'], ['app/b.php'], ['app/a.php']] }
