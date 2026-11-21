@@ -2051,15 +2051,22 @@ Investigate first: open the files named, their callers and tests, and the standa
 Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn).`
 }
 
-// `decided` is the ids of the findings the person or autopilot decided whose task the round reads
-// from its own list (#106). The block that names them says what `files` means for each: every
-// shape prompt asks, for an ask, for the paths of the recommended change, which is the wrong list
-// for a call the person answered, and after a reshape the workflow takes a decided finding's task
-// from this list. The whole ask sits in the block, and the block is in the prompt only when the
-// round has such a finding, so a reshape of any other round keeps the prompt it had before #106.
+// `decided` is the findings the person or autopilot decided whose task the round reads from its
+// own list (#106), each as {id, end}: end is what its decision ends in (endsIn in revise(): fix,
+// defer or accept). The block that names them says what `files` means for each: every shape
+// prompt asks, for an ask, for the paths of the recommended change, which is the wrong list for
+// a call the person answered, and after a reshape the workflow takes a decided finding's task
+// from this list. It names each with its end, which the hold after the reshape reads, so the
+// reshape is told which task the hold expects rather than left to infer it from plan.md, since
+// shape.md's decided entry records the choice and not its end (#114, R1-3). The whole ask sits in
+// the block, and the block is in the prompt only when the round has such a finding, so a reshape
+// of any other round keeps the prompt it had before #106.
 function reshapePrompt(pass, specFolder, inScope, adjustments, attempt, decided) {
+  // How the block names each end, in the words of the rule after the list (#114, R1-3). An end
+  // the round has not read is named by the id alone.
+  const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted' }
   const decidedBlock = decided.length
-    ? `\n\nFindings the person or the autopilot decided: ${decided.join(', ')}. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none.`
+    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none.`
     : ''
   return `This is a Redline run; follow shape-spec in unattended mode.
 
@@ -3794,6 +3801,11 @@ async function revise(record, inScope, reviewedKind) {
   // reshape never changes it, since the person's decision stays whatever disposition or entry a
   // reshape gives its finding (#94, R8-6).
   const stated = {}
+  // What a decided finding's decision ends in (#99; #108, R1-5): its own disposition when it
+  // names one, an override's or a call's, and else what the resolve agent stated for the call.
+  // The hold after each reshape reads it, and the reshape prompt names it beside each decided
+  // finding, so the reshape is told which task the hold expects (#114, R1-3).
+  const endsIn = (id) => roundDecisions[id].disposition || stated[id]
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     // The ids this resolve applies: its calls and its overrides.
     const applied = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))
@@ -4061,7 +4073,7 @@ async function revise(record, inScope, reviewedKind) {
       throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes, ...(reshaped.length ? { reshaped } : {}) }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
-    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked)), {
+    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked).map((id) => ({ id, end: endsIn(id) }))), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
@@ -4096,7 +4108,6 @@ async function revise(record, inScope, reviewedKind) {
     // mitigation is optional, and no commit is demanded of one (#100). Both messages open with
     // the same words, which the resume line reads (resumeLine).
     const heldIds = inScope.map((f) => f.id).filter(tracked)
-    const endsIn = (id) => roundDecisions[id].disposition || stated[id]
     const saidBy = (id) => (roundDecisions[id].disposition ? (calls.some((call) => call.id === id) ? 'its decision names' : 'a disposition override names') : 'the resolve agent stated')
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
     if (taskless.length) {

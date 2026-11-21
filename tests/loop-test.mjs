@@ -216,8 +216,10 @@ function mock(scenario) {
       // The findings a reshape prompt names as decided (#106): for each, files is its task as
       // plan.md holds it, whatever disposition the reshape returns. By default that is what the
       // scripted resolve planned; scenario.reshapeFiles[id] scripts a task the reshape changed.
+      // Each is named with what its decision ends in (#114, R1-3), so the ids are read off the
+      // list by their form.
       const decidedLine = reshape ? prompt.match(/Findings the person or the autopilot decided: ([^.]*)\./) : null
-      const namedDecided = decidedLine ? decidedLine[1].split(', ') : []
+      const namedDecided = decidedLine ? [...decidedLine[1].matchAll(/[RH]\d+-\d+/g)].map((m) => m[0]) : []
       const taskOf = (id) => (scenario.reshapeFiles && id in scenario.reshapeFiles ? scenario.reshapeFiles[id] : plannedByResolve[id] || [])
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : onReshape('reshapeDefer').includes(id) ? 'defer' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
@@ -3324,12 +3326,13 @@ function samePrefix(name, first, second, n) {
     return a < 0 || b < 0 ? null : p.slice(0, a) + p.slice(b)
   }
   const undecided = await go('reshape: the same round with no decision', { ...baseArgs, interrupt: 'plan', approvedPlans: [1] }, { ...deferBounced, reviews: [[f('R1-1', 'correctness')]] })
-  check('reshape: the reshape prompt of a round with a decided finding names it and says its files are its task as plan.md holds it, whatever disposition is returned', reshapePromptOf(emptied).includes(`${DECIDED_BLOCK}R1-1. `) && reshapePromptOf(emptied).includes('as plan.md holds it when you are done') && reshapePromptOf(emptied).includes('whatever disposition you return for it') && reshapePromptOf(emptied).includes('keeps a task with files'), reshapePromptOf(emptied).slice(-1600))
+  check('reshape: the reshape prompt of a round with a decided finding names it and says its files are its task as plan.md holds it, whatever disposition is returned', reshapePromptOf(emptied).includes(`${DECIDED_BLOCK}R1-1 (deferred). `) && reshapePromptOf(emptied).includes('as plan.md holds it when you are done') && reshapePromptOf(emptied).includes('whatever disposition you return for it') && reshapePromptOf(emptied).includes('keeps a task with files'), reshapePromptOf(emptied).slice(-1600))
   check('reshape: the reshape prompt of a round with no decided finding has no such block, and is the decided round\'s prompt with the block cut out', reshapePromptOf(undecided) !== '' && !reshapePromptOf(undecided).includes(DECIDED_BLOCK) && withoutBlock(reshapePromptOf(emptied)) === reshapePromptOf(undecided), [reshapePromptOf(undecided).length, (withoutBlock(reshapePromptOf(emptied)) || '').length])
   const twoDecided = await go('reshape: a decided fix beside a call left to the person under a rule and a fix nobody decided', { ...baseArgs, askRules: chargeRule, decisions: { 'R1-1': changeIt['R1-1'], 'R1-2': changeIt['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], askRule: { 'R1-2': 'billing' }, planBounce: 1, commitIds: [['R1-1', 'R1-3'], []] })
-  check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1. `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix). `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
   const shaperFile = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
   check('reshape: the shaper\'s file states the same rule for a finding the invoking prompt names as decided', shaperFile.includes('as `plan.md` holds it when you are done') && shaperFile.includes('whatever disposition you return for it') && shaperFile.includes('keeps a task with files'))
+  check('reshape: the shaper\'s file says the invoking prompt names each decided finding with what its decision ends in', shaperFile.includes('each with what its decision ends in (fix, accepted or deferred)'))
   // A call answered with a fix whose reshape still returns it as an ask lists its task, never the
   // recommended option's paths, so the second pass is shown the task as the first was.
   const askedAgain = await go('reshape: a call answered with a fix, the plan bounced', { ...baseArgs, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], files: { 'R1-1': ['app/rec.php'] }, planBounce: 1, commitIds: [['R1-1']] })
@@ -3351,7 +3354,7 @@ function samePrefix(name, first, second, n) {
   check('reshape: a resolve for a raised call leaves an earlier decision\'s list as the reshape left it', labels(raisedLater.calls).includes('resolve r1 #1') && approverFiles(raisedLater, 'R1-1', PASS_2) === '["defer",["app/y.php"]]', [raisedLater.res.status, raisedLater.res.error, labels(raisedLater.calls).slice(4, 16), approverFiles(raisedLater, 'R1-1', PASS_2)])
   // Replay: a stop that follows a reshape in a round with a decided finding, and its relaunch.
   const raisedStop = await go('reshape: a reshape in a round with a decided finding raises a call, unanswered', { ...raisedArgs, decisions: toDefer('Defer it behind a guard.') }, raisedScenario)
-  check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1. `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])
+  check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1 (deferred). `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])
   samePrefix('reshape: the relaunch replays every prompt before a stop that follows a reshape of a decided round', raisedStop.calls, raisedLater.calls, raisedStop.calls.length)
   // A decision is held to its task after each reshape, as it is when its resolve returns (#99;
   // #108, R1-5): a decided fix the reshape leaves with no files, or a decided accept it leaves
@@ -3383,6 +3386,13 @@ function samePrefix(name, first, second, n) {
   check('reshape: a call stated as accepted that the reshape gives a task with files stops at that reshape', stopsAtReshape(statedAcceptTasked, A_TASK('the resolve agent stated')), stopOf(statedAcceptTasked))
   const twoEmptied = await go('reshape: two overrides to fix whose tasks the reshape removes', { ...overrideDial, decisions: { 'R1-1': toFix['R1-1'], 'R1-2': toFix['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], decline: ['R1-1', 'R1-2'], planBounce: 1, reshapeFiles: { 'R1-1': [], 'R1-2': [] }, commitIds: [[]] })
   check('reshape: the stop names every decided fix the reshape left with no task', twoEmptied.res.status === 'error' && twoEmptied.res.error === 'the reshape left R1-1, which a disposition override names as a fix; R1-2, which a disposition override names as a fix, with no task with files; a fix names the files it changes', stopOf(twoEmptied))
+  // The block names each decided finding with what its decision ends in, read as the hold reads
+  // it (#114, R1-3): an override's or a call's own disposition, else what the resolve agent
+  // stated. Until then it named the ids alone, and the reshape could learn the end only from the
+  // task's wording in plan.md.
+  const blockNames = (r, end) => reshapePromptOf(r).includes(`${DECIDED_BLOCK}R1-1 (${end}). Each is named with what its decision ends in. `)
+  const blockLine = (r) => (reshapePromptOf(r).match(/Findings the person or the autopilot decided: [^.]*\./) || [''])[0]
+  check('reshape: the block names each decided finding with its end: an override, a named call and a stated call, as a fix, as accepted or as deferred', blockNames(emptied, 'deferred') && blockNames(fixEmptied, 'fix') && blockNames(namedFixEmptied, 'fix') && blockNames(statedFixEmptied, 'fix') && blockNames(acceptTasked, 'accepted') && blockNames(statedAcceptTasked, 'accepted'), [emptied, fixEmptied, namedFixEmptied, statedFixEmptied, acceptTasked, statedAcceptTasked].map(blockLine))
   // The neighbours. A deferral is never held: a mitigation is optional, and `emptied` above runs
   // on. A fix whose task the reshape moves to other files still has one. A finding the reshape
   // leaves to the person under a rule is skipped, its task having no files by rule. And an accept
