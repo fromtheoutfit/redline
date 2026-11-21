@@ -1,0 +1,1 @@
+Redline round 2: fixed in d83c40e (redline: R2-2 read every path form the cleanup names one way (#106)) and f18bcc6 (redline: record the round 2 review lessons in the standards, finishing R2-2 (#106)). · decided by: redline

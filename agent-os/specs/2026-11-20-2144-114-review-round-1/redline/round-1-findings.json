@@ -1,0 +1,249 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "5a6d01853296c7d37faebc06a6fdad25cc356a20",
+    "to": "5a6d01853296c7d37faebc06a6fdad25cc356a20"
+  },
+  "summary": "This pull request replaces the resolve-only task list with one list per decided finding that follows each reshape, holds each decision to its task after a reshape, and backs the change with a reader table and a prompt sweep over every scenario. The findings sit at the edges of that list. The reshape prompt still asks for a decided call's files in a second meaning and never says which decided finding ends in which disposition. The list is taken without cleanup, and a deferral's mitigation words do not follow it. A decided call's shown disposition, which predates this pull request, still ignores what the resolve stated. Three sentences in the docs and standards overstate what changed or why.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "agent-os/standards/workflow/agents.md",
+      "line": 10,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Standard says a decided deferral's draft is answered before a reshape, which is false on autopilot and with `defer at end`",
+      "description": "The clause this pull request appends to line 10 gives its reason as 'a decided deferral's draft is answered before a reshape can run (#106)'. That holds only when the round raises drafts. `raisesDrafts` is `interrupt !== 'autopilot' && (deferAt === 'round' || pass.human)` (workflows/redline-loop.js:3704), and `openDrafts` returns [] when it is false (3728). So on autopilot, and with `defer at end` on a Redline round, `draftStop` (4014-4016) raises nothing, and the draft is never raised at a round's stop at all. It is not answered first. The conclusion still holds, since no round stop shows the changed files, but the reason is wrong for two of the settings. shape.md decision 18 ('always answered before a reshape can run (the stop after the resolve that drafted it holds the round until it is)') and the PR body give the same reason.",
+      "proposedFix": "Reword the clause to 'a decided deferral's draft is answered before a reshape can run, or, on autopilot or with `defer at end`, is never raised at a round's stop', and correct decision 18 in the spec's shape.md the same way.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "docs/running.md",
+      "line": 127,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "'A reshape after your decision' says readers were shown the first-planned task, true only for a deferral, and omits the human-pass resume label",
+      "description": "The bullet says the plan approver's next pass, the implementer, a draft at the end-of-run stop and the two warnings 'are shown those files, where they were shown the task as first planned'. The bullet opens by covering 'a fix or an accepted finding as well as a deferral'. But before this pull request, `effectiveDispositions` replaced the files only for a finding shown as `defer`: the removed line was `return decision && shown.disposition === 'defer' ? { ...shown, files: plannedFiles(f.id) } : shown`. So a decided fix or accept was shown the shaper's list from before the decision on the first pass, and the reshape's own list after one. The spec's shape.md, decision 11, says exactly that. The draft and both warnings also apply to deferrals only. Separately, the bullet gives the resume label only as `reshape r<n> #<k>`. The label is `reshape ${pass.tag} #${adjustment + 1}` (workflows/redline-loop.js:4065), and `pass.tag` is `h<n>` in a human review pass (459). The hold can fire there for an answered call, and the sentence just above the bullet does name `resolve h<n>`.",
+      "proposedFix": "In the 'A reshape after your decision' bullet of `docs/running.md`, limit 'where they were shown the task as first planned' to a deferral, and say that a fix or an accept was shown the shaper's list. Also add `reshape h<n> #<k>` for a human review pass beside `reshape r<n> #<k>`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "workflows/redline-loop.js",
+      "line": 2062,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Reshape block states the fix and accept rule but never says which decided finding is which",
+      "description": "The block names the decided ids only, then says 'A finding decided as a fix keeps a task with files, and one decided as accepted keeps none.' The hold that enforces this reads `endsIn(id) = roundDecisions[id].disposition || stated[id]` (4099). `reshapePrompt` (2060) receives neither: its parameters are pass, specFolder, inScope, adjustments, attempt and the id list, and `stated` lives only in the workflow. The reshape can learn the end only from the folder. agents/redline-resolve.md item 3 writes an accept's task as 'Accepted, no change: <id>' and a fix's as a concrete task. Item 2 says the decided entry in shape.md records the choice, notes, date and owner, but not the stated disposition. So an answer worded like an accept but stated as a fix (agents/redline-resolve.md: 'A choice that keeps the behaviour and still ships something, a code comment say, is a fix') reaches the reshape with no label. A reshape that reads it as an accept and drops its task is caught by the hold at 4101-4104. The cost is a stop at shape and a rerun, not a wrong build. It needs a reshape that removes a task plan.md holds for a person's decision, against the prompt's 'a decision the person made, or the autopilot applied, stays as it is' (2076).",
+      "proposedFix": "Name each id with its end in the block, read from `endsIn`, for example `Findings the person or the autopilot decided: R1-1 (fix), R1-2 (accepted), R1-3 (deferred).`. This means passing `roundDecisions` and `stated`, or the computed ends, into reshapePrompt. Only reshape prompts that already carry the block change. Update the mock's `decidedLine` parse in tests/loop-test.mjs to match.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "workflows/redline-loop.js",
+      "line": 2078,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "Reshape prompt asks for a decided call's files in two meanings: the block's task files and FILES_ASK's recommended paths",
+      "description": "The new block (2062) says that for each decided finding 'files is the paths of its task as plan.md holds it ..., whatever disposition you return for it'. The Return sentence after it (2078) still carries `FILES_ASK` (911) unchanged: 'for an ask, the paths its recommended change would touch'. A Redline round's shaper schema has no `accept` (912: fix, decline, defer, ask), and a decided call often comes back as `ask`, which is what the loop test's mock returns (tests/loop-test.mjs:222). For such a call the prompt gives `files` two meanings. agents/standards/workflow/agents.md line 50 forbids exactly that: a list 'is asked for in one meaning in every sentence of a prompt that asks for it' (#103, R2-5, which was the same FILES_ASK-versus-block conflict). Two failures follow when a reshape takes the Return sentence's reading and the answer was not the recommended option. (1) A call stated as accepted is listed with the recommended paths, so the new hold (4105-4107) stops the round at stage `shape` with 'the reshape left R1-1, which the resolve agent stated as accepted, with a task with files (...)', even though plan.md holds 'Accepted, no change'. The resume line (resumeLine, 'correct the task the error names') then points at a task that is already right. (2) A call stated as a fix whose answer planned other files gets the recommended option's paths stored in `decidedFiles` (4087), and the plan approver, the implementer and the warnings are shown them. Before this pull request nothing held a decided non-deferral to the reshape's list. Whether a given reshape follows the block or the Return sentence is model behaviour. The contradiction itself is in the prompt text.",
+      "proposedFix": "When the block is present, qualify the Return sentence's files clause so it no longer covers the named findings. Either build it with 'for an ask still pending, the paths its recommended change would touch', or append '(for the decided findings named above, as that paragraph says)'. Only reshape prompts that already carry the block change. Add a loop check that a reshape prompt carrying `Findings the person or the autopilot decided: ` has no unqualified 'for an ask, the paths its recommended change would touch'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3968,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A decided call is shown with the shaper's or a reshape's disposition, never the one the resolve stated",
+      "description": "`effectiveDispositions` builds `shown` as `decision && decision.disposition ? { ...f, disposition: decision.disposition } : f` (3968). A call's decision normally names no disposition, so the call is shown with `f.disposition`: the shaper's `ask`, or whatever a reshape re-sorted it to. `stated[id]` (set at 3857) is read by `isDeferral` (4007), `needCommits` (4218) and the new hold (4099), but never by the view. The implementer is shown `ctx.shaped.findings`, which is `finalDispositions` (4150, 4221, 2237), next to the line 'a declined finding has no task and no commit'. Take a reshape that re-sorts a call stated as a fix to `decline`. The implementer is shown `[\"decline\", <files>]` while `needCommits` still demands the call's commit. If the implementer follows the shown disposition rather than plan.md's task and the decision in its prompt, the check fails, the repair runs, and the round stops at stage `check`, whose resume starts at the build and cannot replan. The re-sort goes against the reshape prompt's 'a decision the person made, or the autopilot applied, stays as it is' (2076). The workflow still plans for it elsewhere ('a reshape's re-sort of a decided call is no deferral', 4198). The cause is code this pull request did not change: the `shown` line is context. In the candidate's scenario the implementer's view is the same before and after this pull request, because the base showed the reshape's own files for a non-deferral. What this pull request changes is the files beside that disposition, which are now the task's from the first pass on.",
+      "proposedFix": "In effectiveDispositions, show a tracked call whose decision names no disposition by its stated end: `const end = decision && (decision.disposition || stated[f.id])`, then `const shown = end ? { ...f, disposition: end } : f`. `accept` is already a shown value for an override. Check that `needCommits`' first branch still excludes stated calls (`!(f.id in stated)`), and that `outcomesFor`, which reads finalDispositions, reads calls the same way. This changes the plan approver's and the implementer's prompts in every round with an answered call.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-6",
+      "file": "workflows/redline-loop.js",
+      "line": 4079,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Reshape's files are compared and stored raw: a path-form change warns falsely, and [''] passes the fix hold",
+      "description": "`now = unique(listed.files)` (4079) is compared by exact string with `before` (4080-4081), which is the resolve's `taskFilesOf` list (483) and is also raw. It is then stored as is (4087). Nothing trims a path, strips `${repoRoot}/` or `./` (planPaths strips repoRoot at 4154), or drops an empty entry, and the `strings` schema (649) has no minLength. Two failures follow. (1) If the resolve planned `app/x.php` and the reshape lists `./app/x.php` or an absolute path, the run warns 'the reshape changed the files of R1-1's task ... from app/x.php to ./app/x.php', records a `reshapedTasks` entry that the approve cap's `reshaped` detail reports, and shows that form to every later reader. (2) If the reshape returns `['']` for a decided fix, it passes the new hold, since `decidedFiles[id].length === 0` is false (4101), even though it names no file. That is the case the hold exists to stop, and it would reach the check and stop there after a repair. The same empty-entry gap exists in the resolve-time holds (3933, 3944), which count '' through taskFilesOf. That part predates this pull request. Both failures need a reshape that returns a path in a different form from the resolve's, or an empty string.",
+      "proposedFix": "Add one helper, for example `const cleanPaths = (list) => unique(list.map((p) => String(p).trim()).map((p) => (p.startsWith(`${repoRoot}/`) ? p.slice(repoRoot.length + 1) : p.replace(/^\\.\\//, ''))).filter(Boolean))`. Apply it to the reshape's `files` at 4079 and to `taskFiles(id)` where decidedFiles is set (3953). Add loop cases: `reshapeFiles: { 'R1-1': ['./app/x.php'] }` for a decided deferral expecting no warning and an unchanged approver prompt, and `['']` for a decided fix expecting the stop at stage `shape`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-7",
+      "file": "workflows/redline-loop.js",
+      "line": 4087,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A decided deferral's files follow the reshape but its mitigation words stay the resolve's",
+      "description": "After a reshape, `decidedFiles[id] = now` (4087) moves a decided deferral's files to the reshape's task. Its entry does not move: the reshape's deferred entry for a decided finding is dropped (`restated`, 4123-4126), and `stillDeferred` keeps the resolve's entry (4127-4128). `draftView` (3482-3485) shows `files` from the new list, but `mitigation: ships ? d.item.mitigation : ''` from the resolve's entry. At the end-of-run stop (heldStop, 3509), `ships` is whether a commit of the finding's own landed. So a reshape that moves the mitigation from `app/x.php` to `app/y.php` shows the person `ships: true`, the words 'guard the null in app/x.php' and `files: [app/y.php]`. `deferredEntry` (3465), which the result's deferred list and the closing summary read, carries the same old words as what shipped, beside `ships` (it carries no files). Before this pull request both the words and the files came from the resolve and agreed. shape.md's reader list names 'the mitigation's words when it ships' in draftView's row and gives 'The list' as what it reads after, but the words are not read from that list. The standard (agents.md line 50) labels the words as unchecked. The record (`ships`, `files`) is right. Conditions: a reshape that moves or rewrites a decided deferral's mitigation, plus a commit of its own landing; the stop needs `defer at end` on a non-autopilot run, and the closing summary shows the words on any dial.",
+      "proposedFix": "When `reshapedTasks[id]` exists, take the mitigation words from the reshape's own entry for that id, kept aside where `restated` drops the rest of it. Or show no words beside a reshaped task, and say so in draftView's comment and docs/running.md. Add a loop case on the end-of-run stop with `reshapeFiles` moving a decided deferral's task, checking the view's `mitigation` against `files`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "5a6d01853296c7d37faebc06a6fdad25cc356a20",
+    "candidates": 8,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 1
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R1-4"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R1-5"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R1-3"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R1-6"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R1-7"
+      },
+      {
+        "index": 6,
+        "outcome": "known",
+        "ref": "#104 (Count a deferred draft's version over what its stop shows, so a change to what ships is raised again). Its proposed second fingerprint over what the stop shows covers an answered draft not being raised again when a reshape removes the mitigation. The PR body and the spec's shape.md say #104 is widened and left. The rest of the candidate is a note that decided deferrals now reach it, which is not a defect of its own."
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R1-2"
+      },
+      {
+        "index": 8,
+        "outcome": "verified",
+        "ref": "R1-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 2078,
+        "summary": "A reshape that follows its own prompt can stop the round with a false 'the reshape left ...' error. The decided-findings block (line 2061) says a decided finding's `files` are its task as plan.md holds it, 'whatever disposition you return for it'. But the Return line that comes after it still says, through FILES_ASK, 'for an ask, the paths its recommended change would touch'. The shaper schema has no `accept` disposition, so a reshape returns an accepted call as `ask` (the test mock does too). If it follows the later sentence, it lists the recommended option's paths, and the new hold stops at stage `shape` even though plan.md has no task for that call. A call answered with a non-recommended option gets the recommended option's paths, which are then shown to the approver and the implementer. Fix: when the block is present, word the Return line's files clause so it excludes the named decided findings (e.g. 'for an ask not named as decided above'), or move the rule into the Return sentence. Consider checking the hold against plan.md as well as the self-reported list.",
+        "failure_scenario": "Guided run. R1-1 is a judgment call, answered 'Keep it'; the resolve states accept and plans no task. The plan approver bounces for another finding. The reshape returns R1-1 as `ask` with files ['app/rec.php'] (the recommended option). The hold throws 'the reshape left R1-1, which the resolve agent stated as accepted, with a task with files (app/rec.php)'. Before this PR the round ran on to done."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 3968,
+        "summary": "A decided call that names no disposition is shown to the plan approver and the implementer with the shaper's or the reshape's disposition, never the one the resolve stated (`stated[id]`). This PR now puts the task's files beside that disposition. If a reshape re-sorts a call stated as fix to `decline` or `defer`, the implementer sees it as a decline, and its prompt says 'a declined finding has no task and no commit'. `needCommits` still demands a commit, so the round fails the check, repairs, and stops at stage `check`, where it cannot replan. Fix: in effectiveDispositions, show a tracked call by its stated end (fix/defer/accept) when the decision names no disposition.",
+        "failure_scenario": "R1-1 is a call stated as fix with a task. The plan bounces and the reshape returns R1-1 as `decline` with files ['app/x.php']. The implementer is shown [\"decline\",[\"app/x.php\"]], skips it, and the check fails because R1-1 has no commit."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 2062,
+        "summary": "The reshape is held to whether each decided finding ends in fix or accept, but nothing in its prompt says which is which. The block lists only the ids and then says 'a finding decided as a fix keeps a task with files, and one decided as accepted keeps none'. Neither `roundDecisions` nor `stated` reaches the reshape prompt, and the resolve agent does not record its statement in shape.md. So an answer like 'keep the behaviour, add a comment' (stated as fix) can read as an accept, and a reshape asked to rework that task drops it and hits the hold. Fix: list each id with its end in the block, e.g. 'R1-1 (fix), R1-2 (accepted), R1-3 (deferred)'.",
+        "failure_scenario": "R1-1 is answered 'Keep it, but add a comment explaining the edge'; the resolve states fix with a task in app/x.php. An adjustment asks for that task to be reworded. The reshape decides the finding was accepted, removes the task and returns files []. The round stops at the reshape, and the resumed attempt is told only to 'correct the task the error names'."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 4079,
+        "summary": "The reshape's `files` are compared to the resolve's task files and stored as written, with no cleanup. A `./` prefix, an absolute `${repoRoot}/` path or trailing whitespace counts as a change: it raises a false 'the reshape changed the files' warning and replaces the list shown to every later reader. An empty-string entry gives `['']`, which passes the fix hold although it names no file. Fix: before comparing and storing, trim each path, strip `${repoRoot}/` and `./` (as planPaths does) and drop empty entries.",
+        "failure_scenario": "The resolve plans ['app/x.php'] and the reshape lists ['./app/x.php']. The run warns 'from app/x.php to ./app/x.php', and the approver and implementer are shown the `./` form. With files [''], a decided fix passes the hold with no real task."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 3485,
+        "summary": "For a decided deferral, the files now follow the reshape, but the mitigation words do not. The reshape's deferred entry for a decided finding is still dropped (the `restated` warning). So after a reshape moves a mitigation, two places show the resolve's old words beside the reshape's new files: the end-of-run draft (draftView) and the result's deferred list (deferredEntry, line 3465). Before this PR the files and the words both came from the resolve and agreed. Fix: when `reshapedTasks[id]` exists, take the words from the reshape's entry, or leave them out of the view.",
+        "failure_scenario": "The resolve's entry says 'guard the null in app/x.php' with files [app/x.php]. The reshape moves the guard to middleware in app/y.php. At the end-of-run stop the person sees ships true, mitigation 'guard the null in app/x.php', files ['app/y.php'], and the commit touches only app/y.php."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 4089,
+        "summary": "Already tracked in #104. A reshape that removes a mitigation the person chose is followed with only a warning, and the draft they already answered is not shown again. Before this PR that could not happen, because a decided deferral's files never followed the reshape; this PR widens the gap. #104's proposed fix (a second fingerprint over what the stop shows) covers it, so nothing is missing from the issue except a note that decided deferrals now reach it.",
+        "failure_scenario": "The person answers 'Mitigate with a guard' and lets the draft go ahead. A reshape drops the mitigation task. The run warns 'from app/x.php to none', builds nothing for it, files the issue, and the reply reads 'No code change.' without asking again."
+      },
+      {
+        "index": 7,
+        "file": "docs/running.md",
+        "line": 127,
+        "summary": "'A reshape after your decision' says the next plan approver pass and the implementer are shown the reshaped files 'where they were shown the task as first planned'. That is true only for a decided deferral. A decided fix or accept was shown the shaper's list from before the decision on the first pass and the reshape's own list after it (shape.md decision 11). The sentence also gives the resume label only as `reshape r<n> #<k>`, while the resolve sentence above it also names the human-pass form. Fix: limit the 'first planned' clause to a deferral, and add `reshape h<n> #<k>` for a human review pass.",
+        "failure_scenario": "A reader who compares runs before and after 0.4.4 expects a decided fix to have been shown its first-planned task; it never was. A person resuming a human pass looks for a reshape r<n> label that does not exist."
+      },
+      {
+        "index": 8,
+        "file": "agent-os/standards/workflow/agents.md",
+        "line": 10,
+        "summary": "The appended clause says 'a decided deferral's draft is answered before a reshape can run'. That is not true on autopilot or with `defer at end`: there `raisesDrafts` is false and no round stop raises a draft at all. The conclusion still holds (no round stop shows the changed files), but the reason given is wrong for two of the settings. Fix: say the draft is either answered before a reshape can run or never raised in the round (autopilot, defer at end).",
+        "failure_scenario": "On `defer at end`, a reshape runs before the decided deferral's draft has been answered. A later spec that relies on the standard as written expects an answered draft at that point."
+      }
+    ]
+  }
+}

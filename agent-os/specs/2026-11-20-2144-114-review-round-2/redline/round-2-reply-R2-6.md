@@ -1,0 +1,1 @@
+Redline round 2: fixed in 6c38899 (redline: R2-6 tell the reshape a decided fix keeps a task of its own (#106)). · decided by: redline

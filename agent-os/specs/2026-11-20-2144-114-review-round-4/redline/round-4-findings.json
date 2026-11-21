@@ -1,0 +1,207 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "9ea3ea9b88cc12dd750728a5bfd8259c0e186710",
+    "to": "c0f178f92f4d7f097160c3b91a66399d79cb158c"
+  },
+  "summary": "Round 3's fixes do what they say for the cases they pin: the paths rules now read a folded form beside the written one, and a second resolve no longer replaces a decided finding's list. What is left sits at the edges of those two fixes. Some path forms are still read differently by the rules, the round's list and the guard: a folded directory with its trailing slash, `..` segments, and the shaper's own unfolded deferral list. R3-4 changed which list counts without changing the resolve check that still demands the old one. No scheduled or queued work shares this data: the repository is a plugin with no routes/console.php.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "agents/redline-shaper.md",
+      "line": 32,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Rule 9's exception follows the redline/ ban, and the correct-in-place resume clause drops that ban",
+      "description": "Rule 9 reads: 'On a resume attempt ... rewrite the four files from scratch, replacing the failed attempt's; never change or remove anything under its `redline/` folder. The one exception is a resume line that says the stop was the workflow's check ...'. The exception comes straight after the `redline/` sentence, so 'the one exception' can be read as lifting that ban as well as the rewrite. The resume clause it describes (`resumeLine`, workflows/redline-loop.js:607) leaves out the from-scratch clause's 'never change or remove anything under its redline/ folder' (608). The ban is still in the reshape prompt the resume line is appended to ('Do not touch its redline/ subfolder', 2111), so a resumed reshape is still told it once. docs/running.md:208 states the ban for every shape-stage resume. No wrong behaviour is traced: this is a wording gap in the agent file and in the resume line. Not in round 3's fixes: rule 9 and the resume clause are the pull request's own code.",
+      "proposedFix": "Say in rule 9 that the exception covers only rewriting from scratch (for example 'The one exception to rewriting from scratch is ...'). Optionally end the correct-in-place clause at workflows/redline-loop.js:607 with the same 'never change or remove anything under its redline/ folder', and pin it in the loop test beside the clause.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-2",
+      "file": "workflows/redline-loop.js",
+      "line": 494,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "cleanPaths does not fold `..` segments or a trailing `/.`, which the guard's normpath does",
+      "description": "`cleanPaths` (494) trims, makes repeated slashes one, folds `/./` and takes off the root, a leading `./` and a trailing slash. It leaves `..` segments and a trailing `/.` alone: `app/sub/../x.php` stays as written, and so does `app/.`. Two things follow, traced through the code. (1) The decided-list compare after a reshape (4143-4154) treats `app/sub/../x.php` and the resolve's `app/x.php` as different files. It warns 'the reshape changed the files of R1-1's task ... from app/x.php to app/sub/../x.php' and stores and shows the unfolded path. (2) `ruleForPaths` (543-555) reads only `relPath(raw)` and `cleanPaths([raw])`, so `app/../config/project/x.yaml` is under no rule for `config/project/**`. The finding is not forced to ask. The guard resolves a write target with `os.path.normpath` and `realpath` (scripts/redline-guard.sh:518-521), which fold `..`, so it refuses the write, the implementer reports blocked, and the round stops at implement, which cannot replan. docs/contract.md:152 (round 3's fix) says the guard folds 'slashes and ./ segments the same way'. That is true as far as it goes, but the guard folds `..` too. Conditions: an agent has to write a path with `..` in it, which is unusual. Part (2) is older than this pull request, since the base's `ruleForPaths` read `relPath` alone. Part (1) comes from the pull request's `cleanPaths` (R1-6, R2-2). R2-2 named `//`, inner `./` and a trailing slash, not `..`. No open issue tracks this.",
+      "proposedFix": "Fold `..` segments inside the repository and a trailing `/.` in cleanPaths (a posix normpath over the relative path, dropping a path that climbs above the root), or state the limit in the cleanPaths comment and docs/contract.md. Pin `app/sub/../x.php` beside `app/x.php` as no change, and `app/../config/project/x.yaml` as forced under `config/project/**`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "workflows/redline-loop.js",
+      "line": 547,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A directory listed in a non-standard form under a paths rule matches neither form ruleForPaths reads",
+      "description": "R3-3 was fixed, but this form still reproduces it. `ruleForPaths` (547) tests two forms of each path. `relPath(raw)` keeps a trailing slash but does not fold. `cleanPaths([raw])[0]` folds but drops the trailing slash (494). No form is both folded and keeps the slash. Trace for rule `config/project/**`: `globToRegExp` builds `^config/project/.*$` (504-533). `config//project/` read raw fails at the doubled slash, and cleaned it is `config/project`, which has no trailing slash for `/.*` to follow, so it fails too. `config/./project/` and ` config/project/ ` fail the same way. The loop test pins `config/project/` (under the rule as written) and the folded file forms (tests/loop-test.mjs:1450-1453), but no folded form that ends in a slash. docs/contract.md:152 (round 3's fix) says a path is read 'as listed and also as the run keeps a task's paths (... repeated slashes made one and ./ segments folded)'. So a task listing `config//project/` is not left to the person. The guard folds the target and refuses writes under the rule, so the implementer reports blocked and the round stops at implement. Conditions: a task has to list a directory and write it in a non-standard form. The cause is in round 3's change to `ruleForPaths`. I could not run node as the reviewer, so this is traced, not run.",
+      "proposedFix": "In ruleForPaths, add a third form: the cleaned path with a trailing slash when the trimmed raw path ends in one (for example `cleaned + '/'`). Pin `config//project/` and `config/./project/` beside `config/project/` in the 'rules: a task that writes under a paths rule, listed as' loop.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3761,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A deferral nobody decided reads the shaper's files raw, so [''] counts as a planned mitigation",
+      "description": "`shaperFiles` (3761-3764) returns the shaper's `files` for its own deferral as written. `plannedFiles` (4045) returns it for any finding not tracked, and `effectiveDispositions` (4030-4034) shows the shaper's list for such a finding. Traced for a shaper defer with files `['']` or `['  ']`: `draftView` (3530-3531) sets `ships: files.length > 0`, which is true, so the round's draft stop shows the deferral as shipping a planned change. At push, with no commit of its own, the loop at 4369-4372 warns 'R1-1 planned a mitigation in  and no commit of its own landed; posted as shipping nothing'. The plan approver is shown the blank file list too. Its rule 1 ('lists `files` with no task for it in `plan.md`') can bounce the plan on it, which a reshape that returns the same list cannot settle. The pull request's standard sentence (agent-os/standards/workflow/agents.md, the `cleanPaths` clause added for R1-6) says 'a list of paths an agent returns is read through one cleanup before it is compared, stored or counted'. This list is not. R1-6 fixed the same case for decided lists only. Round 3's reader table (round-3 shape.md:51) records this reader as unchanged by design, which is a scoping note, not a disposition of an earlier finding. Conditions: the shaper has to return a blank path, which its schema allows but a careful agent rarely writes. The cause is in code this pull request did not change (`shaperFiles` predates it, #97 and #100). No open issue tracks it.",
+      "proposedFix": "Read shaperFiles through cleanPaths (`return s && Array.isArray(s.files) ? cleanPaths(s.files) : []`), and the shaper's list effectiveDispositions shows for an untracked finding the same way. Or narrow the standard's sentence to the lists the round keeps for decided findings.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-5",
+      "file": "workflows/redline-loop.js",
+      "line": 4016,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "After R3-4 a re-applied override's list ignores the second resolve's tasks, but the named-fix check still demands them",
+      "description": "R3-4 (4012-4018) stops the resolve a reshape's call sets off from setting the list of an id that already has one: 'a task it did not restate was shown as none'. The checks above it were not changed to match. When a reshape returns a call for a disposition override's finding, `resolveWith(raised, [], ...)` (4205) applies the override again, and `named` (3966) includes it, since its decision carries `disposition`. `namedUnplanned` (4004-4006) holds it to `taskFiles(id)`, which is this resolve's `out.tasks` alone. So for an override to fix, a second resolve that does not restate the task, the case R3-4 says it handles, stops the round at `resolve r<n> #<k>` with 'the resolve agent planned no task with files for R1-1, which a disposition override names as a fix'. The list the round reads (`decidedFiles`, kept from the reshape and already held at 4166-4171) has files. The same holds for an accept override: `namedPlanned` (4008-4010) stops on files this resolve returns, which the list never takes. The raised resolve's prompt does not ask it to restate the task. It carries no overrides block (`newOverrides` is `[]`), and the calls block says only that a call whose decision carries `disposition` 'names its own and has no entry in decided' (2165). R3-4's loop cases cover only an override to defer (`overrideRecalled`, tests/loop-test.mjs:3414-3420), which passes through `unentered`'s fallback to the round's existing entry (3973). Before R3-4 the second resolve's tasks replaced the list, so demanding them matched what was read. The resume reruns the resolve and can recover, so the cost is a spurious stop. Conditions: a reshape has to return a judgment call for a finding the person overrode to fix or accept, which the reshape prompt tells it not to do ('a decision the person made ... stays as it is', 2119) but which R3-4 treats as reachable.",
+      "proposedFix": "In resolveWith, read `namedUnplanned` and `namedPlanned` for an id already in decidedFiles from that list rather than from this resolve's tasks, or leave such ids out of both checks, since the hold after the reshape has already checked the list. Add loop cases beside `overrideRecalled` for an override to fix whose second resolve plans no task (expect no resolve stop, and the list as the reshape left it), and for an override to accept.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-6",
+      "file": "workflows/redline-loop.js",
+      "line": 4170,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The hold after a reshape names only the fix failures when one reshape also gives an accepted finding a task",
+      "description": "`taskless` throws at 4169-4171 before `tasked` is computed (4172). So when one reshape both empties a decided fix's task and gives a decided accept files, the stop names only the fix. The resume line tells the shaper to 'correct the task the error names' (607). So the resumed reshape can repair the fix alone, and the hold then stops again at the same `reshape r<n> #<k>` label with the accept error. The person relaunches twice where once would do. The outcome is correct each time: this is the cost of a second stop, not wrong behaviour. The resolve-time checks (3989-4011) report one kind per stop in the same way. Conditions: one reshape has to break two decided findings in opposite directions.",
+      "proposedFix": "Compute both lists and throw once, joining the two clauses after the shared opening 'the reshape left ' that resumeLine reads, and pin a case with both an emptied fix and a tasked accept.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "c0f178f92f4d7f097160c3b91a66399d79cb158c",
+    "candidates": 6,
+    "counts": {
+      "verified": 5,
+      "unconfirmed": 0,
+      "refuted": 1,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "refuted",
+        "ref": "Claim: the hold stops the round before the raised call's resolve could re-apply the override and restore the task. Evidence: that resolve cannot change what the hold reads. Since R3-4 it never sets decidedFiles for an id that already has a list (workflows/redline-loop.js:4016), so running it first leaves the reshape's [] and the hold fires on the same state. The stop is the designed check: the reshape prompt tells the reshape 'A finding decided as a fix keeps a task with files' (2105) and that a person's decision 'stays as it is' (2119). Leaving raised ids out of the hold would send a fix with no files to the build, the build-stage stop the hold exists to prevent (4155-4159)."
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R4-3"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R4-2"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R4-4"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R4-6"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R4-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 4168,
+        "summary": "A disposition override to fix that a reshape asks about again stops the round at that reshape, before the resolve the new call starts can apply the decision again. The hold after each reshape (taskless, 4166-4171) runs before the `raised` block (4178-4214), so if the reshape turns the override's task into a Pending decision task with no files, the hold throws. The resolve that would have rewritten the task never runs. Fix: run the hold after the raised-call resolve, or leave out of the hold any id that is in `raised` and has a decision (that resolve's named-fix check already holds it to a task).",
+        "failure_scenario": "Override R1-1 to fix; the plan is bounced; reshape r1 #1 returns R1-1 as an ask with a new judgment call and, as the decided block asks, lists the files of its plan.md task (now a Pending decision task, files []). The hold throws 'the reshape left R1-1, which a disposition override names as a fix, with no task with files' at stage shape, so `resolve r1 #1` never runs. The resume tells the shaper to restore the fix task, which conflicts with the approver's adjustment that asked for a call and can bounce to the cap."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 547,
+        "summary": "A task that lists a directory under a paths rule in a non-standard form, such as `config//project/`, `config/./project/` or with padding, is not left to the person. ruleForPaths reads two forms: relPath(raw), which keeps the trailing slash but does not fold or trim, and cleanPaths, which folds but drops the trailing slash. So no form is both folded and keeps the slash, and `config/project/**` matches neither. docs/contract.md:152 now says paths are read as the run keeps them, with slashes and ./ segments folded. Fix: add a third form, the folded path with its trailing slash kept (or match `cleaned + '/'` when raw ends in a slash), and pin `config//project/` beside the `config/project/` case.",
+        "failure_scenario": "Rule craft-config `config/project/**`; the shaper lists R1-1's files as ['app/x.php', 'config//project/']. ruleForPaths tests 'config//project/' and 'config/project' against ^config/project/.*$; both fail (a node probe confirmed this), so R1-1 is not forced to ask. The fix is planned and built; the guard (normpath) refuses the write, the implementer reports blocked, and the round stops at implement, which cannot replan."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 494,
+        "summary": "One file written two ways is still two files when the path has a `..` segment or a trailing `/.`, and the paths rules miss such a path while the guard refuses it. cleanPaths folds repeated slashes and `/./` but not `..` or a trailing `/.`, and ruleForPaths reads only those forms. The guard resolves targets with os.path.normpath and realpath, which fold both (scripts/redline-guard.sh:518-521), so the docs' claim that the guard folds 'the same way' is incomplete. Fix: fold `..` segments inside the repository and a trailing `/.` in cleanPaths (a posix normpath), or state the limit in docs/contract.md and the cleanPaths comment.",
+        "failure_scenario": "A reshape lists a decided deferral's task as ['app/sub/../x.php'] while the resolve planned ['app/x.php']: the round warns 'the reshape changed the files of R1-1's task ... from app/x.php to app/sub/../x.php' and shows the unfolded path. Separately, a task listing 'app/../config/project/x.yaml' under `config/project/**` is not forced to ask; the guard refuses the write and the round stops at implement."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 3761,
+        "summary": "A deferral nobody decided whose shaper lists files [''] or ['  '] is shown and warned about as a planned mitigation. shaperFiles, and effectiveDispositions for a finding the round does not track, read the shaper's list raw. R1-6 fixed exactly this for decided lists only. The new standard (agent-os/standards/workflow/agents.md:50) says every path list an agent returns goes through one cleanup before it is compared, stored or counted, which the shaper's own-deferral path does not do. Round 3's reader table recorded this row as out of scope, and no issue tracks it. Fix: read shaperFiles (and the shaper list effectiveDispositions shows for untracked findings) through cleanPaths, or narrow the standard's sentence to decided lists.",
+        "failure_scenario": "The shaper defers R1-1 with mitigation '' and files ['']. plannedFiles returns [''], so draftView shows ships: true at the round's stop. No commit lands, and the run warns 'R1-1 planned a mitigation in  and no commit of its own landed'. Plan approver rule 1 (a defer that lists files with no task in plan.md is a bounce) can bounce every pass to the cap."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 4170,
+        "summary": "When one reshape both leaves a decided fix with no task and gives a decided accept a task, the stop names only the fix, so a resume repairs half the problem and stops again at the same label. `taskless` throws before `tasked` is computed (4168-4175), and the resume line tells the shaper to 'correct the task the error names'. Fix: compute both lists and throw once with both clauses joined, keeping the 'the reshape left ' opening the resume line reads.",
+        "failure_scenario": "R1-1 is overridden to fix and R1-2 to accept; reshape r1 #1 empties R1-1's task and gives R1-2 the file app/y.php. The stop names R1-1 only; the resumed reshape restores R1-1 and leaves R1-2; the hold stops again at 'reshape r1 #1' with the accept error, so a second relaunch and resume is needed."
+      },
+      {
+        "index": 6,
+        "file": "agents/redline-shaper.md",
+        "line": 32,
+        "summary": "Rule 9's new sentence 'The one exception is a resume line that says...' comes right after 'never change or remove anything under its `redline/` folder', so it can be read as lifting that ban too. The resume clause it describes (resumeLine, workflows/redline-loop.js:607) drops the from-scratch clause's 'never change or remove anything under its redline/ folder', which docs/running.md still states for every shape-stage resume. Fix: say the exception covers only the rewrite-from-scratch instruction, and keep the redline/ sentence in the correct-in-place resume clause.",
+        "failure_scenario": "The rerun shaper after a 'the reshape left ' stop reads rule 9 and its resume line as allowing changes under the spec folder's redline/ (the snapshot, review and reply files the run commits). Only the reshape prompt's own 'do not touch its redline/ subfolder' still forbids it, so the agent file and the resume line no longer state the rule."
+      }
+    ]
+  }
+}

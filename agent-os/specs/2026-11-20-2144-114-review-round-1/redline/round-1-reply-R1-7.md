@@ -1,0 +1,1 @@
+Redline round 1: fixed in fd193c4 (redline: R1-7 say a decided deferral's words stay the decision's after a reshape, and pin it (#106)). · decided by: redline
