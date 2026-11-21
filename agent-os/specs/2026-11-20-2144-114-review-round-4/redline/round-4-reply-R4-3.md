@@ -1,0 +1,1 @@
+Redline round 4: fixed in 4225c1f (redline: R4-2 R4-3 read a task's path once, as the guard reads a write target (#106)). · decided by: @michaelfromtheoutfit

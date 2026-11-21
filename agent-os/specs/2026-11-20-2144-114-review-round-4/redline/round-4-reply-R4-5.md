@@ -1,0 +1,1 @@
+Redline round 4: fixed in 98df00f (redline: R4-5 do not hold a reshape call's resolve to a task for a fix already decided (#106)). · decided by: @michaelfromtheoutfit
