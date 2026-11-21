@@ -3477,8 +3477,10 @@ async function fileDeferred(pass, record, drafts, phaseName) {
 // A deferred item as the result and the handoff carry it (#95): the finding, whether a mitigation
 // shipped (`ships`: its outcome holds a commit of the finding's own, #100, which the session's
 // closing summary reads, never the emptiness of the words; #103, R2-7), its mitigation (the words
-// as written when one shipped) and full fix, its draft as filed (for the session's closing
-// summary, which prints it when the setting is print), where it went, and its outcome as posted.
+// as written when one shipped: for a deferral the person or autopilot decided, as its resolve
+// wrote them, whatever a reshape made of its task; #114, R1-7) and full fix, its draft as filed
+// (for the session's closing summary, which prints it when the setting is print), where it went,
+// and its outcome as posted.
 function deferredEntry(pass, record, d, filedTo, outcome) {
   const ships = Boolean(outcome && Array.isArray(outcome.commits) && outcome.commits.length)
   return {
@@ -3499,7 +3501,10 @@ function draftView(record, d, canFix) {
   // What ships is the round's record, never the words (#100): at a round's stop, before the
   // build, a task planned with files; at the end-of-run stop, where the draft carries its
   // round's outcome, a commit of the finding's own. `files` is the planned task's paths at both.
-  // The words are shown only beside a mitigation that ships.
+  // The words are shown only beside a mitigation that ships. They are the entry's, which for a
+  // deferral the person or autopilot decided is the one its resolve returned, since a reshape's
+  // entry for it is dropped (#97, R3-6): after a reshape that changed its task, `files` is the
+  // task as reshaped and the words are the decision's as planned (#106; #114, R1-7).
   const files = Array.isArray(d.files) ? d.files : []
   const ships = d.outcome ? d.outcome.commits.length > 0 : files.length > 0
   return {
