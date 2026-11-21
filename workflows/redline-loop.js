@@ -2080,15 +2080,18 @@ Return only the JSON object your instructions specify: specFolder, findings (for
 // a call the person answered, and after a reshape the workflow takes a decided finding's task
 // from this list. It names each with its end, which the hold after the reshape reads, so the
 // reshape is told which task the hold expects rather than left to infer it from plan.md, since
-// shape.md's decided entry records the choice and not its end (#114, R1-3). The whole ask sits in
-// the block, and the block is in the prompt only when the round has such a finding, so a reshape
-// of any other round keeps the prompt it had before #106.
+// shape.md's decided entry records the choice and not its end (#114, R1-3). It says a decided
+// fix keeps a task of its own and a task counts only for the finding it names, as the resolve
+// agent is told, since the hold reads the files listed for each finding and cannot see which
+// task names it: a merged task listed for two decided fixes passed it (#114, R2-6). The whole
+// ask sits in the block, and the block is in the prompt only when the round has such a finding,
+// so a reshape of any other round keeps the prompt it had before #106.
 function reshapePrompt(pass, specFolder, inScope, adjustments, attempt, decided) {
   // How the block names each end, in the words of the rule after the list (#114, R1-3). An end
   // the round has not read is named by the id alone.
   const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted' }
   const decidedBlock = decided.length
-    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none.`
+    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none. A decided fix keeps a task of its own, one that names it; a task counts only for the finding it names, so never list one task's files for two findings.`
     : ''
   return `This is a Redline run; follow shape-spec in unattended mode.
 
@@ -4141,6 +4144,8 @@ async function revise(record, inScope, reviewedKind) {
     // call's, and else what the resolve agent stated for the call. A deferral is not held: its
     // mitigation is optional, and no commit is demanded of one (#100). Both messages open with
     // the same words, which the resume line reads (resumeLine).
+    // It reads the files the reshape lists for each finding, which the block asks for as a task of
+    // the finding's own, since a reshape returns no list of tasks (#114, R2-6).
     const heldIds = inScope.map((f) => f.id).filter(tracked)
     const saidBy = (id) => (roundDecisions[id].disposition ? (isOverride(id) ? 'a disposition override names' : 'its decision names') : 'the resolve agent stated')
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
