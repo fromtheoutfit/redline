@@ -293,7 +293,10 @@ function mock(scenario) {
         .flatMap((id) => [{ id, disposition: states(id) }].concat(scenario.resolveDecidedTwice && scenario.resolveDecidedTwice[id] ? [{ id, disposition: scenario.resolveDecidedTwice[id] }] : []))
       // scenario.resolveExtraTasks (#106): tasks the resolve agent returns beside the ones for the
       // decisions it was given, as an agent that returns the plan's whole task list does.
-      const tasks = ids.map((id, i) => ({ n: i + 2, title: title(id), files: scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })).concat(scenario.resolveExtraTasks || [])
+      // scenario.resolveFilesAt[label][id] (#114, R3-4) scripts the task one resolve alone
+      // returns, by that resolve's label, before scenario.resolveFiles, which every resolve reads.
+      const resolveAt = (scenario.resolveFilesAt && scenario.resolveFilesAt[opts.label]) || {}
+      const tasks = ids.map((id, i) => ({ n: i + 2, title: title(id), files: id in resolveAt ? resolveAt[id] : scenario.resolveFiles && id in scenario.resolveFiles ? scenario.resolveFiles[id] : accepted.has(id) || left.has(id) ? [] : ['app/x.php'], finding: id })).concat(scenario.resolveExtraTasks || [])
       for (const id of ids) {
         plannedByResolve[id] = tasks.filter((task) => task.finding === id).flatMap((task) => task.files)
       }
@@ -3403,6 +3406,19 @@ function samePrefix(name, first, second, n) {
   const raisedScenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], reshapeFiles: { 'R1-1': ['app/y.php'] }, resolveDeferred: [guardEntry], resolveDecided: { 'R1-2': 'fix' }, resolveExtraTasks: [{ n: 9, title: 't R1-1', files: ['app/x.php'], finding: 'R1-1' }], commitIds: [['R1-1', 'R1-2']] }
   const raisedLater = await go('reshape: a reshape moves a decided task and raises a call, whose resolve returns the old task too', raisedArgs, raisedScenario)
   check('reshape: a resolve for a raised call leaves an earlier decision\'s list as the reshape left it', labels(raisedLater.calls).includes('resolve r1 #1') && approverFiles(raisedLater, 'R1-1', PASS_2) === '["defer",["app/y.php"]]', [raisedLater.res.status, raisedLater.res.error, labels(raisedLater.calls).slice(4, 16), approverFiles(raisedLater, 'R1-1', PASS_2)])
+  // An override a reshape returns as a call is applied again by the resolve that call sets off,
+  // and that resolve's tasks do not replace its list either (#114, R3-4): a list is set by the
+  // resolve that first applies a decision and replaced by each reshape (the spec's decision 17),
+  // so a second resolve that plans no task for the override, or another one, leaves the list as
+  // the reshape left it. Until R3-4 the second resolve's tasks alone replaced it.
+  const overrideRecalled = (files) => ({ ...deferBounced, reshapeAsk: ['R1-1'], resolveFilesAt: { 'resolve r1 #1': { 'R1-1': files } }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  const recalledNone = await go('reshape: an override to defer that a reshape returns as a call, whose second resolve plans no task for it', deferArgs, overrideRecalled([]))
+  check('reshape: a second resolve that plans no task for an override a reshape returned as a call leaves its list as the reshape left it, on the second pass and at the build', (recalledNone.res || {}).status === 'done' && labels(recalledNone.calls).includes('resolve r1 #1') && approverFiles(recalledNone, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && implementerFiles(recalledNone, 'R1-1') === '["defer",["app/x.php"]]', [(recalledNone.res || {}).status, (recalledNone.res || {}).error, approverFiles(recalledNone, 'R1-1', PASS_2), implementerFiles(recalledNone, 'R1-1')])
+  check('reshape: that override\'s commit of its own is not warned about as beside a task with no files', !anyWarning(recalledNone, 'has a commit of its own'), (recalledNone.res || {}).warnings)
+  const recalledMoved = await go('reshape: an override to defer that a reshape returns as a call, whose second resolve plans its task elsewhere', deferArgs, overrideRecalled(['app/y.php']))
+  check('reshape: a second resolve that plans another task for that override leaves its list as the reshape left it, with no change warned', (recalledMoved.res || {}).status === 'done' && approverFiles(recalledMoved, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(recalledMoved, 'the reshape changed'), [(recalledMoved.res || {}).status, (recalledMoved.res || {}).error, approverFiles(recalledMoved, 'R1-1', PASS_2), (recalledMoved.res || {}).warnings])
+  // The neighbour: a call a reshape newly raises has no list yet, and the resolve that applies it sets one.
+  check('reshape: a call a reshape raises is shown the task its own resolve planned', approverFiles(raisedLater, 'R1-2', PASS_2) === '["ask",["app/x.php"]]', approverFiles(raisedLater, 'R1-2', PASS_2))
   // Replay: a stop that follows a reshape in a round with a decided finding, and its relaunch.
   const raisedStop = await go('reshape: a reshape in a round with a decided finding raises a call, unanswered', { ...raisedArgs, decisions: toDefer('Defer it behind a guard.') }, raisedScenario)
   check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1 (deferred). `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])

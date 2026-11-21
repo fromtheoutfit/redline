@@ -3829,11 +3829,13 @@ async function revise(record, inScope, reviewedKind) {
   const awayFromDefer = (id) => Boolean(roundDecisions[id] && roundDecisions[id].disposition && roundDecisions[id].disposition !== 'defer')
   let deferred = shaped.deferred.slice()
   let resolved = null
-  // The files of each decided finding's task, by finding id, as last planned (#106). A resolve
-  // sets the list of each id it applied, from its own tasks: a reshape that raises a call runs a
-  // resolve for that call alone and `resolved` becomes it, so an earlier decision keeps the list
-  // its own resolve gave it (#97, R2-14). Until #106 the round kept every resolve's tasks and
-  // read a decided finding's files from them alone.
+  // The files of each decided finding's task, by finding id, as last planned (#106). The resolve
+  // that first applies a decision sets its list, from its own tasks, and each reshape replaces
+  // it: a reshape that raises a call runs a resolve for that call alone and `resolved` becomes
+  // it, so an earlier decision keeps the list its own resolve or a later reshape gave it (#97,
+  // R2-14), an override a reshape returns as a call included, which that resolve applies again
+  // (#114, R3-4). Until #106 the round kept every resolve's tasks and read a decided finding's
+  // files from them alone.
   const decidedFiles = {}
   // Each list a reshape changed, by finding id: the list as its resolve planned it, then as each
   // reshape that changed it left it. A finding no reshape touched has no entry.
@@ -4007,7 +4009,11 @@ async function revise(record, inScope, reviewedKind) {
     if (namedPlanned.length) {
       throw stageError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
     }
-    for (const id of applied) {
+    // Only an id with no list yet takes this resolve's tasks (#114, R3-4): an override a reshape
+    // returned as a call is applied again by the resolve that call sets off (raised), and its
+    // tasks alone replaced the list its first resolve set and the reshape kept, so a task it did
+    // not restate was shown as none and one it moved was shown with no warning.
+    for (const id of applied.filter((x) => !(x in decidedFiles))) {
       decidedFiles[id] = taskFiles(id)
     }
     deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
