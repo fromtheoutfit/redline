@@ -923,11 +923,14 @@ function shapeSchema(reasons, dispositions) {
 const FILES_ASK = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask, the paths its recommended change would touch)'
 // The same ask in a reshape prompt whose block names decided findings (#114, R1-4): the block
 // gives a named finding's files one meaning, its task as plan.md holds it, whatever disposition
-// is returned, so this clause keeps the recommended paths for an ask still pending and sends a
-// named finding to the block, and no sentence of that prompt gives one finding two meanings
-// (#103, R2-5). It is used only beside the block, so a reshape prompt with no block keeps
-// FILES_ASK, byte for byte.
-const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask still pending, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
+// is returned, so this clause keeps the recommended paths for every ask the block does not name
+// and sends a named finding to the block, and no sentence of that prompt gives one finding two
+// meanings (#103, R2-5). It names the asks by the block's own test, never as "still pending":
+// the Return sentence lists the calls "still pending or newly raised" as two kinds, so an ask a
+// reshape newly raises read as neither and was left the general clause's empty list, which
+// forceAskRules matches against the paths rules (#114, R2-4). It is used only beside the block,
+// so a reshape prompt with no block keeps FILES_ASK, byte for byte.
+const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {

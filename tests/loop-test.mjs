@@ -369,10 +369,11 @@ const forThePerson = []
 const DECIDED_BLOCK = 'Findings the person or the autopilot decided: '
 const strayDecidedBlock = []
 // What a reshape prompt that names decided findings asks of a finding's files (#114, R1-4): an
-// ask still pending by its recommended paths, a named finding by its task, and never the clause
-// that covers both (#103, R2-5). Every run is read, and one check at the end names the offenders.
+// ask the block does not name, pending or newly raised, by its recommended paths (#114, R2-4), a
+// named finding by its task, and never the clause that covers both (#103, R2-5). Every run is
+// read, and one check at the end names the offenders.
 const FILES_PENDING = 'for an ask, the paths its recommended change would touch)'
-const FILES_DECIDED = 'for an ask still pending, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
+const FILES_DECIDED = 'for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const doubleFilesAsk = []
 
 async function go(name, args, scenario, script = body) {
@@ -3346,7 +3347,7 @@ function samePrefix(name, first, second, n) {
   const undecided = await go('reshape: the same round with no decision', { ...baseArgs, interrupt: 'plan', approvedPlans: [1] }, { ...deferBounced, reviews: [[f('R1-1', 'correctness')]] })
   check('reshape: the reshape prompt of a round with a decided finding names it and says its files are its task as plan.md holds it, whatever disposition is returned', reshapePromptOf(emptied).includes(`${DECIDED_BLOCK}R1-1 (deferred). `) && reshapePromptOf(emptied).includes('as plan.md holds it when you are done') && reshapePromptOf(emptied).includes('whatever disposition you return for it') && reshapePromptOf(emptied).includes('keeps a task with files'), reshapePromptOf(emptied).slice(-1600))
   check('reshape: the reshape prompt of a round with no decided finding has no such block, and is the decided round\'s prompt with the block cut out and the files clause put back', reshapePromptOf(undecided) !== '' && !reshapePromptOf(undecided).includes(DECIDED_BLOCK) && withoutBlock(reshapePromptOf(emptied)) === reshapePromptOf(undecided), [reshapePromptOf(undecided).length, (withoutBlock(reshapePromptOf(emptied)) || '').length])
-  check('reshape: a reshape prompt that names decided findings asks for files in one meaning: an ask still pending by its recommended paths, a named finding by its task', reshapePromptOf(emptied).includes(FILES_DECIDED) && !reshapePromptOf(emptied).includes(FILES_PENDING) && reshapePromptOf(undecided).includes(FILES_PENDING) && !reshapePromptOf(undecided).includes(FILES_DECIDED), reshapePromptOf(emptied).slice(-900))
+  check('reshape: a reshape prompt that names decided findings asks for files in one meaning: an ask the block does not name by its recommended paths, a named finding by its task',reshapePromptOf(emptied).includes(FILES_DECIDED) && !reshapePromptOf(emptied).includes(FILES_PENDING) && reshapePromptOf(undecided).includes(FILES_PENDING) && !reshapePromptOf(undecided).includes(FILES_DECIDED), reshapePromptOf(emptied).slice(-900))
   const twoDecided = await go('reshape: a decided fix beside a call left to the person under a rule and a fix nobody decided', { ...baseArgs, askRules: chargeRule, decisions: { 'R1-1': changeIt['R1-1'], 'R1-2': changeIt['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], askRule: { 'R1-2': 'billing' }, planBounce: 1, commitIds: [['R1-1', 'R1-3'], []] })
   check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix). `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
   const shaperFile = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
@@ -3374,6 +3375,11 @@ function samePrefix(name, first, second, n) {
   // Replay: a stop that follows a reshape in a round with a decided finding, and its relaunch.
   const raisedStop = await go('reshape: a reshape in a round with a decided finding raises a call, unanswered', { ...raisedArgs, decisions: toDefer('Defer it behind a guard.') }, raisedScenario)
   check('reshape: a call the reshape raises stops the round after a reshape prompt that names the decided finding', raisedStop.res.status === 'handoff' && reshapePromptOf(raisedStop).includes(`${DECIDED_BLOCK}R1-1 (deferred). `), [raisedStop.res.status, raisedStop.res.handoffKind, raisedStop.res.error])
+  // An ask the reshape newly raises is one the block does not name, and the Return sentence's
+  // files clause keeps the recommended paths for it, which forceAskRules matches against the
+  // paths rules (#114, R2-4): "an ask still pending" left it out, since the same sentence lists
+  // the calls "still pending or newly raised" as two kinds.
+  check('reshape: the files clause of a decided round\'s reshape covers an ask the reshape newly raises, by its recommended paths', reshapePromptOf(raisedStop).includes(FILES_DECIDED) && reshapePromptOf(raisedStop).includes('every judgment call still pending or newly raised') && !reshapePromptOf(raisedStop).includes('for an ask still pending,'), reshapePromptOf(raisedStop).slice(-900))
   samePrefix('reshape: the relaunch replays every prompt before a stop that follows a reshape of a decided round', raisedStop.calls, raisedLater.calls, raisedStop.calls.length)
   // A decision is held to its task after each reshape, as it is when its resolve returns (#99;
   // #108, R1-5): a decided fix the reshape leaves with no files, or a decided accept it leaves
