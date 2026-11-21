@@ -3605,6 +3605,17 @@ function samePrefix(name, first, second, n) {
   // Rule 9's exception lifts the rewrite alone, never the ban on touching redline/ that the sentence
   // before it states, and the resume clause above carries that ban to its end (#114, R4-1).
   check('reshape: the shaper\'s file says the exception is to rewriting from scratch, and that redline/ is left alone there too', shaperFile.includes('The one exception to rewriting from scratch is a resume line') && shaperFile.includes('and return the whole result again, still never changing or removing anything under its `redline/` folder.'))
+  // One reshape that breaks two decisions in opposite ways is stopped once, for both (#114, R4-6):
+  // the resume line tells the rerun to correct the task the error names, so an error that named
+  // only the emptied fix had the rerun repair that one and the hold stop again, at the same
+  // label, for the accept. Each message alone reads as it did (NO_TASK and A_TASK above).
+  const BOTH = 'the reshape left R1-1, which a disposition override names as a fix, with no task with files; a fix names the files it changes; and R1-2, which a disposition override names as accepted, with a task with files (app/y.php); an accepted finding changes nothing'
+  const fixAndAccept = { 'R1-1': toFix['R1-1'], 'R1-2': toAccept['R1-1'] }
+  const twoDeclined = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], decline: ['R1-1', 'R1-2'], planBounce: 1, commitIds: [[]] }
+  const bothBroken = await go('reshape: one reshape that removes a decided fix\'s task and gives a decided accept one', { ...overrideDial, decisions: fixAndAccept }, { ...twoDeclined, reshapeFiles: { 'R1-1': [], 'R1-2': ['app/y.php'] } })
+  check('reshape: the stop names a fix left with no task and an accept left with one together, once, at that reshape', stopsAtReshape(bothBroken, BOTH), stopOf(bothBroken))
+  const bothRestored = await go('reshape: a fix left with no task and an accept left with one, resumed', { ...overrideDial, decisions: fixAndAccept, resume: resumeAt(BOTH) }, { ...twoDeclined, reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a reshape resumed after the stop for both is told to correct the task the error names, and the relaunch finishes', reshapePromptOf(bothRestored).endsWith(resumeLineFor(BOTH) + CORRECT_TASK) && bothRestored.res.status === 'done', [reshapePromptOf(bothRestored).slice(-900), stopOf(bothRestored)])
   // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
   // message and its label, and its detail names each decided finding whose task a reshape
   // changed: the list as the resolve planned it, then as each reshape that changed it left it.

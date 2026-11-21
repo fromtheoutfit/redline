@@ -4259,13 +4259,18 @@ async function revise(record, inScope, reviewedKind) {
     // the finding's own, since a reshape returns no list of tasks (#114, R2-6).
     const heldIds = inScope.map((f) => f.id).filter(tracked)
     const saidBy = (id) => (roundDecisions[id].disposition ? (isOverride(id) ? 'a disposition override names' : 'its decision names') : 'the resolve agent stated')
+    // Both kinds are named in one stop (#114, R4-6): the resume line tells the rerun to correct
+    // the task the error names, so a stop that named only the fixes had a reshape that also gave
+    // an accepted finding a task repair the fixes alone and stop again here for the accept. With
+    // one kind the message reads as it did.
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
-    if (taskless.length) {
-      throw stageError('shape', `the reshape left ${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
-    }
     const tasked = heldIds.filter((id) => endsIn(id) === 'accept' && decidedFiles[id].length > 0)
-    if (tasked.length) {
-      throw stageError('shape', `the reshape left ${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
+    const left = [
+      taskless.length ? `${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes` : '',
+      tasked.length ? `${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing` : '',
+    ].filter(Boolean)
+    if (left.length) {
+      throw stageError('shape', `the reshape left ${left.join('; and ')}`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
     }
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
