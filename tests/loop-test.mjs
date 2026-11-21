@@ -3307,7 +3307,8 @@ function samePrefix(name, first, second, n) {
   const emptiedBuilt = await go('reshape: an override to defer whose task the reshape removes, and a commit of its own lands', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': [] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   check('reshape: a commit beside a task the reshape emptied is warned about as the reshape\'s doing, never as the resolve agent planning none', emptiedBuilt.res.status === 'done' && warned(emptiedBuilt, 'round 1: R1-1 has a commit of its own (1bbbbbb) and the reshape left its task with no files; posted with its decision') && !anyWarning(emptiedBuilt, 'the resolve agent planned no task with files'), [emptiedBuilt.res.status, emptiedBuilt.res.error, (emptiedBuilt.res || {}).warnings])
   // The end-of-run stop shows the list too. No round's stop can: a decided deferral's draft is
-  // answered before a reshape can run, and an answered draft is not raised again (#104).
+  // answered before a reshape can run, or, on autopilot or with `defer at end`, is never raised at
+  // a round's stop, and an answered draft is not raised again (#104; #114, R1-1).
   const heldEmptied = await go('reshape: an override to defer whose task the reshape removes, held to the end', { ...deferArgs, deferAt: 'end', deferrals: {} }, { ...deferBounced, reshapeFiles: { 'R1-1': [] } })
   const heldDraft = ((heldEmptied.res || {}).drafts || [])[0] || {}
   check('reshape: the end-of-run stop shows a held draft with the files the reshape left its task', heldEmptied.res.status === 'handoff' && heldEmptied.res.handoffKind === 'deferred' && JSON.stringify([heldDraft.id, heldDraft.ships, heldDraft.mitigation, heldDraft.files]) === '["R1-1",false,"",[]]', [heldEmptied.res.status, heldEmptied.res.handoffKind, heldEmptied.res.error, heldDraft])
