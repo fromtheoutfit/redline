@@ -478,12 +478,18 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
-// A list of paths as an agent returned it, read one way (#114, R1-6): each path trimmed, the
-// repository root or a leading ./ taken off (planPaths takes the root off the approver's list
-// too), and a blank dropped, so one file written two ways is one file and a list of blanks is no
-// list. A finding's task is read through it from a resolve's tasks and from a reshape's list
-// alike, so the holds, the warnings and the list the round keeps compare one form.
-const cleanPaths = (list) => unique(list.map((path) => String(path).trim()).map((path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path.replace(/^\.\//, ''))).filter(Boolean))
+// A path as the ask rules read it (#49): the repository root taken off, then a leading ./. It
+// sits here, above the ask rules that first used it, so cleanPaths reads it too (#114, R2-2).
+const relPath = (path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path).replace(/^\.\//, '')
+// A list of paths as an agent returned it, read one way (#114, R1-6, R2-2): each path trimmed,
+// its repeated slashes made one and its ./ segments folded, the repository root and then a
+// leading ./ taken off as relPath takes them (planPaths takes the root off the approver's list
+// too), a trailing slash dropped, and a blank or a bare . dropped, so one file written two ways
+// is one file and a list of blanks is no list. A finding's task is read through it from a
+// resolve's tasks and from a reshape's list alike, so the holds, the warnings and the list the
+// round keeps compare one form. Until R2-2 it took off the root or a leading ./, never both, and
+// kept a doubled slash, a ./ segment and a trailing slash as written.
+const cleanPaths = (list) => unique(list.map((path) => relPath(String(path).trim().replace(/\/+/g, '/').replace(/\/(?:\.\/)+/g, '/')).replace(/\/$/, '')).filter((path) => path !== '' && path !== '.'))
 // The files of the tasks a list holds for one finding (#108, R1-7), read through cleanPaths: the
 // resolve-time checks read one resolve's tasks this way, and so does the list the round keeps for
 // each decided finding (decidedFiles, #106).
@@ -524,7 +530,6 @@ function globToRegExp(pattern) {
   return new RegExp('^' + out + '$')
 }
 const pathRules = askRules.filter((rule) => rule.when.paths).map((rule) => ({ rule, regexes: rule.when.paths.map(globToRegExp) }))
-const relPath = (path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path).replace(/^\.\//, '')
 // The first paths rule, in list order, that one of the paths falls under; null when none does.
 function ruleForPaths(paths) {
   for (const { rule, regexes } of pathRules) {

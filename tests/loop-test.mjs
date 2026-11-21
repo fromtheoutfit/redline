@@ -3420,6 +3420,17 @@ function samePrefix(name, first, second, n) {
   check('reshape: a reshape that lists the resolve\'s file in other forms changes nothing: the second pass is shown it as it was, and nothing is warned', sameFileAnotherWay.res.status === 'done' && approverFiles(sameFileAnotherWay, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(sameFileAnotherWay, 'the reshape changed'), [sameFileAnotherWay.res.status, sameFileAnotherWay.res.error, approverFiles(sameFileAnotherWay, 'R1-1', PASS_2), (sameFileAnotherWay.res || {}).warnings])
   const fixBlanked = await go('reshape: an override to fix whose task the reshape lists as a blank path', { ...overrideDial, decisions: toFix }, { ...declined, reshapeFiles: { 'R1-1': [''] } })
   check('reshape: an override to fix the reshape leaves with only a blank path stops at that reshape, as one with no files does', stopsAtReshape(fixBlanked, NO_TASK('a disposition override names')), stopOf(fixBlanked))
+  // The cleanup reads each form it folds one way (#114, R2-2), a case per form: the root and then
+  // a leading ./ taken off, as relPath takes them for the ask rules, repeated slashes and ./
+  // segments folded, and a trailing slash dropped. R1-6 took off the root or a leading ./, never
+  // both, and kept the other forms as written, so a reshape that wrote the resolve's file one of
+  // these ways was warned about as a change, and a resolve that did was shown in that form.
+  for (const form of ['/r/./app/x.php', 'app//x.php', 'app/./x.php', './app/x.php/']) {
+    const r = await go(`reshape: an override to defer whose task the reshape lists as ${form}`, deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': [form] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+    check(`reshape: a reshape that lists the resolve's app/x.php as ${form} changes nothing: the second pass is shown app/x.php, and nothing is warned`, r.res.status === 'done' && approverFiles(r, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(r, 'the reshape changed'), [r.res.status, r.res.error, approverFiles(r, 'R1-1', PASS_2), (r.res || {}).warnings])
+  }
+  const resolvedOtherForm = await go('reshape: an override to defer whose resolve plans its file with a doubled slash and a trailing slash', deferArgs, { ...deferBounced, resolveFiles: { 'R1-1': ['app//x.php/'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a resolve that plans a file with a doubled slash and a trailing slash is read as that file on both passes, and a reshape that lists it as planned changes nothing', resolvedOtherForm.res.status === 'done' && approverFiles(resolvedOtherForm, 'R1-1') === '["defer",["app/x.php"]]' && approverFiles(resolvedOtherForm, 'R1-1', PASS_2) === '["defer",["app/x.php"]]' && !anyWarning(resolvedOtherForm, 'the reshape changed'), [resolvedOtherForm.res.status, resolvedOtherForm.res.error, approverFiles(resolvedOtherForm, 'R1-1'), approverFiles(resolvedOtherForm, 'R1-1', PASS_2)])
   // The neighbours. A deferral is never held: a mitigation is optional, and `emptied` above runs
   // on. A fix whose task the reshape moves to other files still has one. A finding the reshape
   // leaves to the person under a rule is skipped, its task having no files by rule. And an accept
