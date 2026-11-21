@@ -478,8 +478,10 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
-// A path as the ask rules read it (#49): the repository root taken off, then a leading ./. It
-// sits here, above the ask rules that first used it, so cleanPaths reads it too (#114, R2-2).
+// The repository root taken off a path, then a leading ./ (#49). The paths ask rules read a path
+// through it as written, and through cleanPaths, which is built on it, as the round keeps it
+// (ruleForPaths, #114, R3-3). It sits here, above the ask rules, so cleanPaths reads it too
+// (#114, R2-2).
 const relPath = (path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path).replace(/^\.\//, '')
 // A list of paths as an agent returned it, read one way (#114, R1-6, R2-2): each path trimmed,
 // its repeated slashes made one and its ./ segments folded, the repository root and then a
@@ -531,12 +533,21 @@ function globToRegExp(pattern) {
 }
 const pathRules = askRules.filter((rule) => rule.when.paths).map((rule) => ({ rule, regexes: rule.when.paths.map(globToRegExp) }))
 // The first paths rule, in list order, that one of the paths falls under; null when none does.
+// A path is read two ways (#114, R3-3): as cleanPaths reads it, the form the round keeps and
+// shows a task's paths in (the guard folds a target's repeated slashes and ./ segments the same
+// way before it matches); and as written, after relPath, so a form cleanPaths drops, a
+// directory's trailing slash, stays under the rule it was under. A rule matches when either
+// form is under it. Until R3-3 only the written form was read, so a task listed as
+// app//billing/x.php, app/./billing/x.php or with padding was never left to the person, while
+// the round kept and showed app/billing/x.php.
 function ruleForPaths(paths) {
   for (const { rule, regexes } of pathRules) {
     for (const path of paths) {
-      const rel = relPath(String(path || '')).toLowerCase()
-      if (rel !== '' && regexes.some((re) => re.test(rel))) {
-        return rule
+      const raw = String(path || '')
+      for (const rel of unique([relPath(raw), cleanPaths([raw])[0] || '']).map((form) => form.toLowerCase())) {
+        if (rel !== '' && regexes.some((re) => re.test(rel))) {
+          return rule
+        }
       }
     }
   }

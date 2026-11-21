@@ -1438,6 +1438,28 @@ function samePrefix(name, first, second, n) {
   // The paths rule also catches a finding elsewhere whose task would write under it.
   const viaFiles = await go('rules: a task that writes under a paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', '/r/config/project/project.yaml'] }, commitIds: [[]] })
   check('rules: the shaper\'s files force the ask', viaFiles.res.status === 'handoff' && viaFiles.res.judgmentCalls[0].forced.rule === 'craft-config', viaFiles.res)
+  // A paths rule reads a path as the round keeps it as well as as written (#114, R3-3), a case per
+  // form the cleanup folds: a doubled slash, a ./ segment and padding. Until R3-3 the rules read
+  // the written form alone, so these were never forced while the round kept and showed the folded
+  // path, which is under the rule. Beside them, the form that is under the rule as written and that
+  // the cleanup drops, a directory's trailing slash, is still forced, and a path that folds to one
+  // outside the rule forces nothing.
+  const forcedAs = (r) => ((((r.res || {}).judgmentCalls || [])[0] || {}).forced || {}).rule
+  for (const form of ['config//project/project.yaml', 'config/./project/project.yaml', ' config/project/project.yaml ', 'config/project/']) {
+    const r = await go(`rules: a task that writes under a paths rule, listed as ${JSON.stringify(form)}`, ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', form] }, commitIds: [[]] })
+    check(`rules: the shaper's files force the ask when they list ${JSON.stringify(form)}`, (r.res || {}).status === 'handoff' && forcedAs(r) === 'craft-config', [(r.res || {}).status, (r.res || {}).error, forcedAs(r)])
+  }
+  const foldedOutside = await go('rules: a task listed with a path that folds to one outside the paths rule', ruleArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['app/x.php', 'config//project.yaml'] }, commitIds: [['R1-1']] })
+  check('rules: a path that folds to one outside the paths rule forces nothing, and the fix is built', (foldedOutside.res || {}).status === 'done' && JSON.stringify((foldedOutside.res || {}).forced || []) === '[]', [(foldedOutside.res || {}).status, (foldedOutside.res || {}).error, (foldedOutside.res || {}).forced])
+  // The reshape's list is read the same way (#114, R3-3): a call answered with a fix whose task a
+  // reshape lists under a paths rule with a doubled slash is left to the person under the rule at
+  // that reshape, as one listed as written is, and the round finishes with no repair. Until R3-3
+  // it stayed tracked, its list became the folded path under the rule, and the fix was demanded.
+  const billingPaths = [{ id: 'billing-code', when: { paths: ['app/billing/**'] }, reason: 'Billing code is changed by finance' }]
+  const reshapedUnder = await go('rules: a call answered with a fix whose task a reshape lists under a paths rule with a doubled slash', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFiles: { 'R1-1': ['app//billing/charge.php'] }, commitIds: [[], []] })
+  const reshapedUnderReply = replyFor(reshapedUnder.calls, 'push and reply r1', 'R1-1')
+  check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash is left to the person under the rule, with no repair', (reshapedUnder.res || {}).status === 'done' && !labels(reshapedUnder.calls).includes('repair r1') && reshapedUnderReply.startsWith('Redline round 1: left to @author under repository rule billing-code'), [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6), reshapedUnderReply])
+  check('rules: docs/contract.md says a paths rule reads a path as listed and as the run keeps it', fs.readFileSync(path.join(here, '..', 'docs', 'contract.md'), 'utf8').includes('read as listed and also as the run keeps a task'))
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
   check('rules: a tagged finding the shaper did not tag is fixed as usual, and still marked in the review', advisory.res.status === 'done' && pick(advisory.calls, 'post r1').prompt.includes('title R1-1 · left to @author under rule billing') && replyFor(advisory.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: fixed in'), [advisory.res.status, replyFor(advisory.calls, 'push and reply r1', 'R1-1')])
