@@ -727,3 +727,31 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts (Task 7's red under the mutation), and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 1 for PR #114 (#106)`.
 
 **Files** (this task): `agent-os/standards/workflow/agents.md` and `agent-os/standards/workflow/replay.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-20-2144-114-review-round-1/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `5a6d018`. Every red and green run below is a run of `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-20-2144-114-review-round-1/redline/snapshot.json`; the counts are the loop's.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `2a30ddf` | none | none |
+| 2, R1-1 | `f6af316` | none (no harness reads these sentences) | none; `grep -n "answered before a reshape can run" tests/loop-test.mjs` prints only the comment line |
+| 3, R1-2 | `b3da1ea` | 1510 passed, 2 failed: the two new `defer: docs/running.md says "..."` pins | seen in Task 4's red run, where both pins pass (see the deviation below) |
+| 4, R1-3 | `62d95e7` | 1509 passed, 5 failed: the three changed checks and the two new ones | 1514 passed, 0 failed |
+| 5, R1-4 | `a1a701c` | 1514 passed, 2 failed: the two new checks; the renamed `withoutBlock` check stays green | 1516 passed, 0 failed |
+| 6, R1-6 | `4973a29` | 1518 passed, 3 failed: the three named checks. The path-form run warned `from app/x.php to ./app/x.php, /r/app/x.php,  app/x.php ` and showed that list on the second pass; the blank fix at the reshape ran on to stage `check`; the blank fix at resolve ran on to `done`. That last run reached Finish, so its run-record check was one more pass on the red run only | 1520 passed, 0 failed |
+| 7, R1-7 | `fd193c4` | under the mutation of line 4127 (`shaped.deferred.filter(() => true)`): 1519 passed, 3 failed. The new case showed `"mitigation":"a guard clause"`, the new phrase pin failed, and so did the existing `filing: a reshape's entry for a decided deferral is dropped with a warning, and the resolve agent's draft is filed and its reply says where it went`, which pins the same drop. The line was then put back exactly, and `git diff -- workflows/redline-loop.js` showed only the comment edits | 1522 passed, 0 failed |
+| 8, standards | `1e4f1ef` | none | 1522 passed, 0 failed |
+
+**Counts.** The loop reads `1522 checks passed, 0 failed`, as planned. The other harnesses on the green run after the standards commit: guard `601 passed, 0 mismatched`, prefs `172 passed, 0 failed`, gate `117 passed, 0 failed`, setup `512 passed, 0 failed`, gh `279 passed, 0 failed`, background `39 passed, 0 failed`, and syntax and validate exit 0. This round changes no file those harnesses read, and the baseline had no failing check. The gate's JSON: `ok: true`, `git.unexpected_files` and `git.uncommitted` both empty.
+
+**Gate steps 10 to 13.**
+
+- 10, Docs. Each task's entry stands as written, in its own commit: Task 3's `docs/running.md` change is `b3da1ea`, and Task 7's sentence is in `fd193c4`. `workflows/redline-loop.js` (Tasks 4 to 7: `62d95e7`, `a1a701c`, `4973a29`, `fd193c4`) and `agents/redline-shaper.md` (Task 4: `62d95e7`) have no reader-facing change except Task 7's sentence, for the reasons their tasks give.
+- 11, Version. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.4`. No bump.
+- 12, Standards retrospective. All five approved items were applied in `1e4f1ef`, `redline: record the round 1 review lessons in the standards, finishing R1-1 (#106)`. Items 1 and 2 go to `agents.md` line 10, item 3 to line 38, item 4 to line 50, and item 5 to `replay.md` line 23. Each clause was read back in its whole line. The parentheses and backticks close, and no line was added, so the "line 50" citation still holds.
+- 13, Spec folder. This section, committed last.
+
+**Deviations.**
+
+- Task 3 was committed (`b3da1ea`) after `grep -cF` found each of its three bullet phrases once in `docs/running.md`, and before its own green gate run. Its two pins were then seen passing in Task 4's red run (1509 passed, 5 failed; none of the five is Task 3's). Every other task saw its green run before its commit. Recorded under Decisions in `shape.md` (decision 9).

@@ -58,6 +58,8 @@ Out of scope, as the pull request has it: `scripts/redline-guard.sh`, `hooks/hoo
    Decided by: redline
 8. **Task order.** Tasks 4 and 5 both change `reshapePrompt` and `tests/loop-test.mjs`. Tasks 3 and 7 both change the same bullet of `docs/running.md`. Tasks 2 and 7 both change the pull request's `shape.md`. Each task's anchors are as the tasks before it leave them, and each task changes different sentences.
    Decided by: redline
+9. **As built: Task 3's green was seen one run late.** Task 3 was committed after a `grep -cF` found each of its three bullet phrases once, and before a gate run of its own. Its two pins were seen passing in the next gate run, Task 4's red run (1509 passed, 5 failed, all five Task 4's). Every other task saw its green before its commit. No change to any task or count follows. See `plan.md`, As built.
+   Decided by: redline
 
 ### Proportionality
 
