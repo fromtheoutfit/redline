@@ -1,0 +1,1 @@
+Redline round 4: fixed in 60607d5 (redline: R4-6 name a fix left with no task and an accept left with one in one reshape stop (#106)). · decided by: @michaelfromtheoutfit

@@ -1,0 +1,207 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "5a6d01853296c7d37faebc06a6fdad25cc356a20",
+    "to": "b5db0220bb6a0367dcf21af259f49c881c2f931e"
+  },
+  "summary": "Round 1's fixes land as described: the reshape block names each decided finding's end, the Return sentence no longer gives a named finding two meanings, paths are read through one cleanup, and the docs and standards say what the code does. The findings sit at the edges of those fixes and of the hold after a reshape: the new files clause leaves a newly raised ask out, the cleanup misses some path forms, the hold accepts a merged task, and the resume wording and stop messages still treat the reshape as a fresh shape. No scheduled or queued work touches the files this diff changes (the repository has no routes/console.php).",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "skills/redline/SKILL.md",
+      "line": 272,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Error report tells the person to fix the cause by hand for the reshape-hold stop, which needs no hand fix",
+      "description": "The skill's error report (line 272) always says 'once the cause is fixed by hand, /redline:redline <n> offers to resume from <label>', and adds that a hand fix outside `.claude/` means a fresh run. This pull request adds a stop that needs no hand fix: the hold after a reshape (workflows/redline-loop.js:4133-4140, errors opening 'the reshape left '), whose resume line (resumeLine, 587-591) tells the rerun shaper that nothing was fixed by hand and to correct the task itself. docs/running.md's 'A reshape after your decision' says the same: 'so nothing needs fixing by hand first'. The skill has no branch for it, so the person is told to fix something first and may edit plan.md in the spec folder or start a fresh run when a plain resume was enough. The resolve-check stops (errors opening 'the resolve agent ') have had the same mismatch since #99/#108; this pull request adds one more stop to that class. The cause is in a file this pull request did not change.",
+      "proposedFix": "In the error report at skills/redline/SKILL.md line 272, say that for an error opening 'the reshape left ' or 'the resolve agent ' the stop is the workflow's own check of what an agent returned, so the relaunch resumes as it stands with nothing to fix by hand; keep the current sentence for every other resumable stop.",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "workflows/redline-loop.js",
+      "line": 486,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "cleanPaths takes off the root or a leading ./, never both, and keeps //, inner ./ and a trailing slash",
+      "description": "R1-6 was fixed for the forms it named (`./app/x.php`, an absolute path, `['']`), but the promise the fix makes still fails for other forms. `cleanPaths` (486) is a ternary: it strips `${repoRoot}/` OR a leading `./`, never both, while `relPath` (527), which `ruleForPaths` uses, strips the root and then `./`. Traced: `/r/./app/x.php` becomes `./app/x.php` (relPath gives `app/x.php`); `./app/x.php/` becomes `app/x.php/`; `app//x.php` and `app/./x.php` are kept as written; `./` and `${repoRoot}/` become '' and are dropped, so a task naming the repository root counts as no file. A reshape listing one of these for the resolve's `app/x.php` is compared at 4114 as a change: the run warns 'the reshape changed the files of R1-1's task ... from app/x.php to app/x.php/', `reshapedTasks` records it, the approve cap's `reshaped` detail reports it, and that form is shown to every later reader. The comment at 481-485 and the standard (workflow/agents, the cleanPaths clause added by fd/4973a29) say 'one file written two ways is one file'. I could not run the function (node is refused to the reviewer); this is traced from the code. Conditions: an agent writing a path in one of these forms, which is rare.",
+      "proposedFix": "Build cleanPaths on relPath and normalise separators: `const cleanPaths = (list) => unique(list.map((p) => relPath(String(p).trim()).replace(/\\/+/g, '/').replace(/\\/(\\.\\/)+/g, '/').replace(/\\/$/, '')).filter((p) => p && p !== '.'))`, or narrow the comment and the standard to the forms handled. Add a loop case with `reshapeFiles: { 'R1-1': ['/r/./app/x.php', 'app//x.php', './app/x.php/'] }` expecting no 'the reshape changed' warning.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-3",
+      "file": "workflows/redline-loop.js",
+      "line": 592,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A reshape resumed after any other shape-stage stop is still told to rewrite the spec files from scratch beside decided entries",
+      "description": "resumeLine (580-609) gives the shaper the correct-in-place clause only when the stored error opens 'the reshape left ' (587). Every other shaper resume gets 'Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote' (592). A reshape (label `reshape r<n> #<k>`) can stop at stage shape for other reasons in a round with decided findings: checkSpec (a missing shape.md or Decisions section), checkDeclineReasons, checkDrafts, checkWhy (vetShape, 3688-3705). Its rerun is then told to rewrite from scratch, which contradicts the reshape prompt's 'correct them in place' and 'a decision the person made, or the autopilot applied, stays as it is' (2089, 2097), and can drop the `Decided by:` entries and tasks the resolve agent wrote. A stop on one of those checks on a second attempt at the same label also replaces the stored error, so a reshape-hold resume that then fails another check is told to rewrite. The rewrite clause and its use on reshape resumes predate this pull request; this pull request added the narrow exception, and the #106 spec records the rest under 'Left alone' ('The shaper's resume line on other reshape stops ... Not changed here', shape.md line 115). No open issue tracks it. What follows a rewrite depends on the shaper: a decided fix that loses its task is caught again by the hold; the shape.md record of the person's decision is not checked.",
+      "proposedFix": "Use the correct-in-place clause for every reshape label (`opts.label` starting `reshape `) in a round with tracked decisions, or open an issue for it as the spec's Left alone entry implies.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-4",
+      "file": "workflows/redline-loop.js",
+      "line": 925,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "FILES_ASK_DECIDED asks for recommended paths only for an ask 'still pending', leaving a reshape-raised ask with none",
+      "description": "R1-4's fix replaced FILES_ASK in a reshape prompt that carries the decided block with FILES_ASK_DECIDED (925): 'for an ask still pending, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it'. The same Return sentence (2099) distinguishes 'every judgment call still pending or newly raised', so by the prompt's own words an ask the reshape newly raises is neither 'still pending' nor named as decided, and falls to the general clause: 'the paths its task creates or changes, an empty list when it has no task', i.e. []. forceAskRules (3313-3327) matches paths rules on the finding's own file plus this list. A new call whose recommended change touches a paths-rule glob while its own file does not is then not forced, where FILES_ASK's 'for an ask' covered it. The shaper's own rule 7 and the rules block (548: 'its file or its fix under a paths rule') still tell the shaper to make it a rule ask, and the plan approver bounces a task under a paths rule and the guard refuses the write, so the gap is in the workflow's second layer; on autopilot the call could be decided by autopilot, then bounce at the plan approver or stop at implement. Only rounds with a decided finding, a bounce, a raised ask and a paths rule reach it.",
+      "proposedFix": "Word it 'for an ask still pending or newly raised, the paths its recommended change would touch', or 'for an ask not named above as decided'. Update FILES_DECIDED in tests/loop-test.mjs and add a pin that a reshape-raised ask in a decided round keeps its recommended paths and is forced under a paths rule.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-5",
+      "file": "workflows/redline-loop.js",
+      "line": 4132,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The hold's message can call a disposition override 'its decision' once a reshape raises a call for it",
+      "description": "saidBy (4132) tells an override from a call by `calls.some((call) => call.id === id)`. `calls` grows with `calls = calls.concat(raised)` (4168), and `raised` (4143) is every judgment call the reshape returned whose id is not in `calls`, which includes a decided override the reshape returned as an ask with a call (overrides are never in `calls`; openRaised at 4161 filters it out of the stop only because it is in `decisions`). After that, resolveWith re-resolves it as a call, and the next reshape's hold names it 'which its decision names as a fix' instead of 'which a disposition override names as a fix'. resolveWith's `isCall`/`whose` (3908, 3939) mislabel it the same way in their warnings and stops. Only the wording changes; it needs a reshape that returns a call for a person's override, against the prompt's 'a decision the person made ... stays as it is'.",
+      "proposedFix": "Keep the round's override ids from overridesFor (for example `const overrideIds = new Set(overrides.map((f) => f.id))`) and test those in saidBy and isCall, rather than membership in `calls`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-6",
+      "file": "workflows/redline-loop.js",
+      "line": 4133,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "After a reshape a decided fix is held to any listed files, not to a task of its own as at resolve time",
+      "description": "At resolve time a decided fix must have a task of its own: taskFilesOf (490) reads only tasks whose `finding` is the id, and docs/running.md says 'one task planned for two calls counts for the call it names'; agents/redline-resolve.md says a fix folded into another finding's task stops the run. After a reshape the hold (4133) reads `decidedFiles[id]`, set at 4112-4120 from the reshape's `files` for the finding, with no tie to which task names it; the block (2083) asks for 'the paths of its task as plan.md holds it' and never says a task counts only for the finding it names. So a reshape that merges two decided fixes' tasks into one task for R1-1 (an approver adjustment 'merge tasks 2 and 3') can list the merged task's files for both, and the hold passes for R1-2. docs/running.md promises 'The decision is held to its task after each reshape, as it is when the resolve agent first plans it', which this does not keep. What follows depends on the implementer: needCommits (4247-4250) still demands R1-2, and judge (2581) needs a commit message mentioning it; if the merged task's commit names only R1-1, the check fails, the repair runs, and the round stops at stage check, whose resume starts at the build and cannot replan, the failure the hold was added to prevent. The hold is this pull request's own code (#106), not round 1's fixes.",
+      "proposedFix": "Say in the decided block that a decided fix keeps a task of its own, its finding set to that id, and that a task counts only for the finding it names; or have the reshape return its tasks with `finding` and hold the list with taskFilesOf as the resolve is held. Pin a merged-task reshape of two decided fixes.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "b5db0220bb6a0367dcf21af259f49c881c2f931e",
+    "candidates": 6,
+    "counts": {
+      "verified": 6,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R2-6"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R2-4"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R2-3"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R2-2"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R2-1"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R2-5"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 4133,
+        "summary": "After a reshape, a decided fix is held only to whatever files the reshape lists for it. At resolve time the same fix must have a task of its own: taskFilesOf reads only tasks whose `finding` is the id, and docs/running.md says one task planned for two calls counts for the call it names. The reshape block asks for each finding's files as 'the paths of its task as plan.md holds it', so a task merged for two findings gives both a non-empty list and the hold passes. The approver, the implementer and the warnings then read that looser list too. Fix: hold the reshape to the resolve's reading. Either say in the block that a task counts only for the finding it names, or check the reshape's list against a task of the finding's own. Pin a merged-task case.",
+        "failure_scenario": "R1-1 and R1-2 are both decided fixes in app/x.php. The plan approver bounces with 'merge tasks 2 and 3'. The reshape merges them into one task for R1-1 and lists app/x.php for both, so the hold after the reshape passes. The implementer makes one commit, `redline: R1-1 ...`. needCommits still demands R1-2's commit, so the check fails, the repair runs, and the round stops at stage check. A resume from there starts at the build and cannot replan, which is the failure the hold was added to prevent."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 925,
+        "summary": "In any round with a decided finding, FILES_ASK_DECIDED asks for the recommended change's paths only 'for an ask still pending'. The same Return sentence lists judgment calls as 'still pending or newly raised', so a call the reshape newly raises falls under the first clause and lists [] (no task). forceAskRules matches paths rules against the finding's own file plus this list. A new call whose recommended change touches a paths-rule glob is therefore not forced, where FILES_ASK ('for an ask') would have caught it. Fix: word it 'for an ask still pending or newly raised', or 'for an ask not named above as decided'. Pin that a reshape-raised ask keeps its recommended paths.",
+        "failure_scenario": "An autopilot round has decided finding R1-1 and the plan bounces. The reshape raises R1-3 as an ask whose recommended change edits billing/charge.php, under a paths rule; R1-3's own file app/x.php is not under it. The reshape lists files [], so forceAskRules does not leave R1-3 to the person. Autopilot decides it, and the resolve plans a task in billing/. The plan approver then bounces it under its rule 5, or the guard refuses the write at implement, and the round stops. A finding the rule says a person is always brought in for was decided by autopilot instead."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 592,
+        "summary": "Only the new 'the reshape left ' stops get the correct-in-place resume clause. A reshape resumed after any other shape-stage stop in a round with decided findings is still told to rewrite plan.md and shape.md from scratch. Examples are checkSpec's missing shape.md, checkDeclineReasons, or a later attempt at the same label failing another check, which replaces the stored error. That contradicts the reshape prompt ('correct them in place', 'decisions already recorded as decided stay') and can drop the entries and tasks the resolve agent wrote. The #106 spec lists this under 'Left alone', and no open issue tracks it. Fix: use the correct-in-place clause for every reshape label in a round with tracked decisions, or open an issue for it.",
+        "failure_scenario": "Override R1-1 (decline → fix) is applied by the resolve. Reshape #1 returns R1-2 as a decline with no reason and stops at `reshape r1 #1`. On relaunch the shaper is told to rewrite plan.md and shape.md from scratch, replacing what the earlier attempt wrote. shape.md loses R1-1's `Decided by: @author` entry and plan.md may lose its task. The run then stops at the new hold again, or the approver bounces on a plan that no longer carries the decision."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 486,
+        "summary": "cleanPaths reimplements relPath (line 527) with weaker rules. It strips the repository root or a leading ./, never both. It keeps a trailing slash, an inner ./ and a doubled slash, and it turns './' or the bare root into a blank that is dropped. So the promise in the comment and in workflow/agents ('one file written two ways is one file') still fails for some forms, and a task naming the repository root directory counts as no file. Fix: build cleanPaths on relPath and normalise separators (collapse //, drop /./, drop a trailing slash), or narrow the comment and the standard to the forms handled.",
+        "failure_scenario": "Reproduced in a scratch run: the resolve lists app/x.php and the reshape lists ./app/x.php/. The run warns 'the reshape changed the files of R1-1's task ... from app/x.php to app/x.php/'. At the cap, detail.reshaped reports [[\"app/x.php\"],[\"app/x.php/\"]]. Inputs like /r/./app/x.php or app//x.php are compared the same way and differ too."
+      },
+      {
+        "index": 5,
+        "file": "skills/redline/SKILL.md",
+        "line": 272,
+        "summary": "The new hold stop (stage shape, error opening 'the reshape left ') needs no hand fix, as docs/running.md says. The skill's error report still tells the person 'once the cause is fixed by hand, /redline:redline <n> offers to resume', and that any hand fix outside .claude/ means a fresh run. The resolve-check stops already have the same mismatch; this PR adds a new stop to that class. Fix: in the error report, say for an error opening 'the reshape left ' or 'the resolve agent ' that the relaunch resumes as it stands, with nothing to fix by hand.",
+        "failure_scenario": "A reshape empties a decided fix's task and the run stops at `reshape r1 #1`. The person reads that they must fix the cause by hand first. They either edit plan.md in the uncommitted spec folder or start a fresh run, though a plain resume would have rerun the reshape with the correct-the-task clause."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 4132,
+        "summary": "The hold's message can call a disposition override 'its decision'. saidBy tells an override from a call by membership in `calls`, and `calls = calls.concat(raised)` adds every id a reshape raises, including a decided override that the reshape returned as an ask with a call. The message is then worded as a call's. Fix: keep the round's original override ids (from overridesFor) and test those, rather than membership in `calls`.",
+        "failure_scenario": "The person overrides R1-1 from decline to fix. Reshape #1 returns R1-1 as an ask with a judgment call, so it is raised, re-resolved and joins `calls`. Reshape #2 removes its task, and the stop reads 'the reshape left R1-1, which its decision names as a fix' instead of 'which a disposition override names as a fix'. resolveWith's `whose`/`isCall` mislabel it the same way. Only the wording is wrong."
+      }
+    ]
+  }
+}

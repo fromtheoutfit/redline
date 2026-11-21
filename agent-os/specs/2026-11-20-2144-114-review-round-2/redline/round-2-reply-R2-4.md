@@ -1,0 +1,1 @@
+Redline round 2: fixed in 4a17e74 (redline: R2-4 keep the recommended paths for an ask the decided block does not name (#106)). · decided by: redline

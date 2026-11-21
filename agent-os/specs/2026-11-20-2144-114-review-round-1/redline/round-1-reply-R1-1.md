@@ -1,0 +1,1 @@
+Redline round 1: fixed in f6af316 (redline: R1-1 correct why no round stop shows a decided deferral's reshaped files (#106)) and 1e4f1ef (redline: record the round 1 review lessons in the standards, finishing R1-1 (#106)). · decided by: redline

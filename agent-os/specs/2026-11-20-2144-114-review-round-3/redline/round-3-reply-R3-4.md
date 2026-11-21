@@ -1,0 +1,1 @@
+Redline round 3: fixed in 71e1e40 (redline: R3-4 set a decided finding's task list once, at the resolve that first applies it (#106)). · decided by: redline

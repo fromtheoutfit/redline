@@ -1,0 +1,1 @@
+Redline round 1: fixed in 4973a29 (redline: R1-6 read a decided finding's task paths in one form (#106)). · decided by: redline

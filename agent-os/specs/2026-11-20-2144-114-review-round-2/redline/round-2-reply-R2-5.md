@@ -1,0 +1,1 @@
+Redline round 2: fixed in 6480b29 (redline: R2-5 read whether a decision is an override from the round's overrides (#106)). · decided by: redline

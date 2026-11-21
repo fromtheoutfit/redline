@@ -1,0 +1,14 @@
+{
+  "R2-1": {
+    "where": "issue",
+    "number": 116,
+    "url": "https://github.com/fromtheoutfit/redline/issues/116",
+    "path": "agent-os/specs/2026-11-20-2144-114-review-round-2/redline/issue-R2-1.md"
+  },
+  "R2-3": {
+    "where": "issue",
+    "number": 117,
+    "url": "https://github.com/fromtheoutfit/redline/issues/117",
+    "path": "agent-os/specs/2026-11-20-2144-114-review-round-2/redline/issue-R2-3.md"
+  }
+}

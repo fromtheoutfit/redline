@@ -1,0 +1,1 @@
+Redline round 4: fixed in 941e4d8 (redline: R4-1 keep the redline/ ban in the reshape's correct-the-task resume (#106)). · decided by: @michaelfromtheoutfit

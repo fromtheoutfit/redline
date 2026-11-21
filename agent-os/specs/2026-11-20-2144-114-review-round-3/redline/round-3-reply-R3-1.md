@@ -1,0 +1,1 @@
+Redline round 3: fixed in 9fb5f15 (redline: R3-1 say which decided findings were shown their first-planned task before #106 (#106)). · decided by: redline
