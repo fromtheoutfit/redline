@@ -220,7 +220,10 @@ function mock(scenario) {
       // list by their form.
       const decidedLine = reshape ? prompt.match(/Findings the person or the autopilot decided: ([^.]*)\./) : null
       const namedDecided = decidedLine ? [...decidedLine[1].matchAll(/[RH]\d+-\d+/g)].map((m) => m[0]) : []
-      const taskOf = (id) => (scenario.reshapeFiles && id in scenario.reshapeFiles ? scenario.reshapeFiles[id] : plannedByResolve[id] || [])
+      // scenario.reshapeFilesAt[label][id] (#114, R2-5) scripts the task one reshape alone
+      // changed, by that reshape's label, before scenario.reshapeFiles, which every reshape reads.
+      const filesAt = (scenario.reshapeFilesAt && scenario.reshapeFilesAt[opts.label]) || {}
+      const taskOf = (id) => (id in filesAt ? filesAt[id] : scenario.reshapeFiles && id in scenario.reshapeFiles ? scenario.reshapeFiles[id] : plannedByResolve[id] || [])
       const disposition = (id) => (onReshape('reshapeDecline').includes(id) ? 'decline' : onReshape('reshapeFix').includes(id) ? 'fix' : onReshape('reshapeDefer').includes(id) ? 'defer' : ask.includes(id) || onReshape('reshapeAsk').includes(id) ? 'ask' : defer.includes(id) ? 'defer' : decline.includes(id) ? 'decline' : none.includes(id) ? 'none' : 'fix')
       // scenario.ownerOf[id] (#94, R5-7) is the decidedBy the shaper writes for that id, to prove the
       // workflow's check of it.
@@ -3445,6 +3448,16 @@ function samePrefix(name, first, second, n) {
   check('reshape: a decided fix whose task the reshape moved to other files runs on, shown the new files and warned about', fixMoved.res.status === 'done' && approverFiles(fixMoved, 'R1-1', PASS_2) === '["fix",["app/y.php"]]' && warned(fixMoved, CHANGED('app/x.php', 'app/y.php')), [stopOf(fixMoved), approverFiles(fixMoved, 'R1-1', PASS_2), (fixMoved.res || {}).warnings])
   const forcedEmptied = await go('reshape: a call stated as a fix that the reshape leaves to the person under a rule, listing no files', { ...baseArgs, askRules: chargeRule, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
   check('reshape: a decided fix the reshape leaves to the person under a rule is not held to a task', forcedEmptied.res.status === 'done' && labels(forcedEmptied.calls).includes(PASS_2), stopOf(forcedEmptied))
+  // Whether a decided finding is a disposition override is read from the round's own overrides,
+  // never from the round's calls (#114, R2-5): a reshape that returns a call for an override's
+  // finding adds it to `calls`, and the resolve that call sets off and every later reshape's hold
+  // then named the override as a call's decision. One run per place that names it: the resolve's
+  // stray warning and the hold's stop.
+  const STRAY_OVERRIDE = 'round 1: the resolve agent listed R1-1 as deferred, a finding whose disposition the person changed to fix; the entry is dropped, since the decision stands'
+  const overrideCalled = await go('reshape: an override to fix that a reshape returns as a call, a stray entry beside it at each resolve', { ...overrideDial, decisions: toFix }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], reshapeAsk: ['R1-1'], resolveDeferred: [guardEntry], commitIds: [['R1-1']] })
+  check('reshape: the resolve a reshape\'s call for an override sets off warns of a stray entry as the override\'s, never as a call\'s decision', overrideCalled.res.status === 'done' && labels(overrideCalled.calls).includes('resolve r1 #1') && warned(overrideCalled, STRAY_OVERRIDE) && !anyWarning(overrideCalled, 'a call whose decision names it as'), [overrideCalled.res.status, overrideCalled.res.error, (overrideCalled.res || {}).warnings])
+  const overrideCalledEmptied = await go('reshape: an override to fix that a first reshape returns as a call and a second leaves with no task', { ...overrideDial, decisions: toFix }, { ...declined, planBounce: 2, reshapeAsk: ['R1-1'], reshapeFilesAt: { 'reshape r1 #2': { 'R1-1': [] } } })
+  check('reshape: the hold names an override a reshape returned as a call as a disposition override, at the later reshape that leaves it with no task', overrideCalledEmptied.res.status === 'error' && overrideCalledEmptied.res.stage === 'shape' && overrideCalledEmptied.res.error === NO_TASK('a disposition override names') && Boolean(overrideCalledEmptied.res.resumeFrom) && overrideCalledEmptied.res.resumeFrom.label === 'reshape r1 #2', stopOf(overrideCalledEmptied))
   // The stop is the workflow's check of what the reshape returned, so its resume line tells the
   // rerun to correct the task and keep the decided entries, as the resolve's does (#108, R3-4),
   // never to rewrite the four files from scratch beside decisions the resolve agent wrote. The

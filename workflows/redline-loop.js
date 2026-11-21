@@ -3803,6 +3803,11 @@ async function revise(record, inScope, reviewedKind) {
   // dial: the person changed fix/defer/ask to fix, defer or accept after seeing the list.
   const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !known.some((call) => call.id === f.id))
   let overrides = overridesFor(calls)
+  // Whether a decided finding is a disposition override, read from the round's own overrides as
+  // they entered (#114, R2-5), never from `calls`: a reshape that returns a call for an override's
+  // finding adds it to `calls` (raised, below), so membership there named the override as a
+  // call's decision in the resolve's warnings and stops and in the hold after each reshape.
+  const isOverride = (id) => overrides.some((f) => f.id === id)
   let roundDecisions = {}
   // A disposition the person changed away from defer (to fix or accept) leaves no deferral behind:
   // the shaper's entry would be listed under Deferred as shipped and handed to the plan approver
@@ -3909,11 +3914,11 @@ async function revise(record, inScope, reviewedKind) {
     // An override is a finding whose disposition the person changed, from whatever the shaper
     // sorted it to (a decline overruled to a fix included), and a call whose decision names its
     // own fix or accept was never a deferral either: each warning says whose decision it is and
-    // what it names (#108, R2-3, R3-5). An override is never one of the round's calls (overridesFor).
-    // Whether a decision is a call's or an override's, read one way for the stray warnings and
-    // the named-check stops (#108, R3-6): `newCalls` is always within `calls`, and `overridesFor`
-    // never takes a call.
-    const isCall = (id) => calls.some((call) => call.id === id)
+    // what it names (#108, R2-3, R3-5). Whether a decision is a call's or an override's is read
+    // one way for the stray warnings, the named-check stops and the hold after each reshape
+    // (#108, R3-6): from the round's own overrides (isOverride), never from `calls`, which a
+    // reshape's call for an override's finding joins (#114, R2-5).
+    const isCall = (id) => !isOverride(id)
     const strayOverride = once.kept.filter((item) => awayFromDefer(item.id)).map((item) => item.id)
     const strayNamed = strayOverride.filter(isCall)
     const strayChanged = strayOverride.filter((id) => !strayNamed.includes(id))
@@ -4137,7 +4142,7 @@ async function revise(record, inScope, reviewedKind) {
     // mitigation is optional, and no commit is demanded of one (#100). Both messages open with
     // the same words, which the resume line reads (resumeLine).
     const heldIds = inScope.map((f) => f.id).filter(tracked)
-    const saidBy = (id) => (roundDecisions[id].disposition ? (calls.some((call) => call.id === id) ? 'its decision names' : 'a disposition override names') : 'the resolve agent stated')
+    const saidBy = (id) => (roundDecisions[id].disposition ? (isOverride(id) ? 'a disposition override names' : 'its decision names') : 'the resolve agent stated')
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
     if (taskless.length) {
       throw stageError('shape', `the reshape left ${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
