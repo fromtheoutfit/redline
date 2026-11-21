@@ -478,9 +478,16 @@ const abs = (path) => `${repoRoot}/${path}`
 const short = (sha) => (typeof sha === 'string' ? sha.slice(0, 7) : '')
 const json = (value) => JSON.stringify(value, null, 2)
 const unique = (list) => [...new Set(list)]
-// The files of the tasks a list holds for one finding (#108, R1-7): the resolve-time checks read
-// one resolve's tasks, plannedFiles every resolve's of the round, and both read them this way.
-const taskFilesOf = (tasks, id) => unique(tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
+// A list of paths as an agent returned it, read one way (#114, R1-6): each path trimmed, the
+// repository root or a leading ./ taken off (planPaths takes the root off the approver's list
+// too), and a blank dropped, so one file written two ways is one file and a list of blanks is no
+// list. A finding's task is read through it from a resolve's tasks and from a reshape's list
+// alike, so the holds, the warnings and the list the round keeps compare one form.
+const cleanPaths = (list) => unique(list.map((path) => String(path).trim()).map((path) => (path.startsWith(`${repoRoot}/`) ? path.slice(repoRoot.length + 1) : path.replace(/^\.\//, ''))).filter(Boolean))
+// The files of the tasks a list holds for one finding (#108, R1-7), read through cleanPaths: the
+// resolve-time checks read one resolve's tasks this way, and so does the list the round keeps for
+// each decided finding (decidedFiles, #106).
+const taskFilesOf = (tasks, id) => cleanPaths(tasks.filter((task) => task.finding === id).flatMap((task) => task.files))
 
 // The glob dialect of a paths ask rule, shared with the guard (glob_regex in
 // scripts/redline-guard.sh) and pinned by the same cases on both sides: ** spans segments, * and ?
@@ -4092,10 +4099,12 @@ async function revise(record, inScope, reviewedKind) {
     // What the reshape says was decided, its disposition and its deferred entry, is still dropped
     // (#94, R8-6; #97, R3-6). The lists are compared as sets, and an equal one is kept as it was,
     // so the prompts that follow do not change; a change is warned about with the decision's
-    // owner. A finding this reshape left to the person under a rule is no longer tracked.
+    // owner. A finding this reshape left to the person under a rule is no longer tracked. The
+    // list is read through cleanPaths, as a resolve's is, so one file written another way is no
+    // change and a blank is no file (#114, R1-6).
     for (const id of inScope.map((f) => f.id).filter(tracked)) {
       const listed = shaped.findings.find((s) => s.id === id)
-      const now = unique(listed && Array.isArray(listed.files) ? listed.files : [])
+      const now = cleanPaths(listed && Array.isArray(listed.files) ? listed.files : [])
       const before = decidedFiles[id] || []
       if (now.length === before.length && now.every((path) => before.includes(path))) {
         continue
