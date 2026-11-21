@@ -503,9 +503,10 @@ function pathSegments(text) {
 // was written as a directory: it ends in /, /. or /.., which a list of files drops and the paths
 // rules keep. Two things the guard does differently, on purpose: it takes padding literally,
 // where a path in an agent's JSON is trimmed, and it resolves symlinks, where the workflow reads
-// no disk. The decided lists and the paths rules read through it. Until R4-2 each read part of it
-// its own way: relPath (#49) took off the root and then a leading ./, for the paths rules, and
-// cleanPaths folded what R1-6 and R2-2 named and kept .. segments and a trailing /. as written.
+// no disk. The decided lists, the shaper's own list (vetShape, R4-4) and the paths rules read
+// through it. Until R4-2 each read part of it its own way: relPath (#49) took off the root and
+// then a leading ./, for the paths rules, and cleanPaths folded what R1-6 and R2-2 named and kept
+// .. segments and a trailing /. as written.
 function repoPath(raw) {
   const text = String(raw === null || raw === undefined ? '' : raw).trim()
   if (text === '') {
@@ -3743,11 +3744,11 @@ async function checker(flag, snapshot, octane, label, prefix) {
 
 // The checks on the shaper's output, after the shape and after each reshape, in one order (#94,
 // R8-5): the spec folder it reports, a disposition for every finding (the reshape prompt asks for
-// every finding, as the shape prompt does), then the eight checks, forceAskRules among them, and
-// the round's dispositions. `known` is the round's calls so far, [] on the shape; `label` names
-// the shaper call for the checks that stop on it, and `suffix` its spec-status call. `decided` is
-// the ids of the round's decided findings, [] on the shape, which the draft check skips (#97,
-// R3-4).
+// every finding, as the shape prompt does), then the eight checks, forceAskRules among them, each
+// finding's files read one way (#114, R4-4), and the round's dispositions. `known` is the round's
+// calls so far, [] on the shape; `label` names the shaper call for the checks that stop on it, and
+// `suffix` its spec-status call. `decided` is the ids of the round's decided findings, [] on the
+// shape, which the draft check skips (#97, R3-4).
 async function vetShape(pass, record, inScope, shaped, known, label, suffix, decided = []) {
   if (shaped.specFolder.replace(/\/+$/, '') !== record.specFolder) {
     warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${record.specFolder}`)
@@ -3761,6 +3762,18 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkCalls(shaped, known)
   await checkSpec(pass, record.specFolder, label, suffix)
   forceAskRules(record, pass, inScope, shaped)
+  // Each finding's files are read through the one path function here, where the shape is taken
+  // in, so every reader after this point sees one form: the shaper's own list for its deferral
+  // (shaperFiles), the list shown for a finding nobody decided (effectiveDispositions), a stop's
+  // dispositions and the reshape's update of a decided list (#114, R4-4). It comes after the
+  // paths rules, which read whether a path was written as a directory from the text as written.
+  // Until R4-4 only a decided finding's list was cleaned, so a deferral the shaper listed with
+  // [''] was shown as shipping a planned change. A finding with no list keeps none.
+  for (const s of shaped.findings) {
+    if (Array.isArray(s.files)) {
+      s.files = cleanPaths(s.files)
+    }
+  }
   checkDeclineReasons(pass, shaped, label)
   checkDrafts(shaped, label, decided)
   checkWhy(pass, shaped, known, label)
@@ -3798,7 +3811,8 @@ async function revise(record, inScope, reviewedKind) {
   // so a draft that changed after it was answered is raised once more, and every body is shown
   // before anything is filed.
   record.drafts = record.drafts || {}
-  // The files the shaper listed for its own deferral (#100): its planned task's paths.
+  // The files the shaper listed for its own deferral (#100): its planned task's paths, cleaned
+  // where the shape was taken in (vetShape; #114, R4-4).
   const shaperFiles = (id) => {
     const s = shaped.findings.find((x) => x.id === id && x.disposition === 'defer')
     return s && Array.isArray(s.files) ? s.files.slice() : []

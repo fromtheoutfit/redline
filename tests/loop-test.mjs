@@ -3545,6 +3545,16 @@ function samePrefix(name, first, second, n) {
   check('reshape: a reshape that lists a path above the repository is warned about as a change to that path, folded', climbed.res.status === 'done' && approverFiles(climbed, 'R1-1', PASS_2) === '["defer",["/x.php"]]' && warned(climbed, CHANGED('app/x.php', '/x.php')), [climbed.res.status, climbed.res.error, approverFiles(climbed, 'R1-1', PASS_2), (climbed.res || {}).warnings])
   const elsewhere = await go('reshape: an override to defer whose task the reshape lists elsewhere on the disk', deferArgs, { ...deferBounced, reshapeFiles: { 'R1-1': ['/etc/x.php'] }, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   check('reshape: a reshape that lists an absolute path elsewhere is warned about as a change to that path, and it is kept', elsewhere.res.status === 'done' && approverFiles(elsewhere, 'R1-1', PASS_2) === '["defer",["/etc/x.php"]]' && warned(elsewhere, CHANGED('app/x.php', '/etc/x.php')), [elsewhere.res.status, elsewhere.res.error, approverFiles(elsewhere, 'R1-1', PASS_2), (elsewhere.res || {}).warnings])
+  // A finding nobody decided is shown with the shaper's own list, read the same way where the
+  // shape is taken in (#114, R4-4): the plan approver and the implementer are shown one form of
+  // each path, once. Until R4-4 they were shown the list as the shaper wrote it.
+  const shaperOtherForm = await go('shape: a fix nobody decided, listed in other forms of one path', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': ['./app//x.php', ' app/x.php ', 'app/sub/../y.php'] }, commitIds: [['R1-1']] })
+  check('shape: a finding nobody decided is shown to the plan approver and the implementer with its files read one way', (shaperOtherForm.res || {}).status === 'done' && approverFiles(shaperOtherForm, 'R1-1') === '["fix",["app/x.php","app/y.php"]]' && implementerFiles(shaperOtherForm, 'R1-1') === '["fix",["app/x.php","app/y.php"]]', [(shaperOtherForm.res || {}).status, (shaperOtherForm.res || {}).error, approverFiles(shaperOtherForm, 'R1-1'), implementerFiles(shaperOtherForm, 'R1-1')])
+  // A finding the shaper returned with no list keeps none: a result recorded before the list was
+  // required (#100) replays with the prompts it had. Held before, and seen red under a mutation
+  // that reads an absent list as an empty one.
+  const shaperNoList = await go('shape: a fix nobody decided, returned with no list of files', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], files: { 'R1-1': undefined }, commitIds: [['R1-1']] })
+  check('shape: a finding returned with no list of files is shown with none, never with an empty one', (shaperNoList.res || {}).status === 'done' && approverFiles(shaperNoList, 'R1-1') === '["fix",null]', [(shaperNoList.res || {}).status, (shaperNoList.res || {}).error, approverFiles(shaperNoList, 'R1-1')])
   // The neighbours. A deferral is never held: a mitigation is optional, and `emptied` above runs
   // on. A fix whose task the reshape moves to other files still has one. A finding the reshape
   // leaves to the person under a rule is skipped, its task having no files by rule. And an accept
@@ -3893,6 +3903,16 @@ function samePrefix(name, first, second, n) {
   check('stop: with no task planned the draft says nothing ships and shows no words, whatever was written', JSON.stringify([shownPinned.ships, shownPinned.mitigation, shownPinned.files]) === '[false,"",[]]', shownPinned)
   const shownMirror = ((await go('stop: a draft whose words are empty, with a task', baseArgs, { ...only, mitigations: { 'R1-1': '' }, files: { 'R1-1': ['app/x.php'] } })).res.drafts || [])[0] || {}
   check('stop: with a task planned the draft says a mitigation ships and lists its files, though the words are empty', JSON.stringify([shownMirror.ships, shownMirror.mitigation, shownMirror.files]) === '[true,"",["app/x.php"]]', shownMirror)
+  // The shaper's own list is read through the one path function where the shape is taken in
+  // (#114, R4-4), so a blank is no file there either: a deferral listed with only a blank plans
+  // nothing, at the stop and at the push. Until R4-4 the list was read as written, so [''] was a
+  // planned change that ships, and the push warned of a mitigation planned in no file.
+  for (const blank of ['', '  ']) {
+    const shownBlank = ((await go(`stop: a draft whose task lists only ${JSON.stringify(blank)}`, baseArgs, { ...only, files: { 'R1-1': [blank] } })).res.drafts || [])[0] || {}
+    check(`stop: a deferral the shaper lists with only ${JSON.stringify(blank)} plans nothing: the draft says nothing ships and lists no files`, JSON.stringify([shownBlank.ships, shownBlank.mitigation, shownBlank.files]) === '[false,"",[]]', shownBlank)
+  }
+  const blankFiled = await go('stop: a deferral the shaper lists with only a blank path, filed with no commit of its own', { ...baseArgs, deferrals: { 'R1-1': answer('file') } }, { ...only, files: { 'R1-1': [''] }, commitIds: [[]] })
+  check('stop: a deferral listed with only a blank path is filed with no warning of a planned mitigation left unbuilt', (blankFiled.res || {}).status === 'done' && !((blankFiled.res || {}).warnings || []).some((w) => w.includes('planned a mitigation in')), [(blankFiled.res || {}).status, (blankFiled.res || {}).error, (blankFiled.res || {}).warnings])
   check('stop: the result says when drafts are raised, each round by default, and the relaunch note names the answer', first.res.deferAt === 'round' && first.res.relaunch.how.includes('deferrals ({"<id>": {"action": "file|drop"') && first.res.relaunch.how.includes('one for each id in draftsNeeded') && first.res.relaunch.how.includes('only for a draft whose canFix is true'), [first.res.deferAt, first.res.relaunch.how])
   const second = await go('stop: the relaunch files the draft', { ...baseArgs, deferrals: { 'R1-1': answer('file') } }, only)
   samePrefix('stop: the relaunch replays every prompt before the stop', first.calls, second.calls, first.calls.length)
