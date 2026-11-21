@@ -3508,7 +3508,7 @@ function samePrefix(name, first, second, n) {
   // clause is chosen by the stop: a reshape resumed after another stop keeps the shaper's line.
   const resumeLineFor = (e) => `Resume attempt 2 of this step. The run stopped at this step with an error (${e}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.`
   const FROM_SCRATCH = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
-  const CORRECT_TASK = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again.'
+  const CORRECT_TASK = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
   const resumeAt = (error) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] } } })
   const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names')) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   const restoredPrompt = reshapePromptOf(fixRestored)
@@ -3518,6 +3518,9 @@ function samePrefix(name, first, second, n) {
   const specRestored = await go('reshape: a reshape of a decided round that left no shape.md, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(specLostError) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   check('reshape: a reshape resumed after another stop keeps the shaper\'s own resume line', specLost.res.status === 'error' && specLostError !== '' && !specLostError.startsWith('the reshape left ') && reshapePromptOf(specRestored).endsWith(resumeLineFor(specLostError) + FROM_SCRATCH) && !reshapePromptOf(specRestored).includes(CORRECT_TASK), [specLostError, reshapePromptOf(specRestored).slice(-500)])
   check('reshape: the shaper\'s file says the same of a reshape resumed after the workflow\'s check of a decided finding\'s task', shaperFile.includes('correct the task the error names'))
+  // Rule 9's exception lifts the rewrite alone, never the ban on touching redline/ that the sentence
+  // before it states, and the resume clause above carries that ban to its end (#114, R4-1).
+  check('reshape: the shaper\'s file says the exception is to rewriting from scratch, and that redline/ is left alone there too', shaperFile.includes('The one exception to rewriting from scratch is a resume line') && shaperFile.includes('and return the whole result again, still never changing or removing anything under its `redline/` folder.'))
   // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
   // message and its label, and its detail names each decided finding whose task a reshape
   // changed: the list as the resolve planned it, then as each reshape that changed it left it.

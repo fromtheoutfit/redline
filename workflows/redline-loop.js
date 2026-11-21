@@ -599,12 +599,14 @@ function resumeLine(opts) {
   // not a cause the person fixes by hand either, and the folder holds the entries and tasks the
   // resolve agent wrote for the round's decisions, so the rerun is told to correct the task and
   // keep them, never to rewrite the folder. The clause is chosen by the stop, as the resolve's
-  // is below: each of those checks opens its error with "the reshape left ".
+  // is below: each of those checks opens its error with "the reshape left ". It ends with the
+  // ban on touching redline/ that the from-scratch clause carries, so the exception lifts the
+  // rewrite and nothing else (#114, R4-1).
   const reshapeFix = String(entry.error || '').startsWith('the reshape left ')
   const shaper = opts.agentType !== 'redline:redline-shaper'
     ? ''
     : reshapeFix
-      ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again.'
+      ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
       : ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
   // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
   // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
