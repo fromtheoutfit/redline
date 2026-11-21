@@ -466,3 +466,27 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 2 for PR #114 (#106)`.
 
 **Files** (this task): `agent-os/standards/workflow/agents.md`, `agent-os/standards/workflow/replay.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-20-2144-114-review-round-2/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `b5db022`. Every red and green run below is a run of `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-20-2144-114-review-round-2/redline/snapshot.json`; the counts are the loop's. Each task saw its own red run, then its own green run, before its commit.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `61327bf` | none | none |
+| 2, R2-2 | `d83c40e` | 1527 passed, 5 failed: the five named checks. The four form runs warned `from app/x.php to ./app/x.php`, `to app//x.php`, `to app/./x.php` and `to app/x.php/`, and showed that form on the second pass; the resolve-side run showed `["defer",["app//x.php/"]]` on both passes. All five runs reached Finish, so their run-record checks passed on the red run | 1532 passed, 0 failed |
+| 3, R2-4 | `4a17e74` | 1530 passed, 3 failed: the renamed one-meaning check, the new check, and the `withoutBlock` check, which no longer found the clause to put back | 1533 passed, 0 failed |
+| 4, R2-5 | `6480b29` | 1534 passed, 2 failed: the stray-warning run also warned `round 1: the resolve agent listed R1-1 as deferred, a call whose decision names it as fix; the entry is dropped, since the decision stands`, and the second-reshape run stopped at `reshape r1 #2` with `the reshape left R1-1, which its decision names as a fix, with no task with files; a fix names the files it changes`. The first run reached Finish, so its run-record check passed on the red run | 1536 passed, 0 failed |
+| 5, R2-6 | `6c38899` | 1536 passed, 3 failed: the block pin, the shaper's file pin and `defer: docs/running.md says "that a task counts only for the finding it names"` | 1539 passed, 0 failed |
+| 6, standards | `f18bcc6` | none | 1539 passed, 0 failed |
+
+**Counts.** The loop reads `1539 checks passed, 0 failed`, as planned. The other harnesses on the green run after the standards commit: guard `601 passed, 0 mismatched`, prefs `172 passed, 0 failed`, gate `117 passed, 0 failed`, setup `512 passed, 0 failed`, gh `279 passed, 0 failed`, background `39 passed, 0 failed`, and syntax and validate exit 0, as in round 1's As built. This round changes no file those harnesses read, and the baseline had no failing check. The gate's JSON: `ok: true`, `git.unexpected_files` and `git.uncommitted` both empty.
+
+**Gate steps 10 to 13.**
+
+- 10, Docs. Each task's entry stands as written, in its own commit. `workflows/redline-loop.js` (Tasks 2 to 5: `d83c40e`, `4a17e74`, `6480b29`, `6c38899`) has no reader-facing change except Task 5's, for the reasons Tasks 2 to 4 give. Task 5's sentence in `docs/running.md`, "Deferred items", bullet "A reshape after your decision", is the entry for its `workflows/redline-loop.js` and `agents/redline-shaper.md` changes, in `6c38899`.
+- 11, Version. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.4`. No bump.
+- 12, Standards retrospective. All five approved items were applied in `f18bcc6`, `redline: record the round 2 review lessons in the standards, finishing R2-2 (#106)`. Items 1, 3 and 4 go to `agents.md` lines 50, 41 and 38, item 2 to `replay.md` line 23, and item 5 to `tests.md` line 7. Each clause was read back in its whole line. The parentheses and backticks close, and no line was added, so every line citation still holds.
+- 13, Spec folder. This section, committed last.
+
+**Deviations.** None. `shape.md` is unchanged.
