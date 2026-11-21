@@ -386,3 +386,29 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 3 for PR #114 (#106)`.
 
 **Files** (this task): `agent-os/standards/workflow/agents.md`, `agent-os/standards/process/docs-gate.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-20-2144-114-review-round-3/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `9ea3ea9`. Every red and green run below is a run of `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-20-2144-114-review-round-3/redline/snapshot.json`; the counts are the loop's. Each task saw its own red run, then its own green run, before its commit.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `0ff169f` | none | none |
+| 2, R3-1 | `9fb5f15` | 1539 passed, 1 failed: `defer: docs/running.md says "whenever it was shown as a deferral, whether its decision named one"` | 1540 passed, 0 failed |
+| 3, R3-2 | `c3548d8` | 1540 passed, 1 failed: `defer: docs/running.md says "except after the stop that holds a decided finding to its task after a reshape"` | 1541 passed, 0 failed |
+| 4, R3-3 | `c03af7d` | 1544 passed, 5 failed: the three folded forms (each run went on to a repair and stopped with `checks.sh still fails after one repair pass in round 1: no commit names R1-1`), the reshape run (the same error, after `repair r1` and `recheck r1`), and the contract pin. The trailing-slash form and `foldedOutside` held, and `foldedOutside` reached Finish, so its run-record check passed on the red run | 1550 passed, 0 failed |
+| 5, R3-4 | `71e1e40` | 1553 passed, 3 failed: the first run's second pass and build were shown `["defer",[]]` and it warned `round 1: R1-1 has a commit of its own (1bbbbbb) and the resolve agent planned no task with files for it; posted with its decision`, and the second run's second pass was shown `["defer",["app/y.php"]]`. Both runs reached Finish, so their run-record checks passed on the red run, and the `raisedLater` neighbour held | 1556 passed, 0 failed |
+| 6, standards | `95b4d62` | none | 1556 passed, 0 failed |
+
+**Mutations.** The two neighbours that held before their change were seen red under a mutation of the clause each turns on, in one gate run on `71e1e40` with both mutations applied and then undone (the tree matched HEAD afterwards): `ruleForPaths` reading the cleaned form alone, and `resolveWith` setting no list at a resolve with a suffix (every resolve after the round's first). 1554 passed, 2 failed: `rules: the shaper's files force the ask when they list "config/project/"` (not forced; the fix went on to a repair) and `reshape: a call a reshape raises is shown the task its own resolve planned` (shown `["ask",[]]`). No other check moved.
+
+**Counts.** The loop reads `1556 checks passed, 0 failed`, as planned. The other harnesses on the green run after the standards commit: guard `601 passed, 0 mismatched`, prefs `172 passed, 0 failed`, gate `117 passed, 0 failed`, setup `512 passed, 0 failed`, gh `279 passed, 0 failed`, background `39 passed, 0 failed`, and syntax and validate exit 0, as in round 2's As built. This round changes no file those harnesses read, and the baseline had no failing check. The gate's JSON: `ok: true`, `git.unexpected_files` and `git.uncommitted` both empty.
+
+**Gate steps 10 to 13.**
+
+- 10, Docs. Each task's entry stands as written, in its own commit. `workflows/redline-loop.js`: Task 4's clause in `docs/contract.md`, "`redline.json`", "Ask rules", the `paths` bullet, is reader-facing and is in `c03af7d`; Task 5 has no reader-facing change, for the reason its entry gives, in `71e1e40`. `docs/running.md` (`9fb5f15`, `c3548d8`) and `docs/contract.md` (`c03af7d`) are reader-facing by nature.
+- 11, Version. `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.4`. No bump.
+- 12, Standards retrospective. All five approved items were applied in `95b4d62`, `redline: record the round 3 review lessons in the standards (#106)`, which names no finding, since no item finishes one. Items 1, 2 and 3 go to `agents.md` lines 47, 50 and 17, item 4 is a new last bullet of `docs-gate.md` (line 19), and item 5 goes to `tests.md` line 7. Each clause was read back in its whole line. The parentheses and backticks close. No line was added to `agents.md` or `tests.md`, and `docs-gate.md` gained one at its end, so every line citation still holds.
+- 13, Spec folder. This section, committed last.
+
+**Deviations.** None. `shape.md` is unchanged.
