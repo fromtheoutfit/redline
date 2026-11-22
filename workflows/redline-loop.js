@@ -692,7 +692,8 @@ function resumeLine(opts) {
   // the entry's ownCheck (#116), never how the error is worded. After the workflow's own check of
   // what the reshape returned (the hold, a check of its result) nothing was fixed by hand, and
   // the rerun corrects what the error names. After any other stop (the spec check, a call that
-  // returned nothing) the folder may be incomplete, so the rerun restores what is missing, and
+  // returned nothing) the folder may be incomplete, so the rerun restores what is missing, keeps
+  // each decided entry and its task unless an adjustment changes that task (#120, R1-2), and
   // never writes from memory a decided entry the folder no longer holds: the reshape prompt
   // names each decided finding and its end, never the choice, the notes and the date. Both hold
   // in a round with no decision too: the line cannot see the round's decisions, and correcting
@@ -709,7 +710,7 @@ function resumeLine(opts) {
       ? `${entry.ownCheck ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it.' : ''} Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.`
       : entry.ownCheck
         ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md, shape.md, standards.md and references.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct what the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
-        : ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided and the task written for it, write again what is missing or left unfinished, and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
+        : ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided, and the task written for it unless an adjustment above changes that task, then write again what is missing or left unfinished and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
   // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
   // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
   // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
