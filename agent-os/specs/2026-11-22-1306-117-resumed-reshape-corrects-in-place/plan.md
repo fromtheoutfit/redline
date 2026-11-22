@@ -177,3 +177,86 @@ No resume prompt changes in this task: the two selectors move from the error's o
 4. `.claude/redline/checks.sh --baseline`: one JSON object, all nine checks green.
 5. The shellcheck command, before Task 1's commit and after the last, with its output recorded.
 6. `git diff --stat main -- templates/ hooks/ scripts/redline-guard.sh scripts/redline-gh.sh tests/gh-test.sh .claude/commands/` prints nothing.
+
+## As built
+
+Built 2026-11-22 on `refactor/117-tell-a-reshape-resumed-after-any-shape-stage-stop-to-correct-its-spec-folder-in-place`.
+
+| Task | Commit | Red, then green |
+|---|---|---|
+| 1, the spec folder | `35d90e6` | shellcheck clean before it |
+| 2, `ownCheck` end to end (#116) | `b140f33` | loop: 14 failed, then 1630 passed, 0 failed. prefs: 3 failed, then 175 passed, 0 failed |
+| 3, the reshape's two clauses (#117) | `67b77ab` | loop: 13 failed, then 1653 passed, 0 failed |
+| 4, the first shape's own sentence | `a7b99a2` | loop: 3 failed, then 1658 passed, 0 failed |
+| 5, the version and the upgrade note | `a7b99a2`, with Task 4 | setup: 512 passed, 0 failed |
+| the standards retrospective, E1 to E7 | `c4b430f` | loop: 1658 passed, 0 failed |
+
+The gate: `.claude/redline/checks.sh --baseline` printed `"ok":true`, all nine checks exit 0 (syntax, validate, guard, loop, prefs, gate, setup, gh, background), on the tree of `a7b99a2`. Shellcheck was clean before the first commit and after the last code commit. `git diff --stat main -- templates/ hooks/ scripts/redline-guard.sh scripts/redline-gh.sh tests/gh-test.sh .claude/commands/` prints nothing.
+
+### Docs entries
+
+| File | Section | Commit |
+|---|---|---|
+| `workflows/redline-loop.js` | `docs/running.md`, "Run markers and resume" and "A reshape after your decision" | `b140f33`, `67b77ab`, `a7b99a2` |
+| `skills/redline/SKILL.md` | `docs/running.md`, "Run markers and resume" | `b140f33` |
+| `scripts/redline-prefs.sh` | `docs/scripts.md`, the quoted header; `docs/contract.md`, the marker | `b140f33` |
+| `agents/redline-shaper.md` | `docs/running.md`, "Run markers and resume" | `67b77ab`, `a7b99a2` |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | `docs/upgrading.md`, "A stopped run across 0.4.5" | `a7b99a2` |
+
+### The sweep (decision 4)
+
+The harness as built was run once under `git show 8cf1595:workflows/redline-loop.js` and once under the workflow as built, each in its own process, and every call's label, prompt and options were hashed.
+
+- 637 scenarios. 621 build the same calls under both. 16 differ.
+- Every scenario that passes no resume entry is identical: a first run's prompts are byte for byte what they were.
+- 37 scenarios pass a resume entry: the 24 that did at `8cf1595` and 13 this spec added.
+- Of the 24, 19 are identical. Four differ, each in one call, the resumed one:
+  - `resume: shape stage relaunch` (9), at `shape r1`: the own sentence (decision 17);
+  - `reshape: an override to fix whose task the reshape removed, resumed` (22) and `reshape: a fix left with no task and an accept left with one, resumed` (24), at `reshape r1 #1`: the widened clause (decision 14);
+  - `reshape: a reshape of a decided round that left no shape.md, resumed` (23), at `reshape r1 #1`: from-scratch to the restore clause (decision 5).
+- The 24th, `resume: bad attempt`, builds no call under either script and differs only in the refusal it throws, which now names the key (`{attempt, error, hand}` became `{attempt, error, hand, ownCheck}`). `resume: bad shape`, which passes a list and so is not among the 24, differs the same way.
+- The other ten are this spec's own cases: nine each differ in the one resumed call (the two no-fallback cases, the human pass's first shape, and six resumed reshapes), and `resume: an ownCheck that is not a boolean` runs to the end under the old script and is refused under the new one. Its other three cases build the same calls under both.
+- The four that gained the field on their entries are 5, 9, 22 and 24; 5 (`resume: a stop at resolve, resumed`) builds the same prompts.
+
+### The mutations (decision 5)
+
+Nineteen, each applied to a copy of the workflow in the scratchpad and run through the harness with its read of the workflow pointed at the copy. Every one applied and each was red. The nineteenth crashed the harness on its first run and was fixed before it was called pinned (below).
+
+| # | Mutation | Failed | Red among them |
+|---|---|---|---|
+| 1 | the flag dropped at one resolve site | 4 | the site count; the rule over every result |
+| 2 | the flag dropped at the hold | 3 | the site count; the hold not reached with `ownCheck` |
+| 3 | the flag dropped at a shaper result check | 5 | the first shape's result; a reshape's result check |
+| 4 | the flag set at the spec check | 5 | the site count; decision 5's case |
+| 5 | the flag set at the autopilot stop | 4 | the neighbours say false |
+| 6 | the field left off the error result | 8 | both result checks |
+| 7 | a wording fallback put back at the resolve | 1 | the resolve's no-fallback case |
+| 8 | a wording fallback put back at the hold | 1 | the hold's no-fallback case |
+| 9 | an absent `ownCheck` read as true | 7 | every entry with no field |
+| 10 | the reshape test narrowed to `reshape r` | 2 | the human pass's reshape; the rule over every reshape prompt |
+| 11 | the clause chosen without the label | 5 | the first shape's cases, decision 5's neighbour among them |
+| 12 | from-scratch put back for a field-less reshape | 7 | decision 5's case; the rule over every reshape prompt |
+| 13 | the from-memory ban dropped | 6 | every restore case |
+| 14 | `what the error names` put back to `the task the error names` | 4 | 22, 24, the result check's case |
+| 15 | the own sentence dropped at a first shape | 2 | 9; the human pass's first shape |
+| 16 | the own sentence given to a field-less first shape | 3 | 16; decision 5's neighbour |
+| 17 | a non-boolean `ownCheck` accepted | 1 | its refusal |
+| 18 | the relaunch note left without the field | 1 | its check |
+| 19 | an `ownCheck` of false refused at intake | 8 | the false-reads-as-absent case; every resumed reshape whose stop gave false |
+
+Three pins held before the build and could not be red first, so they are seen red here: decision 5's neighbour (9, 11, 16), a first shape resumed from an entry with no field (9, 11, 16), and the false-reads-as-absent case (19).
+
+Mutation 19 was added while this section was written, since no earlier one turned the false-reads-as-absent case red. Its first run printed no count: `Cannot read properties of undefined (reading 'status')`. The third-attempt check read `thirdTime.res.status` and passed `stopOf(thirdTime)` as its detail, and a refused launch has no result. The check now reads `(thirdTime.res || {})` and fails instead of throwing, in its own commit after the standards. The loop test stayed at 1658 passed, 0 failed, and the rerun of 19 printed 1645 passed, 8 failed. The standards line E4 added says eighteen, which was the count when it was written.
+
+### Differences from the plan
+
+- **Tasks 4 and 5 are one commit**, `a7b99a2`.
+- **The skill says it in the resume question too.** The plan named three places in `skills/redline/SKILL.md`; a fourth was added: for an `error` marker whose `ownCheck` is true, the resume question says nothing needs fixing by hand, since that is where the person decides.
+- **The seventeen sites are pinned by a rule over every scenario**, not by seventeen checks: `go()` reads each error result against a table of the eighteen messages (one site words its stop two ways), a second check requires each to be reached, and two source counts pin where `checkError` is called.
+- **`ownCheck` is false on a stop that cannot be resumed**, and the relaunch refusal's result carries it too, so every error result holds the key.
+- **The refusal of a malformed `args.resume` names the key.** Its text changed, which the sweep shows on two scenarios.
+- **An earlier docs pin was repointed.** The loop test pinned `docs/running.md`'s "except after the stop that holds a decided finding to its task after a reshape", which Task 3 rewrote; it now pins three phrases of the new sentence.
+- **Between `b140f33` and `67b77ab`** a reshape entry with the field got the hold's old words whatever its stop, since Task 2 moved the selector and Task 3 the words.
+- **Nineteen mutations**, not thirteen: the flag dropped at the hold and at a shaper site, the fallback at the hold, an absent field read as true, the relaunch note and a false refused at intake were added.
+- **One check was fixed after the standards commit**: the third-attempt case threw under mutation 19 where it should have failed.
+- **`docs/running.md` does not link `docs/upgrading.md`**; the upgrade section links back to it.

@@ -51,6 +51,15 @@ Settled by the design:
 19. **A reshape is known by its label**, `reshape ` after the shaper's agent type, which is the workflow's own name for the step and no part of an error. The clause does not turn on whether the round has a decision: `resumeLine` cannot see the round's decisions, and correcting in place is right for every reshape.
 20. **Decision 6 and the retrospective are two things.** The replay standard's resume clause changes in the commits of the code it describes (decision 6). What the spec taught is put to the user at the gate and lands in its own commit.
 
+As built (2026-11-22; `plan.md`, "As built", has the commits, the sweep and the mutations):
+
+21. **Tasks 4 and 5 landed in one commit**, `a7b99a2`.
+22. **The skill's resume question says it too**, for an `error` marker whose `ownCheck` is true: the fourth place in the skill, beside the marker's keys, the resume entry and the error section.
+23. **The seventeen sites are pinned by a rule over every scenario's result**, with a check that each stop is reached and two source counts, in place of a check per site.
+24. **Every error result holds `ownCheck`**, false where the stop cannot be resumed.
+25. **The sweep's exceptions are the four named and two that differ only in a refusal's text**: the malformed-entry message names the new key.
+26. **Standards retrospective: seven edits applied**, E1 to E7, in `c4b430f`: the road a stop's fact travels and the cost of rewording a resume sentence (`workflow/replay.md`); counts measured before they are stated, mutations run against a copy, and a field pinned over every result (`testing/tests.md`); a standards sentence that describes the code changes with the code (`process/standards-retrospective.md`); and a change to what an older stopped run does gets an upgrade section (`process/docs-gate.md`).
+
 ## The table (decision 2)
 
 Method: `tests/loop-test.mjs` was loaded in memory with `go()` exposed, on `main` at `8cf1595` (618 scenarios, 1614 checks, 0 failed), with no file written. Every stop below was produced by a run, and every line was read off the relaunch's prompt. Where a row cites a count, it is over those 618 scenarios or over the runs named.

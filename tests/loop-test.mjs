@@ -3766,7 +3766,7 @@ function samePrefix(name, first, second, n) {
   // The entry holds the last error, so a reshape resumed after the hold that then failed the
   // spec check is resumed a third time from that error: restore, and still no rewrite.
   const thirdTime = await go('reshape: a reshape resumed after the hold, then stopped by the spec check, resumed again', { ...decidedRound, resume: { [RESHAPE_1]: { attempt: 3, error: specLostError, hand: { commits: [], paths: [] }, ownCheck: false } } }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
-  check('reshape: a third attempt after the hold and then the spec check is told to restore what is missing, never to rewrite', reshapePromptOf(thirdTime).endsWith(resumeLineFor(specLostError).replace('Resume attempt 2 ', 'Resume attempt 3 ') + RESTORE) && !reshapePromptOf(thirdTime).includes(REWRITTEN) && thirdTime.res.status === 'done', [reshapePromptOf(thirdTime).slice(-700), stopOf(thirdTime)])
+  check('reshape: a third attempt after the hold and then the spec check is told to restore what is missing, never to rewrite', reshapePromptOf(thirdTime).endsWith(resumeLineFor(specLostError).replace('Resume attempt 2 ', 'Resume attempt 3 ') + RESTORE) && !reshapePromptOf(thirdTime).includes(REWRITTEN) && (thirdTime.res || {}).status === 'done', [reshapePromptOf(thirdTime).slice(-700), (thirdTime.res || {}).status, (thirdTime.res || {}).error, thirdTime.thrown ? thirdTime.thrown.message : ''])
   // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
   // message and its label, and its detail names each decided finding whose task a reshape
   // changed: the list as the resolve planned it, then as each reshape that changed it left it.
