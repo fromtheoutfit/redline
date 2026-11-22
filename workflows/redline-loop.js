@@ -685,8 +685,10 @@ function resumeLine(opts) {
   // disk when one is resumed in a round folder its own launch created. A revise-only pass over an
   // earlier run's round (/redline:redline-revise <pr> round <N>) shapes in that run's folder,
   // which can hold its decided entries, so a resume of its first shape rewrites them, as it
-  // always has, and that run's record commit keeps them in git history (#120, R1-1). A reshape
-  // runs after the round's resolve, so its folder can hold the
+  // always has (#120, R1-1). That run's spec commit keeps them in git history only once the run
+  // reached its implement step; one that stopped before it (at its resolve, its plan approver or
+  // a reshape) left them uncommitted, and the rewrite loses them; the record commit holds only
+  // redline/ (#120, R2-2). A reshape runs after the round's resolve, so its folder can hold the
   // entries and tasks the resolve agent wrote for the round's decisions, and its rerun is never
   // told to rewrite, whatever stopped it. Until #117 only the stop that holds a decided finding
   // to its task (#106) was told to correct in place, and a reshape resumed after any other stop
