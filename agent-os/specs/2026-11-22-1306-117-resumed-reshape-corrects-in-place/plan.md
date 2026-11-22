@@ -246,7 +246,7 @@ Nineteen, each applied to a copy of the workflow in the scratchpad and run throu
 
 Three pins held before the build and could not be red first, so they are seen red here: decision 5's neighbour (9, 11, 16), a first shape resumed from an entry with no field (9, 11, 16), and the false-reads-as-absent case (19).
 
-Mutation 19 was added while this section was written, since no earlier one turned the false-reads-as-absent case red. Its first run printed no count: `Cannot read properties of undefined (reading 'status')`. The third-attempt check read `thirdTime.res.status` and passed `stopOf(thirdTime)` as its detail, and a refused launch has no result. The check now reads `(thirdTime.res || {})` and fails instead of throwing, in its own commit after the standards. The loop test stayed at 1658 passed, 0 failed, and the rerun of 19 printed 1645 passed, 8 failed. The standards line E4 added says eighteen, which was the count when it was written.
+Mutation 19 was added while this section was written, since no earlier one turned the false-reads-as-absent case red. Its first run printed no count: `Cannot read properties of undefined (reading 'status')`. The third-attempt check read `thirdTime.res.status` and passed `stopOf(thirdTime)` as its detail, and a refused launch has no result. The check now reads `(thirdTime.res || {})` and fails instead of throwing, in its own commit after the standards. The loop test stayed at 1658 passed, 0 failed, and the rerun of 19 printed 1645 passed, 8 failed. The standards line E4 added said eighteen, the count when it was written; it now states the rule with no count, changed in its own commit, and this section holds the number.
 
 ### Differences from the plan
 
