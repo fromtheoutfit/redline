@@ -3236,13 +3236,14 @@ function describeOutcome(outcome, human) {
 // A human review pass sorts into fix, ask or none; a Redline round into fix, decline, defer or ask
 // (#93). The
 // shaper's JSON is checked here, so a value from the other kind of pass stops the run at shape
-// rather than reaching a plan.
-function checkDispositions(pass, shaped) {
+// rather than reaching a plan. It runs after the `spec status` call, so it names the shaper's
+// label itself (#120, R1-3).
+function checkDispositions(pass, shaped, shaperLabel) {
   // A decline (#93) is a Redline round's: it carries the reason a teammate reads and is Redline's own
   // decision, never a pending one. A human review pass has none, as it has no defer.
   const declined = shaped.findings.filter((f) => f.disposition === 'decline')
   if (pass.human && declined.length) {
-    throw checkError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
+    throw checkError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`, {}, shaperLabel)
   }
   // The other pass's values are read as the shaper wrote them, before the loop below rewrites a
   // decline's owner, so a decline marked reviewer stops here as a fix marked reviewer does (#94,
@@ -3254,7 +3255,7 @@ function checkDispositions(pass, shaped) {
     const ids = bad.map((f) => f.id).join(', ')
     throw checkError('shape', pass.human
       ? `the shaper deferred ${ids}; in a human review pass a comment is fix, ask or none, never defer, since nothing a teammate asked for is deferred by Redline on its own`
-      : `the shaper sorted ${ids} with a human review pass's values (none, or decidedBy reviewer) in a Redline round`)
+      : `the shaper sorted ${ids} with a human review pass's values (none, or decidedBy reviewer) in a Redline round`, {}, shaperLabel)
   }
   for (const f of declined) {
     if (f.decidedBy !== 'redline') {
@@ -3314,12 +3315,13 @@ function checkSecondLook(pass, shaped, inScope) {
 // for a finding a repository ask rule covers; the reason a call gives is checkWhy's, after it. On a
 // reshape, `known` is the round's calls so far: a call the round already decided may be left out
 // or kept beside a re-sorted finding, since the reshape returns only the calls still pending or
-// newly raised (#61, R1-2).
-function checkCalls(shaped, known = []) {
+// newly raised (#61, R1-2). It runs after the `spec status` call, so it names the shaper's label
+// itself (#120, R1-3).
+function checkCalls(shaped, known, shaperLabel) {
   const decided = (id) => known.some((c) => c.id === id)
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
-    throw checkError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
+    throw checkError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`, {}, shaperLabel)
   }
   for (const call of shaped.judgmentCalls) {
     if (decided(call.id)) {
@@ -3327,7 +3329,7 @@ function checkCalls(shaped, known = []) {
     }
     const f = shaped.findings.find((x) => x.id === call.id)
     if (!f || f.disposition !== 'ask') {
-      throw checkError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
+      throw checkError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`, {}, shaperLabel)
     }
   }
 }
@@ -3806,24 +3808,30 @@ async function checker(flag, snapshot, octane, label, prefix) {
 }
 
 // The checks on the shaper's output, after the shape and after each reshape, in one order (#94,
-// R8-5): the spec folder it reports, a disposition for every finding (the reshape prompt asks for
-// every finding, as the shape prompt does), then the eight checks, forceAskRules among them, each
-// finding's files read one way (#114, R4-4), and the round's dispositions. `known` is the round's
-// calls so far, [] on the shape; `label` names the shaper call for the checks that stop on it, and
-// `suffix` its spec-status call. `decided` is the ids of the round's decided findings, [] on the
-// shape, which the draft check skips (#97, R3-4).
+// R8-5): the spec folder it reports, the folder itself (the spec check), a disposition for every
+// finding (the reshape prompt asks for every finding, as the shape prompt does), then the eight
+// checks, forceAskRules among them, each finding's files read one way (#114, R4-4), and the
+// round's dispositions. The spec check runs before the checks of the result (#120, R1-3): its
+// stop carries no ownCheck, since a file can be missing because a Write was refused, which a
+// person fixes, so an attempt that both left a file out and returned a result a check refuses
+// stops there and the skill says to fix the cause first. Until R1-3 the result checks ran first,
+// and such an attempt was marked as needing no hand fix. Every check after the spec check names
+// the shaper's label itself, since lastLabel would name the spec-status call (#94, R2-9).
+// `known` is the round's calls so far, [] on the shape; `label` names the shaper call for the
+// checks that stop on it, and `suffix` its spec-status call. `decided` is the ids of the round's
+// decided findings, [] on the shape, which the draft check skips (#97, R3-4).
 async function vetShape(pass, record, inScope, shaped, known, label, suffix, decided = []) {
   if (shaped.specFolder.replace(/\/+$/, '') !== record.specFolder) {
     warnings.push(`${pass.name}: shaper reported spec folder ${shaped.specFolder}, expected ${record.specFolder}`)
   }
+  await checkSpec(pass, record.specFolder, label, suffix)
   const unsorted = inScope.filter((f) => !shaped.findings.some((s) => s.id === f.id)).map((f) => f.id)
   if (unsorted.length) {
-    throw checkError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
+    throw checkError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`, {}, label)
   }
-  checkDispositions(pass, shaped)
+  checkDispositions(pass, shaped, label)
   checkSecondLook(pass, shaped, inScope)
-  checkCalls(shaped, known)
-  await checkSpec(pass, record.specFolder, label, suffix)
+  checkCalls(shaped, known, label)
   forceAskRules(record, pass, inScope, shaped)
   // Each finding's files are read through the one path function here, where the shape is taken
   // in, so every reader after this point sees one form: the shaper's own list for its deferral
