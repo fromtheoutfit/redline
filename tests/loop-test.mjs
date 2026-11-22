@@ -2710,7 +2710,10 @@ function samePrefix(name, first, second, n) {
   const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
   const humanArgs = (findings) => ({ ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings, commentIds: Object.fromEntries(findings.map((x) => [x.id, x.threadId])), posted: true } })
   run = await go('human: the shaper declines', humanArgs([h('H1-1')]), { reviews: [], decline: ['H1-1'], commitIds: [[]] })
-  check('human: a decline stops the pass at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1|spec status h1', [run.res.status, run.res.error, labels(run.calls)])
+  // The stop resumes at the shaper, whose label the throw passes itself: the spec check runs first,
+  // so lastLabel names the spec-status call, and a resume there would replay the refused result
+  // (#120, R1-3). Until R2-1 no check read this stop's label.
+  check('human: a decline stops the pass at shape, resumable at the shaper', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1|spec status h1' && (run.res.resumeFrom || {}).label === 'shape h1', [run.res.status, run.res.error, labels(run.calls), run.res.resumeFrom])
   // That stop is the workflow's own check of the shaper's result, and a human pass's first shape
   // goes by the same field as a round's (#117): nothing was fixed by hand, then the rewrite.
   const humanResumed = await go('human: the shaper declined, resumed', { ...humanArgs([h('H1-1')]), resume: { 'shape h1': { attempt: 2, error: run.res.error, hand: { commits: [], paths: [] }, ownCheck: run.res.ownCheck === true } } }, { reviews: [[]], commitIds: [['H1-1'], []] })
