@@ -1667,10 +1667,21 @@ function samePrefix(name, first, second, n) {
   const two = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'nit')], []], commitIds: [['R1-1', 'R1-2']] }
   const shapeFail = await go('resume: shape stage error', baseArgs, { ...two, shaperDrop: ['R1-2'] })
   check('resume: a missing disposition names shape r1', shapeFail.res.status === 'error' && shapeFail.res.stage === 'shape' && shapeFail.res.error === 'the shaper gave no disposition for R1-2' && JSON.stringify(shapeFail.res.resumeFrom) === JSON.stringify({ label: 'shape r1', attempt: 2 }), [shapeFail.res.status, shapeFail.res.stage, shapeFail.res.error, shapeFail.res.resumeFrom])
-  const shapeArgs = { ...baseArgs, resume: { 'shape r1': { attempt: 2, error: 'the shaper gave no disposition for R1-2', hand: { commits: [], paths: [] } } } }
+  // The stop is the workflow's own check of what the shaper returned, so its entry carries
+  // ownCheck and the line says nothing was fixed by hand, as the resolve's and the reshape's do,
+  // before the replace sentence (#117): the skill tells the person the same, and until then the
+  // line said only that the person had fixed the cause by hand.
+  const ownSentence = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it.'
+  const shapeArgs = { ...baseArgs, resume: { 'shape r1': { attempt: 2, error: 'the shaper gave no disposition for R1-2', hand: { commits: [], paths: [] }, ownCheck: true } } }
   const reshaped = await go('resume: shape stage relaunch', shapeArgs, two)
   samePrefix('resume: shape stage', shapeFail.calls, reshaped.calls, 3)
-  check('resume: the shaper prompt ends with the line and the replace sentence', pick(reshaped.calls, 'shape r1') && pick(reshaped.calls, 'shape r1').prompt.endsWith(line('the shaper gave no disposition for R1-2') + shaperLine), pick(reshaped.calls, 'shape r1') && pick(reshaped.calls, 'shape r1').prompt.slice(-600))
+  const shapePromptOf = (r) => (pick(r.calls, 'shape r1') || { prompt: '' }).prompt
+  check('resume: a first shape resumed after a check of its result is told nothing was fixed by hand, then to rewrite the four files', shapePromptOf(reshaped).endsWith(line('the shaper gave no disposition for R1-2') + ownSentence + shaperLine), shapePromptOf(reshaped).slice(-700))
+  // The neighbour: the same error on an entry with no ownCheck is an ordinary stop, so its line is
+  // the one a first shape always had, byte for byte (no fallback to the wording, #116).
+  const reshapedFieldless = await go('resume: shape stage relaunch from an entry with no ownCheck', { ...baseArgs, resume: { 'shape r1': { attempt: 2, error: 'the shaper gave no disposition for R1-2', hand: { commits: [], paths: [] } } } }, two)
+  check('resume: a first shape resumed from an entry with no ownCheck ends with the line and the replace sentence, as it always did', shapePromptOf(reshapedFieldless).endsWith(line('the shaper gave no disposition for R1-2') + shaperLine) && !shapePromptOf(reshapedFieldless).includes(ownSentence), shapePromptOf(reshapedFieldless).slice(-600))
+  check('resume: the shaper\'s file, the replay standard and docs/running.md say a first shape resumed after the workflow\'s check is told nothing was fixed by hand', fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8').includes('nothing was fixed by hand for it, and you rewrite the four files all the same') && fs.readFileSync(path.join(here, '..', 'agent-os', 'standards', 'workflow', 'replay.md'), 'utf8').includes('a first shape resumed after the workflow\'s own check is told so too') && fs.readFileSync(path.join(here, '..', 'docs', 'running.md'), 'utf8').includes('it is told first that nothing was fixed by hand'))
   check('resume: the shape relaunch finishes', reshaped.res.status === 'done', [reshaped.res.status, reshaped.res.error])
 
   // The approve stage names the plan approver, not the standards approver that started beside it.
@@ -2688,6 +2699,11 @@ function samePrefix(name, first, second, n) {
   const humanArgs = (findings) => ({ ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings, commentIds: Object.fromEntries(findings.map((x) => [x.id, x.threadId])), posted: true } })
   run = await go('human: the shaper declines', humanArgs([h('H1-1')]), { reviews: [], decline: ['H1-1'], commitIds: [[]] })
   check('human: a decline stops the pass at shape', run.res.status === 'error' && run.res.stage === 'shape' && run.res.error.includes('the shaper declined H1-1') && run.res.error.includes('never a decline of Redline\'s own') && labels(run.calls).join('|') === 'shape h1', [run.res.status, run.res.error, labels(run.calls)])
+  // That stop is the workflow's own check of the shaper's result, and a human pass's first shape
+  // goes by the same field as a round's (#117): nothing was fixed by hand, then the rewrite.
+  const humanResumed = await go('human: the shaper declined, resumed', { ...humanArgs([h('H1-1')]), resume: { 'shape h1': { attempt: 2, error: run.res.error, hand: { commits: [], paths: [] }, ownCheck: run.res.ownCheck === true } } }, { reviews: [[]], commitIds: [['H1-1'], []] })
+  const humanShape = (pick(humanResumed.calls, 'shape h1') || { prompt: '' }).prompt
+  check('human: a first shape resumed after that check is told nothing was fixed by hand, then to rewrite the four files', run.res.ownCheck === true && humanShape.includes('Resume attempt 2 of this step.') && humanShape.endsWith('and the duplicate checks in your instructions apply. When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it. Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.') && (humanResumed.res || {}).status !== 'error', [run.res.ownCheck, humanShape.slice(-500), (humanResumed.res || {}).status, (humanResumed.res || {}).error])
   run = await go('human: an ask for a reason of its own', humanArgs([h('H1-1')]), { reviews: [], ask: ['H1-1'], whyHuman: { 'H1-1': 'unsure' }, commitIds: [[]] })
   check('human: a human pass still asks for its own reasons, in its own words', run.res.status === 'handoff' && run.res.judgmentCalls[0].why_human === 'unsure' && pick(run.calls, 'shape h1').prompt.includes('Judgment calls are returned, never decided') && pick(run.calls, 'shape h1').prompt.includes('Sort each finding into fix, ask or none; never defer'), [run.res.status, run.res.error])
   // Its schema is its own (#94, R1-5): HUMAN_WHY, and none of the Redline round's cases.

@@ -698,11 +698,15 @@ function resumeLine(opts) {
   // in a round with no decision too: the line cannot see the round's decisions, and correcting
   // in place is right for every reshape. Each clause ends with the ban on touching redline/ that
   // the from-scratch sentence carries (#114, R4-1).
+  // A first shape stopped by the workflow's own check of its result is told so as well, before
+  // the from-scratch sentence (#117): the skill tells the person that nothing needs fixing by
+  // hand, and until then this line told the rerun only that the person had fixed the cause by
+  // hand. An entry without the field keeps the line a first shape always had, byte for byte.
   const reshape = String(opts.label || '').startsWith('reshape ')
   const shaper = opts.agentType !== 'redline:redline-shaper'
     ? ''
     : !reshape
-      ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+      ? `${entry.ownCheck ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it.' : ''} Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.`
       : entry.ownCheck
         ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md, shape.md, standards.md and references.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct what the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
         : ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided and the task written for it, write again what is missing or left unfinished, and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
