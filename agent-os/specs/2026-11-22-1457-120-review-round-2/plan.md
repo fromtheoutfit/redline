@@ -453,3 +453,23 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts (Task 2's red under the mutation), and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 2 for PR #120 (#117)`.
 
 **Files** (this task): `agent-os/standards/workflow/replay.md`, `agent-os/standards/testing/tests.md` and `agent-os/standards/process/docs-gate.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-22-1457-120-review-round-2/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `96eb7aa` in task order. Each task's red and green run is its own gate run, so no red run was shared and nothing is recorded under Decisions in `shape.md`. Every count below is the loop harness's line in that run.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `2e8b511` | | |
+| 2, R2-1 | `896471c` | under the mutation (`, {}, shaperLabel)` dropped from the human-decline throw): `1664 checks passed, 1 failed`, the one failing check "human: a decline stops the pass at shape, resumable at the shaper", its detail showing `resumeFrom` `{"label":"spec status h1","attempt":2}`, as planned | `1665 checks passed, 0 failed`, with the throw put back and `git diff -- workflows/redline-loop.js` printing nothing |
+| 3, R2-2 | `3d0ca14` | `1665 checks passed, 1 failed`: the new docs pin, `defer: docs/running.md says "once that run reached its implement step"`, as planned | `1666 checks passed, 0 failed` |
+| 4, R2-3 | `07a7316` | `1662 checks passed, 7 failed`: the three new checks (the resumed prompt's ban, the shaper file's ban, the docs pin) and the four that compare against `CORRECT_IN_PLACE`, as planned | `1669 checks passed, 0 failed` |
+| 5, R2-5 (the mitigation) | `9e1f5ea` | `1669 checks passed, 1 failed`: the new docs pin, `defer: docs/running.md says "The check sees a refused Write only where it leaves a file missing"`, as planned | `1670 checks passed, 0 failed` |
+| 6, the standards retrospective | `26ff100` | | the four approved edits, each read back in its whole line; the gate over this commit green, `ok` true |
+
+- **Counts.** The loop reads `1670 checks passed, 0 failed`, as planned. The other harnesses fail nothing, as at the baseline, which failed no check: guard `601 passed, 0 mismatched`, prefs `175 passed, 0 failed`, gate `117 passed, 0 failed`, setup `512 passed, 0 failed`, gh `279 passed, 0 failed`, background `39 passed, 0 failed`; syntax and validate exit 0.
+- **Proofs.** Each task's proof greps print what the task says: Task 2 `1`, and `git diff -- workflows/redline-loop.js` nothing; Task 3 `0` for each of the three files, then `1` for each of the four; Task 4 `workflows/redline-loop.js:1` and `tests/loop-test.mjs:2`, then `2`, then `1` and `1`, then `1`; Task 5 `1` for each of the three files.
+- **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.5`; no bump.
+- **Docs.** Tasks 3, 4 and 5 updated `docs/running.md`, "Run markers and resume", in their own commits; Task 2's commit holds `tests/loop-test.mjs` alone, with no reader-facing change.
+- **Standards retrospective.** Items 1 and 2 (`agent-os/standards/workflow/replay.md`, lines 19 and 20), item 3 (`agent-os/standards/testing/tests.md`, line 15) and item 4 (`agent-os/standards/process/docs-gate.md`, line 19) were approved and applied in `26ff100`, after the finding commits; item 1 appends to line 19 as Tasks 3 and 4 left it. No item finishes a finding, so the commit names none.
+- **Deviations.** None.
