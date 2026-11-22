@@ -408,6 +408,14 @@ const OWN_CHECKS = [
   ['shape', /^the shaper deferred .* with no drafted issue/],
 ].map(([stage, re]) => ({ stage, re, seen: 0 }))
 const ownWrong = []
+// No reshape is told to rewrite its spec folder from scratch (#117), on a first run or a resume:
+// every reshape prompt of every scenario is read. And what a resume line says is said on a
+// resume only: no prompt of a run that passes no resume entry holds the line or one of its
+// clauses. Two checks at the end name the offenders.
+const REWRITE_SENTENCE = 'from scratch, replacing what the earlier attempt wrote'
+const RESUME_WORDS = ['Resume attempt', 'nothing was fixed by hand for it', 'This step is a reshape, so the spec folder already holds the plan', REWRITE_SENTENCE]
+const rewrittenReshape = []
+const strayResumeWords = []
 
 async function go(name, args, scenario, script = body) {
   const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
@@ -424,6 +432,10 @@ async function go(name, args, scenario, script = body) {
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
   forThePerson.push(...calls.filter((c) => c.prompt.includes('### For the person') || c.prompt.includes('forThePerson')).map((c) => `${name}: ${c.label}`))
+  rewrittenReshape.push(...calls.filter((c) => /^reshape /.test(c.label || '') && c.prompt.includes(REWRITE_SENTENCE)).map((c) => `${name}: ${c.label}`))
+  if (!args || !args.resume || Array.isArray(args.resume) || Object.keys(args.resume).length === 0) {
+    strayResumeWords.push(...calls.filter((c) => RESUME_WORDS.some((words) => c.prompt.includes(words))).map((c) => `${name}: ${c.label}`))
+  }
   if (!thrown && res && res.status === 'error') {
     const own = OWN_CHECKS.find((k) => k.stage === res.stage && k.re.test(res.error || ''))
     if (own && res.ownCheck === true && res.resumeFrom) {
@@ -3065,7 +3077,7 @@ function samePrefix(name, first, second, n) {
   for (const [name, text, phrases] of [
     ['the plan approver\'s file', approverAgent, ['whose `files` list is empty has no task', 'lists `files` with no task for it in `plan.md`']],
     ['the implementer\'s file', implementerAgent, ['with no task in `plan.md` gets no change and no commit', 'only a commit of the finding\'s own is counted']],
-    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision', 'except in the plan dial\'s list of the shaper\'s dispositions', '**A reshape after your decision.**', 'the run follows the plan as reshaped', 'the reshape changed the files of R1-4\'s task, a finding decided by @<login>, from app/x.php to none', 'the reshape left its task with no files; posted with its decision', 'stops the run at stage `shape`, resumable at that reshape', 'or `reshape h<n> #<k>` in a human review pass', 'and so, for a deferral, are a draft at the end-of-run stop and the two warnings above', 'stay as the resolve agent wrote them for your decision', 'that a task counts only for the finding it names', 'the stop\'s `detail` lists it under `reshaped`', 'whenever it was shown as a deferral, whether its decision named one', 'except after the stop that holds a decided finding to its task after a reshape']],
+    ['docs/running.md', runningDoc, ['A deferral buys a round only through a commit of its own', '**Whether a mitigation shipped.**', 'no commit is demanded of a deferral', 'read by no Redline pass', 'which are shown only beside a mitigation that ships', 'the resolve agent planned no task with files for it; posted with its decision', 'except in the plan dial\'s list of the shaper\'s dispositions', '**A reshape after your decision.**', 'the run follows the plan as reshaped', 'the reshape changed the files of R1-4\'s task, a finding decided by @<login>, from app/x.php to none', 'the reshape left its task with no files; posted with its decision', 'stops the run at stage `shape`, resumable at that reshape', 'or `reshape h<n> #<k>` in a human review pass', 'and so, for a deferral, are a draft at the end-of-run stop and the two warnings above', 'stay as the resolve agent wrote them for your decision', 'that a task counts only for the finding it names', 'the stop\'s `detail` lists it under `reshaped`', 'whenever it was shown as a deferral, whether its decision named one', 'At a reshape after a bounced plan (`reshape r<n> #<k>`, `reshape h<n> #<k>`) it never rewrites them', 'it corrects what the error names and keeps the decided entries', 'named in `shape.md` as lost, never written back from memory']],
     ['the README\'s Known limits', read('README.md'), ['**No commit is demanded of a deferral.**', 'read by no Redline pass']],
     ['the skill\'s plan dial', read('skills', 'redline', 'SKILL.md'), ['`files` (the paths its task touches, empty when it has no task;', 'for an ask, the paths its recommended change would touch; for a defer', 'holds each defer\'s mitigation as the shaper wrote it']],
     ['the skill\'s closing summary', read('skills', 'redline', 'SKILL.md'), ['and what shipped, from `ships` and never from whether `mitigation` is empty', 'and what shipped, from `ships`, as that section says']],
@@ -3653,29 +3665,43 @@ function samePrefix(name, first, second, n) {
   // with a list out of this check as well.
   const acceptRecalledTasked = await go('reshape: an override to accept that a reshape returns as a call, whose second resolve plans a task for it', { ...overrideDial, decisions: toAccept }, { ...declined, reshapeAsk: ['R1-1'], resolveFilesAt: { 'resolve r1 #1': { 'R1-1': ['app/y.php'] } } })
   check('reshape: a second resolve that plans a task with files for an override to accept stops at that resolve, resumable there', acceptRecalledTasked.res.status === 'error' && acceptRecalledTasked.res.stage === 'resolve' && acceptRecalledTasked.res.error === 'the resolve agent planned a task with files for R1-1 (app/y.php), which a disposition override names as accepted; an accepted finding changes nothing' && Boolean(acceptRecalledTasked.res.resumeFrom) && acceptRecalledTasked.res.resumeFrom.label === 'resolve r1 #1', stopOf(acceptRecalledTasked))
-  // The stop is the workflow's check of what the reshape returned, so its resume line tells the
-  // rerun to correct the task and keep the decided entries, as the resolve's does (#108, R3-4),
-  // never to rewrite the four files from scratch beside decisions the resolve agent wrote. The
-  // clause is chosen by the stop: a reshape resumed after another stop keeps the shaper's line.
+  // A resumed reshape is never told to rewrite the four files from scratch (#117): by then the
+  // folder can hold the entries and tasks the resolve agent wrote for the round's decisions. Its
+  // clause is chosen by its label and by the field its stop set (#116). After the workflow's own
+  // check of what the reshape returned (the hold, a result check) the rerun corrects what the
+  // error names and keeps the decided entries, as the resolve's does (#108, R3-4). After any
+  // other stop (the spec check, a call that returned nothing) it restores what is missing.
+  // Until #117 only the hold's stop was told to correct in place, and every other was told to
+  // rewrite. The from-scratch sentence stays for a round's first shape, which no decision
+  // can precede.
   const resumeLineFor = (e) => `Resume attempt 2 of this step. The run stopped at this step with an error (${e}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.`
   const FROM_SCRATCH = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
-  const CORRECT_TASK = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
+  const REWRITTEN = 'from scratch, replacing what the earlier attempt wrote'
+  const CORRECT_IN_PLACE = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md, shape.md, standards.md and references.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct what the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
+  const RESTORE = ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided and the task written for it, write again what is missing or left unfinished, and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
   const resumeAt = (error, own) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] }, ...(own ? { ownCheck: true } : {}) } })
   const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names'), true) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   const restoredPrompt = reshapePromptOf(fixRestored)
   // No fallback to the wording (#116): the same error on an entry with no ownCheck is an ordinary
   // stop, so its rerun is not told the stop was the workflow's check.
   const fixRestoredFieldless = await go('reshape: an override to fix whose task the reshape removed, resumed from an entry with no ownCheck', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names')) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
-  check('reshape: an entry with no ownCheck is an ordinary stop whatever its error says: a reshape resumed from one is not told the stop was the workflow\'s check', reshapePromptOf(fixRestoredFieldless).includes('Resume attempt 2 of this step.') && !reshapePromptOf(fixRestoredFieldless).includes('nothing was fixed by hand'), reshapePromptOf(fixRestoredFieldless).slice(-500))
-  check('reshape: a reshape resumed after that stop is told to correct the task and keep the decided entries, never to rewrite the folder, and the relaunch finishes', restoredPrompt.endsWith(resumeLineFor(NO_TASK('a disposition override names')) + CORRECT_TASK) && !restoredPrompt.includes(FROM_SCRATCH) && fixRestored.res.status === 'done', [restoredPrompt.slice(-700), stopOf(fixRestored)])
+  check('reshape: an entry with no ownCheck is an ordinary stop whatever its error says: a reshape resumed from one is told to restore what is missing, never that the stop was the workflow\'s check', reshapePromptOf(fixRestoredFieldless).endsWith(resumeLineFor(NO_TASK('a disposition override names')) + RESTORE) && !reshapePromptOf(fixRestoredFieldless).includes('nothing was fixed by hand'), reshapePromptOf(fixRestoredFieldless).slice(-700))
+  check('reshape: a reshape resumed after that stop is told to correct what the error names and keep the decided entries, never to rewrite the folder, and the relaunch finishes', restoredPrompt.endsWith(resumeLineFor(NO_TASK('a disposition override names')) + CORRECT_IN_PLACE) && !restoredPrompt.includes(FROM_SCRATCH) && fixRestored.res.status === 'done', [restoredPrompt.slice(-700), stopOf(fixRestored)])
   const specLost = await go('reshape: a reshape of a decided round that leaves no shape.md', { ...overrideDial, decisions: toFix }, { ...declined, specMissing: { 'spec status r1 #1': 'shape' } })
   const specLostError = (specLost.res || {}).error || ''
   const specRestored = await go('reshape: a reshape of a decided round that left no shape.md, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(specLostError) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
-  check('reshape: a reshape resumed after another stop keeps the shaper\'s own resume line', specLost.res.status === 'error' && specLostError !== '' && !specLostError.startsWith('the reshape left ') && reshapePromptOf(specRestored).endsWith(resumeLineFor(specLostError) + FROM_SCRATCH) && !reshapePromptOf(specRestored).includes(CORRECT_TASK), [specLostError, reshapePromptOf(specRestored).slice(-500)])
-  check('reshape: the shaper\'s file says the same of a reshape resumed after the workflow\'s check of a decided finding\'s task', shaperFile.includes('correct the task the error names'))
-  // Rule 9's exception lifts the rewrite alone, never the ban on touching redline/ that the sentence
-  // before it states, and the resume clause above carries that ban to its end (#114, R4-1).
-  check('reshape: the shaper\'s file says the exception is to rewriting from scratch, and that redline/ is left alone there too', shaperFile.includes('The one exception to rewriting from scratch is a resume line') && shaperFile.includes('and return the whole result again, still never changing or removing anything under its `redline/` folder.'))
+  check('reshape: a reshape resumed after another stop is told to restore what is missing and keep the decided entries, never to rewrite the folder, and the relaunch finishes', specLost.res.status === 'error' && specLostError !== '' && specLost.res.ownCheck === false && reshapePromptOf(specRestored).endsWith(resumeLineFor(specLostError) + RESTORE) && !reshapePromptOf(specRestored).includes(REWRITTEN) && !reshapePromptOf(specRestored).includes(CORRECT_IN_PLACE) && specRestored.res.status === 'done', [specLostError, reshapePromptOf(specRestored).slice(-700), stopOf(specRestored)])
+  // The neighbour: the first shape of the same round, stopped by the same check, still rewrites.
+  // No decision can be on disk when a first shape is resumed (the #117 spec's measurement), and
+  // its line is the one it had, byte for byte.
+  const firstLost = await go('reshape: the first shape of that round leaves no shape.md', { ...overrideDial, decisions: toFix }, { ...declined, specMissing: { 'spec status r1': 'shape' } })
+  const firstLostError = (firstLost.res || {}).error || ''
+  const firstRestored = await go('reshape: the first shape of that round left no shape.md, resumed', { ...overrideDial, decisions: toFix, resume: { 'shape r1': { attempt: 2, error: firstLostError, hand: { commits: [], paths: [] } } } }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: the first shape of the same round, resumed after its spec check, still rewrites the four files from scratch, its line byte for byte as it was', firstLost.res.status === 'error' && firstLostError !== '' && (firstLost.res.resumeFrom || {}).label === 'shape r1' && reshapePromptOf(firstRestored, 'shape r1').endsWith(resumeLineFor(firstLostError) + FROM_SCRATCH) && firstRestored.res.status === 'done', [stopOf(firstLost), reshapePromptOf(firstRestored, 'shape r1').slice(-500), stopOf(firstRestored)])
+  check('reshape: the shaper\'s file says a resumed reshape never rewrites from scratch: it corrects what the error names after the workflow\'s check, and restores what is missing after any other stop', shaperFile.includes('A resumed reshape never rewrites from scratch') && shaperFile.includes('correct what the error names') && shaperFile.includes('write again what is missing or left unfinished') && shaperFile.includes('never write a decided entry the folder no longer holds from memory'))
+  // Rule 9 keeps the ban on touching redline/ for a resumed reshape as for a resumed first shape,
+  // and both clauses above carry it to their end (#114, R4-1).
+  check('reshape: the shaper\'s file says a resumed first shape rewrites the four files, and that redline/ is left alone on either resume', shaperFile.includes('On a resume attempt (the invoking prompt says so) of a round\'s first shape, rewrite the four files from scratch') && shaperFile.includes('Either way, never change or remove anything under its `redline/` folder.'))
   // One reshape that breaks two decisions in opposite ways is stopped once, for both (#114, R4-6):
   // the resume line tells the rerun to correct the task the error names, so an error that named
   // only the emptied fix had the rerun repair that one and the hold stop again, at the same
@@ -3686,7 +3712,45 @@ function samePrefix(name, first, second, n) {
   const bothBroken = await go('reshape: one reshape that removes a decided fix\'s task and gives a decided accept one', { ...overrideDial, decisions: fixAndAccept }, { ...twoDeclined, reshapeFiles: { 'R1-1': [], 'R1-2': ['app/y.php'] } })
   check('reshape: the stop names a fix left with no task and an accept left with one together, once, at that reshape', stopsAtReshape(bothBroken, BOTH), stopOf(bothBroken))
   const bothRestored = await go('reshape: a fix left with no task and an accept left with one, resumed', { ...overrideDial, decisions: fixAndAccept, resume: resumeAt(BOTH, true) }, { ...twoDeclined, reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1']] })
-  check('reshape: a reshape resumed after the stop for both is told to correct the task the error names, and the relaunch finishes', reshapePromptOf(bothRestored).endsWith(resumeLineFor(BOTH) + CORRECT_TASK) && bothRestored.res.status === 'done', [reshapePromptOf(bothRestored).slice(-900), stopOf(bothRestored)])
+  check('reshape: a reshape resumed after the stop for both is told to correct what the error names, and the relaunch finishes', reshapePromptOf(bothRestored).endsWith(resumeLineFor(BOTH) + CORRECT_IN_PLACE) && bothRestored.res.status === 'done', [reshapePromptOf(bothRestored).slice(-900), stopOf(bothRestored)])
+  // Every kind of reshape stop, each resumed from the entry its own result gives (#117): the
+  // field is the stop's, read off the result as the marker and the skill carry it. The prompts
+  // before the reshape replay, and the reshape's is the one prompt that changes.
+  const resumedReshape = async (name, args, stopScenario, runScenario, label = RESHAPE_1, attempt = 2) => {
+    const stop = await go(name, args, stopScenario)
+    const error = (stop.res || {}).error || ''
+    const own = (stop.res || {}).ownCheck === true
+    const again = await go(`${name}, resumed`, { ...args, resume: { [label]: { attempt, error, hand: { commits: [], paths: [] }, ownCheck: own } } }, runScenario)
+    const at = stop.calls.findIndex((c) => c.label === label)
+    samePrefix(name, stop.calls, again.calls, at)
+    const withLine = again.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label).join()
+    return { stop, error, own, again, prompt: reshapePromptOf(again, label), stoppedThere: (stop.res || {}).status === 'error' && (stop.res || {}).stage === 'shape' && ((stop.res || {}).resumeFrom || {}).label === label, onePrompt: withLine === label, lineFor: (clause) => resumeLineFor(error).replace('Resume attempt 2 ', `Resume attempt ${attempt} `) + clause }
+  }
+  const toldOnly = (r, clause) => r.stoppedThere && r.onePrompt && r.prompt.endsWith(r.lineFor(clause)) && !r.prompt.includes(REWRITTEN) && (r.again.res || {}).status === 'done'
+  const shown = (r) => [stopOf(r.stop), r.own, r.onePrompt, r.prompt.slice(-700), (r.again.res || {}).status, (r.again.res || {}).error]
+  const twoInRound = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], decline: ['R1-1'], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
+  const decidedRound = { ...overrideDial, decisions: toFix }
+  const noReason = await resumedReshape('reshape: a reshape of a decided round that declines another finding with no reason', decidedRound, { ...twoInRound, reshapeDecline: ['R1-2'], declineNoReason: ['R1-2'] }, twoInRound)
+  check('reshape: a reshape of a decided round resumed after a check of its result (a decline with no reason) is told to correct what the error names and keep the decided entries', noReason.own === true && noReason.error.startsWith('the shaper declined R1-2 with no reason') && toldOnly(noReason, CORRECT_IN_PLACE), shown(noReason))
+  const crashed = await resumedReshape('reshape: a reshape of a decided round that returns nothing', decidedRound, { ...twoInRound, nothing: [RESHAPE_1] }, twoInRound)
+  check('reshape: a reshape of a decided round resumed after it returned nothing is told to restore what is missing, never to rewrite', crashed.own === false && crashed.error.startsWith('reshape r1 #1 returned nothing') && toldOnly(crashed, RESTORE), shown(crashed))
+  // A round with no decision gets the same two clauses: its reshape prompt already says to
+  // correct the four files in place, and the clause does not turn on what the round decided.
+  const plainRound = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
+  const plainLost = await resumedReshape('reshape: a reshape of a round with no decision that leaves no plan.md', baseArgs, { ...plainRound, specMissing: { 'spec status r1 #1': 'plan' } }, plainRound)
+  check('reshape: a reshape of a round with no decision resumed after its spec check is told to restore what is missing, never to rewrite', plainLost.own === false && toldOnly(plainLost, RESTORE), shown(plainLost))
+  const plainDropped = await resumedReshape('reshape: a reshape of a round with no decision that leaves a finding out', baseArgs, { ...plainRound, reshapeDrop: ['R1-2'] }, plainRound)
+  check('reshape: a reshape of a round with no decision resumed after a check of its result is told to correct what the error names', plainDropped.own === true && plainDropped.error === 'the shaper gave no disposition for R1-2' && toldOnly(plainDropped, CORRECT_IN_PLACE), shown(plainDropped))
+  // A human review pass's reshape goes by the same label test (reshape h<n> #<k>).
+  const comment1 = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please change H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanDecided = { ...baseArgs, firstRound: 3, decisions: { 'H1-1': { choice: 'Change it', notes: 'The author changes it.', date: '2026-11-22' } }, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [comment1], commentIds: { 'H1-1': 900 }, posted: true } }
+  const humanRound = { reviews: [[]], ask: ['H1-1'], planBounce: 1, commitIds: [['H1-1'], []] }
+  const humanLost = await resumedReshape('reshape: a human review pass\'s reshape, after the author\'s answer, that leaves no shape.md', humanDecided, { ...humanRound, specMissing: { 'spec status h1 #1': 'shape' } }, humanRound, 'reshape h1 #1')
+  check('reshape: a human review pass\'s reshape resumed after its spec check is told to restore what is missing, never to rewrite', labels(humanLost.stop.calls).includes('resolve h1') && humanLost.own === false && toldOnly(humanLost, RESTORE), shown(humanLost))
+  // The entry holds the last error, so a reshape resumed after the hold that then failed the
+  // spec check is resumed a third time from that error: restore, and still no rewrite.
+  const thirdTime = await go('reshape: a reshape resumed after the hold, then stopped by the spec check, resumed again', { ...decidedRound, resume: { [RESHAPE_1]: { attempt: 3, error: specLostError, hand: { commits: [], paths: [] }, ownCheck: false } } }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: a third attempt after the hold and then the spec check is told to restore what is missing, never to rewrite', reshapePromptOf(thirdTime).endsWith(resumeLineFor(specLostError).replace('Resume attempt 2 ', 'Resume attempt 3 ') + RESTORE) && !reshapePromptOf(thirdTime).includes(REWRITTEN) && thirdTime.res.status === 'done', [reshapePromptOf(thirdTime).slice(-700), stopOf(thirdTime)])
   // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
   // message and its label, and its detail names each decided finding whose task a reshape
   // changed: the list as the resolve planned it, then as each reshape that changed it left it.
@@ -4386,6 +4450,8 @@ check('no prompt of any scenario holds a For the person section or asks for a fo
 check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 check('no reshape prompt that names decided findings asks an ask for its recommended paths in a clause that covers them too', doubleFilesAsk.length === 0, doubleFilesAsk.slice(0, 5))
 check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the seventeen sites\' stops, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
+check('no reshape prompt of any scenario tells the shaper to rewrite the spec folder from scratch', rewrittenReshape.length === 0, rewrittenReshape.slice(0, 5))
+check('no prompt of a run that passes no resume entry holds the resume line or one of its clauses', strayResumeWords.length === 0, strayResumeWords.slice(0, 5))
 check('each stop that is the workflow\'s own check is reached by a scenario, resumable and with ownCheck true', OWN_CHECKS.every((k) => k.seen > 0), OWN_CHECKS.filter((k) => k.seen === 0).map((k) => String(k.re)))
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)

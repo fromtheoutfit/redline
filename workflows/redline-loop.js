@@ -667,8 +667,9 @@ function checkError(stage, message, extra, label) {
   return Object.assign(stageError(stage, message, extra, label), { ownCheck: true })
 }
 
-// The one line a resume adds to the resumed agent's prompt, and the shaper's replace sentence: the
-// failed attempt's spec files are rewritten, never appended to, and redline/ is never touched (#10).
+// The one line a resume adds to the resumed agent's prompt, and the shaper's sentences. A round's
+// first shape rewrites the failed attempt's spec files, never appends to them, and redline/ is
+// never touched (#10); a reshape never rewrites them (#117, below).
 // Two Finish operations have two effects and no duplicate check in their own prompt, so the line
 // gives them one (#59, R1-6): a Finish comment (handoff, cap-hit, summary) looks for the comment an
 // earlier attempt posted before posting, and the record commit looks for the commit an earlier
@@ -678,19 +679,33 @@ const FINISH_COMMENT_LABELS = ['handoff comment', 'cap-hit comment', 'summary co
 
 function resumeLine(opts) {
   const entry = resume[opts.label]
-  // A reshape stop that is the workflow's check of the task it left a decided finding (#106) is
-  // not a cause the person fixes by hand either, and the folder holds the entries and tasks the
-  // resolve agent wrote for the round's decisions, so the rerun is told to correct the task and
-  // keep them, never to rewrite the folder. The clause is chosen by the stop, as the resolve's
-  // is below, and the stop says what it is in the entry's ownCheck (#116): until then both were
-  // read off how the error opens. It ends with the ban on touching redline/ that the
-  // from-scratch clause carries, so the exception lifts the rewrite and nothing else (#114, R4-1).
-  const reshapeFix = entry.ownCheck && String(opts.label || '').startsWith('reshape ')
+  // The shaper's sentence goes by the step and by what its stop was (#117). A round's first shape
+  // runs before any decision, so its resume rewrites the four files from scratch, as it always
+  // has: the #117 spec measured that no decision of the person or the autopilot can be on disk
+  // when one is resumed. A reshape runs after the round's resolve, so its folder can hold the
+  // entries and tasks the resolve agent wrote for the round's decisions, and its rerun is never
+  // told to rewrite, whatever stopped it. Until #117 only the stop that holds a decided finding
+  // to its task (#106) was told to correct in place, and a reshape resumed after any other stop
+  // was told to rewrite beside those entries, against its own prompt, which says to correct the
+  // four files in place.
+  // A reshape is known by its label, the workflow's own name for the step. What its stop was is
+  // the entry's ownCheck (#116), never how the error is worded. After the workflow's own check of
+  // what the reshape returned (the hold, a check of its result) nothing was fixed by hand, and
+  // the rerun corrects what the error names. After any other stop (the spec check, a call that
+  // returned nothing) the folder may be incomplete, so the rerun restores what is missing, and
+  // never writes from memory a decided entry the folder no longer holds: the reshape prompt
+  // names each decided finding and its end, never the choice, the notes and the date. Both hold
+  // in a round with no decision too: the line cannot see the round's decisions, and correcting
+  // in place is right for every reshape. Each clause ends with the ban on touching redline/ that
+  // the from-scratch sentence carries (#114, R4-1).
+  const reshape = String(opts.label || '').startsWith('reshape ')
   const shaper = opts.agentType !== 'redline:redline-shaper'
     ? ''
-    : reshapeFix
-      ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
-      : ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+    : !reshape
+      ? ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
+      : entry.ownCheck
+        ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md, shape.md, standards.md and references.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct what the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
+        : ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided and the task written for it, write again what is missing or left unfinished, and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
   // A resolve stop that is the workflow's check of what the resolve agent returned (#95, #97
   // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
   // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
