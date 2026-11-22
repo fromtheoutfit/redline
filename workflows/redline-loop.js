@@ -3823,8 +3823,13 @@ async function checker(flag, snapshot, octane, label, prefix) {
 // stop carries no ownCheck, since a file can be missing because a Write was refused, which a
 // person fixes, so an attempt that both left a file out and returned a result a check refuses
 // stops there and the skill says to fix the cause first. Until R1-3 the result checks ran first,
-// and such an attempt was marked as needing no hand fix. Every check after the spec check names
-// the shaper's label itself, since lastLabel would name the spec-status call (#94, R2-9).
+// and such an attempt was marked as needing no hand fix. The check of the folder, though,
+// sees a refused Write only where it leaves a file missing, as at a round's first shape: at a
+// reshape the four files are already on disk, so a reshape whose Writes were all refused passes
+// it, and a check of its result or the hold after it still sets ownCheck (#120, R2-5, deferred:
+// telling a refused Write from a rerun that rightly changed no file needs a check of its own).
+// Every check after the spec check names the shaper's label itself, since lastLabel would name
+// the spec-status call (#94, R2-9).
 // `known` is the round's calls so far, [] on the shape; `label` names the shaper call for the
 // checks that stop on it, and `suffix` its spec-status call. `decided` is the ids of the round's
 // decided findings, [] on the shape, which the draft check skips (#97, R3-4).
