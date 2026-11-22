@@ -617,3 +617,23 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts, and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 1 for PR #120 (#117)`.
 
 **Files** (this task): `agent-os/standards/workflow/replay.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-22-1457-120-review-round-1/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Built on `47952b1` in task order. Each task's red and green run is its own gate run, so no red run was shared and nothing is recorded under Decisions in `shape.md`. Every count below is the loop harness's line in that run.
+
+| Task | Commit | Red | Green |
+| --- | --- | --- | --- |
+| 1, the spec folder | `a1bebb2` | | |
+| 2, R1-2 | `cef664a` | `1652 checks passed, 9 failed`: the three new checks and the six that compare against `RESTORE`, as planned | `1661 checks passed, 0 failed` |
+| 3, R1-3 | `d30465f` | `1658 checks passed, 6 failed`: the two combined-stop checks, the docs pin and the three changed checks, as planned | `1664 checks passed, 0 failed` |
+| 4, R1-4 | `eec1516` | comments only, no red run | no gate run of its own: Task 5's red run, over this commit, passed every check but Task 5's new pin |
+| 5, R1-1 (the mitigation) | `b3ab458` | `1664 checks passed, 1 failed`: the new docs pin, as planned | `1665 checks passed, 0 failed` |
+| 6, the standards retrospective | `ed4ea0a` | | the three approved edits, each read back in its whole line |
+
+- **Counts.** The loop reads `1665 checks passed, 0 failed`, as planned. The other harnesses fail nothing, as at the baseline, which failed no check: guard `601 passed, 0 mismatched`, prefs `175 passed, 0 failed`, gate `117 passed, 0 failed`, setup `512 passed, 0 failed`, gh `279 passed, 0 failed`, background `39 passed, 0 failed`; syntax and validate exit 0.
+- **Proofs.** Each task's proof greps print what the task says: Task 2 `1`, `2` and `1`; Task 3 `7`, `1`, the `checkSpec` line before `const unsorted`, and nine `throw checkError('shape', ` sites of seventeen `throw checkError(`; Task 4 `0` for each; Task 5 `1`, `1`, `1`, `2`, then `0` and `0`.
+- **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both read `0.4.5`; no bump.
+- **Docs.** Tasks 2, 3 and 5 updated `docs/running.md`, "Run markers and resume", in their own commits; Task 4 has no reader-facing change (comments only).
+- **Standards retrospective.** Items 1 and 2 (`agent-os/standards/workflow/replay.md`, lines 19 and 20) and item 3 (`agent-os/standards/testing/tests.md`, line 37) were approved and applied in `ed4ea0a`, after the finding commits; item 1 appends to line 19 as Task 5 left it. No item finishes a finding, so the commit names none.
+- **Deviations.** None.
