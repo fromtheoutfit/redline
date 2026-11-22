@@ -381,6 +381,33 @@ const strayDecidedBlock = []
 const FILES_PENDING = 'for an ask, the paths its recommended change would touch)'
 const FILES_DECIDED = 'for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const doubleFilesAsk = []
+// Whether a stop was the workflow's own check of what an agent returned (#116): every error result
+// of every scenario says so in ownCheck, true for the stops of the seventeen sites below (the
+// resolve's eight, the hold and the shaper's eight result checks, one of which words its stop
+// two ways) and false for every other. The skill and the resume line read the field, so a site
+// that drops it, and one that gains it, are both red here. Every run is read, and two checks at
+// the end name the offenders and any site no scenario reached.
+const OWN_CHECKS = [
+  ['resolve', /^the resolve agent stated no disposition for /],
+  ['resolve', /^the resolve agent deferred .* with no drafted issue/],
+  ['resolve', /^the resolve agent returned no deferred entry for /],
+  ['resolve', /^the resolve agent stated defer for .* with no deferred entry/],
+  ['resolve', /^the resolve agent stated fix for .* with no task with files/],
+  ['resolve', /^the resolve agent stated accept beside a task with files for /],
+  ['resolve', /^the resolve agent planned no task with files for /],
+  ['resolve', /^the resolve agent planned a task with files for /],
+  ['shape', /^the reshape left /],
+  ['shape', /^the shaper declined .*; in a human review pass/],
+  ['shape', /^the shaper deferred .*; in a human review pass/],
+  ['shape', /^the shaper sorted .* with a human review pass's values/],
+  ['shape', /^the shaper gave no disposition for /],
+  ['shape', /^the shaper marked .* as ask but returned no judgment call/],
+  ['shape', /^the shaper returned a judgment call for /],
+  ['shape', /^the shaper asked about .* because of /],
+  ['shape', /^the shaper declined .* with no reason/],
+  ['shape', /^the shaper deferred .* with no drafted issue/],
+].map(([stage, re]) => ({ stage, re, seen: 0 }))
+const ownWrong = []
 
 async function go(name, args, scenario, script = body) {
   const s = { ...scenario, allCommits: [], commitIds: (scenario.commitIds || []).map((c) => c.slice()), reviews: scenario.reviews, unresolved: scenario.unresolved, recordFiles: scenario.recordFiles }
@@ -397,6 +424,15 @@ async function go(name, args, scenario, script = body) {
   console.log(`== ${name}: ${thrown ? `threw ${thrown.message}` : `status=${res.status}${res.handoffKind ? ` (${res.handoffKind})` : ''} rounds=${res.rounds.length}${res.error ? ` error=${res.error}` : ''}`}`)
   console.log('   calls: ' + calls.map((c) => c.label).join(' | '))
   forThePerson.push(...calls.filter((c) => c.prompt.includes('### For the person') || c.prompt.includes('forThePerson')).map((c) => `${name}: ${c.label}`))
+  if (!thrown && res && res.status === 'error') {
+    const own = OWN_CHECKS.find((k) => k.stage === res.stage && k.re.test(res.error || ''))
+    if (own && res.ownCheck === true && res.resumeFrom) {
+      own.seen += 1
+    }
+    if (res.ownCheck !== Boolean(own)) {
+      ownWrong.push(`${name}: ${res.stage}: ${String(res.error).slice(0, 70)} (ownCheck ${JSON.stringify(res.ownCheck)})`)
+    }
+  }
   calls.forEach((c, i) => {
     if (c.agentType !== 'redline:redline-shaper' || !c.prompt.includes(DECIDED_BLOCK)) {
       return
@@ -1560,7 +1596,7 @@ function samePrefix(name, first, second, n) {
   check('resume: the resumed prompt ends with the resume line', pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.endsWith(line(errorText)), pick(second.calls, 'recheck r1') && pick(second.calls, 'recheck r1').prompt.slice(-400))
   check('resume: no other prompt carries the line', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label).join() === 'recheck r1', second.calls.filter((c) => c.prompt.includes('Resume attempt')).map((c) => c.label))
   check('resume: the relaunch finishes', second.res.status === 'done' && second.res.resumeFrom === undefined, [second.res.status, second.res.error])
-  check('resume: the relaunch note names the field', first.res.relaunch.how.includes('error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker.'), first.res.relaunch.how)
+  check('resume: the relaunch note names the field', first.res.relaunch.how.includes('error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker.'), first.res.relaunch.how)
   check('resume: the relaunch note says a decline overruled at a decisions stop carries its disposition', first.res.relaunch.how.includes('handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop).'), first.res.relaunch.how)
   // An override the resolve agent could not apply is restated, and the restatement replaces it in
   // the relaunch's decisions (#94, R5-4).
@@ -1574,8 +1610,15 @@ function samePrefix(name, first, second, n) {
   const resolveClause = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
   const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
   const resolveError = (stoppedAtResolve.res || {}).error || ''
-  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] }, ownCheck: true } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
+  // The clause is chosen by the field the stop set (#116), never by the error's words: the stop's
+  // result says ownCheck, the marker and the skill carry it into the entry, and an entry without
+  // it is an ordinary stop whatever its error says. There is no fallback to the wording, so a
+  // marker written before the field existed resumes with the line alone.
+  const fieldlessResolve = await go('resume: a stop at resolve, resumed from an entry with no ownCheck', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const fieldlessResolvePrompt = (pick(fieldlessResolve.calls, 'resolve r1') || { prompt: '' }).prompt
+  check('resume: an entry with no ownCheck is an ordinary stop whatever its error says: a resolve resumed from one ends with the line alone', resolveError.startsWith('the resolve agent ') && fieldlessResolvePrompt.endsWith(line(resolveError)) && !fieldlessResolvePrompt.includes(resolveClause), fieldlessResolvePrompt.slice(-400))
   check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
   check('resume: the resolve agent\'s file says the same of a resumed resolve, as the resume line does', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again'))
   // The clause is chosen by the stop (#108, R4-4): the autopilot stop is raised from the resolve
@@ -1587,10 +1630,14 @@ function samePrefix(name, first, second, n) {
   const resumedUnappliedPrompt = (pick(resumedUnapplied.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: a resumed resolve after autopilot could not apply a recommendation ends with the resume line alone, with no clause to correct what it wrote', unappliedError.startsWith('autopilot could not apply the shaper\'s recommendation for R1-1') && resumedUnappliedPrompt.endsWith(line(unappliedError)) && !resumedUnappliedPrompt.includes(resolveClause), [unappliedError, resumedUnappliedPrompt.slice(-600)])
   check('resume: the resolve agent\'s file says a decision it could not apply stays pending on a resume, as the resume line leaves it', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('An error that says autopilot could not apply a decision is not that check'))
-  // The predicate rests on every check of the resolve agent's returned result opening its error
-  // with "the resolve agent ", and on the autopilot stop being the one resolve stop that does not.
-  const opening = (text) => src.split(text).length - 1
-  check('resume: every resolve stage error but the autopilot stop opens with "the resolve agent "', opening("stageError('resolve', `") === opening("stageError('resolve', `the resolve agent ") + 1 && opening("stageError('resolve', `autopilot could not apply ") === 1, [opening("stageError('resolve', `"), opening("stageError('resolve', `the resolve agent ")])
+  // The field is set where the stop is raised (#116): the seventeen sites that are the workflow's
+  // check of what an agent returned go through checkError, and no other site does. At the resolve
+  // that is every stop but the autopilot one; at the shape stage, the hold and the eight result
+  // checks, and neither the spec check (a missing file can be a refused Write, which a person
+  // fixes) nor the spec check's own failure.
+  const sites = (text) => src.split(text).length - 1
+  check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 8 && sites("checkError('resolve', ") === 8 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
+  check('resume: the hold and the shaper\'s eight result checks are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 9 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 17, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -1621,6 +1668,12 @@ function samePrefix(name, first, second, n) {
   // gather is not resumable: the head moved, the PR is not open, or the branch is wrong.
   const moved = await go('resume: gather is not resumable', baseArgs, { ...base, heads: ['b'.repeat(40)] })
   check('resume: a gather error carries resumeFrom null', moved.res.status === 'error' && moved.res.stage === 'gather' && moved.res.resumeFrom === null, [moved.res.status, moved.res.stage, moved.res.resumeFrom])
+  // What each result says of its stop (#116): the resolve's check and the shaper's missing
+  // disposition are the workflow's own checks; the autopilot stop, a gate that still fails, an
+  // exhausted approval and a gather error are not.
+  const says = (r) => (r.res || {}).ownCheck
+  check('resume: a stop that is the workflow\'s own check says so in its result (ownCheck), at the resolve and at a first shape', says(stoppedAtResolve) === true && says(shapeFail) === true, [says(stoppedAtResolve), says(shapeFail)])
+  check('resume: the autopilot stop, a gate that still fails, an exhausted approval and a gather error say ownCheck false', says(unappliedStop) === false && says(first) === false && says(bounced) === false && says(moved) === false, [says(unappliedStop), says(first), says(bounced), says(moved)])
 
   // A hand commit on .claude/ since the run stopped: the checker reports it as unexpected and
   // without the prefix, the judge excuses both, and the next snapshot allows the path.
@@ -1683,6 +1736,20 @@ function samePrefix(name, first, second, n) {
   check('resume: an attempt under 2 is refused', badAttempt.thrown && /args.resume must map an agent label/.test(badAttempt.thrown.message) && badAttempt.calls.length === 0, badAttempt.thrown && badAttempt.thrown.message)
   const badShape = await go('resume: bad shape', { ...baseArgs, resume: [] }, base)
   check('resume: a list is refused', badShape.thrown && /args.resume must map an agent label/.test(badShape.thrown.message), badShape.thrown && badShape.thrown.message)
+  // ownCheck is true or false, or absent, which reads as false (#116).
+  const badOwn = await go('resume: an ownCheck that is not a boolean', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] }, ownCheck: 'yes' } } }, base)
+  check('resume: an ownCheck that is neither true nor false is refused', Boolean(badOwn.thrown) && /args.resume must map an agent label/.test(badOwn.thrown.message) && badOwn.calls.length === 0, badOwn.thrown ? badOwn.thrown.message : labels(badOwn.calls))
+  const falseOwn = await go('resume: ownCheck false', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] }, ownCheck: false } } }, onlyFirst)
+  const everyPrompt = (r) => r.calls.map((c) => `${c.label}\n${c.prompt}`).join('\n')
+  check('resume: an entry that says ownCheck false builds the prompts of one that says nothing', !falseOwn.thrown && falseOwn.res.status === 'done' && everyPrompt(falseOwn) === everyPrompt(second), falseOwn.thrown ? falseOwn.thrown.message : labels(falseOwn.calls))
+  // The skill reads the field where it reports the stop and carries it into the entry, and the
+  // replay standard and docs/running.md say what the workflow does with it.
+  const skillFile = fs.readFileSync(path.join(here, '..', 'skills', 'redline', 'SKILL.md'), 'utf8')
+  const errorSection = (skillFile.split('### `error`')[1] || '').split('\n## ')[0]
+  check('resume: the skill\'s error section reads ownCheck: nothing to fix by hand after the workflow\'s own check, the hand-fix sentence for every other resumable stop', errorSection.includes('`ownCheck`') && errorSection.includes('nothing needs fixing by hand') && errorSection.includes('once the cause is fixed by hand'), errorSection.slice(0, 900))
+  check('resume: the skill copies the marker\'s ownCheck into the resume entry, lists it among the marker\'s keys and says in the resume question when nothing needs fixing by hand', skillFile.includes('"ownCheck": <marker.ownCheck>') && skillFile.includes('`error`, `ownCheck`, `round`') && skillFile.includes('For an `error` marker whose `ownCheck` is true, say in the question'))
+  check('resume: the replay standard says the sentence is chosen by the field the stop set, never by the error\'s words', fs.readFileSync(path.join(here, '..', 'agent-os', 'standards', 'workflow', 'replay.md'), 'utf8').includes('chosen by the field the stop set (`ownCheck`), never by the words of its error'))
+  check('resume: docs/running.md says which stops need no hand fix and that the marker carries ownCheck', (() => { const doc = fs.readFileSync(path.join(here, '..', 'docs', 'running.md'), 'utf8'); return doc.includes('`ownCheck`') && doc.includes('nothing needs fixing by hand') })())
 }
 
 // ---------------------------------------------------------------------------
@@ -3593,9 +3660,13 @@ function samePrefix(name, first, second, n) {
   const resumeLineFor = (e) => `Resume attempt 2 of this step. The run stopped at this step with an error (${e}); the person has since fixed the cause by hand. Do the step again from the current state of the repository and the PR. What an earlier attempt already made stands (a commit, a posted review or reply, a written file), and the duplicate checks in your instructions apply.`
   const FROM_SCRATCH = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
   const CORRECT_TASK = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md and shape.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct the task the error names, and return the whole result again; never change or remove anything under its redline/ folder.'
-  const resumeAt = (error) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] } } })
-  const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names')) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  const resumeAt = (error, own) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] }, ...(own ? { ownCheck: true } : {}) } })
+  const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names'), true) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   const restoredPrompt = reshapePromptOf(fixRestored)
+  // No fallback to the wording (#116): the same error on an entry with no ownCheck is an ordinary
+  // stop, so its rerun is not told the stop was the workflow's check.
+  const fixRestoredFieldless = await go('reshape: an override to fix whose task the reshape removed, resumed from an entry with no ownCheck', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names')) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+  check('reshape: an entry with no ownCheck is an ordinary stop whatever its error says: a reshape resumed from one is not told the stop was the workflow\'s check', reshapePromptOf(fixRestoredFieldless).includes('Resume attempt 2 of this step.') && !reshapePromptOf(fixRestoredFieldless).includes('nothing was fixed by hand'), reshapePromptOf(fixRestoredFieldless).slice(-500))
   check('reshape: a reshape resumed after that stop is told to correct the task and keep the decided entries, never to rewrite the folder, and the relaunch finishes', restoredPrompt.endsWith(resumeLineFor(NO_TASK('a disposition override names')) + CORRECT_TASK) && !restoredPrompt.includes(FROM_SCRATCH) && fixRestored.res.status === 'done', [restoredPrompt.slice(-700), stopOf(fixRestored)])
   const specLost = await go('reshape: a reshape of a decided round that leaves no shape.md', { ...overrideDial, decisions: toFix }, { ...declined, specMissing: { 'spec status r1 #1': 'shape' } })
   const specLostError = (specLost.res || {}).error || ''
@@ -3614,7 +3685,7 @@ function samePrefix(name, first, second, n) {
   const twoDeclined = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], decline: ['R1-1', 'R1-2'], planBounce: 1, commitIds: [[]] }
   const bothBroken = await go('reshape: one reshape that removes a decided fix\'s task and gives a decided accept one', { ...overrideDial, decisions: fixAndAccept }, { ...twoDeclined, reshapeFiles: { 'R1-1': [], 'R1-2': ['app/y.php'] } })
   check('reshape: the stop names a fix left with no task and an accept left with one together, once, at that reshape', stopsAtReshape(bothBroken, BOTH), stopOf(bothBroken))
-  const bothRestored = await go('reshape: a fix left with no task and an accept left with one, resumed', { ...overrideDial, decisions: fixAndAccept, resume: resumeAt(BOTH) }, { ...twoDeclined, reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1']] })
+  const bothRestored = await go('reshape: a fix left with no task and an accept left with one, resumed', { ...overrideDial, decisions: fixAndAccept, resume: resumeAt(BOTH, true) }, { ...twoDeclined, reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1']] })
   check('reshape: a reshape resumed after the stop for both is told to correct the task the error names, and the relaunch finishes', reshapePromptOf(bothRestored).endsWith(resumeLineFor(BOTH) + CORRECT_TASK) && bothRestored.res.status === 'done', [reshapePromptOf(bothRestored).slice(-900), stopOf(bothRestored)])
   // maxPlanAdjustments stays the only bound on bounces (#106). The stop at the cap keeps its
   // message and its label, and its detail names each decided finding whose task a reshape
@@ -4314,6 +4385,8 @@ function samePrefix(name, first, second, n) {
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 check('no reshape prompt that names decided findings asks an ask for its recommended paths in a clause that covers them too', doubleFilesAsk.length === 0, doubleFilesAsk.slice(0, 5))
+check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the seventeen sites\' stops, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
+check('each stop that is the workflow\'s own check is reached by a scenario, resumable and with ownCheck true', OWN_CHECKS.every((k) => k.seen > 0), OWN_CHECKS.filter((k) => k.seen === 0).map((k) => String(k.re)))
 
 console.log(`\n${passed} checks passed, ${failures.length} failed`)
 for (const failure of failures) {

@@ -164,7 +164,7 @@ Each person's saved launch settings for the repository, ignored by git (`redline
 
 A file saved before the last two existed has neither, and the next launch asks for them once.
 
-and, under `runs`, one marker per PR for a run that stopped (a hand-off, the review dial, an error, a run the harness stopped), written from the harness's own record of the run so the next launch can offer to resume it. How the settings are asked and saved is in [running.md](running.md), "Saved launch settings"; the merge rules and the marker's checks live in `scripts/redline-prefs.sh` (header in [scripts.md](scripts.md)), pinned by `tests/prefs-test.sh`. The file is one of Redline's own: the guard refuses it for every role, and only the skill writes it, through the script.
+and, under `runs`, one marker per PR for a run that stopped (a hand-off, the review dial, an error, a run the harness stopped), written from the harness's own record of the run so the next launch can offer to resume it. An error's marker also says whether the stop was the workflow's own check of what an agent returned (`ownCheck`), which needs no hand fix before the resume ([running.md](running.md), "Run markers and resume"). How the settings are asked and saved is in [running.md](running.md), "Saved launch settings"; the merge rules and the marker's checks live in `scripts/redline-prefs.sh` (header in [scripts.md](scripts.md)), pinned by `tests/prefs-test.sh`. The file is one of Redline's own: the guard refuses it for every role, and only the skill writes it, through the script.
 
 ## `settings.json` and the allow list
 

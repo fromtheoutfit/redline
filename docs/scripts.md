@@ -242,9 +242,12 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot be
 #       resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
 #       result's, plus the start snapshot's folder, from the result's snapshotStart or, without
-#       one (a stopped run has no result), from args.snapshotPath. Prints the entry:
-#       {pr, kind, runId, session, record, head, branch, stage, label, attempt, error, round,
-#       handoffKind, specFolders, args}.
+#       one (a stopped run has no result), from args.snapshotPath. ownCheck is the result's:
+#       true when the stop was the workflow's own check of what an agent returned, which needs
+#       no hand fix (#116), false for any other stop and for a result that holds none. Prints
+#       the entry:
+#       {pr, kind, runId, session, record, head, branch, stage, label, attempt, error, ownCheck,
+#       round, handoffKind, specFolders, args}.
 #   redline-prefs.sh run read <repoRoot> <pr>
 #       Prints the entry, or null. Exit 0 either way.
 #   redline-prefs.sh run check <repoRoot> <pr> [--plugin <dir>] [--session <id>]

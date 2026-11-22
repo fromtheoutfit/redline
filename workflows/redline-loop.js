@@ -273,19 +273,22 @@ const selected = A.selected && typeof A.selected === 'object' && !Array.isArray(
 // that label's prompt, so every prompt before it replays from cache and that agent and all after
 // it rerun: a completed agent's result replays unchanged on a plain relaunch, even one the script
 // rejected, which is why the prompt has to change. The map keeps every earlier entry, so a later
-// relaunch replays the resumed prompt too.
+// relaunch replays the resumed prompt too. An entry also says whether the stop was the workflow's
+// own check of what the agent returned (ownCheck, #116), as the error result gave it and the run
+// marker kept it: resumeLine reads it, never the error's words. An entry without it, as a marker
+// written before the field existed holds, is an ordinary stop.
 const resume = {}
 if (A.resume !== undefined) {
   if (!A.resume || typeof A.resume !== 'object' || Array.isArray(A.resume)) {
-    fail('args.resume must map an agent label to {attempt, error, hand}; got ' + JSON.stringify(A.resume))
+    fail('args.resume must map an agent label to {attempt, error, hand, ownCheck}; got ' + JSON.stringify(A.resume))
   }
   for (const [label, entry] of Object.entries(A.resume)) {
     const hand = entry && entry.hand && typeof entry.hand === 'object' ? entry.hand : { commits: [], paths: [] }
     const strings = (list) => Array.isArray(list) && list.every((x) => typeof x === 'string')
-    if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.attempt) || entry.attempt < 2 || typeof entry.error !== 'string' || !strings(hand.commits || []) || !strings(hand.paths || [])) {
-      fail(`args.resume must map an agent label to {attempt, error, hand}; got ${JSON.stringify(label)}: ${JSON.stringify(entry)}`)
+    if (!entry || typeof entry !== 'object' || !Number.isInteger(entry.attempt) || entry.attempt < 2 || typeof entry.error !== 'string' || !strings(hand.commits || []) || !strings(hand.paths || []) || (entry.ownCheck !== undefined && typeof entry.ownCheck !== 'boolean')) {
+      fail(`args.resume must map an agent label to {attempt, error, hand, ownCheck}; got ${JSON.stringify(label)}: ${JSON.stringify(entry)}`)
     }
-    resume[label] = { attempt: entry.attempt, error: entry.error, hand: { commits: hand.commits || [], paths: hand.paths || [] } }
+    resume[label] = { attempt: entry.attempt, error: entry.error, hand: { commits: hand.commits || [], paths: hand.paths || [] }, ownCheck: entry.ownCheck === true }
   }
 }
 // The script a relaunch runs (#81). When Redline reviews its own repository, a round's commit can
@@ -652,6 +655,17 @@ let lastLabel = ''
 function stageError(stage, message, extra, label) {
   return Object.assign(new Error(message), { stage, extra: extra || {}, label: label || lastLabel })
 }
+// A stop that is the workflow's own check of what the step's agent returned (#116): the rerun
+// corrects what it returned, and nothing needs fixing by hand first. The error result says so in
+// ownCheck, which the skill reads for its report and carries, through the run marker, into the
+// resume entry, where resumeLine reads it. So the fact is stated once, where the stop is raised,
+// and no reader goes by how an error is worded. Seventeen sites raise one: the resolve's eight
+// checks of the result it returned, the hold of a decided finding to its task after a reshape,
+// and the shaper's eight checks of its result. The spec check is not one: a missing file can be
+// a Write that was refused, which a person does fix.
+function checkError(stage, message, extra, label) {
+  return Object.assign(stageError(stage, message, extra, label), { ownCheck: true })
+}
 
 // The one line a resume adds to the resumed agent's prompt, and the shaper's replace sentence: the
 // failed attempt's spec files are rewritten, never appended to, and redline/ is never touched (#10).
@@ -668,10 +682,10 @@ function resumeLine(opts) {
   // not a cause the person fixes by hand either, and the folder holds the entries and tasks the
   // resolve agent wrote for the round's decisions, so the rerun is told to correct the task and
   // keep them, never to rewrite the folder. The clause is chosen by the stop, as the resolve's
-  // is below: each of those checks opens its error with "the reshape left ". It ends with the
-  // ban on touching redline/ that the from-scratch clause carries, so the exception lifts the
-  // rewrite and nothing else (#114, R4-1).
-  const reshapeFix = String(entry.error || '').startsWith('the reshape left ')
+  // is below, and the stop says what it is in the entry's ownCheck (#116): until then both were
+  // read off how the error opens. It ends with the ban on touching redline/ that the
+  // from-scratch clause carries, so the exception lifts the rewrite and nothing else (#114, R4-1).
+  const reshapeFix = entry.ownCheck && String(opts.label || '').startsWith('reshape ')
   const shaper = opts.agentType !== 'redline:redline-shaper'
     ? ''
     : reshapeFix
@@ -681,10 +695,10 @@ function resumeLine(opts) {
   // R2-13, #99) is not a cause the person fixes by hand, and its first attempt has already turned
   // the pending entries and tasks into decided ones, so the rerun is told to correct what it wrote
   // (#108, R3-4). The clause is chosen by the stop, not by the agent alone (#108, R4-4): each of
-  // those checks opens its error with "the resolve agent ", and neither the autopilot stop nor a
-  // crash does. The autopilot stop is raised from the agent's own unresolved list, whose entries
-  // its rules keep pending, so its rerun is told nothing more.
-  const resolveFix = opts.agentType === 'redline:redline-resolve' && String(entry.error || '').startsWith('the resolve agent ')
+  // those checks sets ownCheck, and neither the autopilot stop nor a crash does. The autopilot
+  // stop is raised from the agent's own unresolved list, whose entries its rules keep pending, so
+  // its rerun is told nothing more.
+  const resolveFix = opts.agentType === 'redline:redline-resolve' && entry.ownCheck
     ? ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
     : ''
   const finishComment = FINISH_COMMENT_LABELS.includes(opts.label) && postToGitHub
@@ -2800,7 +2814,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand}}) for the label resumeFrom names, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -3208,7 +3222,7 @@ function checkDispositions(pass, shaped) {
   // decision, never a pending one. A human review pass has none, as it has no defer.
   const declined = shaped.findings.filter((f) => f.disposition === 'decline')
   if (pass.human && declined.length) {
-    throw stageError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
+    throw checkError('shape', `the shaper declined ${declined.map((f) => f.id).join(', ')}; in a human review pass a comment is fix, ask or none, never a decline of Redline's own, since what a teammate asked for is the author's to answer`)
   }
   // The other pass's values are read as the shaper wrote them, before the loop below rewrites a
   // decline's owner, so a decline marked reviewer stops here as a fix marked reviewer does (#94,
@@ -3218,7 +3232,7 @@ function checkDispositions(pass, shaped) {
     : shaped.findings.filter((f) => f.disposition === 'none' || f.decidedBy === 'reviewer')
   if (bad.length) {
     const ids = bad.map((f) => f.id).join(', ')
-    throw stageError('shape', pass.human
+    throw checkError('shape', pass.human
       ? `the shaper deferred ${ids}; in a human review pass a comment is fix, ask or none, never defer, since nothing a teammate asked for is deferred by Redline on its own`
       : `the shaper sorted ${ids} with a human review pass's values (none, or decidedBy reviewer) in a Redline round`)
   }
@@ -3285,7 +3299,7 @@ function checkCalls(shaped, known = []) {
   const decided = (id) => known.some((c) => c.id === id)
   const noCall = shaped.findings.filter((f) => f.disposition === 'ask' && !decided(f.id) && !shaped.judgmentCalls.some((c) => c.id === f.id)).map((f) => f.id)
   if (noCall.length) {
-    throw stageError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
+    throw checkError('shape', `the shaper marked ${noCall.join(', ')} as ask but returned no judgment call for ${noCall.length === 1 ? 'it' : 'them'}`)
   }
   for (const call of shaped.judgmentCalls) {
     if (decided(call.id)) {
@@ -3293,7 +3307,7 @@ function checkCalls(shaped, known = []) {
     }
     const f = shaped.findings.find((x) => x.id === call.id)
     if (!f || f.disposition !== 'ask') {
-      throw stageError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
+      throw checkError('shape', `the shaper returned a judgment call for ${call.id}, which it sorted as ${f ? f.disposition : 'nothing'}`)
     }
   }
 }
@@ -3310,7 +3324,7 @@ function checkWhy(pass, shaped, known, shaperLabel) {
   if (!pass.human) {
     const outside = shaped.judgmentCalls.find((call) => !decided(call.id) && !ROUND_WHY.includes(call.why_human) && !askRules.some((rule) => call.why_human === `repository rule ${rule.id}`))
     if (outside) {
-      throw stageError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`, {}, shaperLabel)
+      throw checkError('shape', `the shaper asked about ${outside.id} because of ${JSON.stringify(outside.why_human)}, which is not one of the cases the person is asked in on a Redline round (${ROUND_WHY.join(', ')}, or a repository rule)`, {}, shaperLabel)
     }
   }
 }
@@ -3322,7 +3336,7 @@ function checkWhy(pass, shaped, known, shaperLabel) {
 function checkDeclineReasons(pass, shaped, shaperLabel) {
   const noReason = shaped.findings.filter((f) => f.disposition === 'decline' && (typeof f.reason !== 'string' || f.reason.trim() === '')).map((f) => f.id)
   if (noReason.length) {
-    throw stageError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`, {}, shaperLabel)
+    throw checkError('shape', `the shaper declined ${noReason.join(', ')} with no reason; a decline carries the reason a teammate reads in the thread`, {}, shaperLabel)
   }
   // A decline never points at follow-up work (#95): an item worth doing somewhere is a defer, with
   // a drafted issue. A warning, since a Redline round's shape stops only on what the run cannot
@@ -3353,7 +3367,7 @@ function checkDrafts(shaped, shaperLabel, decided = []) {
   for (const f of shaped.findings.filter((s) => s.disposition === 'defer' && !decided.includes(s.id))) {
     const missing = draftMissing(shaped.deferred.find((d) => d.id === f.id))
     if (missing.length) {
-      throw stageError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
+      throw checkError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
     }
   }
 }
@@ -3784,7 +3798,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   }
   const unsorted = inScope.filter((f) => !shaped.findings.some((s) => s.id === f.id)).map((f) => f.id)
   if (unsorted.length) {
-    throw stageError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
+    throw checkError('shape', `the shaper gave no disposition for ${unsorted.join(', ')}`)
   }
   checkDispositions(pass, shaped)
   checkSecondLook(pass, shaped, inScope)
@@ -3995,7 +4009,7 @@ async function revise(record, inScope, reviewedKind) {
     const asked = newCalls.filter((call) => !record.forced[call.id] && !roundDecisions[call.id].disposition)
     const unstated = asked.filter((call) => !statements.kept.some((item) => item.id === call.id)).map((call) => call.id)
     if (unstated.length) {
-      throw stageError('resolve', `the resolve agent stated no disposition for ${unstated.join(', ')}, a judgment call it applied; a call's decision is read from what it states (fix, defer or accept)`)
+      throw checkError('resolve', `the resolve agent stated no disposition for ${unstated.join(', ')}, a judgment call it applied; a call's decision is read from what it states (fix, defer or accept)`)
     }
     for (const call of asked) {
       stated[call.id] = statements.kept.find((item) => item.id === call.id).disposition
@@ -4041,7 +4055,7 @@ async function revise(record, inScope, reviewedKind) {
     // A deferral the resolve agent planned carries its drafted issue, as the shaper's does (#95).
     const undrafted = fresh.filter((item) => draftMissing(item).length)
     if (undrafted.length) {
-      throw stageError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
+      throw checkError('resolve', `the resolve agent deferred ${undrafted.map((item) => item.id).join(', ')} with no drafted issue (${DRAFT_FIELDS.join(', ')}); a deferred item always carries one`)
     }
     // A decision that names its own disposition, an override or a call whose decision carries
     // one, is checked by what it names, as a stated call is by its statement (#108, R1-5); a
@@ -4056,7 +4070,7 @@ async function revise(record, inScope, reviewedKind) {
     // shaper's own deferral) stands in, as it does when the resolve returns none.
     const unentered = namedAs('defer').filter((id) => !fresh.some((item) => item.id === id) && !deferred.some((d) => d.id === id))
     if (unentered.length) {
-      throw stageError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((id) => `${id}, which ${whose(id)} deferred`).join('; ')}; a deferred item always carries a drafted issue`)
+      throw checkError('resolve', `the resolve agent returned no deferred entry for ${unentered.map((id) => `${id}, which ${whose(id)} deferred`).join('; ')}; a deferred item always carries a drafted issue`)
     }
     // What a call's decision is stated to end in is checked against what this same resolve
     // returned, its entries and its tasks, before anything is built, filed or posted (#99): a
@@ -4072,15 +4086,15 @@ async function revise(record, inScope, reviewedKind) {
     const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
     const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
     if (undeferred.length) {
-      throw stageError('resolve', `the resolve agent stated defer for ${undeferred.join(', ')} with no deferred entry; a deferred item always carries a drafted issue`)
+      throw checkError('resolve', `the resolve agent stated defer for ${undeferred.join(', ')} with no deferred entry; a deferred item always carries a drafted issue`)
     }
     const unplanned = statedAs('fix').filter((id) => taskFiles(id).length === 0)
     if (unplanned.length) {
-      throw stageError('resolve', `the resolve agent stated fix for ${unplanned.join(', ')} with no task with files; a fix names the files it changes`)
+      throw checkError('resolve', `the resolve agent stated fix for ${unplanned.join(', ')} with no task with files; a fix names the files it changes`)
     }
     const planned = statedAs('accept').filter((id) => taskFiles(id).length > 0)
     if (planned.length) {
-      throw stageError('resolve', `the resolve agent stated accept beside a task with files for ${planned.map((id) => `${id} (${taskFiles(id).join(', ')})`).join(', ')}; an accepted finding changes nothing`)
+      throw checkError('resolve', `the resolve agent stated accept beside a task with files for ${planned.map((id) => `${id} (${taskFiles(id).join(', ')})`).join(', ')}; an accepted finding changes nothing`)
     }
     // A decision that names a fix or an accept is held to its tasks the same way (#108, R1-5):
     // until #108 a named fix with no task with files stopped at the check after a repair, which
@@ -4096,11 +4110,11 @@ async function revise(record, inScope, reviewedKind) {
     // source: the hold after a reshape reads the list, and this one reads this resolve's tasks.
     const namedUnplanned = namedAs('fix').filter((id) => !(id in decidedFiles) && taskFiles(id).length === 0)
     if (namedUnplanned.length) {
-      throw stageError('resolve', `the resolve agent planned no task with files for ${namedUnplanned.map((id) => `${id}, which ${whose(id)} names as a fix`).join('; ')}; a fix names the files it changes`)
+      throw checkError('resolve', `the resolve agent planned no task with files for ${namedUnplanned.map((id) => `${id}, which ${whose(id)} names as a fix`).join('; ')}; a fix names the files it changes`)
     }
     const namedPlanned = namedAs('accept').filter((id) => taskFiles(id).length > 0)
     if (namedPlanned.length) {
-      throw stageError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
+      throw checkError('resolve', `the resolve agent planned a task with files for ${namedPlanned.map((id) => `${id} (${taskFiles(id).join(', ')}), which ${whose(id)} names as accepted`).join('; ')}; an accepted finding changes nothing`)
     }
     // Only an id with no list yet takes this resolve's tasks (#114, R3-4): an override a reshape
     // returned as a call is applied again by the resolve that call sets off (raised), and its
@@ -4270,7 +4284,7 @@ async function revise(record, inScope, reviewedKind) {
       tasked.length ? `${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing` : '',
     ].filter(Boolean)
     if (left.length) {
-      throw stageError('shape', `the reshape left ${left.join('; and ')}`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
+      throw checkError('shape', `the reshape left ${left.join('; and ')}`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
     }
     // A call the reshape raised that this round has not seen: autopilot decides it, the other
     // levels end the run; either way the resolve agent writes the new decisions in.
@@ -5167,7 +5181,7 @@ try {
   // under the edited script, so it ends here, before any agent. The skill refuses the same state
   // from redline-prefs.sh run drift without launching; this is the second layer.
   if (drift.workflow && !drift.pinned) {
-    return result('error', { stage: 'relaunch', error: `${drift.workflow} changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline ${pr}`, detail: {}, resumeFrom: null })
+    return result('error', { stage: 'relaunch', error: `${drift.workflow} changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline ${pr}`, detail: {}, resumeFrom: null, ownCheck: false })
   }
   // /redline:redline-revise <pr> review <selector>: one revise pass over a teammate's review (#36).
   // The skill ingested the comments (redline-gh.sh human-review) and numbered them H<n>-k; the
@@ -5437,5 +5451,8 @@ try {
   // and an error with no agent behind it are not resumable: the next launch is a fresh run.
   const resumable = error.stage && error.stage !== 'gather' && error.label && !error.fresh
   const resumeFrom = resumable ? { label: error.label, attempt: (resume[error.label] ? resume[error.label].attempt : 1) + 1 } : null
-  return result('error', { stage: error.stage || 'workflow', error: error.message, detail: error.extra || {}, resumeFrom })
+  // Whether the stop was the workflow's own check of what the step's agent returned (#116),
+  // which needs no hand fix before the relaunch: the skill says so, and passes it back in the
+  // resume entry.
+  return result('error', { stage: error.stage || 'workflow', error: error.message, detail: error.extra || {}, resumeFrom, ownCheck: Boolean(resumable && error.ownCheck) })
 }
