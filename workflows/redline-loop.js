@@ -680,9 +680,13 @@ const FINISH_COMMENT_LABELS = ['handoff comment', 'cap-hit comment', 'summary co
 function resumeLine(opts) {
   const entry = resume[opts.label]
   // The shaper's sentence goes by the step and by what its stop was (#117). A round's first shape
-  // runs before any decision, so its resume rewrites the four files from scratch, as it always
-  // has: the #117 spec measured that no decision of the person or the autopilot can be on disk
-  // when one is resumed. A reshape runs after the round's resolve, so its folder can hold the
+  // runs before the round's resolve, so its resume rewrites the four files from scratch, as it
+  // always has: the #117 spec measured that no decision of the person or the autopilot can be on
+  // disk when one is resumed in a round folder its own launch created. A revise-only pass over an
+  // earlier run's round (/redline:redline-revise <pr> round <N>) shapes in that run's folder,
+  // which can hold its decided entries, so a resume of its first shape rewrites them, as it
+  // always has, and that run's record commit keeps them in git history (#120, R1-1). A reshape
+  // runs after the round's resolve, so its folder can hold the
   // entries and tasks the resolve agent wrote for the round's decisions, and its rerun is never
   // told to rewrite, whatever stopped it. Until #117 only the stop that holds a decided finding
   // to its task (#106) was told to correct in place, and a reshape resumed after any other stop
