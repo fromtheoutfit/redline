@@ -3399,8 +3399,9 @@ function checkDrafts(shaped, shaperLabel, decided = []) {
 // handed eight placeholder calls). The GitHub agent's read-only spec-status operation lists the
 // four files and the Decisions heading, and the script decides. A missing plan.md, shape.md or
 // Decisions section is a shape-stage error that names the shaper, so a resume reruns it with the
-// replace sentence; the check's own failure keeps its own label, so a resume reruns the check.
-// A missing standards.md or references.md is a warning.
+// sentence resumeLine gives that step (#117); it carries no ownCheck, since a file can be missing
+// because a Write was refused, which a person fixes (#116). The check's own failure keeps its own
+// label, so a resume reruns the check. A missing standards.md or references.md is a warning.
 async function checkSpec(pass, specFolder, shaperLabel, suffix) {
   const status = await run('shape', specStatusPrompt(pass, specFolder), {
     agentType: 'redline:redline-github', ...modelOpts('github'), label: `spec status ${pass.tag}${suffix}`, phase: 'Shape', schema: SPEC_STATUS_SCHEMA,
@@ -4295,14 +4296,15 @@ async function revise(record, inScope, reviewedKind) {
     // resume starts at the build, and an accepted finding would be built against the decision.
     // What a decision ends in is its own disposition when it names one, an override's or a
     // call's, and else what the resolve agent stated for the call. A deferral is not held: its
-    // mitigation is optional, and no commit is demanded of one (#100). Both messages open with
-    // the same words, which the resume line reads (resumeLine).
+    // mitigation is optional, and no commit is demanded of one (#100). The stop is raised through
+    // checkError, so the error result carries ownCheck, and resumeLine reads that field, never the
+    // message's words (#116).
     // It reads the files the reshape lists for each finding, which the block asks for as a task of
     // the finding's own, since a reshape returns no list of tasks (#114, R2-6).
     const heldIds = inScope.map((f) => f.id).filter(tracked)
     const saidBy = (id) => (roundDecisions[id].disposition ? (isOverride(id) ? 'a disposition override names' : 'its decision names') : 'the resolve agent stated')
     // Both kinds are named in one stop (#114, R4-6): the resume line tells the rerun to correct
-    // the task the error names, so a stop that named only the fixes had a reshape that also gave
+    // what the error names, so a stop that named only the fixes had a reshape that also gave
     // an accepted finding a task repair the fixes alone and stop again here for the accept. With
     // one kind the message reads as it did.
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)

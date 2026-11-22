@@ -3736,7 +3736,7 @@ function samePrefix(name, first, second, n) {
   // and both clauses above carry it to their end (#114, R4-1).
   check('reshape: the shaper\'s file says a resumed first shape rewrites the four files, and that redline/ is left alone on either resume', shaperFile.includes('On a resume attempt (the invoking prompt says so) of a round\'s first shape, rewrite the four files from scratch') && shaperFile.includes('Either way, never change or remove anything under its `redline/` folder.'))
   // One reshape that breaks two decisions in opposite ways is stopped once, for both (#114, R4-6):
-  // the resume line tells the rerun to correct the task the error names, so an error that named
+  // the resume line tells the rerun to correct what the error names, so an error that named
   // only the emptied fix had the rerun repair that one and the hold stop again, at the same
   // label, for the accept. Each message alone reads as it did (NO_TASK and A_TASK above).
   const BOTH = 'the reshape left R1-1, which a disposition override names as a fix, with no task with files; a fix names the files it changes; and R1-2, which a disposition override names as accepted, with a task with files (app/y.php); an accepted finding changes nothing'
