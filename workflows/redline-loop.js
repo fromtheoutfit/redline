@@ -3828,6 +3828,12 @@ async function checker(flag, snapshot, octane, label, prefix) {
 // reshape the four files are already on disk, so a reshape whose Writes were all refused passes
 // it, and a check of its result or the hold after it still sets ownCheck (#120, R2-5, deferred:
 // telling a refused Write from a rerun that rightly changed no file needs a check of its own).
+// The order costs a relaunch in one case. The spec-status call's own failure keeps that call's
+// label (checkSpec, #57), so its resume replays the shaper's result unchanged, and a result one
+// of the checks below refuses then stops the relaunch again, at the shaper, with nothing to fix
+// by hand. It needs a failed status call and a refused result in one attempt, the checks after
+// the spec check had it before R1-3, and giving the status failure the shaper's label would
+// undo #57's rule that the check's own failure reruns the check, so it is accepted (#120, R3-6).
 // Every check after the spec check names the shaper's label itself, since lastLabel would name
 // the spec-status call (#94, R2-9).
 // `known` is the round's calls so far, [] on the shape; `label` names the shaper call for the
