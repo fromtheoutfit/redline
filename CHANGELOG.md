@@ -2,6 +2,13 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.4.5 (2026-11-23)
+
+### Fixes
+
+- #114 A finding the person or autopilot decided is read from its task as last planned, by every reader and after each reshape; a decision is held to its task after each reshape; and a path an agent returns is read once, the way the guard reads a write target (#106)
+- #120 What a resumed step is told is chosen by a field its stop sets, never by an error's wording: a stop that is Redline's own check of what an agent returned says nothing needs fixing by hand, in the skill's report and in the rerun's prompt, and a resumed reshape is never told to rewrite its spec folder (#117, #116)
+
 ## 0.4.3 (2026-11-20)
 
 ### Fixes
