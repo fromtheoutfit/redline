@@ -1,0 +1,1 @@
+Redline round 3: fixed in cbffb87 (redline: R3-1 say a resume after the spec check's own failure reruns the check alone (#117)). · decided by: redline

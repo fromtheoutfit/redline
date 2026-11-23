@@ -1,0 +1,10 @@
+{
+  "round": 4,
+  "reviewed": "final-nit-pass",
+  "range": {
+    "from": "bf12327b51318a34f9506c669b96d8b65a44c8f7",
+    "to": "270a32ed792c182858691de27627dacc0f5d6736"
+  },
+  "summary": "The round 3 fixes change the code in one place: the opening of the restore clause in resumeLine. It now says the spec folder holds the round's earlier work, part of which may be missing, so it no longer says the plan is there after a \"no plan.md\" stop. The test constant RESTORE and the RESUME_WORDS phrase match it byte for byte, and no tracked file outside the specs still holds the old wording except the standard and the test that quote it as history. The other changes are a comment on vetShape, doc sentences, standards lines and test checks. The moved ownCheck-false comparison now runs at a first shape in the block where `two`, `reshapedFieldless`, `line` and `shaperLine` are defined, and each phrase the new doc checks look for is in docs/running.md and docs/upgrading.md. This diff introduced no correctness bug. The guard refuses node for the reviewer, so the loop test was not run; this was traced by reading the code.",
+  "findings": []
+}

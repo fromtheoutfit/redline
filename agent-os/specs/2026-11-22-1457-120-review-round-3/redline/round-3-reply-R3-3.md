@@ -1,0 +1,1 @@
+Redline round 3: fixed in ec0f512 (redline: R3-3 compare ownCheck false with an absent field at a first shape, which reads it (#117)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 2: fixed in 3d0ca14 (redline: R2-2 say the spec commit keeps an earlier run's decided entries only once it reached implement (#117)). · decided by: redline

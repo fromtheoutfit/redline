@@ -1,0 +1,1 @@
+Redline round 3: fixed in 6ba2f92 (redline: R3-6 say the spec check first costs a second relaunch after its own call fails beside a refused result (#117)). · decided by: redline

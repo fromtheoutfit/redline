@@ -1,0 +1,1 @@
+Redline round 2: fixed in 896471c (redline: R2-1 pin the resume label of the human pass's decline stop (#117)). · decided by: redline
