@@ -1762,9 +1762,12 @@ function samePrefix(name, first, second, n) {
   // ownCheck is true or false, or absent, which reads as false (#116).
   const badOwn = await go('resume: an ownCheck that is not a boolean', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] }, ownCheck: 'yes' } } }, base)
   check('resume: an ownCheck that is neither true nor false is refused', Boolean(badOwn.thrown) && /args.resume must map an agent label/.test(badOwn.thrown.message) && badOwn.calls.length === 0, badOwn.thrown ? badOwn.thrown.message : labels(badOwn.calls))
-  const falseOwn = await go('resume: ownCheck false', { ...baseArgs, resume: { 'recheck r1': { attempt: 2, error: errorText, hand: { commits: [], paths: [] }, ownCheck: false } } }, onlyFirst)
+  // ownCheck false reads as an entry with no field (#116). The comparison runs at a first shape,
+  // whose line reads the field: until #120, R3-3 it ran at recheck r1, whose line never does, so
+  // a normalisation that read false as true stayed green here.
+  const falseOwn = await go('resume: shape stage relaunch from an entry with ownCheck false', { ...baseArgs, resume: { 'shape r1': { attempt: 2, error: 'the shaper gave no disposition for R1-2', hand: { commits: [], paths: [] }, ownCheck: false } } }, two)
   const everyPrompt = (r) => r.calls.map((c) => `${c.label}\n${c.prompt}`).join('\n')
-  check('resume: an entry that says ownCheck false builds the prompts of one that says nothing', !falseOwn.thrown && falseOwn.res.status === 'done' && everyPrompt(falseOwn) === everyPrompt(second), falseOwn.thrown ? falseOwn.thrown.message : labels(falseOwn.calls))
+  check('resume: an entry that says ownCheck false builds the prompts of one that says nothing, at a first shape, whose line reads the field', !falseOwn.thrown && falseOwn.res.status === 'done' && shapePromptOf(falseOwn).endsWith(line('the shaper gave no disposition for R1-2') + shaperLine) && everyPrompt(falseOwn) === everyPrompt(reshapedFieldless), falseOwn.thrown ? falseOwn.thrown.message : shapePromptOf(falseOwn).slice(-600))
   // The skill reads the field where it reports the stop and carries it into the entry, and the
   // replay standard and docs/running.md say what the workflow does with it.
   const skillFile = fs.readFileSync(path.join(here, '..', 'skills', 'redline', 'SKILL.md'), 'utf8')
