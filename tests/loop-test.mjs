@@ -413,7 +413,7 @@ const ownWrong = []
 // resume only: no prompt of a run that passes no resume entry holds the line or one of its
 // clauses. Two checks at the end name the offenders.
 const REWRITE_SENTENCE = 'from scratch, replacing what the earlier attempt wrote'
-const RESUME_WORDS = ['Resume attempt', 'nothing was fixed by hand for it', 'This step is a reshape, so the spec folder already holds the plan', REWRITE_SENTENCE]
+const RESUME_WORDS = ['Resume attempt', 'nothing was fixed by hand for it', 'This step is a reshape, so the spec folder already holds the earlier work of this round', REWRITE_SENTENCE]
 const rewrittenReshape = []
 const strayResumeWords = []
 
@@ -3715,7 +3715,7 @@ function samePrefix(name, first, second, n) {
   const FROM_SCRATCH = ' Rewrite plan.md, shape.md, standards.md and references.md in the spec folder from scratch, replacing what the earlier attempt wrote; never change or remove anything under its redline/ folder.'
   const REWRITTEN = 'from scratch, replacing what the earlier attempt wrote'
   const CORRECT_IN_PLACE = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read plan.md, shape.md, standards.md and references.md as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included, correct what the error names, and return the whole result again; never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
-  const RESTORE = ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided, and the task written for it unless an adjustment above changes that task, then write again what is missing or left unfinished and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
+  const RESTORE = ' This step is a reshape, so the spec folder already holds the earlier work of this round, though part of it may be missing: read plan.md, shape.md, standards.md and references.md as they stand, keep any entry the person or the autopilot decided, and the task written for it unless an adjustment above changes that task, then write again what is missing or left unfinished and return the whole result again. Never rewrite the four files from scratch, never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.'
   const resumeAt = (error, own) => ({ [RESHAPE_1]: { attempt: 2, error, hand: { commits: [], paths: [] }, ...(own ? { ownCheck: true } : {}) } })
   const fixRestored = await go('reshape: an override to fix whose task the reshape removed, resumed', { ...overrideDial, decisions: toFix, resume: resumeAt(NO_TASK('a disposition override names'), true) }, { ...declined, reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
   const restoredPrompt = reshapePromptOf(fixRestored)
@@ -3788,6 +3788,10 @@ function samePrefix(name, first, second, n) {
   const plainRound = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, commitIds: [['R1-1', 'R1-2']] }
   const plainLost = await resumedReshape('reshape: a reshape of a round with no decision that leaves no plan.md', baseArgs, { ...plainRound, specMissing: { 'spec status r1 #1': 'plan' } }, plainRound)
   check('reshape: a reshape of a round with no decision resumed after its spec check is told to restore what is missing, never to rewrite', plainLost.own === false && toldOnly(plainLost, RESTORE), shown(plainLost))
+  // The restore clause opens with what is true after every stop it follows (#120, R3-5): the spec
+  // check's no plan.md stop is one of them, and until R3-5 the clause opened by saying the folder
+  // already held the plan.
+  check('reshape: a reshape resumed after its spec check found no plan.md is told part of the folder may be missing, never that the folder already holds the plan', plainLost.error.endsWith(': no plan.md') && plainLost.prompt.includes('already holds the earlier work of this round, though part of it may be missing') && !plainLost.prompt.includes('already holds the plan'), shown(plainLost))
   const plainDropped = await resumedReshape('reshape: a reshape of a round with no decision that leaves a finding out', baseArgs, { ...plainRound, reshapeDrop: ['R1-2'] }, plainRound)
   check('reshape: a reshape of a round with no decision resumed after a check of its result is told to correct what the error names', plainDropped.own === true && plainDropped.error === 'the shaper gave no disposition for R1-2' && toldOnly(plainDropped, CORRECT_IN_PLACE), shown(plainDropped))
   // A human review pass's reshape goes by the same label test (reshape h<n> #<k>).
