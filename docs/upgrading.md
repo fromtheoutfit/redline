@@ -38,7 +38,7 @@ From 0.3.0 a review body writes `unconfirmed` as a finding's confidence word, an
 
 From 0.4.5 an error result says whether the stop was the workflow's own check of what an agent returned (`ownCheck`). The run marker keeps it, and what a resumed step is told is chosen by it, no longer by how the error is worded ([running.md](running.md), "Run markers and resume"). A marker an older release wrote holds no `ownCheck`, so it resumes as an ordinary stop: the rerun is told the cause was fixed by hand, and a resolve agent stopped by a check of its own result is not told to correct what it wrote. A resumed reshape keeps the folder and restores what is missing, whatever stopped it.
 
-A run also keeps every earlier resume in its args, and each one's line is built again on every relaunch. So a run that had already resumed at a resolve check or at a reshape under an older release, stopped again later, and is relaunched under 0.4.5 builds a different line for that step, and the step and everything after it run again, a round already built included. Finish or restart a stopped run before updating across 0.4.5. A run that never resumed at one of those steps is not affected.
+A run also keeps every earlier resume in its args, and each one's line is built again on every relaunch. So a run that had already resumed at a resolve check or at a reshape under an older release, stopped again later, and is relaunched under 0.4.5 builds a different line for that step, and the step and everything after it run again, a round already built included. Finish or restart a stopped run before updating across 0.4.5. A run that never resumed at one of those steps, and is not stopped at one now, is not affected.
 
 ## What a template bump means
 
