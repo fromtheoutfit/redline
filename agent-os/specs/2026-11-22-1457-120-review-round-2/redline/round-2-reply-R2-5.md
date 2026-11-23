@@ -1,0 +1,1 @@
+Redline round 2: deferred to #122. Mitigated in 9e1f5ea (redline: R2-5 say the spec check sees a refused Write only where it leaves a file missing (#117)). · decided by: redline

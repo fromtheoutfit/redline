@@ -1,0 +1,207 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "96eb7aa5d97e006f658568cd8c011d5e4e66fa1c",
+    "to": "bf12327b51318a34f9506c669b96d8b65a44c8f7"
+  },
+  "summary": "Round 2's fixes land as described. The own-check reshape clause and rule 9 now carry the ban on writing a lost decided entry from memory. The docs and the comments limit the git-history claim to an earlier run that reached its implement step and state what the spec check cannot see, and the human-pass decline stop's label is pinned. Of the six coverage candidates, five hold and one is refuted. All five are nits: two doc sentences that a stop or a stopped run contradicts, a restore clause that opens with something false after a 'no plan.md' stop, a check that pins nothing at its label, and an extra relaunch from R1-3's reordering. A whitespace slip in the fix diff makes a sixth. No scheduled or queued work touches these files.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "docs/running.md",
+      "line": 208,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "'A resume at the shape stage reruns the shaper' is false when the spec-status call itself fails",
+      "description": "The 'Run markers and resume' paragraph says 'A resume at the shape stage reruns the shaper, which never touches `redline/`.' One shape-stage stop does not do that: when the spec-status call returns an error, checkSpec throws `stageError('shape', 'checking the ... spec folder failed: ...')` with no label (workflows/redline-loop.js:3416-3418), so the label falls back to `lastLabel` (656), which run() set to `spec status r<n>` (750, 3414). The loop test pins that label ('spec: a failed check names the status label, not the shaper', tests/loop-test.mjs:1809-1810), and checkSpec's own comment says so (3410-3411: 'The check's own failure keeps its own label, so a resume reruns the check'). On that resume the shaper's prompt is unchanged, so its cached result replays and only the spec-status call reruns. Nothing else in docs/running.md, docs/contract.md or the README says that this stop resumes at the check (the paragraph's only other `spec-status` mention is about the missing-file stops, which do name the shaper). The opening of the sentence is the base branch's (main's line 208 opened the same way, then said the shaper rewrites). This pull request rewrote the rest of the sentence and kept the opening. Round 2's fixes did not touch it.",
+      "proposedFix": "In 'Run markers and resume' of docs/running.md, say that a resume at the shape stage reruns the step its label names: the shaper for the shaper's own stops and the spec check's missing-file stops, and the spec-status call alone (with the shaper's result replayed from cache) when that call failed.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-2",
+      "file": "docs/upgrading.md",
+      "line": 41,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "'A run that never resumed at one of those steps is not affected' contradicts the section's first paragraph",
+      "description": "'A stopped run across 0.4.5' has two paragraphs. Paragraph 1 (line 39) says a marker an older release wrote holds no `ownCheck`, so it resumes as an ordinary stop, and a resolve agent stopped by a check of its own result is not told to correct what it wrote. That matches the code: resumeLine gives the resolve's clause only when `entry.ownCheck` is true (workflows/redline-loop.js:728-730), and an entry with no field reads as false (291). Under 0.4.4 the same stop got the clause from the error's opening words. Paragraph 2 (line 41) ends 'A run that never resumed at one of those steps is not affected.' A run stopped right now at a resolve check under 0.4.4 has never resumed, and paragraph 1 says it is affected: its first resume under 0.4.5 loses the correct-what-you-wrote clause (the #108 R3-4 case). The instruction 'Finish or restart a stopped run before updating across 0.4.5' sits in paragraph 2, right before the sentence that exempts that run. A reader who reads the last sentence alone may update while such a run is waiting. The section is this pull request's own text; round 2's fixes did not touch it.",
+      "proposedFix": "In docs/upgrading.md, 'A stopped run across 0.4.5', limit the last sentence to the effect it describes, for example 'A run that never resumed at one of those steps does not rebuild an earlier line', or say that a run now stopped at a resolve check or at a reshape is also affected by paragraph 1 and should be finished or restarted under the older release first.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-3",
+      "file": "tests/loop-test.mjs",
+      "line": 1767,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The ownCheck-false-equals-absent check runs at a label where the field is never read",
+      "description": "'resume: an entry that says ownCheck false builds the prompts of one that says nothing' (tests/loop-test.mjs:1765-1767) resumes at `recheck r1`. resumeLine reads `entry.ownCheck` only for the shaper (`opts.agentType === 'redline:redline-shaper'`, workflows/redline-loop.js:714-720) and the resolve agent (728). The checker's line is the same whatever the field holds, so this check would pass with `ownCheck: true` too, and with any normalisation at line 291. testing/tests.md names this pattern: a call site pinned only with input the function returns unchanged is not pinned. The normalisation is pinned elsewhere: the third-attempt reshape case at 3797 passes `ownCheck: false` explicitly and expects RESTORE, and resumedReshape (3764-3768) passes `own` false for the spec-check cases (for example plainLost, 3785-3786), so a mutation such as `ownCheck: entry.ownCheck !== undefined` is red there. Only this check's own claim is vacuous. It is in the pull request's own tests, not round 2's fixes.",
+      "proposedFix": "Run the comparison at a label that reads the field, for example `reshape r1 #1` or `resolve r1`, with `ownCheck: false` against the same entry with no key, and see it red under a copy of the workflow whose line 291 reads `ownCheck: entry.ownCheck !== undefined`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "tests/loop-test.mjs",
+      "line": 3714,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "Round 2's fix dropped the space after `=` in the RESTORE constant",
+      "description": "Round 2's R2-3 commit (07a7316) rewrote the line `const RESTORE = ' This step is a reshape, ...'` as `const RESTORE =' This step is a reshape, ...'` (tests/loop-test.mjs:3714). The string itself did not change: the fix diff's removed and added lines differ only in that space. Every other constant beside it (`CORRECT_IN_PLACE`, `FROM_SCRATCH`, `REWRITTEN`) keeps `= '`. The gate has no JavaScript formatter (`.claude/redline/checks.json`, `formatter: null`), so nothing catches it. It changes no behaviour.",
+      "proposedFix": "Restore the space: `const RESTORE = ' This step is a reshape, ...'`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-5",
+      "file": "workflows/redline-loop.js",
+      "line": 720,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The restore clause says the folder already holds the plan, and it is given after a 'no plan.md' stop",
+      "description": "The restore clause opens ' This step is a reshape, so the spec folder already holds the plan: read plan.md, shape.md, standards.md and references.md as they stand' (workflows/redline-loop.js:720). It is given to every reshape resumed with ownCheck false, the spec check's missing-plan.md stop included: checkSpec raises 'the shaper wrote no usable spec in <folder>: no plan.md' with the reshape's label and no ownCheck (3422-3431). The loop test pins exactly that case: 'a reshape of a round with no decision that leaves no plan.md' (tests/loop-test.mjs:3785-3786, `specMissing: { 'spec status r1 #1': 'plan' }`) expects RESTORE alone. So the rerun is told the plan is on disk in the same line that quotes the error 'no plan.md'. The clause goes on to say 'write again what is missing', which covers the file, so the likely result is a rerun that reads, finds no plan.md and writes it; the cost is a contradictory sentence in the prompt. The opening is also one of RESUME_WORDS (tests/loop-test.mjs:416), so a rewording changes that list and the RESTORE constant. The clause is the pull request's own (#117, 67b77ab); round 2's fixes changed the clause beside it, not this one.",
+      "proposedFix": "Open the clause with something true after every stop it follows, for example ' This step is a reshape, so the spec folder already holds the round's work, though a file may be missing: read plan.md, shape.md, standards.md and references.md as they stand, ...', and update RESTORE and RESUME_WORDS in tests/loop-test.mjs and rule 9 of agents/redline-shaper.md if it repeats the words.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-6",
+      "file": "workflows/redline-loop.js",
+      "line": 3840,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "With the spec check first, a failed spec-status call before a bad result costs a second relaunch",
+      "description": "R1-3's fix (d30465f, round 1) moved `await checkSpec(...)` ahead of the unsorted check, checkDispositions, checkSecondLook and checkCalls (workflows/redline-loop.js:3840-3847). When the spec-status call itself returns an error, checkSpec throws with the label `spec status r<n>` (3416-3418, label from `lastLabel` at 656/750; pinned at tests/loop-test.mjs:1809-1810). A resume there leaves the shaper's prompt unchanged, so its cached result replays. If that result also fails one of the result checks (for example an ask with no judgment call, checkCalls), the rerun spec check passes and the run stops again with ownCheck true at `shape r<n>`, a second relaunch. On the base branch, unsorted, checkDispositions, checkSecondLook and checkCalls ran before checkSpec (main's vetShape, 3785-3792), so the bad result stopped first at `shape r<n>` and one relaunch reran both the shaper and the check. Conditions: a spec-status call that fails (a refused `git grep`) in the same attempt as a shaper result a check refuses. On main the checks after checkSpec (checkDeclineReasons, checkDrafts, checkWhy) already had this two-relaunch path. Round 1's shape.md said the other proposed fix (catch a result check's error and run the spec check first) 'makes the same calls and stops with more code', which is not the case for this stop. Round 2's fixes changed the vetShape comment only, not the order.",
+      "proposedFix": "Either accept the extra relaunch and say so in the vetShape comment, or give the spec-status call's failure the shaper's label when a result check would also stop (run the result checks inside a try after a failed status, and throw the status error with `label` set to the shaper's).",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "bf12327b51318a34f9506c669b96d8b65a44c8f7",
+    "candidates": 6,
+    "counts": {
+      "verified": 5,
+      "unconfirmed": 0,
+      "refuted": 1,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R3-1"
+      },
+      {
+        "index": 2,
+        "outcome": "refuted",
+        "ref": "Claim: the skill builds a resume entry with ownCheck null from a marker written before 0.4.5, and the workflow refuses it. Evidence against: skills/redline/SKILL.md:52 tells the skill that ownCheck is the marker's, `false` when the marker holds none. The workflow takes false and reads it as an ordinary stop (workflows/redline-loop.js:288-291). Refusing any type other than a boolean is the contract the PR description states. Null reaches the check only if the skill ignores that sentence. Round 1 refuted the same candidate on the same evidence."
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R3-3"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R3-5"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R3-2"
+      },
+      {
+        "index": 6,
+        "outcome": "verified",
+        "ref": "R3-6"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "docs/running.md",
+        "line": 208,
+        "summary": "The rewritten 'Run markers and resume' paragraph still says 'A resume at the shape stage reruns the shaper', which is false when the spec check's own call fails. That stop (`checking the round N spec folder failed: ...`) is at stage `shape`, but its resumeFrom is `spec status r<n>`: the resume replays the cached shaper result and reruns only the check. Fix: say a shape-stage resume reruns the step its label names, the shaper for its own stops and the spec-status call when that call failed.",
+        "failure_scenario": "git grep is refused in the spec-status call, so the run stops at stage shape with resumeFrom `spec status r1`. A reader of docs/running.md expects the shaper to run again, but the relaunch replays the shaper's cached result and reruns only the check."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 288,
+        "summary": "A resumed run refuses `ownCheck: null`, though the field is optional and normalised with `=== true` on the next line. The skill builds the entry as `\"ownCheck\": <marker.ownCheck>` (skills/redline/SKILL.md:52), and a marker written before 0.4.5 has no such key, so filling in the template literally gives null. `fail()` then throws at load, before any agent runs. The refusal message also lists ownCheck as if it were required. Fix: treat null as absent (`entry.ownCheck == null || typeof entry.ownCheck === 'boolean'`), or have `run read`/`run check` print `ownCheck: false` when the stored marker has none.",
+        "failure_scenario": "A 0.4.4 error marker is resumed under 0.4.5 and the skill writes `\"ownCheck\": null`. The workflow throws 'args.resume must map an agent label to {attempt, error, hand, ownCheck}' with no result, so the skill records a stopped run whose args still hold the bad entry, and each Resume relaunches those args unchanged and fails the same way."
+      },
+      {
+        "index": 3,
+        "file": "tests/loop-test.mjs",
+        "line": 1767,
+        "summary": "The check 'an entry that says ownCheck false builds the prompts of one that says nothing' runs at `recheck r1`. resumeLine never reads ownCheck for that label (only the shaper and resolve clauses do), so `ownCheck: true` would build the same prompts there too. This is the pattern testing/tests.md calls not pinned: a call site pinned only with input the function returns unchanged. Fix: compare at a label where the field is read, such as `resolve r1` or `reshape r1 #1`, with `ownCheck: false` against an entry that omits it.",
+        "failure_scenario": "Mutate the normalisation so any present field reads as true (`ownCheck: entry.ownCheck !== undefined`). This check stays green, because recheck r1's line is identical either way; only unrelated reshape cases go red."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 720,
+        "summary": "The restore clause opens 'This step is a reshape, so the spec folder already holds the plan: read plan.md ... as they stand'. It is also given after the spec check's own stop for `no plan.md`, and the loop test pins exactly that case (`plainLost`, specMissing 'plan'). The rerun is told the plan is on disk while the error it was just shown says plan.md is missing. Fix: open with something true after every stop the clause follows, e.g. 'the spec folder already holds the round's work; a file may be missing', and keep 'write again what is missing'.",
+        "failure_scenario": "A reshape in a round with no decision leaves no plan.md. The spec check stops the run at `reshape r1 #1` with no ownCheck, and the resumed prompt says the folder 'already holds the plan' and to read plan.md as it stands, next to the error 'no plan.md'."
+      },
+      {
+        "index": 5,
+        "file": "docs/upgrading.md",
+        "line": 41,
+        "summary": "'A run that never resumed at one of those steps is not affected' reads as an all-clear, but paragraph 1 of the same section says the opposite for a run stopped right now at a resolve check. That run has never resumed there, and its first resume under 0.4.5 gets no 'correct what you wrote' clause. A reader who takes the last sentence alone updates while such a run is waiting. Fix: limit the sentence to the rebuilt-earlier-resume effect, or say that a run now stopped at a resolve check or a reshape should be resumed under the old release first.",
+        "failure_scenario": "A run is stopped by 'the resolve agent stated no disposition for R1-1' under 0.4.4 and has never resumed. The person reads 'not affected' and updates. The resume under 0.4.5 tells the resolve agent only that the person fixed the cause by hand, beside a shape.md whose entries its first attempt already decided (the #108 R3-4 failure)."
+      },
+      {
+        "index": 6,
+        "file": "workflows/redline-loop.js",
+        "line": 3840,
+        "summary": "Running the spec check before the result checks (R1-3) adds a relaunch when the spec-status call itself fails and the shaper's result is also bad. The first stop resumes at `spec status r<n>`, which replays the cached bad result. The rerun check then passes and a result check stops the run again at the shaper. Before R1-3 the result check stopped first, and one relaunch at the shaper reran both. Fix: accept the rare extra relaunch and say so in the vetShape comment, or catch a result check's error and give the spec-status failure the shaper's label when a result check would also stop.",
+        "failure_scenario": "The shaper returns an ask with no judgment call, and the spec-status git grep is refused. The run stops at `spec status r1`, which the person fixes and resumes. It then stops again with ownCheck at `shape r1` and needs a second relaunch."
+      }
+    ]
+  }
+}

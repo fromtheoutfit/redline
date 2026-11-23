@@ -1,0 +1,1 @@
+Redline round 2: fixed in 07a7316 (redline: R2-3 tell a reshape resumed after the workflow's check never to write a lost decided entry from memory (#117)). · decided by: redline

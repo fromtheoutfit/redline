@@ -194,6 +194,8 @@ printf '%s\n' '{"runId":"wf_5","args":{"pr":7,"repoRoot":"'"$REPO"'","snapshotPa
 # An error at post r2: the result lists round 1 only, since a round joins the result after its post.
 printf '%s\n' '{"runId":"wf_8","args":{"pr":7,"repoRoot":"'"$REPO"'","launchedAt":"2026-11-01T09:00:00-0400"},"result":{"status":"error","stage":"post","error":"GitHub refused the review","resumeFrom":{"label":"post r2","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/later.json"
 printf '%s\n' '{"runId":"wf_6","args":{"pr":7},"result":{"status":"done"}}' > "$REC/done.json"
+# A stop that is the workflow's own check of what an agent returned (#116): the result says so.
+printf '%s\n' '{"runId":"wf_14","args":{"pr":7},"result":{"status":"error","stage":"resolve","error":"the resolve agent stated no disposition for R1-1","resumeFrom":{"label":"resolve r1","attempt":2},"ownCheck":true,"specFolders":["'"$FOLDER"'"]}}' > "$REC/own.json"
 # A repository whose own path holds /redline/ (this plugin's checkout does): the start snapshot's
 # folder is read off args.repoRoot and the snapshot's fixed tail, never by splitting on /redline/.
 printf '%s\n' '{"runId":"wf_7","args":{"pr":7,"repoRoot":"/tmp/redline/app"},"result":{"status":"handoff","handoffRound":2,"specFolders":["agent-os/specs/2026-11-01-0900-7-review-round-2"],"snapshotStart":"/tmp/redline/app/agent-os/specs/2026-11-01-0900-7-review-round-1/redline/snapshot-start.json"}}' > "$REC/nested.json"
@@ -232,6 +234,14 @@ saved "save: head and branch" '[.runs."7".head, .runs."7".branch] | join(" ")' "
 saved "save: args as launched" '[(.runs."7".args.pr|tostring), .runs."7".args.headRef, .runs."7".args.files[0]] | join(" ")' "7 work app/x.php"
 saved "save: spec folders, the start snapshot's folder once" '.runs."7".specFolders | join(",")' "$FOLDER"
 saved "save: the prefs keys are untouched" '[.interrupt, .revise, (.maxRounds|tostring), .scope] | join(" ")' "guided claude-opus-5-5 3 all"
+# The marker carries the result's ownCheck (#116), which the skill copies into the resume entry:
+# true for a stop that is the workflow's own check, false for a result that holds none (one
+# written before the field existed, and every stop that is not an error).
+saved "save: a result with no ownCheck saves false" '.runs."7".ownCheck | tostring' "false"
+runj "save: a stop that is the workflow's own check saves ownCheck true" '[.label, (.ownCheck | tostring)] | join(" ")' "resolve r1 true" save "$REPO" 7 --run-id wf_14 --record "$REC/own.json"
+run save "$REPO" 7 --run-id wf_3 --record "$REC/handoff.json" >/dev/null 2>&1
+saved "save: a hand-off saves ownCheck false" '.runs."7".ownCheck | tostring' "false"
+run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 runj "save: --session wins over the environment" '.session' "s9" save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" --session s9
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 runx "save: a gather error cannot be resumed, exit 1" 1 save "$REPO" 7 --run-id wf_2 --record "$REC/gather.json"

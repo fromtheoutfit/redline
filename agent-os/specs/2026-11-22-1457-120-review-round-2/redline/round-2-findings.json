@@ -1,0 +1,177 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "47952b1423e7e06d9edcbc53ab6931a52d2d83fb",
+    "to": "96eb7aa5d97e006f658568cd8c011d5e4e66fa1c"
+  },
+  "summary": "Round 1's fixes land as described. The spec check now runs before every result check, and each throw after it names the shaper's label. The restore clause lets an adjustment move a decided task. The resume comments no longer say the line reads an error's words. All five candidates hold. Two of them, R2-1 and R2-2, are in the fixes themselves: an unpinned resume label, and a git-history claim that is not true for an earlier run that stopped before implement. The other three are places where a stop's ownCheck or a resume clause does not match the folder it meets: a reshape whose refused Writes the spec check cannot see, an own-check reshape clause with no ban on writing a lost decided entry from memory, and a heading miss reported as a hand fix. No scheduled or queued work touches these files: the plugin has no `routes/console.php` and no jobs.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "tests/loop-test.mjs",
+      "line": 2713,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "No check pins the resume label of the human-pass decline stop",
+      "description": "R1-3 moved the spec check ahead of the result checks, so `lastLabel` names `spec status h1` by the time `checkDispositions` runs. The human-pass decline throw (workflows/redline-loop.js:3250) gets the shaper's label only through the `{}, shaperLabel` arguments R1-3 added. The check at tests/loop-test.mjs:2713 tests status, stage, the error's words and the call list, but not `run.res.resumeFrom`. The resumed scenario at 2716 builds its own `shape h1` entry by hand, so it cannot catch a wrong label either. The harness's generic error checks (lines 439-446) test only `ownCheck` and that `resumeFrom` is truthy. If the arguments were dropped, the stop's `resumeFrom` would name `spec status h1`, a resume would rerun only the spec check and replay the refused shaper output from cache, and nothing in the suite would fail. I could not run the mutation: the guard refuses `node` for the reviewer. This is traced from the source. The other throws R1-3 relabelled are pinned: the unsorted check by the reshape case at 1854 (`reshape r1 #1`), both `checkCalls` throws by the cases at 1812 and 1815 (`shape r1`), and the shared defer/other-pass-values throw at 3259-3262 by the `reviewerOwned` check at 2667-2669, whose string ends in `shape r1`. So the human-defer check at 1331 needs no label pin of its own for that mutation. testing/tests.md requires a stage error to be pinned by its resumeFrom label. The cause is in round 1's fix: R1-3 changed this check and the throw.",
+      "proposedFix": "Add `&& run.res.resumeFrom && run.res.resumeFrom.label === 'shape h1'` to the check 'human: a decline stops the pass at shape' (tests/loop-test.mjs:2713). Then see it go red under a copy of the script with `, {}, shaperLabel)` dropped from the human-decline throw in checkDispositions.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "workflows/redline-loop.js",
+      "line": 688,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "R1-1's text says an earlier run's record commit always keeps the entries a revise-only resume rewrites",
+      "description": "#121 tracks the revise-only first-shape rewrite. It does not track this: the claim that the earlier run's record commit keeps the decided entries in git history. b3ab458 (R1-1's applied decision) puts that claim in this comment, in docs/running.md:208 ('the earlier run's record commit keeps them in git history') and in agent-os/standards/workflow/replay.md:19 ('that run's record commit keeps them in git history'), and #121's draft repeats it under its 'Why it is not fixed'. It is not always true. A round's four spec files are first committed by the implementer's Task 1 (agents/redline-implementer.md:17). On an error, the workflow's catch block (workflows/redline-loop.js:5477-5491) commits nothing, and the skill's error path only writes the marker (skills/redline/SKILL.md:272). So an earlier run that stopped after its resolve and before implement left its decided entries uncommitted. Examples: an own-check stop at resolve, the approve cap, a reshape stop, a plan hand-off the person did not relaunch. The revise skill's precheck allows uncommitted files under `revise.specFolder` (skills/redline-revise/SKILL.md:26). So a fresh `/redline:redline-revise <pr> round <N>` over that folder, resumed at `shape r<N>`, rewrites decided entries that are in no commit. The behaviour itself is R1-1's, decided and kept. This finding is that the stated safety net does not hold for an earlier run that never reached implement, and R1-1's decision and #121's reasoning rest on it.",
+      "proposedFix": "Limit the sentence in the resumeLine comment (688), docs/running.md ('Run markers and resume') and the replay standard (line 19) to an earlier run that reached its implement step, for example 'and, once that run reached its implement step, its commits keep them in git history'. Add the uncommitted case to #121.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-3",
+      "file": "workflows/redline-loop.js",
+      "line": 716,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A reshape resumed after the workflow's own check is not told never to write a lost decided entry from memory",
+      "description": "Only the restore clause (line 717) carries the ban 'never write a decided entry the folder no longer holds from memory (name it in shape.md as lost)'. The own-check clause (line 716) is given after the hold or a result check. It tells the rerun to read the four files 'as that attempt left them, the entries the person or the autopilot decided and the tasks written for them included' and to correct what the error names. It gives no ban, and so does rule 9 of agents/redline-shaper.md for this case (the ban sits only in its 'After any other stop' branch). The reshape prompt's decided block (lines 2213-2214) names each decided id and its end, never the choice, the notes or the date. The resumeLine comment (701-702) gives that as the reason for the ban, and the reason applies equally here. The hold fires when a reshape removed a decided fix's task or gave an accepted finding one. If that same reshape also dropped or rewrote the finding's `Decided by:` entry in shape.md, the rerun is told to correct the task the error names beside an entry that is gone. It has nothing that stops it writing the entry back with an invented choice, notes and date, which the round's record commit would then carry as the person's decision. Conditions: a reshape of a round with a decided finding that both trips the hold (or a result check) and loses that finding's shape.md entry. Whether a given rerun invents one is model behaviour, but the missing instruction is in the source. The clause was added by this pull request (#117), not by round 1's fixes: R1-2 changed only the restore clause.",
+      "proposedFix": "End the own-check reshape clause with the restore clause's ban, for example '...correct what the error names, and return the whole result again; never write a decided entry the folder no longer holds from memory (name it in shape.md as lost), and never change or remove anything under its redline/ folder.' Add the same sentence to rule 9's own-check branch in agents/redline-shaper.md. Add a loop-test check that the own-check reshape prompt (the `fixRestored` case near tests/loop-test.mjs:3713) includes the ban, and update the pinned CORRECT_IN_PLACE string.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-4",
+      "file": "workflows/redline-loop.js",
+      "line": 3406,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A missing Decisions heading in a shape.md that was written is reported as a stop to fix by hand",
+      "description": "checkSpec (workflows/redline-loop.js:3422-3428) raises a missing `## Decisions` heading through `stageError`, with no ownCheck, whenever shape.md is listed. The justification, in the comment at 3406-3407 (reworded in round 1's fix) and in docs/running.md:208, is that 'a file can be missing because a Write was refused'. That fits a missing file. It does not fit a shape.md that exists without the heading: that Write went through. At a reshape, a refused rewrite would leave the first shape's heading in place, so a missing heading there comes from the shaper's own rewrite (for example renaming it to '## Decisions (round 1)'). The rerun corrects it with no hand step: the restore clause at a reshape, the from-scratch sentence at a first shape. Even so, the skill (skills/redline/SKILL.md:272) tells the person to fix the cause by hand first. Nothing breaks: the resume works once the person relaunches. The cost is a misleading instruction. The PR's spec decided this on purpose: #117's decision 14 says 'The spec check does not carry the field. A missing file can be a refused Write', which covers the heading only by the same reasoning. There are two readings. Either the heading belongs with the files as a conservative hand-fix stop, and only the justification text is too narrow, or it is the shaper's own output and should carry ownCheck, at least at a reshape. The cause is in the pull request's ownCheck design over checkSpec, not in round 1's fixes.",
+      "proposedFix": "Either raise the heading-only miss (when `missing` holds only the Decisions entry, at least on a reshape) through `checkError`, with a loop-test case and the OWN_CHECKS table updated, or keep the stop and narrow the checkSpec comment and the docs/running.md sentence to say that a missing Decisions heading is treated as a hand fix too, and why.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-5",
+      "file": "workflows/redline-loop.js",
+      "line": 3819,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "At a reshape the spec check cannot see a refused Write, so a result-check stop still says nothing needs fixing by hand",
+      "description": "R1-3 was fixed by running the spec check first. That covers an attempt that leaves a file out, and it still reproduces where the files already exist. `spec status` only lists the four files and greps shape.md for the Decisions heading (checkSpec, lines 3416-3428). At a reshape (`reshape r<n> #<k>`, `reshape h<n> #<k>`), plan.md and shape.md are on disk from the first shape and the resolve, so a reshape whose Writes are all refused leaves them in place and the spec check passes. If that attempt's JSON then fails one of the result checks (unsorted at 3833, checkDispositions, checkCalls, checkWhy, checkDeclineReasons, checkDrafts) or the hold after the reshape, the stop is a `checkError` with ownCheck true (line 667, carried to the result at 5491). The skill (skills/redline/SKILL.md:272) then says nothing needs fixing by hand, and the person relaunches without changing the mode that refused the Writes (#76: auto mode under --plugin-dir), so the rerun's Writes are refused again. The same holds for a resumed `shape r<n>` whose failed attempt wrote the files and whose rerun's Writes are refused. Conditions: Writes refused in the reshape's session (a mode change between the bounce and the reshape, or a refusal that started mid-run) together with a result that a check refuses. In the reshape case the refusal never shows as a stop of its own. The R1-3 comment (3819-3823), the docs/running.md sentence ('an attempt that left a file out stops there') and the replay clause are accurate as worded, since they speak of a file left out. The uncovered case comes from the spec check's existence test together with the pull request's ownCheck on the result checks, not from R1-3's reordering.",
+      "proposedFix": "Either have `spec-status` report whether each file changed during the call (for example its mtime or a hash before and after the shaper ran), and treat a reshape or resumed shape that changed nothing as a spec-check stop with no ownCheck, with a loop-test case seen red first. Or record the limit: say in the vetShape comment, the docs/running.md sentence and the replay clause that the spec check can see a refused Write only where it leaves a file missing (a round's first shape), and add a Known limits entry or a drafted issue for the reshape case.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "96eb7aa5d97e006f658568cd8c011d5e4e66fa1c",
+    "candidates": 5,
+    "counts": {
+      "verified": 5,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R2-5"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R2-3"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R2-1"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R2-4"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R2-2"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3832,
+        "summary": "After a reshape, or a resumed shape, whose Writes were refused, the skill can tell the person nothing needs fixing by hand when the real cause is theirs to fix. R1-3 moved the spec check ahead of the result checks so a refused Write stops there with no ownCheck. But `spec status` only lists the four files and the Decisions heading. At a reshape (and at any resumed `shape r<n>`) those files are already on disk from the first shape or the failed attempt, so a refused Write leaves them in place and the spec check passes. If that attempt's result then fails one of the eight result checks or the hold, the stop gets ownCheck true. `docs/running.md` (\"an attempt that left a file out stops there, as a stop to fix by hand\") and replay.md line 20 state the guarantee with no such limit. Fix: limit the R1-3 comment, the running.md sentence and the replay clause to a first shape's first attempt, and add a Known limits entry or drafted issue. Or have spec-status report whether each file changed during the call, and treat a reshape or resume that changed nothing as a stop with no ownCheck.",
+        "failure_scenario": "Plan-dial run: shape r1 and resolve r1 write the folder in bypass mode. The person relaunches after the plan stop in auto mode under --plugin-dir (#76), so the reshape's Writes are refused. The reshape returns JSON with no disposition for R1-2. spec status r1 #1 still sees plan.md and shape.md with a Decisions heading, so the run stops at 'the shaper gave no disposition for R1-2' with ownCheck true. The skill says nothing needs fixing by hand, the person resumes without changing the mode, and the rerun hits the same refusal."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 716,
+        "summary": "A reshape resumed after the workflow's own check (the hold, or a result check) is not told to avoid rewriting a decided entry from memory; only the restore clause says that. The hold fires exactly when a failed reshape damaged a decided finding's task, the case most likely to have dropped its shape.md entry as well. The rerun is told to read the files 'as that attempt left them ... correct what the error names'. The reshape prompt names each decided id and its end but not the choice, notes and date, so a rerun that rebuilds a dropped entry has to invent them. Rule 9 of agents/redline-shaper.md has the same gap for this case. Fix: end the own-check reshape clause, and rule 9's matching sentence, with the restore clause's ban: 'never write a decided entry the folder no longer holds from memory (name it in shape.md as lost)'.",
+        "failure_scenario": "The person overrides R1-1 to a fix. The bounced plan's reshape removes R1-1's task and its 'Decided by: @login' entry, and the hold stops: 'the reshape left R1-1 ... with no task with files'. On resume the reshape gets the own-check clause, sees R1-1 named as a decided fix with no entry, and writes one back with a made-up choice, notes and date. The round's committed record now holds a decision the person never wrote."
+      },
+      {
+        "index": 3,
+        "file": "tests/loop-test.mjs",
+        "line": 2713,
+        "summary": "No check pins the resume label of the human-pass decline stop. Since R1-3 moved this check after the `spec status` call, that label is what sends a resume to the shaper. A mutation that drops `{}, shaperLabel` from that throw in checkDispositions (workflows/redline-loop.js:3250) leaves the suite at 1665 passed, 0 failed, because 'human: a decline stops the pass at shape' checks only the call list. The resumed-scenario test builds its own `shape h1` entry, so it cannot catch it either. testing/tests.md line 15 requires a stage error to be pinned by its resumeFrom label. Fix: add `run.res.resumeFrom && run.res.resumeFrom.label === 'shape h1'` to that check. Do the same for the human-defer check at line 1331, so the label is pinned in both branches.",
+        "failure_scenario": "A later edit drops the shaperLabel argument from the human-decline checkError. The stop's resumeFrom then names 'spec status h1', so a resume reruns only the spec check, replays the refused shaper output from cache and stops again. The loop test stays green."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 3428,
+        "summary": "A spec-check stop for a missing `## Decisions` heading is reported as needing a hand fix, even when shape.md was written. The no-ownCheck rule is justified by 'a file can be missing because a Write was refused'. But in this branch shape.md exists, so its Write succeeded. At a reshape the first shape wrote the heading, so a refused reshape Write would leave it in place. The skill tells the person to fix the cause by hand, and a resumed first shape is told the person fixed it, when the shaper's own rewrite dropped the heading and a rerun fixes it. Fix: when `missing` holds only the Decisions heading, at least at a reshape, raise it through checkError. Otherwise narrow the docs/running.md sentence and the checkSpec comment to say a missing heading is treated as a hand fix anyway.",
+        "failure_scenario": "A reshape rewrites shape.md and renames '## Decisions' to '## Decisions (round 1)'. spec status r1 #1 reports no Decisions section, and the stop carries ownCheck false. The skill says to fix the cause by hand first, the person looks for a refused Write that never happened, and the rerun would have fixed it with no hand step."
+      },
+      {
+        "index": 5,
+        "file": "workflows/redline-loop.js",
+        "line": 688,
+        "summary": "Partly tracked in #121. #121 is missing one fact: the claim that 'that run's record commit keeps them in git history' is not always true. R1-1's mitigation puts that claim in this comment, docs/running.md:208 and replay.md line 19 (and #121's body repeats it). A round's spec folder is first committed by the implementer's Task 1 (agents/redline-implementer.md, step 2). An earlier run that stopped after its resolve but before implement leaves its decided entries uncommitted. Examples are a resolve own-check stop, the approve cap, a reshape stop or a snapshot failure. The revise skill's precheck allows uncommitted files under revise.specFolder. So a `/redline:redline-revise <pr> round <N>` pass over that folder, resumed at `shape r<N>`, rewrites entries that are in no commit. Fix: limit the three sentences to an earlier run that reached its implement step, and add this case to #121.",
+        "failure_scenario": "Run A resolves round 1 with the person's decisions, then stops at 'the plan approver did not approve the round 1 plan after 2 adjustments'; nothing is committed. The person starts fresh with /redline:redline-revise 120 round 1, which passes the precheck because the files sit under revise.specFolder. Its shape r1 stops at a result check, and the resume rewrites shape.md from scratch. The decided entries are gone, and no commit holds them, despite what the docs say."
+      }
+    ]
+  }
+}
