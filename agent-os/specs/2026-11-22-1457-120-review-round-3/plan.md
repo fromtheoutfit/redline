@@ -396,3 +396,48 @@ Then, as written in the gate:
 13. **Spec folder.** Add an `## As built` section at the end of this file: each task's commit, its red and green counts (Task 4's red under the mutation, with every failing check's name), and any deviation, each deviation also recorded under Decisions in `shape.md`. Commit it last: `redline: record the as-built state of review round 3 for PR #120 (#117)`.
 
 **Files** (this task): `agent-os/standards/process/docs-gate.md`, `agent-os/standards/workflow/replay.md` and `agent-os/standards/testing/tests.md` (the standards commit, only as approved), and `agent-os/specs/2026-11-22-1457-120-review-round-3/plan.md` and `shape.md` (As built and any deviation).
+
+## As built
+
+Every count below is the loop harness's own line, read off a gate run (`.claude/redline/checks.sh` with this round's snapshot); every other harness exited 0 on every run. Each red run was its own gate run, so no red runs were combined. No deviation from the plan: every count matched the table above, and `shape.md` needs no deviation entry.
+
+| Task | Finding | Commit | Red run | Green run |
+| --- | --- | --- | --- | --- |
+| Task 1 | spec folder | `a559a6f` | none | none |
+| Task 2 | R3-1 | `cbffb87` | `1670 checks passed, 1 failed` (`defer: docs/running.md says "so a resume reruns the check alone"`) | `1671 checks passed, 0 failed` |
+| Task 3 | R3-2 | `ed731cd` | `1671 checks passed, 1 failed` (`defer: docs/upgrading.md says "and is not stopped at one now, is not affected"`) | `1672 checks passed, 0 failed` |
+| Task 4 | R3-3 | `ec0f512` | under the mutation: `1667 checks passed, 5 failed` | `1672 checks passed, 0 failed` |
+| Task 5 | R3-4 | `34485ba` | none (whitespace) | `1672 checks passed, 0 failed` |
+| Task 6 | R3-5 | `43bb9ea` | `1666 checks passed, 7 failed` | `1673 checks passed, 0 failed` |
+| Task 7 | R3-6 | `6ba2f92` | `1673 checks passed, 1 failed` (`defer: docs/running.md says "so that case takes two relaunches"`) | `1674 checks passed, 0 failed` |
+| Task 8 | standards retrospective | `5dcfead` | none | `1674 checks passed, 0 failed` |
+
+**The gate at `5dcfead`.** `done: PASS`, `ok: true`, all nine checks exit 0, the loop printing `1674 checks passed, 0 failed` as the plan expected, with `git.unexpected_files` and `git.uncommitted` both empty.
+
+**Task 4's mutation.** `ownCheck: entry.ownCheck === true }` at `workflows/redline-loop.js:291` became `ownCheck: entry.ownCheck !== undefined }`, the round's first edit of that file, made while it matched HEAD. The gate printed `1667 checks passed, 5 failed`, the five being:
+
+- resume: an entry that says ownCheck false builds the prompts of one that says nothing, at a first shape, whose line reads the field (the rewritten check, first among them)
+- reshape: a reshape of a decided round resumed after it returned nothing is told to restore what is missing, never to rewrite
+- reshape: a reshape of a round with no decision resumed after its spec check is told to restore what is missing, never to rewrite
+- reshape: a human review pass's reshape resumed after its spec check is told to restore what is missing, never to rewrite
+- reshape: a third attempt after the hold and then the spec check is told to restore what is missing, never to rewrite
+
+The line was then put back exactly as it was, `git diff -- workflows/redline-loop.js` printed nothing, and the next gate run printed `1672 checks passed, 0 failed`. The commit staged `tests/loop-test.mjs` alone.
+
+**Task 6's red run.** The seven failing checks were the six that compare against `RESTORE` and the new one:
+
+- reshape: an entry with no ownCheck is an ordinary stop whatever its error says: a reshape resumed from one is told to restore what is missing, never that the stop was the workflow's check
+- reshape: a reshape resumed after another stop is told to restore what is missing and keep the decided entries, never to rewrite the folder, and the relaunch finishes
+- reshape: a reshape of a decided round resumed after it returned nothing is told to restore what is missing, never to rewrite
+- reshape: a reshape of a round with no decision resumed after its spec check is told to restore what is missing, never to rewrite
+- reshape: a reshape resumed after its spec check found no plan.md is told part of the folder may be missing, never that the folder already holds the plan (new)
+- reshape: a human review pass's reshape resumed after its spec check is told to restore what is missing, never to rewrite
+- reshape: a third attempt after the hold and then the spec check is told to restore what is missing, never to rewrite
+
+**Proofs.** Each task's `grep` proof printed what the task says: Task 2 `1` and `1` per file; Task 3 `1` per file and `0` for the old sentence; Task 4 `1`, `0` and an empty `git diff`; Task 5 `1` and `0`; Task 6 `0`, `workflows/redline-loop.js:1`, `tests/loop-test.mjs:2` and `1`; Task 7 `1` per file and `1`.
+
+**Gate step 10, Docs.** `workflows/redline-loop.js` is the one plugin file the round's commits change: Task 6 (`43bb9ea`) has no reader-facing change, for the reason Task 6 gives, and Task 7 (`6ba2f92`) updated `docs/running.md`, "Run markers and resume". Task 4's commit holds no change to it. `docs/running.md` and `docs/upgrading.md` are reader-facing by nature.
+
+**Gate step 11, Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both still read `0.4.5`; no file under `.claude-plugin/` changed.
+
+**Gate step 12, Standards retrospective.** The five approved edits were applied as approved in `5dcfead`, each clause appended to the end of its line and read back in its whole line (parentheses closed, no citation superseded): `process/docs-gate.md` lines 19 and 20, `workflow/replay.md` lines 19 and 20, `testing/tests.md` line 36. No edit finishes a finding (`shape.md`, "Standards retrospective (proposed)"), so the commit names none.
