@@ -3990,6 +3990,17 @@ function samePrefix(name, first, second, n) {
   const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
   check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
   check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
+  // It is shown to the plan approver and the implementer as every finding left to the person is,
+  // as the shaper returned it, whatever its decision names (#126): an ask, where until #126 the
+  // pass after the reshape was shown the fix its decision names, for a finding the round
+  // demands nothing of.
+  const shownAfterReshape = (r, label) => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return (list.find((x) => x.id === 'R1-1') || {}).disposition
+  }
+  check('filing: a named fix a reshape leaves to the person under a rule is shown as the shaper returned it, an ask, to the pass after the reshape and to the implementer', shownAfterReshape(forcedNamed, 'plan approver r1 #2') === 'ask' && shownAfterReshape(forcedNamed, 'implement r1') === 'ask' && shownAfterReshape(forcedNamed, 'plan approver r1') === 'fix', [shownAfterReshape(forcedNamed, 'plan approver r1'), shownAfterReshape(forcedNamed, 'plan approver r1 #2'), shownAfterReshape(forcedNamed, 'implement r1')])
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it
