@@ -5102,6 +5102,41 @@ function samePrefix(name, first, second, n) {
   check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
 }
 
+// ---------------------------------------------------------------------------
+// Template v6 (#105, #75, #126): the unattended section, in the template and in this repository's
+//     own copy, says what the shaper's file and the workflow's prompts say. Point 10's example
+//     shows `files` on every finding, as the shaper's file always did (#105), and the three
+//     rules the cases above pin in the agent files are pinned here in the section too.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const template = read('templates', 'shape-spec-unattended.md')
+  const section = read('.claude', 'commands', 'agent-os', 'shape-spec.md')
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const both = (phrase) => template.includes(phrase) && section.includes(phrase)
+  const missing = (phrases) => phrases.filter((phrase) => !both(phrase))
+  // The return example: the first fenced JSON block that holds a specFolder, parsed.
+  const exampleOf = (text) => {
+    const from = text.indexOf('"specFolder"')
+    const open = text.lastIndexOf('```json', from)
+    const fence = text.slice(text.lastIndexOf('\n', open) + 1, open)
+    return JSON.parse(text.slice(text.indexOf('\n', open) + 1, text.indexOf(`\n${fence}\`\`\``, from)))
+  }
+  const examples = { template: exampleOf(template), section: exampleOf(section), 'the shaper\'s file': exampleOf(shaperAgent) }
+  const lacking = (test) => Object.entries(examples).filter(([, example]) => !test(example)).map(([name]) => name)
+  check('template: the marker is v6, in the template and in this repository\'s section', both('<!-- redline-unattended: v6 -->'), [template.match(/redline-unattended: v\d+/), section.match(/redline-unattended: v\d+/)])
+  check('template: point 10\'s example lists files on every finding, in the template, the section and the shaper\'s file (#105)', lacking((example) => example.findings.length > 0 && example.findings.every((finding) => Array.isArray(finding.files))).length === 0, lacking((example) => example.findings.every((finding) => Array.isArray(finding.files))))
+  check('template: the example\'s fix carries its cause, every option of its call what it ends in, and the call a recommended option that is one of them', lacking((example) => example.findings.filter((finding) => finding.disposition === 'fix').every((finding) => finding.cause && ['one-place', 'sweep', 'instance'].includes(finding.cause.outcome) && finding.files.includes(finding.cause.where)) && example.judgmentCalls.every((call) => call.options.every((option) => ['fix', 'defer', 'accept'].includes(option.ends)) && call.options.some((option) => option.label === call.recommended))).length === 0, examples.template.judgmentCalls)
+  check('template: the sentence under the example names files on every finding, the cause of a fix, and what a call\'s options carry', missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']).length === 0, missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']))
+  const ends = ['Every option of a call states what choosing it ends in, in `ends`', 'The call names the option you recommend in `recommended`, by its label as written', 'the pending entry lists each option with its end']
+  check('template: point 3 says every option states what it ends in and the call names the recommended one (#105)', missing(ends).length === 0 && shaperAgent.includes(ends[0]), missing(ends))
+  const left = ['make the change by hand after the run, which ends in `fix`, or accept it as it is, which ends in `accept`', 'an option that ends in `defer` and carries its drafted issue in `draft`', 'Redline then files that draft, plans no task and writes nothing under the rule', 'A `draft` is read on that option alone']
+  check('template: point 4 says a call for a finding left to the person may offer an option that ends in defer, with its drafted issue (#126)', missing(left).length === 0 && shaperAgent.includes(left[1]), missing(left))
+  const klass = ['**Instance or class.**', '`one-place`, the fix is made where the cause lives', '`holds` when you measured it and the code as it stands already handles it', '`fixed` when you measured it exposed and this task\'s change closes it', 'fits neither value, and then the outcome is not a sweep', 'A finding may also carry `sameClassAs`', 'so its fix is `one-place` or `sweep`, never `instance`']
+  check('template: point 5 has the step between investigating and sorting, its three outcomes, what each found value means and what a link asks (#75)', missing(klass).length === 0 && klass.slice(0, 5).every((phrase) => shaperAgent.includes(phrase)), missing(klass))
+  check('template: the section stays numbered as it was, so the fill-ins and a repository\'s own points keep their places', ['1. **Plan mode.**', '5. **Investigate before you sort.**', '10. **What you return.**'].every((point) => both(point)) && template.includes('11. **The PR description.**') && section.includes('11. **The guard and the hook.**') && !/^12\. /m.test(template.slice(template.indexOf('## Unattended mode (Redline)'))), 'templates/shape-spec-unattended.md')
+}
+
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 check('no reshape prompt that names decided findings asks an ask for its recommended paths in a clause that covers them too', doubleFilesAsk.length === 0, doubleFilesAsk.slice(0, 5))
