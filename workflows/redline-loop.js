@@ -253,6 +253,26 @@ for (const [id, entry] of Object.entries(decisions)) {
     fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
   }
 }
+// A decision that picks one of its call's options names it in `option`, by the option's label
+// (#105): the skill records it for a pick in the question, and for a label typed as written.
+// The round that applies the decision gives it the option's end as its disposition (resolveWith),
+// so a pick never carries one of its own: the two together would be two sources for one fact,
+// and they are refused here, before any agent runs. An empty string or a null names no option,
+// as for a disposition above, and is dropped from the run's copy; any other value that is not a
+// string is refused. A decision with no option is an answer in the person's own words.
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || entry.option === undefined) {
+    continue
+  }
+  if (entry.option === null || entry.option === '') {
+    const { option: _dropped, ...rest } = entry
+    decisions[id] = rest
+  } else if (typeof entry.option !== 'string') {
+    fail(`args.decisions must give an option as a string, the label of the option picked, when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  } else if (entry.disposition !== undefined) {
+    fail(`args.decisions must not give both an option and a disposition: a pick takes its disposition from the option it names, and a typed disposition names no option; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
 // plan dial: the passes whose disposition list the person approved (relaunch carries them all):
 // a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
 // its final nit pass never share a key when their numbers are equal (#38, R1-5).
@@ -659,10 +679,10 @@ function stageError(stage, message, extra, label) {
 // corrects what it returned, and nothing needs fixing by hand first. The error result says so in
 // ownCheck, which the skill reads for its report and carries, through the run marker, into the
 // resume entry, where resumeLine reads it. So the fact is stated once, where the stop is raised,
-// and no reader goes by how an error is worded. Seventeen sites raise one: the resolve's eight
+// and no reader goes by how an error is worded. Three groups of sites raise one: the resolve's
 // checks of the result it returned, the hold of a decided finding to its task after a reshape,
-// and the shaper's eight checks of its result. The spec check is not one: a missing file can be
-// a Write that was refused, which a person does fix.
+// and the checks of the shaper's result (vetShape's, after the spec check). The spec check is
+// not one: a missing file can be a Write that was refused, which a person does fix.
 function checkError(stage, message, extra, label) {
   return Object.assign(stageError(stage, message, extra, label), { ownCheck: true })
 }
@@ -921,10 +941,16 @@ const SPEC_STATUS_SCHEMA = {
 // ROUND_WHY (#93) and a human review pass's HUMAN_WHY, each with the rule reasons, so a value from
 // the other pass is refused by the shaper's structured output inside its own run, and checkWhy
 // stays the second layer (#94, R1-5, R1-12, R1-13).
+// Every option states what choosing it ends in (#105), `ends`, one of the three a call's decision
+// can end in, and the call names the option the shaper recommends by its label, `recommended`;
+// `recommendation` stays the sentence a person reads. The person is shown each option's end
+// before deciding, and a decision that picks an option takes that end as its disposition
+// (resolveWith), so the end is stated before the decision and never read from a label or from
+// prose. Both are required in both passes' schemas, and checkOptions is the second layer.
 function judgmentCallSchema(reasons) {
   return {
     type: 'object',
-    required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
+    required: ['id', 'title', 'story', 'why_human', 'options', 'recommended', 'recommendation', 'dependsOn'],
     properties: {
       id: str,
       title: str,
@@ -932,8 +958,9 @@ function judgmentCallSchema(reasons) {
       why_human: { type: 'string', enum: reasons.concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
       options: {
         type: 'array',
-        items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+        items: { type: 'object', required: ['label', 'cost', 'effect', 'ends'], properties: { label: str, cost: str, effect: str, ends: { type: 'string', enum: CALL_ENDS } } },
       },
+      recommended: str,
       recommendation: str,
       dependsOn: strings,
     },
@@ -1054,6 +1081,10 @@ const FILES_ASK = 'files (the paths its task creates or changes, an empty list w
 // forceAskRules matches against the paths rules (#114, R2-4). It is used only beside the block,
 // so a reshape prompt with no block keeps FILES_ASK, byte for byte.
 const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
+// How every shape prompt asks for what a call's options end in and for the recommended option
+// (#105): a field the record is read from is required in its schema and asked for in every
+// prompt that returns it, so the answer does not depend on the agent file the session loaded.
+const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
 
 const RESOLVE_SCHEMA = {
@@ -1069,10 +1100,12 @@ const RESOLVE_SCHEMA = {
     // What each judgment call's decision ends in (#99), one entry per call the resolve was asked
     // to state. The workflow reads a call's disposition from here, never from its deferred entry
     // or its task. An override and a call whose decision names its own disposition (#108, R1-2)
-    // name theirs, and a call left to the person under a rule has none to read, so none of them
-    // has an entry. The list is required, so an empty one means no call needed a statement. A
-    // result recorded before #99 holds no list, and can replay only for a resolve with no call,
-    // whose prompt did not change; resolveWith reads an absent list as empty.
+    // name theirs, a call answered by picking an option included, whose decision carries the
+    // option's end (#105); a call left to the person under a rule has none to read. So none of
+    // them has an entry, and since #105 the list holds the calls answered in the person's own
+    // words and no others. The list is required, so an empty one means no call needed a
+    // statement. A result recorded before #99 holds no list, and can replay only for a resolve
+    // with no call, whose prompt did not change; resolveWith reads an absent list as empty.
     decided: {
       type: 'array',
       items: { type: 'object', required: ['id', 'disposition'], properties: { id: str, disposition: { type: 'string', enum: CALL_ENDS } } },
@@ -1562,11 +1595,16 @@ function withOwner(decision) {
   return { ...decision, decidedBy: decision.decidedBy === AUTOPILOT ? AUTOPILOT : personLabel }
 }
 
-// autopilot: the shaper's recommendation becomes the decision, attributed to the autopilot.
+// autopilot: the shaper's recommendation becomes the decision, attributed to the autopilot. It
+// is a pick of the option the call names in `recommended` (#105), so it carries that label as
+// its option and takes the option's end like a person's pick (resolveWith); the choice and the
+// notes stay the recommendation's sentence, which is what is recorded and posted. Until #105
+// the resolve agent matched that sentence to an option and stated what it ended in.
 function autopilotDecision(call) {
   const recommendation = (call.recommendation || '').trim().replace(/\.$/, '')
   return {
     choice: recommendation,
+    option: call.recommended,
     notes: `Autopilot took the shaper's recommendation: ${recommendation}.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
@@ -2154,7 +2192,7 @@ ${json(inScope)}
 
 Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. ${DRAFT_FORM} Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn, with why_human naming its case, and with ${OPTIONS_ASK}).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -2193,7 +2231,7 @@ What differs from a Redline round:
 
 Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn and with ${OPTIONS_ASK}).`
 }
 
 // `decided` is the findings the person or autopilot decided whose task the round reads from its
@@ -2230,7 +2268,7 @@ ${json(inScope)}
 
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${OPTIONS_ASK}).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -2246,6 +2284,11 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   // statement is asked of it (#99, its spec's decision 17), and the sentence that says so is in
   // the prompt only when a call carries one, as for a rule (#108, R1-2).
   const anyNamed = Object.values(callDecisions).some((d) => d && d.disposition)
+  // A call the person or autopilot answered by picking an option carries the option's label and
+  // the end the workflow gave it (#105). The sentence that says what that means is in the prompt
+  // only when a call carries both, after the one for a named disposition, which a pick always
+  // is, so a prompt with no pick reads as it did before #105.
+  const anyPicked = Object.values(callDecisions).some((d) => d && d.option && d.disposition)
   const lines = [
     RUN_LINE,
     '',
@@ -2274,7 +2317,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
       // The whole ask for `decided` (#99) sits here, in the calls block, and nowhere else in the
       // prompt: the answer then does not depend on the agent file the session loaded, and a
       // resolve with overrides and no call keeps the prompt it had before #99, so it replays.
-      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (a task of its own, its finding set to the call's id, names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}`,
+      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (a task of its own, its finding set to the call's id, names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}${anyPicked ? ' A call whose decision carries `option` was answered by picking that option of the call, named by its label: plan that option as the shaper wrote it, and the `disposition` beside it is what the option ends in, which the workflow set from the option\'s `ends`.' : ''}`,
     )
   }
   if (overrides.length) {
@@ -2296,8 +2339,12 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
 }
 
 function planPrompt(pass, specFolder, inScope, shaped, roundDecisions, adjustment, earlierPaths) {
+  // A human pass's shaper defers nothing, but its author can: an option of a call may end in
+  // defer (#105), and a decision that names a deferral is shown below by that disposition. So
+  // the bounce is a defer no decision names. Until #105 the sentence called every defer one,
+  // beside a list that could show a deferral the author had typed at the plan dial.
   const humanNote = pass.human
-    ? `\nThis is a pass over ${pass.reviewer}'s review (#36): every finding is one of their comments, a fix is decided by them (decidedBy "reviewer"), a none finding asks for nothing and has no task, and no finding is deferred by the shaper; a disposition of defer here is a bounce.\n`
+    ? `\nThis is a pass over ${pass.reviewer}'s review (#36): every finding is one of their comments, a fix is decided by them (decidedBy "reviewer"), a none finding asks for nothing and has no task, and no finding is deferred by the shaper; a disposition of defer that no decision below names is a bounce.\n`
     : ''
   return `${RUN_LINE}
 
@@ -2841,7 +2888,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -3358,6 +3405,40 @@ function checkWhy(pass, shaped, known, shaperLabel) {
   }
 }
 
+// What the round reads off a call's options (#105): each option's label and what it ends in, and
+// the option the call recommends. The label is read without the blanks around it, here and where
+// a decision names its option (optionOf), so the two can never disagree about a match.
+const optionLabel = (option) => (option && typeof option.label === 'string' ? option.label.trim() : '')
+const optionOf = (call, label) => (Array.isArray(call.options) ? call.options : []).find((option) => optionLabel(option) === String(label).trim()) || null
+// Every option of a call still open has a label of its own and an end of the three, and the call
+// recommends one of them by its label (#105). A decision names the option it picks by the label
+// and takes the option's end as its disposition, and autopilot takes `recommended`, so a shared
+// label, a missing end or a recommendation that names nothing would leave the round nothing to
+// read: each stops here, the workflow's own check of what the shaper returned. The schema refuses
+// a missing or an unknown end in the shaper's own run, and this is the second layer, as checkWhy
+// is for a call's reason. Both passes; it runs after forceAskRules, so the one call the workflow
+// writes is held to it too. `known` is checkCalls's: a call the round already decided is not
+// held to the options a reshape restates, since its decision took its end when it was applied.
+function checkOptions(shaped, known, shaperLabel) {
+  const decided = (id) => known.some((c) => c.id === id)
+  for (const call of shaped.judgmentCalls.filter((c) => !decided(c.id))) {
+    const options = Array.isArray(call.options) ? call.options : []
+    const endless = options.filter((option) => optionLabel(option) === '' || !CALL_ENDS.includes(option.ends))
+    if (endless.length) {
+      throw checkError('shape', `the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}); every option of a judgment call carries a label and states what it ends in, fix, defer or accept`, {}, shaperLabel)
+    }
+    const names = options.map(optionLabel)
+    const repeated = unique(names.filter((name, i) => names.indexOf(name) !== i))
+    if (repeated.length) {
+      throw checkError('shape', `the shaper gave ${call.id} more than one option labelled ${repeated.map((name) => JSON.stringify(name)).join(', ')}; a decision names the option it picks by its label, so each label names one option`, {}, shaperLabel)
+    }
+    const recommended = typeof call.recommended === 'string' ? call.recommended.trim() : ''
+    if (!names.includes(recommended)) {
+      throw checkError('shape', `the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}); recommended names the option the shaper recommends by its label`, {}, shaperLabel)
+    }
+  }
+}
+
 // A decline carries the reason a teammate reads in the thread (#93). Runs after forceAskRules, as
 // checkWhy does, so a decline a repository rule turns into an ask, which needs no reason, never
 // stops the round (#94, R1-13, R5-6); it runs after the `spec status` call, so it names the
@@ -3447,6 +3528,8 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 // replays it. The numeric limits of #25 force here too, when they come. A finding on one of
 // Redline's own files, a Redline round's ask whose call gives `redline's own file`, is recorded the
 // same way, marked `own` (#94, R8-4).
+const BY_HAND = 'Make the change by hand after the run'
+const ACCEPT_AS_IS = 'Accept, no change'
 function forceAskRules(record, pass, inScope, shaped) {
   record.forced = record.forced || {}
   for (const f of inScope) {
@@ -3499,10 +3582,14 @@ function forceAskRules(record, pass, inScope, shaped) {
         title: f.title,
         story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
         why_human: why,
+        // Each option states its end, and the call names the recommended one, as the shaper's
+        // own calls do (#105): the change by hand ends in a fix, the person's and outside the
+        // run, and accepting ends in no change. No task writes anything for either (resolveWith).
         options: [
-          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: wouldDecline || (recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.') },
-          { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
+          { label: BY_HAND, cost: 'The change, made outside Redline', effect: wouldDecline || (recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.'), ends: 'fix' },
+          { label: ACCEPT_AS_IS, cost: 'None', effect: 'The finding stands as reported.', ends: 'accept' },
         ],
+        recommended: wasDecline ? ACCEPT_AS_IS : BY_HAND,
         recommendation: wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
@@ -3867,6 +3954,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkDeclineReasons(pass, shaped, label)
   checkDrafts(shaped, label, decided)
   checkWhy(pass, shaped, known, label)
+  checkOptions(shaped, known, label)
   record.dispositions = shaped.findings
 }
 
@@ -4008,6 +4096,29 @@ async function revise(record, inScope, reviewedKind) {
       // disposition on it (fix, defer) is not applied, and the rule travels with the decision so
       // the resolve agent writes it as left to the person (#49).
       const forced = record.forced[id]
+      // A decision that names an option of its call picked it (#105): the person's pick as the
+      // skill recorded it, or autopilot's take of the recommended one. The run's copy of the
+      // decision takes the option's end as its disposition, the path a decision that names its
+      // own already travels: no statement is asked of the resolve agent for it (asked, below),
+      // and the three checks of a named disposition hold this resolve's tasks and entries to
+      // it. So what a pick ends in was stated by the shaper before anyone decided, and never
+      // by the agent that applies it. The copy alone carries it: args.decisions is never
+      // written, and intake refuses a pick that names a disposition of its own. An option that
+      // names none of its call's options is the person's own words after all: it is dropped
+      // from the copy with a warning, and the resolve agent states what the decision ends in.
+      // On a finding left to the person no end is kept, as none is for a disposition typed for
+      // one: no task writes anything whatever the answer, and the option rides along for the
+      // record.
+      const call = newCalls.find((c) => c.id === id)
+      if (call && decision.option !== undefined) {
+        const option = optionOf(call, decision.option)
+        if (!option) {
+          warnings.push(`${pass.name}: the decision for ${id} names the option ${JSON.stringify(decision.option)}, which is the label of none of its call's options (${(Array.isArray(call.options) ? call.options : []).map(optionLabel).join(', ')}); it is read as an answer in the person's own words, and the resolve agent states what it ends in`)
+          delete decision.option
+        } else if (!forced) {
+          decision.disposition = option.ends
+        }
+      }
       if (forced) {
         if (decision.disposition) {
           warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
@@ -4180,8 +4291,10 @@ async function revise(record, inScope, reviewedKind) {
   // workflow reads, never the shaper's list for the finding's old disposition (#103, R1-2, R2-11).
   // Until #106 only one shown as a deferral did, and a decided fix was shown the shaper's list
   // from before the decision: a decline overruled to a fix was shown no files beside its task.
-  // Every other finding keeps the shaper's, one left to the person under a rule included. Its
-  // first call comes after plannedFiles is declared.
+  // Every other finding keeps the shaper's, one left to the person under a rule included. A call
+  // answered by picking an option is shown by the option's end, which its decision carries
+  // (#105); one answered in the person's own words is still shown as the shaper sorted it, or
+  // as a reshape re-sorted it (#115). Its first call comes after plannedFiles is declared.
   const effectiveDispositions = () => shaped.findings.map((f) => {
     const decision = roundDecisions[f.id]
     const shown = decision && decision.disposition ? { ...f, disposition: decision.disposition } : f

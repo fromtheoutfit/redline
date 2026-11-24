@@ -260,7 +260,19 @@ function mock(scenario) {
         })).flatMap((entry) => ((scenario.deferTwice || []).includes(entry.id) ? [entry, { ...entry, found: `${entry.found} again` }] : [entry])),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
-        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
+        // Every option states what it ends in, and the call names the recommended one by its label
+        // (#105). By default the recommended option, Keep it, ends in what the scripted resolve
+        // plans for the call, as `states` reads it below (defer beside its own deferred entry,
+        // accept for an accepted call, fix otherwise), so a scenario is one script for both
+        // agents; scenario.ends[id] scripts another end for it. Change it ends in a fix.
+        // scenario.callOf[id] replaces fields of one call (its options, its recommended), and
+        // scenario.callAt[label][id] does the same for one shaper call alone, by its label.
+        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({
+          id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision',
+          options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: (scenario.ends && scenario.ends[id]) || ((scenario.resolveDeferred || []).some((e) => e.id === id) ? 'defer' : (scenario.acceptedCalls || []).includes(id) ? 'accept' : 'fix') }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }],
+          recommended: 'Keep it', recommendation: 'Keep it', dependsOn: [],
+          ...((scenario.callOf || {})[id] || {}), ...(((scenario.callAt || {})[opts.label] || {})[id] || {}),
+        })),
       }
     }
     if (t === 'redline:redline-resolve') {
@@ -358,6 +370,11 @@ const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split
 // is the person letting each draft go ahead as drafted, at its first version. A scenario whose
 // subject is not the stop passes it from the first launch: the answer is read at the stop check
 // and at filing, and by no prompt before, which the stop's own scenarios prove.
+// A call answered in the person's own words (#105): a decision that names no option, whose end
+// the resolve agent states. Until #105 autopilot's decision was stated too, and the cases that
+// script a statement ran on that dial; autopilot now picks the call's recommended option, so
+// those cases are answered here, by the person, from the first launch.
+const typedAnswer = (...ids) => Object.fromEntries(ids.map((id) => [id, { choice: 'In their own words', notes: `The author answers ${id} in their own words.`, date: '2026-11-18' }]))
 const goAhead = (...ids) => Object.fromEntries(ids.map((id) => [id, { action: 'file', title: '', notes: '', date: '2026-11-16', draft: 1 }]))
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
@@ -382,11 +399,11 @@ const FILES_PENDING = 'for an ask, the paths its recommended change would touch)
 const FILES_DECIDED = 'for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const doubleFilesAsk = []
 // Whether a stop was the workflow's own check of what an agent returned (#116): every error result
-// of every scenario says so in ownCheck, true for the stops of the seventeen sites below (the
-// resolve's eight, the hold and the shaper's eight result checks, one of which words its stop
-// two ways) and false for every other. The skill and the resume line read the field, so a site
-// that drops it, and one that gains it, are both red here. Every run is read, and two checks at
-// the end name the offenders and any site no scenario reached.
+// of every scenario says so in ownCheck, true for the stops of the sites below (the resolve's,
+// the hold and the checks of the shaper's result, one of which words its stop two ways) and
+// false for every other. The skill and the resume line read the field, so a site that drops it,
+// and one that gains it, are both red here. Every run is read, and two checks at the end name
+// the offenders and any site no scenario reached.
 const OWN_CHECKS = [
   ['resolve', /^the resolve agent stated no disposition for /],
   ['resolve', /^the resolve agent deferred .* with no drafted issue/],
@@ -406,6 +423,9 @@ const OWN_CHECKS = [
   ['shape', /^the shaper asked about .* because of /],
   ['shape', /^the shaper declined .* with no reason/],
   ['shape', /^the shaper deferred .* with no drafted issue/],
+  ['shape', /^the shaper gave .* an option with no label or with no end the workflow knows/],
+  ['shape', /^the shaper gave .* more than one option labelled /],
+  ['shape', /^the shaper recommended .*, which is the label of none of its options/],
 ].map(([stage, re]) => ({ stage, re, seen: 0 }))
 const ownWrong = []
 // No reshape is told to rewrite its spec folder from scratch (#117), on a first run or a resume:
@@ -1283,7 +1303,7 @@ function samePrefix(name, first, second, n) {
   check('human: the body reply names no comment, so only thread replies carry the answers line', !replyFor(second.calls, 'push and reply h1', 'H1-4').includes('redline:answers'), replyFor(second.calls, 'push and reply h1', 'H1-4'))
   const pushPrompt = pick(second.calls, 'push and reply h1').prompt
   check('human: the push prompt names the pass, the header line and the duplicate rule', ['Operation: push and reply for human review 1.', 'the finding is the body of @marcamos\'s review, which has no thread', '`**<id>** · from review <review id> by @marcamos`', 'may already hold a Redline round\'s reply; that is not a duplicate', 'opening `Redline human review 1:`'].every((s) => pushPrompt.includes(s)), pushPrompt)
-  check('human: resolve and approvers are told it is the human pass', pick(second.calls, 'resolve h1').prompt.includes('You are the resolve agent for human review 1.') && pick(second.calls, 'plan approver h1').prompt.includes('a fix is decided by them (decidedBy "reviewer")') && pick(second.calls, 'plan approver h1').prompt.includes('a disposition of defer here is a bounce') && pick(second.calls, 'implement h1').prompt.includes('You are the implementer for human review 1.') && pick(second.calls, 'implement h1').prompt.includes('finishing H1-1 (#114)'), pick(second.calls, 'implement h1').prompt.slice(-900))
+  check('human: resolve and approvers are told it is the human pass', pick(second.calls, 'resolve h1').prompt.includes('You are the resolve agent for human review 1.') && pick(second.calls, 'plan approver h1').prompt.includes('a fix is decided by them (decidedBy "reviewer")') && pick(second.calls, 'plan approver h1').prompt.includes('a disposition of defer that no decision below names is a bounce') && pick(second.calls, 'implement h1').prompt.includes('You are the implementer for human review 1.') && pick(second.calls, 'implement h1').prompt.includes('finishing H1-1 (#114)'), pick(second.calls, 'implement h1').prompt.slice(-900))
   const nit = pick(second.calls, 'final nit pass r3')
   check('human: the nit pass is a round-3 final nit pass over the human fixes', nit.prompt.includes('Finding IDs are R3-<n>.') && nit.prompt.includes("after the Redline human review 1 fixes (HEAD 3bbbbbbb") && nit.prompt.includes('This is the final nit pass') && nit.prompt.includes('git diff aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..3bbbbbbb') && nit.opts.phase === 'Re-review', nit.prompt.slice(0, 900))
   check('human: the nit pass sees the human findings and their outcomes', nit.prompt.includes('"id": "H1-1"') && nit.prompt.includes('"outcome": "fixed in 1bbbbbb · decided by: @marcamos"') && nit.prompt.includes('"outcome": "no change requested: none H1-3 this way · decided by: redline"'), nit.prompt)
@@ -1620,15 +1640,15 @@ function samePrefix(name, first, second, n) {
   // line tells the rerun to correct what its first attempt wrote, decided entries included (#108,
   // R3-4). The recheck above is the neighbour: its resumed prompt ends with the line alone.
   const resolveClause = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
-  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
   const resolveError = (stoppedAtResolve.res || {}).error || ''
-  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] }, ownCheck: true } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, decisions: typedAnswer('R1-1'), resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] }, ownCheck: true } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
   // The clause is chosen by the field the stop set (#116), never by the error's words: the stop's
   // result says ownCheck, the marker and the skill carry it into the entry, and an entry without
   // it is an ordinary stop whatever its error says. There is no fallback to the wording, so a
   // marker written before the field existed resumes with the line alone.
-  const fieldlessResolve = await go('resume: a stop at resolve, resumed from an entry with no ownCheck', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const fieldlessResolve = await go('resume: a stop at resolve, resumed from an entry with no ownCheck', { ...baseArgs, decisions: typedAnswer('R1-1'), resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   const fieldlessResolvePrompt = (pick(fieldlessResolve.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: an entry with no ownCheck is an ordinary stop whatever its error says: a resolve resumed from one ends with the line alone', resolveError.startsWith('the resolve agent ') && fieldlessResolvePrompt.endsWith(line(resolveError)) && !fieldlessResolvePrompt.includes(resolveClause), fieldlessResolvePrompt.slice(-400))
   check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
@@ -1642,14 +1662,14 @@ function samePrefix(name, first, second, n) {
   const resumedUnappliedPrompt = (pick(resumedUnapplied.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: a resumed resolve after autopilot could not apply a recommendation ends with the resume line alone, with no clause to correct what it wrote', unappliedError.startsWith('autopilot could not apply the shaper\'s recommendation for R1-1') && resumedUnappliedPrompt.endsWith(line(unappliedError)) && !resumedUnappliedPrompt.includes(resolveClause), [unappliedError, resumedUnappliedPrompt.slice(-600)])
   check('resume: the resolve agent\'s file says a decision it could not apply stays pending on a resume, as the resume line leaves it', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('An error that says autopilot could not apply a decision is not that check'))
-  // The field is set where the stop is raised (#116): the seventeen sites that are the workflow's
-  // check of what an agent returned go through checkError, and no other site does. At the resolve
-  // that is every stop but the autopilot one; at the shape stage, the hold and the eight result
-  // checks, and neither the spec check (a missing file can be a refused Write, which a person
-  // fixes) nor the spec check's own failure.
+  // The field is set where the stop is raised (#116): the sites that are the workflow's check of
+  // what an agent returned go through checkError, and no other site does. At the resolve that is
+  // every stop but the autopilot one; at the shape stage, the hold and the checks of the shaper's
+  // result (the three of a call's options among them, #105), and neither the spec check (a
+  // missing file can be a refused Write, which a person fixes) nor the spec check's own failure.
   const sites = (text) => src.split(text).length - 1
   check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 8 && sites("checkError('resolve', ") === 8 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
-  check('resume: the hold and the shaper\'s eight result checks are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 9 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 17, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
+  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 12 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 20, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -3820,7 +3840,9 @@ function samePrefix(name, first, second, n) {
   // demanded (`strayFilled`, `strayResolve`); the same two beside a call stated as a deferral are
   // the decision's deferral (`strayWorded` and `mitigateAnswer`, `emptyDeferral`).
   // Pin 1 of #99: a fix beside a stray filled entry, which was filed as an issue until #99, on
-  // autopilot with no question.
+  // autopilot with no question. Since #105 autopilot picks the recommended option and nothing is
+  // stated for it, so the statement's cases here are a call the person answered in their own
+  // words (typedAnswer); the same entry beside autopilot's pick is `autoStray`, in the #105 cases.
   const strayEntry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
   const strayScenario = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [strayEntry], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1']] }
   const STRAY_CALL = 'round 1: the resolve agent listed R1-1 as deferred and stated its decision as fix; the entry is dropped, since the statement decides'
@@ -3829,48 +3851,48 @@ function samePrefix(name, first, second, n) {
   const entryDropped = (r) => shownTo(r).every((p) => p !== '' && !p.includes('"title": "Lock R1-1"')) && (r.res.warnings || []).includes(STRAY_CALL)
   const postedAsFix = (r) => r.res.status === 'done' && !labels(r.calls).includes('file deferred r1') && (r.res.deferred || []).length === 0 && (replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to') && (r.res.rounds[1] || {}).reviewed === 'fix-diff'
   const fixDetail = (r) => [r.res.status, r.res.error, labels(r.calls), replyFor(r.calls, 'push and reply r1', 'R1-1'), r.res.rounds.map((round) => round.reviewed)]
-  const strayFilled = await go('filing: the resolve agent returns a filled entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, strayScenario)
+  const strayFilled = await go('filing: the resolve agent returns a filled entry beside a call it states as a fix', { ...baseArgs, decisions: typedAnswer('R1-1') }, strayScenario)
   check('filing: a filled entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayFilled), fixDetail(strayFilled))
   check('filing: a filled entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayFilled), [shownTo(strayFilled).map((p) => p.includes('"title": "Lock R1-1"')), strayFilled.res.warnings])
-  // On any dial (#99): a guided run whose call is answered raises no draft for the dropped entry,
-  // so the round goes on with no stop and no answer for one.
+  // The same with the reply pinned whole (#99): a guided run whose call is answered raises no
+  // draft for the dropped entry, so the round goes on with no stop and no answer for one.
   const fixCall = { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } }
   const strayFilledGuided = await go('filing: a filled entry beside a call stated as a fix, on the guided dial', { ...baseArgs, decisions: fixCall }, strayScenario)
   check('filing: on the guided dial a filled entry beside a call stated as a fix raises no draft and files nothing', strayFilledGuided.res.status === 'done' && !labels(strayFilledGuided.calls).includes('file deferred r1') && replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [strayFilledGuided.res.status, strayFilledGuided.res.handoffKind, labels(strayFilledGuided.calls), replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1')])
   // The fix is demanded by the check whatever entry stands beside it (#99): left unbuilt, the
   // round stops at the check after its repair and files nothing. Until #99 the filled entry made
   // it a deferral, whose commit is never demanded (#100), so the round passed with a warning.
-  const strayFilledUnbuilt = await go('filing: a filled entry beside a call stated as a fix, the fix left out', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, commitIds: [[], []] })
+  const strayFilledUnbuilt = await go('filing: a filled entry beside a call stated as a fix, the fix left out', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, commitIds: [[], []] })
   check('filing: a call stated as a fix is demanded beside a filled entry: left unbuilt, the round stops at the check after its repair and files nothing', strayFilledUnbuilt.res.status === 'error' && strayFilledUnbuilt.res.stage === 'check' && (strayFilledUnbuilt.res.error || '').includes('no commit names R1-1') && labels(strayFilledUnbuilt.calls).includes('repair r1') && !labels(strayFilledUnbuilt.calls).includes('file deferred r1'), [strayFilledUnbuilt.res.status, strayFilledUnbuilt.res.stage, strayFilledUnbuilt.res.error, labels(strayFilledUnbuilt.calls).slice(-6)])
   // Pin 2 of #99: a fix beside a stray empty entry. It filed nothing before #99 either (#97,
   // R1-10), by the emptiness of the field, but the entry stayed in the list the plan approver and
   // the implementer were shown, and no warning said so.
-  const strayResolve = await go('filing: the resolve agent returns an empty entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: '' }] })
+  const strayResolve = await go('filing: the resolve agent returns an empty entry beside a call it states as a fix', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: '' }] })
   check('filing: an empty entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayResolve), fixDetail(strayResolve))
   check('filing: an empty entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayResolve), [shownTo(strayResolve).map((p) => p.includes('"title": "Lock R1-1"')), strayResolve.res.warnings])
   // What is stated decides, whatever the entry says (#99): an entry worded `none` beside a planned
   // task, with a deferral stated, is the decision's deferral, filed and posted as applied. Until
   // #99 it was filed because its field was filled (#100). `strayFilled` above is its twin, a
   // filled entry beside the same task with a fix stated, which files nothing.
-  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it states as a deferral', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: 'none' }], resolveDecided: { 'R1-1': 'defer' } })
+  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it states as a deferral', { ...baseArgs, decisions: typedAnswer('R1-1'), deferrals: goAhead('R1-1') }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: 'none' }], resolveDecided: { 'R1-1': 'defer' } })
   check('filing: an entry worded none beside a call stated as a deferral is the decision\'s deferral, whatever its words: filed and posted as applied', strayWorded.res.status === 'done' && labels(strayWorded.calls).includes('file deferred r1') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to #301.') && !(strayWorded.res.warnings || []).some((w) => w.includes('the entry is dropped')), [strayWorded.res.status, labels(strayWorded.calls), replyFor(strayWorded.calls, 'push and reply r1', 'R1-1'), strayWorded.res.warnings])
   // Every call the resolve applied has its statement (#99): one left out is a result the run
   // cannot use, so the round stops at resolve, where a resume reruns the agent.
-  const unstated = await go('filing: the resolve agent states no disposition for a call it applied', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const unstated = await go('filing: the resolve agent states no disposition for a call it applied', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
   check('filing: a call with no stated disposition stops at resolve, resumable there, before the plan approver', unstated.res.status === 'error' && unstated.res.stage === 'resolve' && unstated.res.error === 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)' && Boolean(unstated.res.resumeFrom) && unstated.res.resumeFrom.label === 'resolve r1' && !labels(unstated.calls).includes('plan approver r1'), [unstated.res.status, unstated.res.stage, unstated.res.error, unstated.res.resumeFrom, labels(unstated.calls).slice(-3)])
   // One statement a call (#99): the first the agent returned, as for a deferred entry (#97,
   // R2-12). Here the first says fix and the second defer, so the entry is dropped and nothing filed.
-  const statedTwice = await go('filing: the resolve agent states two dispositions for one call', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDecidedTwice: { 'R1-1': 'defer' } })
+  const statedTwice = await go('filing: the resolve agent states two dispositions for one call', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, resolveDecidedTwice: { 'R1-1': 'defer' } })
   check('filing: of two statements for one call the first is kept, with a warning', postedAsFix(statedTwice) && (statedTwice.res.warnings || []).includes('round 1: the resolve agent stated a disposition for R1-1 more than once; the first is kept'), [fixDetail(statedTwice), statedTwice.res.warnings])
   // A value outside the three is no statement (#99): the schema refuses one in the agent's own
   // run, and the workflow's test is the second layer, as for a judgment call's reason.
-  const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
+  const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
   check('filing: a stated disposition outside fix, defer and accept is no statement, so the round stops at resolve', misstated.res.status === 'error' && misstated.res.stage === 'resolve' && (misstated.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstated.res.resumeFrom) && misstated.res.resumeFrom.label === 'resolve r1', [misstated.res.status, misstated.res.stage, misstated.res.error, misstated.res.resumeFrom])
   // One statement a call is the first returned, whatever it holds (#108, R3-3; the spec's
   // decisions 12 and 20): a first statement outside the three is no statement, so the round stops
   // at resolve even with a valid second one beside it. `statedTwice` above is the neighbour, two
   // valid statements, the first kept.
-  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
+  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
   check('filing: of two statements for one call the first is kept even when it is outside the three, so the round stops at resolve', (misstatedFirst.res || {}).status === 'error' && misstatedFirst.res.stage === 'resolve' && (misstatedFirst.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstatedFirst.res.resumeFrom) && misstatedFirst.res.resumeFrom.label === 'resolve r1', [(misstatedFirst.res || {}).status, (misstatedFirst.res || {}).stage, (misstatedFirst.res || {}).error])
   // A call's decision that names a disposition itself decides, as an override's does (#103,
   // R1-11), so no statement is asked of it (#99): the round goes on without one, and the fix it
@@ -3902,19 +3924,19 @@ function samePrefix(name, first, second, n) {
   const stopsAtResolve = (r, error) => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === 'resolve r1' && !labels(r.calls).includes('plan approver r1')
   const stopDetail = (r) => [r.res.status, r.res.stage, r.res.error, r.res.resumeFrom, labels(r.calls).slice(-3)]
   const oneCall = { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], commitIds: [['R1-1']] }
-  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
+  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
   check('filing: a call stated as a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(deferNoEntry, 'the resolve agent stated defer for R1-1 with no deferred entry; a deferred item always carries a drafted issue'), stopDetail(deferNoEntry))
-  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
+  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
   check('filing: a call stated as a fix with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixNoFiles, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFiles))
   // The files are those of the finding's own task: another call's task with files, in the same
   // resolve, does not stand in for it.
-  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, decisions: typedAnswer('R1-1', 'R1-2') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
   check('filing: a call stated as a fix is held to its own task\'s files, whatever another call\'s task lists', stopsAtResolve(fixNoFilesBeside, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFilesBeside))
   // A blank path is no file at the resolve-time check either (#114, R1-6): it reads the task's
   // files through the same cleanup as the list the round keeps.
-  const fixBlankFile = await go('filing: the resolve agent states a fix and plans a task whose only file is blank', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'fix' }, resolveFiles: { 'R1-1': [''] } })
+  const fixBlankFile = await go('filing: the resolve agent states a fix and plans a task whose only file is blank', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'fix' }, resolveFiles: { 'R1-1': [''] } })
   check('filing: a call stated as a fix whose task lists only a blank path stops at resolve, as one with no task with files does', stopsAtResolve(fixBlankFile, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixBlankFile))
-  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
+  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
   check('filing: a call stated as accepted beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptWithFiles, 'the resolve agent stated accept beside a task with files for R1-1 (app/x.php); an accepted finding changes nothing'), stopDetail(acceptWithFiles))
   // A decision that names its own disposition is held to the same three checks, by what it names
   // (#108, R1-5): until #108 only a defer override was, by its entry. A call whose decision names
@@ -4061,7 +4083,7 @@ function samePrefix(name, first, second, n) {
   // Every resolve of the round planned tasks (#97, R2-14): a reshape that raises a call runs a
   // second resolve for that call alone, and the first resolve's tasks still count, for the task a
   // stray entry stands beside and for the commits the gate demands.
-  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, decisions: typedAnswer('R1-1', 'R1-2') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
   check('filing: after a reshape\'s resolve, a stray entry beside the first resolve\'s fix files nothing, and the fix is posted as applied', strayRaised.res.status === 'done' && labels(strayRaised.calls).includes('resolve r1 #1') && !labels(strayRaised.calls).includes('file deferred r1') && (replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to'), [strayRaised.res.status, labels(strayRaised.calls), replyFor(strayRaised.calls, 'push and reply r1', 'R1-1')])
   const unbuilt = await go('filing: a reshape raises a call and the first resolve\'s task is not built', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-2'], []] })
   check('filing: after a reshape\'s resolve, the gate still demands the commit of the first resolve\'s task', unbuilt.res.status === 'error' && unbuilt.res.stage === 'check' && (unbuilt.res.error || '').includes('no commit names R1-1'), [unbuilt.res.status, unbuilt.res.stage, unbuilt.res.error])
@@ -4499,10 +4521,214 @@ function samePrefix(name, first, second, n) {
   check('statements: the GitHub agent\'s defer operation names the end-of-run filing at Finish', read('agents', 'redline-github.md').includes('or, with deferred items raised at the end of the run, at Finish, before the replies those items waited for'), 'agents/redline-github.md, defer')
 }
 
+// ---------------------------------------------------------------------------
+// #105, what an option ends in: every option of a judgment call states its end (fix, defer or
+//     accept) and the call names the recommended option by its label, in the shaper's schema and
+//     in the workflow's own check of what the shaper returned. A decision that picks an option
+//     names it in `option`, and the workflow gives that decision the option's end as its own
+//     disposition: no statement is asked of the resolve agent for it, and the three record checks
+//     of a decision that names its disposition hold the plan to it. A decision with no option is
+//     the person's own words, stated by the resolve agent as before.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const one = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanFolder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
+  const humanArgs = (argExtra) => ({ ...baseArgs, firstRound: 3, ...(argExtra || {}), revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: 'One thing inline.', specFolder: humanFolder, findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } })
+  const humanOne = { reviews: [[]], ask: ['H1-1'], commitIds: [['H1-1']] }
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const reason = rules[0].reason
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const underRule = { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml' })], []], commitIds: [[]] }
+  // The disposition a prompt's list of dispositions shows for a finding: the plan approver's and
+  // the implementer's are the same JSON object, findings then deferred.
+  const shownAs = (r, label, id) => {
+    const p = promptOf(r, label)
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return (list.find((x) => x.id === id) || {}).disposition
+  }
+  const stopsAtShape = (r, error, label = 'shape r1') => r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const stopsAtResolve = (r, error, label = 'resolve r1') => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label && !labels(r.calls).some((l) => l.startsWith('plan approver'))
+  const stopDetail = (r) => [(r.res || {}).status, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-3), r.thrown && r.thrown.message]
+
+  // The schema, in each of the four the shaper can be given: a round's and a human pass's, each
+  // with and without the repository's rule reasons.
+  const callSchema = (r, label) => ((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).judgmentCalls || {}).items || {}
+  const optionSchema = (r, label) => ((callSchema(r, label).properties || {}).options || {}).items || {}
+  const statesEnds = (r, label) => (callSchema(r, label).required || []).includes('recommended') && ((callSchema(r, label).properties || {}).recommended || {}).type === 'string' && (optionSchema(r, label).required || []).join('|') === 'label|cost|effect|ends' && (((optionSchema(r, label).properties || {}).ends || {}).enum || []).join('|') === 'fix|defer|accept'
+  const stop = await go('ends: guided, a call stops for the person', baseArgs, one)
+  const stopRules = await go('ends: guided, a call stops for the person, in a repository with ask rules', ruleArgs, one)
+  const humanStop = await go('ends: a human pass, a call stops for the author', humanArgs(), humanOne)
+  const humanStopRules = await go('ends: a human pass, a call stops for the author, in a repository with ask rules', humanArgs({ askRules: rules }), humanOne)
+  const fourSchemas = [[stop, 'shape r1'], [stopRules, 'shape r1'], [humanStop, 'shape h1'], [humanStopRules, 'shape h1']]
+  check('ends: each of the four shaper schemas (a round\'s and a human pass\'s, with and without rule reasons) requires ends on every option, one of fix, defer and accept, and recommended on the call', fourSchemas.every(([r, label]) => statesEnds(r, label)), fourSchemas.map(([r, label]) => [optionSchema(r, label).required, callSchema(r, label).required]))
+  check('ends: the stop\'s result carries each option\'s end and the call\'s recommended option, for the person to be shown', stop.res.status === 'handoff' && JSON.stringify(stop.res.judgmentCalls[0].options.map((o) => [o.label, o.ends])) === '[["Keep it","fix"],["Change it","fix"]]' && stop.res.judgmentCalls[0].recommended === 'Keep it', stop.res.judgmentCalls)
+
+  // Every prompt that returns the shaper's JSON asks for the two fields: the shape, the human
+  // pass's shape, and the reshape of each, with and without a decided finding.
+  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
+  const bounced = await go('ends: a round with no call, its plan bounced once', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, commitIds: [['R1-1']] })
+  const bouncedDecided = await go('ends: a round whose call autopilot decided, its plan bounced once', { ...baseArgs, interrupt: 'autopilot' }, { ...one, planBounce: 1 })
+  const humanBounced = await go('ends: a human pass with no call, its plan bounced once', humanArgs(), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
+  const humanBouncedDecided = await go('ends: a human pass whose call autopilot decided, its plan bounced once', humanArgs({ interrupt: 'autopilot' }), { ...humanOne, planBounce: 1 })
+  const returns = [[stop, 'shape r1'], [humanStop, 'shape h1'], [bounced, 'reshape r1 #1'], [bouncedDecided, 'reshape r1 #1'], [humanBounced, 'reshape h1 #1'], [humanBouncedDecided, 'reshape h1 #1']]
+  check('ends: the shape prompt, the human pass\'s and the four reshape prompts each ask for ends on every option and for recommended', returns.every(([r, label]) => promptOf(r, label).includes(OPTIONS_ASK)) && promptOf(bouncedDecided, 'reshape r1 #1').includes(DECIDED_BLOCK) && !promptOf(bounced, 'reshape r1 #1').includes(DECIDED_BLOCK) && promptOf(humanBouncedDecided, 'reshape h1 #1').includes(DECIDED_BLOCK) && !promptOf(humanBounced, 'reshape h1 #1').includes(DECIDED_BLOCK), returns.map(([r, label]) => [label, promptOf(r, label).includes(OPTIONS_ASK), promptOf(r, label).slice(-500)]))
+
+  // The workflow's own check of the options, after the shape and after every reshape, in both
+  // passes: a label names one option, every option has a label and an end of the three, and
+  // recommended names one of them. Each stop is the workflow's check of what the shaper returned.
+  const twoKeeps = [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Keep it', cost: 'c', effect: 'e', ends: 'fix' }]
+  const REPEATED = (id) => `the shaper gave ${id} more than one option labelled "Keep it"; a decision names the option it picks by its label, so each label names one option`
+  const repeated = await go('ends: two options of one call share a label', baseArgs, { ...one, callOf: { 'R1-1': { options: twoKeeps } } })
+  check('ends: a call with two options under one label stops at shape, the workflow\'s own check, resumable at the shaper', stopsAtShape(repeated, REPEATED('R1-1')), stopDetail(repeated))
+  const NONE_RECOMMENDED = (id, named) => `the shaper recommended ${JSON.stringify(named)} for ${id}, which is the label of none of its options (Keep it, Change it); recommended names the option the shaper recommends by its label`
+  const noneRecommended = await go('ends: the recommended label names no option of the call', baseArgs, { ...one, callOf: { 'R1-1': { recommended: 'Keep' } } })
+  check('ends: a call whose recommended names none of its options stops at shape, the workflow\'s own check', stopsAtShape(noneRecommended, NONE_RECOMMENDED('R1-1', 'Keep')), stopDetail(noneRecommended))
+  const noRecommended = await go('ends: a call with no recommended at all', baseArgs, { ...one, callOf: { 'R1-1': { recommended: undefined } } })
+  check('ends: a call with no recommended stops the same way', stopsAtShape(noRecommended, NONE_RECOMMENDED('R1-1', '')), stopDetail(noRecommended))
+  const endless = await go('ends: an option with an end outside the three, and one with none and no label', baseArgs, { ...one, callOf: { 'R1-1': { options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'mitigate' }, { label: ' ', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }] } } })
+  check('ends: an option with no label, or with an end that is none of the three, stops at shape, the workflow\'s own check, as the second layer behind the schema', stopsAtShape(endless, 'the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in "mitigate", "" ends in null); every option of a judgment call carries a label and states what it ends in, fix, defer or accept'), stopDetail(endless))
+  const humanNoneRecommended = await go('ends: a human pass, the recommended label names no option', humanArgs(), { ...humanOne, callOf: { 'H1-1': { recommended: 'Keep' } } })
+  check('ends: a human pass\'s call is held to the same check', stopsAtShape(humanNoneRecommended, NONE_RECOMMENDED('H1-1', 'Keep'), 'shape h1'), stopDetail(humanNoneRecommended))
+  // After a reshape the check reads the calls still pending or newly raised: a call the reshape
+  // raises stops at the reshape's own label, and one the round already decided is not held to
+  // options the reshape restates.
+  const raisedTwo = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const raisedRepeated = await go('ends: a reshape raises a call with two options under one label', { ...baseArgs, interrupt: 'autopilot' }, { ...raisedTwo, callAt: { 'reshape r1 #1': { 'R1-2': { options: twoKeeps } } } })
+  check('ends: a call a reshape raises is held to the check, and its stop names the reshape', stopsAtShape(raisedRepeated, REPEATED('R1-2'), 'reshape r1 #1'), stopDetail(raisedRepeated))
+  const decidedRestated = await go('ends: a reshape returns a decided call again with two options under one label', { ...baseArgs, interrupt: 'autopilot' }, { ...raisedTwo, callAt: { 'reshape r1 #1': { 'R1-1': { options: twoKeeps } } } })
+  check('ends: a call the round already decided is not held to the options a reshape restates', decidedRestated.res.status === 'done', stopDetail(decidedRestated))
+
+  // The one call the workflow writes, for a finding left to the person under a rule, states its
+  // options' ends and its recommended option like any other.
+  const forcedStop = await go('ends: a finding under a paths rule, guided', ruleArgs, underRule)
+  const forcedCall = ((forcedStop.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('ends: the call the workflow writes for a finding left to the person states each option\'s end and recommends the change by hand', JSON.stringify(forcedCall.options.map((o) => [o.label, o.ends])) === '[["Make the change by hand after the run","fix"],["Accept, no change","accept"]]' && forcedCall.recommended === 'Make the change by hand after the run', forcedCall)
+  const forcedDeclined = await go('ends: a finding under a paths rule that the shaper declined, guided', ruleArgs, { ...underRule, decline: ['R1-1'] })
+  const declinedCall = ((forcedDeclined.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('ends: for a finding the shaper would have declined, the call the workflow writes recommends no change', declinedCall.recommended === 'Accept, no change' && declinedCall.recommendation.startsWith('Accept, no change'), declinedCall)
+
+  // A pick. The decision names the option in `option`; the run's copy of it carries the option's
+  // end as its disposition, the resolve agent is asked for no statement (the scripted agent
+  // returns none here), and the finding is shown and built by that end.
+  const pickOf = (label, notes, id = 'R1-1') => ({ [id]: { choice: label, option: label, notes, date: '2026-11-24' } })
+  const NAMED_EXEMPT = ' A call whose decision carries `disposition` names its own and has no entry in decided.'
+  const PICK = ' A call whose decision carries `option` was answered by picking that option of the call, named by its label: plan that option as the shaper wrote it, and the `disposition` beside it is what the option ends in, which the workflow set from the option\'s `ends`.'
+  const picked = await go('ends: guided, the person picks Change it', { ...baseArgs, decisions: pickOf('Change it', 'Change it now.') }, { ...one, resolveUnstated: ['R1-1'] })
+  const pickedResolve = promptOf(picked, 'resolve r1')
+  check('ends: a picked option gives its decision the option\'s end as its disposition, and no statement is asked of the resolve agent', picked.res.status === 'done' && pickedResolve.includes('"option": "Change it"') && pickedResolve.includes('"disposition": "fix"') && replyFor(picked.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Change it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [stopDetail(picked), pickedResolve.slice(-1200)])
+  check('ends: the resolve prompt says what a pick is, in the calls block, after the sentence that a named disposition has no entry in decided', pickedResolve.includes(NAMED_EXEMPT + PICK), pickedResolve.slice(-1500))
+  samePrefix('ends: a pick', stop.calls, picked.calls, 5)
+  // The case #105's comment names: the person picks Mitigate, which ends in defer, and the
+  // resolve agent plans a full fix with no deferred entry. Until this spec it ran on with fix
+  // stated, and nothing held the plan to the option the person chose.
+  const three = [{ label: 'Full fix', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Mitigate', cost: 'c', effect: 'e', ends: 'defer' }, { label: 'Accept', cost: 'c', effect: 'e', ends: 'accept' }]
+  const threeWay = { ...one, callOf: { 'R1-1': { options: three, recommended: 'Mitigate', recommendation: 'Mitigate; add a guard.' } } }
+  const entry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  const NO_ENTRY = 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue'
+  const mitigateAsFix = await go('ends: the person picks Mitigate and the resolve agent plans a full fix with no entry', { ...baseArgs, decisions: pickOf('Mitigate', 'Mitigate it behind a guard.') }, threeWay)
+  check('ends: Mitigate picked and planned as a full fix with no deferred entry stops at resolve, before the plan approver', stopsAtResolve(mitigateAsFix, NO_ENTRY), stopDetail(mitigateAsFix))
+  const fixNoTask = await go('ends: the person picks Full fix and the resolve agent plans no task with files', { ...baseArgs, decisions: pickOf('Full fix', 'Fix it in full.') }, { ...threeWay, resolveFiles: { 'R1-1': [] } })
+  check('ends: an option that ends in a fix, planned with no task with files, stops at resolve', stopsAtResolve(fixNoTask, 'the resolve agent planned no task with files for R1-1, which its decision names as a fix; a fix names the files it changes'), stopDetail(fixNoTask))
+  const acceptWithTask = await go('ends: the person picks Accept and the resolve agent plans a task with files', { ...baseArgs, decisions: pickOf('Accept', 'Leave it as it is.') }, { ...threeWay, resolveFiles: { 'R1-1': ['app/x.php'] } })
+  check('ends: an option that ends in accept, planned beside a task with files, stops at resolve', stopsAtResolve(acceptWithTask, 'the resolve agent planned a task with files for R1-1 (app/x.php), which its decision names as accepted; an accepted finding changes nothing'), stopDetail(acceptWithTask))
+  // Their neighbours run on, each shown to the plan approver and the implementer by its end.
+  const mitigated = await go('ends: the person picks Mitigate, planned as a deferral with its entry', { ...baseArgs, decisions: pickOf('Mitigate', 'Mitigate it behind a guard.'), deferrals: goAhead('R1-1') }, { ...threeWay, resolveDeferred: [entry] })
+  check('ends: Mitigate picked and planned as a deferral is filed as the person\'s deferral, and shown as a defer', mitigated.res.status === 'done' && labels(mitigated.calls).includes('file deferred r1') && replyFor(mitigated.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Mitigate it behind a guard. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author' && shownAs(mitigated, 'plan approver r1', 'R1-1') === 'defer' && shownAs(mitigated, 'implement r1', 'R1-1') === 'defer', [stopDetail(mitigated), replyFor(mitigated.calls, 'push and reply r1', 'R1-1'), shownAs(mitigated, 'plan approver r1', 'R1-1')])
+  const acceptedPick = await go('ends: the person picks Accept, planned with no task', { ...baseArgs, decisions: pickOf('Accept', 'Leave it as it is.') }, { ...threeWay, commitIds: [[]] })
+  check('ends: Accept picked is posted as no code change, demanded of no commit, and shown as an accept', acceptedPick.res.status === 'done' && replyFor(acceptedPick.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Leave it as it is. No code change. · decided by: @author' && shownAs(acceptedPick, 'plan approver r1', 'R1-1') === 'accept' && shownAs(acceptedPick, 'implement r1', 'R1-1') === 'accept', [stopDetail(acceptedPick), replyFor(acceptedPick.calls, 'push and reply r1', 'R1-1'), shownAs(acceptedPick, 'plan approver r1', 'R1-1')])
+  const fullFix = await go('ends: the person picks Full fix, left unbuilt', { ...baseArgs, decisions: pickOf('Full fix', 'Fix it in full.') }, { ...threeWay, commitIds: [[], []] })
+  check('ends: an option that ends in a fix is demanded by the check: left unbuilt, the round stops there', fullFix.res.status === 'error' && fullFix.res.stage === 'check' && (fullFix.res.error || '').includes('no commit names R1-1') && shownAs(fullFix, 'plan approver r1', 'R1-1') === 'fix', stopDetail(fullFix))
+
+  // An answer in the person's own words names no option: its decision carries no disposition,
+  // the resolve agent states what it ends in, and its prompt says nothing of a pick.
+  const typed = { 'R1-1': { choice: 'Change it, with a log line', notes: 'Change it and log it.', date: '2026-11-24' } }
+  const typedRun = await go('ends: guided, an answer in the person\'s own words', { ...baseArgs, decisions: typed }, one)
+  const typedResolve = promptOf(typedRun, 'resolve r1')
+  check('ends: an answer with no option is stated by the resolve agent, as before: no disposition on its decision, and no word of a pick in its prompt', typedRun.res.status === 'done' && typedResolve !== '' && !typedResolve.includes('"option"') && !typedResolve.includes('"disposition": ') && !typedResolve.includes('carries `option`') && shownAs(typedRun, 'plan approver r1', 'R1-1') === 'ask', [stopDetail(typedRun), typedResolve.slice(-900)])
+  const typedUnstated = await go('ends: guided, an answer in the person\'s own words, no statement returned', { ...baseArgs, decisions: typed }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: an answer with no option still needs its statement', stopsAtResolve(typedUnstated, 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)'), stopDetail(typedUnstated))
+  // An option that names none of the call's options is the person's own words, with a warning.
+  const UNKNOWN = 'round 1: the decision for R1-1 names the option "Kep it", which is the label of none of its call\'s options (Keep it, Change it); it is read as an answer in the person\'s own words, and the resolve agent states what it ends in'
+  const unknown = await go('ends: a decision names an option its call does not have', { ...baseArgs, decisions: pickOf('Kep it', 'Keep it.') }, one)
+  const unknownResolve = promptOf(unknown, 'resolve r1')
+  check('ends: an option that names none of its call\'s options is read as the person\'s own words, with a warning, and the resolve agent states its end', unknown.res.status === 'done' && (unknown.res.warnings || []).includes(UNKNOWN) && unknownResolve !== '' && !unknownResolve.includes('"option"') && !unknownResolve.includes('"disposition": '), [stopDetail(unknown), unknown.res.warnings])
+  const unknownUnstated = await go('ends: a decision names an option its call does not have, no statement returned', { ...baseArgs, decisions: pickOf('Kep it', 'Keep it.') }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: such a decision still needs its statement', stopsAtResolve(unknownUnstated, 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)'), stopDetail(unknownUnstated))
+  // A label is matched as written, apart from the blanks around it.
+  const padded = await go('ends: a decision names its option with blanks around the label', { ...baseArgs, decisions: pickOf(' Change it ', 'Change it now.') }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: an option is matched by its label whatever blanks surround it', padded.res.status === 'done' && promptOf(padded, 'resolve r1').includes('"disposition": "fix"'), stopDetail(padded))
+
+  // What a decision may carry is checked at launch, before any agent runs.
+  const both = await go('ends: a decision gives an option and a disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: 'Change it', notes: 'Change it now.', date: '2026-11-24', disposition: 'fix' } } }, one)
+  check('ends: a decision that gives both an option and a disposition is refused before any agent runs', Boolean(both.thrown) && /args\.decisions must not give both an option and a disposition/.test(both.thrown.message) && both.calls.length === 0, [both.thrown && both.thrown.message, both.calls.length])
+  const notText = await go('ends: a decision gives an option that is no string', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: 2, notes: 'Change it now.', date: '2026-11-24' } } }, one)
+  check('ends: an option that is not a string is refused before any agent runs', Boolean(notText.thrown) && /args\.decisions must give an option as a string/.test(notText.thrown.message) && notText.calls.length === 0, [notText.thrown && notText.thrown.message, notText.calls.length])
+  const emptyOption = await go('ends: an empty and a null option', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: '', notes: 'Change it now.', date: '2026-11-24' }, 'R1-2': { choice: 'Change it', option: null, notes: 'Change it now.', date: '2026-11-24', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1', 'R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  const emptyOptionResolve = promptOf(emptyOption, 'resolve r1')
+  check('ends: an empty and a null option each name none: the decision runs on without one, a named disposition beside it kept', !emptyOption.thrown && (emptyOption.res || {}).status === 'done' && emptyOptionResolve !== '' && !emptyOptionResolve.includes('"option"') && emptyOptionResolve.includes('"disposition": "fix"') && !(emptyOption.res.warnings || []).some((w) => w.includes('names the option')), [emptyOption.thrown && emptyOption.thrown.message, (emptyOption.res || {}).status, (emptyOption.res || {}).warnings])
+
+  // Autopilot takes the call's recommended option by its label, so its decision is a pick too.
+  const auto = await go('ends: autopilot takes the recommended option, Mitigate', { ...baseArgs, interrupt: 'autopilot' }, { ...threeWay, resolveDeferred: [entry] })
+  const autoResolve = promptOf(auto, 'resolve r1')
+  check('ends: autopilot\'s decision names the recommended option, takes its end, and keeps the recommendation as its choice and notes', auto.res.status === 'done' && autoResolve.includes('"option": "Mitigate"') && autoResolve.includes('"disposition": "defer"') && autoResolve.includes('"choice": "Mitigate; add a guard"') && autoResolve.includes('"notes": "Autopilot took the shaper\'s recommendation: Mitigate; add a guard."') && autoResolve.includes(NAMED_EXEMPT + PICK) && labels(auto.calls).includes('file deferred r1'), [stopDetail(auto), autoResolve.slice(-1500)])
+  const autoAsFix = await go('ends: autopilot takes Mitigate and the resolve agent plans a full fix with no entry', { ...baseArgs, interrupt: 'autopilot' }, threeWay)
+  check('ends: on autopilot too, Mitigate planned as a full fix with no deferred entry stops at resolve', stopsAtResolve(autoAsFix, NO_ENTRY), stopDetail(autoAsFix))
+  // Pin 1 of #99 on the dial it was first seen on: an entry the resolve agent returns beside a
+  // call autopilot picked to a fix is dropped, as one beside any decision that names a fix is,
+  // and nothing is filed. Until #105 the agent's own statement decided, and a statement of
+  // defer beside that entry filed an issue the recommended option never asked for.
+  const autoStray = await go('ends: autopilot takes an option that ends in a fix and the resolve agent returns a deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...one, ends: { 'R1-1': 'fix' }, resolveDeferred: [entry] })
+  check('ends: an entry the resolve agent returns beside a pick that ends in a fix is dropped with a warning, nothing is filed, and the fix is posted', autoStray.res.status === 'done' && (autoStray.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a call whose decision names it as fix; the entry is dropped, since the decision stands') && !labels(autoStray.calls).includes('file deferred r1') && replyFor(autoStray.calls, 'push and reply r1', 'R1-1').includes(' Applied in ') && (autoStray.res.deferred || []).length === 0, [stopDetail(autoStray), autoStray.res.warnings, replyFor(autoStray.calls, 'push and reply r1', 'R1-1')])
+  const autoRaised = await go('ends: autopilot decides a call a reshape raised', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  check('ends: a call a reshape raises is picked the same way, in the resolve that reshape sets off', autoRaised.res.status === 'done' && promptOf(autoRaised, 'resolve r1 #1').includes('"option": "Keep it"') && promptOf(autoRaised, 'resolve r1 #1').includes('"disposition": "fix"'), [stopDetail(autoRaised), promptOf(autoRaised, 'resolve r1 #1').slice(-900)])
+
+  // A resolve with overrides and no call has no calls block, so nothing of this reaches it.
+  const overrideOnly = await go('ends: a plan-dial override and no call', { ...baseArgs, interrupt: 'plan', approvedPlans: [1, 2], decisions: { 'R1-1': { choice: 'accept', notes: 'Leave it as it is.', date: '2026-11-24', disposition: 'accept' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [[]] })
+  const overrideResolve = promptOf(overrideOnly, 'resolve r1')
+  check('ends: a resolve with overrides and no call holds no calls block and no word of a pick', overrideResolve.includes('Disposition overrides, as JSON') && !overrideResolve.includes('Judgment calls as the shaper wrote them') && !overrideResolve.includes('`option`'), overrideResolve.slice(-900))
+
+  // A pick on a call left to the person under a rule: no end is kept on its decision and nothing
+  // warns, since no task writes anything whatever the answer, and the finding ends as every left
+  // finding does. The calls block's sentence about a pick is for a decision that carries the
+  // option's end, so this prompt holds none.
+  const leftPick = await go('ends: the person picks Accept, no change on a call left to them under a rule', { ...ruleArgs, decisions: pickOf('Accept, no change', 'The author leaves the config as it is.') }, underRule)
+  const leftResolve = promptOf(leftPick, 'resolve r1')
+  check('ends: a pick on a call left to the person keeps no disposition and warns of none, and the finding is posted as left', leftPick.res.status === 'done' && leftResolve.includes('"option": "Accept, no change"') && leftResolve.includes('"rule": "craft-config"') && !leftResolve.includes('"disposition": ') && !leftResolve.includes('carries `option`') && !(leftPick.res.warnings || []).some((w) => w.includes('is not applied') || w.includes('names the option')) && replyFor(leftPick.calls, 'push and reply r1', 'R1-1') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author leaves the config as it is. · decided by: @author`, [stopDetail(leftPick), leftPick.res.warnings, replyFor(leftPick.calls, 'push and reply r1', 'R1-1')])
+  // A disposition typed for it is still dropped with its warning, as before.
+  const leftTyped = await go('ends: the person types a fix for a call left to them under a rule', { ...ruleArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it.', date: '2026-11-24', disposition: 'fix' } } }, underRule)
+  check('ends: a disposition typed for a call left to the person is not applied, with the warning it always had', leftTyped.res.status === 'done' && (leftTyped.res.warnings || []).includes('round 1: R1-1 is left to the person under repository rule craft-config; the disposition "fix" is not applied'), [stopDetail(leftTyped), leftTyped.res.warnings])
+
+  // A human review pass: one schema, one dial and one path. An option may end in defer there,
+  // since choosing it is the author's decision, so the plan approver is told that a defer no
+  // decision names is the bounce, where it was told any defer is.
+  const humanThree = { ...humanOne, callOf: { 'H1-1': { options: three, recommended: 'Full fix', recommendation: 'Full fix.' } } }
+  const humanEntry = { id: 'H1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock H1-1', found: 'found H1-1', why: 'why H1-1' }
+  const humanPicked = await go('ends: a human pass, the author picks Mitigate', humanArgs({ decisions: pickOf('Mitigate', 'The author defers it behind a guard.', 'H1-1'), deferrals: goAhead('H1-1') }), { ...humanThree, resolveDeferred: [humanEntry] })
+  const humanApprover = promptOf(humanPicked, 'plan approver h1')
+  check('ends: a human pass\'s pick travels the same way, and is shown to its plan approver as the defer its decision names', humanPicked.res.status === 'done' && promptOf(humanPicked, 'resolve h1').includes('"disposition": "defer"') && shownAs(humanPicked, 'plan approver h1', 'H1-1') === 'defer', [stopDetail(humanPicked), shownAs(humanPicked, 'plan approver h1', 'H1-1')])
+  check('ends: a human pass\'s plan approver is told that a defer no decision names is a bounce, and no longer that any defer is', humanApprover.includes('and no finding is deferred by the shaper; a disposition of defer that no decision below names is a bounce.') && !humanApprover.includes('a disposition of defer here is a bounce'), humanApprover.slice(0, 1500))
+  samePrefix('ends: a human pass\'s pick', humanStop.calls, humanPicked.calls, 2)
+
+  // The statements a reader and an agent meet.
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const resolveAgent = read('agents', 'redline-resolve.md')
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  const skill = read('skills', 'redline', 'SKILL.md')
+  check('ends: the shaper\'s file says every option states what it ends in and the call names the recommended one, in rule 1, for a left call, for a human pass and in its return shape', shaperAgent.includes('Every option of a call states what choosing it ends in, in `ends`') && shaperAgent.includes('`recommended`, by its label as written') && shaperAgent.includes('which ends in `fix`, or accept it as it is, which ends in `accept`') && shaperAgent.includes('and one may end in `defer`: choosing it is the author\'s decision') && shaperAgent.includes('"options": [{"label": "Full fix", "cost": "...", "effect": "...", "ends": "fix"}, {"label": "Mitigate", "cost": "...", "effect": "...", "ends": "defer"}, {"label": "Accept", "cost": "...", "effect": "...", "ends": "accept"}]') && shaperAgent.includes('"recommended": "Accept"'), 'agents/redline-shaper.md')
+  check('ends: the resolve agent\'s file says a decision that carries option is a pick whose disposition the workflow set, planned as the option reads and stated nowhere', resolveAgent.includes('A decision that carries `option` picked that option of the call, named by its label') && resolveAgent.includes('return no entry in `decided` for it') && resolveAgent.includes('and so does a call whose decision carries `disposition`'), 'agents/redline-resolve.md')
+  check('ends: the plan approver\'s file says a picked option\'s end is the disposition the plan follows, and that a human pass\'s defer stands only when a decision names it', approverAgent.includes('A decision that carries `option` picked that option of the call, and its `disposition` is what the option ends in') && approverAgent.includes('a `defer` there stands only when a decision the prompt lists names it'), 'agents/redline-plan-approver.md')
+  check('ends: the skill shows each option with what it ends in, takes the recommended one from the field, and records a pick\'s option', skill.includes('what it ends in (`ends`:') && skill.includes('the recommended one (`recommended`, the label of one option)') && skill.includes('"option": "<the option\'s label, exactly as given>"') && skill.includes('You never write a `disposition` for a call the person answered by picking an option'), 'skills/redline/SKILL.md')
+  check('ends: the result tells a relaunching session that a pick carries option, and never beside a disposition', stop.res.relaunch.how.includes('"option": "<the label of the option picked>"') && stop.res.relaunch.how.includes('never beside "disposition"'), stop.res.relaunch.how)
+}
+
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 check('no reshape prompt that names decided findings asks an ask for its recommended paths in a clause that covers them too', doubleFilesAsk.length === 0, doubleFilesAsk.slice(0, 5))
-check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the seventeen sites\' stops, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
+check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the stops of the sites listed, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
 check('no reshape prompt of any scenario tells the shaper to rewrite the spec folder from scratch', rewrittenReshape.length === 0, rewrittenReshape.slice(0, 5))
 check('no prompt of a run that passes no resume entry holds the resume line or one of its clauses', strayResumeWords.length === 0, strayResumeWords.slice(0, 5))
 check('each stop that is the workflow\'s own check is reached by a scenario, resumable and with ownCheck true', OWN_CHECKS.every((k) => k.seen > 0), OWN_CHECKS.filter((k) => k.seen === 0).map((k) => String(k.re)))
