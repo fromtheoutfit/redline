@@ -193,7 +193,11 @@ function mock(scenario) {
     if (t === 'redline:redline-shaper') {
       // scenario.shaperDrop (#10): the ids the shaper leaves out of its findings, a shape-stage error.
       // scenario.reshapeDrop (#94, R8-5): the ids a reshape alone leaves out, a shape-stage error since the reshape is vetted as the shape is.
-      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id)).filter((id) => !(typeof opts.label === 'string' && opts.label.startsWith('reshape') && (scenario.reshapeDrop || []).includes(id)))
+      // The findings are read off the prompt's findings list, which ends where the block of
+      // links to earlier findings begins (#75): that block names earlier findings by id too, and
+      // they are no findings of this round.
+      const linksAt = prompt.indexOf('Findings of this round that the verifier links to an earlier finding')
+      const ids = [...new Set([...(linksAt < 0 ? prompt : prompt.slice(0, linksAt)).matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id)).filter((id) => !(typeof opts.label === 'string' && opts.label.startsWith('reshape') && (scenario.reshapeDrop || []).includes(id)))
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
@@ -230,6 +234,14 @@ function mock(scenario) {
       // The mitigation the shaper writes for a deferred finding (see `deferred` below).
       const mitigationOf = (id) => (scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause')
       const owner = (id) => (scenario.ownerOf && scenario.ownerOf[id]) || (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
+      // A fix of a Redline round says where its cause lives and whether it is an instance or a
+      // class (#75). By default the scripted shaper answers as a shaper did before #75, fixing
+      // the finding as reported: an instance. scenario.causeOf[id] scripts another cause, null
+      // for none at all, and scenario.causeAt[label][id] does the same for one shaper call alone.
+      const causeOf = (id) => {
+        const at = (scenario.causeAt && scenario.causeAt[opts.label]) || {}
+        return id in at ? at[id] : scenario.causeOf && id in scenario.causeOf ? scenario.causeOf[id] : { where: 'app/x.php', outcome: 'instance', why: `the cause of ${id} is this one line` }
+      }
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
         // Every finding lists the paths its task touches, as the schema requires (#100): a fix
@@ -245,6 +257,7 @@ function mock(scenario) {
           ...(reshape && scenario.reshapeAskRule && scenario.reshapeAskRule[id] ? { askRule: scenario.reshapeAskRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
+          ...(disposition(id) === 'fix' && !human && causeOf(id) !== null ? { cause: causeOf(id) } : {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding, and
         // scenario.mitigations[id] (#95) one finding's own, '' or 'none' for a deferral that ships
@@ -427,6 +440,11 @@ const OWN_CHECKS = [
   ['shape', /^the shaper gave .* more than one option labelled /],
   ['shape', /^the shaper recommended .*, which is the label of none of its options/],
   ['shape', /^the shaper gave .*, a call for a finding left to the person, an option that ends in defer with no complete drafted issue/],
+  ['shape', /^the shaper returned the fix for .* with no cause it can be read from/],
+  ['shape', /^the shaper said the cause of .* lives at .*, which is no path inside the repository/],
+  ['shape', /^the shaper called the fix for .* one-place, made where the cause lives, but its task's files/],
+  ['shape', /^the shaper called the fix for .* a sweep and returned no usable list of what the sweep covered/],
+  ['shape', /^the shaper returned an instance fix for .*, which the verifier links to /],
 ].map(([stage, re]) => ({ stage, re, seen: 0 }))
 const ownWrong = []
 // No reshape is told to rewrite its spec folder from scratch (#117), on a first run or a resume:
@@ -1666,11 +1684,12 @@ function samePrefix(name, first, second, n) {
   // The field is set where the stop is raised (#116): the sites that are the workflow's check of
   // what an agent returned go through checkError, and no other site does. At the resolve that is
   // every stop but the autopilot one; at the shape stage, the hold and the checks of the shaper's
-  // result (the four of a call's options among them, #105, #126), and neither the spec check (a
+  // result (the four of a call's options among them, #105, #126, and the five of a fix's
+  // cause, #75), and neither the spec check (a
   // missing file can be a refused Write, which a person fixes) nor the spec check's own failure.
   const sites = (text) => src.split(text).length - 1
   check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 8 && sites("checkError('resolve', ") === 8 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
-  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 13 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 21, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
+  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 18 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 26, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -4935,6 +4954,152 @@ function samePrefix(name, first, second, n) {
   check('left: the plan approver\'s file says a left finding the person deferred has its drafted issue and still no task with files', approverAgent.includes('When that decision also carries `disposition` `defer`, the person deferred the finding to an issue'), 'agents/redline-plan-approver.md')
   check('left: the skill shows a left call\'s defer option with its draft\'s title, records a typed defer for it, and says back that any other wording files nothing', skill.includes('shown with its draft\'s title') && skill.includes('`<id>: defer. <reason>` typed for such a finding is recorded with `"disposition": "defer"`') && skill.includes('nothing is filed for it') && skill.includes('its thread is resolved once the draft is filed'), 'skills/redline/SKILL.md')
   check('left: the result tells a relaunching session how a finding left to the person is deferred', stop.res.relaunch.how.includes('A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it'), stop.res.relaunch.how)
+}
+
+// ---------------------------------------------------------------------------
+// #75, instance or class: before a finding is sorted as a fix, the shaper says where its cause
+//     lives and whether the fix is made there (one-place), is this instance plus a measured
+//     sweep of the class (sweep), or is this instance alone (instance), in `cause` on the fix.
+//     The verifier states when a finding is one class with an earlier finding that was fixed
+//     (`sameClassAs`); the workflow keeps a link only to a finding its record shows as fixed, and
+//     a fix under a link that stands may not say instance. Until this spec the shaper fixed
+//     each finding as reported, and #112 reached the round cap on a class fixed one instance a
+//     round.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const detail = (r) => [(r.res || {}).status, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-6), (r.res || {}).warnings, r.thrown && r.thrown.message]
+  const stopsAtShape = (r, error, label) => r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const findingSchema = (r, label) => ((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}
+  // A scenario's findings are made afresh for every run: the workflow clears a link on the
+  // finding itself.
+  const one = (n, links) => f(`R${n}-1`, 'correctness', { title: `The normaliser misreads form ${n}`, ...(links ? { sameClassAs: links } : {}) })
+  const sweepCause = { where: 'app/x.php', outcome: 'sweep', why: 'Every form of a path goes through the one normaliser.', swept: [{ member: 'a doubled slash', found: 'holds' }, { member: 'a ./ segment', found: 'fixed' }, { member: 'a trailing /.', found: 'fixed' }] }
+  const onePlace = { where: 'app/x.php', outcome: 'one-place', why: 'The normaliser is the one place a path is read.' }
+
+  // The replay of #112: a class fixed one instance a round. Round 1 fixes the first instance;
+  // each later round's review finds the next one, and the verifier links it to what was fixed.
+  const replay = () => ({ reviews: [[one(1)], [one(2, ['R1-1'])], [one(3, ['R1-1', 'R2-1'])], [one(4, ['R1-1', 'R2-1', 'R3-1'])]], commitIds: [['R1-1'], ['R2-1'], ['R3-1']] })
+  const INSTANCE = (id, to) => `the shaper returned an instance fix for ${id}, which the verifier links to ${to}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`
+  const again = await go('class: the #112 replay, the shaper fixes the second instance as an instance', baseArgs, replay())
+  check('class: an instance fix for a finding linked to one already fixed stops at shape, the workflow\'s own check, where until this spec the run fixed an instance a round to the cap', stopsAtShape(again, INSTANCE('R2-1', 'R1-1'), 'shape r2') && !labels(again.calls).includes('plan approver r2'), detail(again))
+  check('class: round 1, with no link, was fixed as the shaper returned it, an instance', (again.res.rounds[0].dispositions || []).map((s) => `${s.id}:${s.cause.outcome}`).join() === 'R1-1:instance' && labels(again.calls).includes('push and reply r1'), again.res.rounds[0].dispositions)
+  const swept = await go('class: the #112 replay, the shaper sweeps the class at the second instance', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': sweepCause } })
+  check('class: a sweep under the link goes on, and the run ends with no further instance to find', swept.res.status === 'done' && swept.res.rounds.length === 3 && JSON.stringify(swept.res.rounds[1].dispositions[0].cause) === JSON.stringify(sweepCause), detail(swept))
+  const placed = await go('class: the #112 replay, the shaper fixes the cause in one place at the second instance', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': onePlace } })
+  check('class: a one-place fix under the link goes on too', placed.res.status === 'done' && placed.res.rounds.length === 3, detail(placed))
+
+  // What the shaper is shown for a link that stands: the finding, each earlier finding it is
+  // linked to, and the cause that finding's round recorded.
+  const LINKS = 'Findings of this round that the verifier links to an earlier finding that was fixed, as one class (sameClassAs), each with what the run\'s record holds of the earlier finding, as JSON:'
+  const LINK_RULE = 'A cause fixed once and found again is a class until shown otherwise. For each finding listed here the question of instance or class is answered: a fix for it closes the class, as one-place or as a sweep, and never says instance, and the workflow stops the round on one that does. When closing the class does not belong in this pull request, the finding is a defer or an ask, as your rules say.'
+  const shape2 = promptOf(swept, 'shape r2')
+  check('class: the shape prompt of a round with a link that stands names the earlier finding with the cause its round recorded, and says the fix may not be an instance', shape2.includes(LINKS) && shape2.includes(LINK_RULE) && shape2.includes('"sameClassAs": [\n      {\n        "id": "R1-1",\n        "round": 1,') && shape2.includes('"outcome": "instance",\n          "why": "the cause of R1-1 is this one line"'), shape2.slice(shape2.indexOf('Findings for this round'), shape2.indexOf('Findings for this round') + 1800))
+  check('class: the shape prompt of a round with no link holds no such block', !promptOf(swept, 'shape r1').includes('sameClassAs') && !promptOf(swept, 'shape r1').includes(LINK_RULE), promptOf(swept, 'shape r1').slice(-2500))
+  check('class: the result keeps the link on the finding and the cause on the disposition', JSON.stringify(swept.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]' && !('sameClassAs' in swept.res.rounds[0].findings[0]) && swept.res.rounds[0].dispositions[0].cause.outcome === 'instance', [swept.res.rounds[1].findings, swept.res.rounds[0].dispositions])
+  check('class: the plan approver and the implementer are shown the link on the finding and the cause on its fix', ['plan approver r2', 'implement r2'].every((label) => promptOf(swept, label).includes('"sameClassAs": [\n      "R1-1"\n    ]') && promptOf(swept, label).includes('"outcome": "sweep"') && promptOf(swept, label).includes('"member": "a ./ segment"')), promptOf(swept, 'plan approver r2').slice(0, 2500))
+
+  // A defer, an ask or a decline under a link is not held: only a fix answers the question.
+  const deferredClass = await go('class: the shaper defers the second instance under the link', { ...baseArgs, deferrals: goAhead('R2-1') }, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], defer: ['R2-1'] })
+  check('class: a finding under a link that the shaper defers is not held to a cause', deferredClass.res.status === 'done' && labels(deferredClass.calls).includes('file deferred r2'), detail(deferredClass))
+  const declinedClass = await go('class: the shaper declines the second instance under the link', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], []], decline: ['R2-1'] })
+  check('class: nor is one it declines', declinedClass.res.status === 'done', detail(declinedClass))
+
+  // The ask and the schema key sit only in a review that is shown earlier findings, so the first
+  // review of a pull request with no earlier round is as it was.
+  const LINK_ASK = 'For each finding, state sameClassAs when its cause is one class with the cause of an earlier finding listed above that was fixed: the ids of those earlier findings, and leave it out when there is none.'
+  const linksKey = (r, label) => Boolean((((((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}).properties) || {}).sameClassAs)
+  const nitRound = await go('class: a round of nits and its final nit pass', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
+  check('class: a review that is shown this run\'s earlier findings is asked for sameClassAs, in its prompt and in its schema, a final nit pass included', promptOf(swept, 're-review r2').includes(LINK_ASK) && linksKey(swept, 're-review r2') && promptOf(nitRound, 'final nit pass r2').includes(LINK_ASK) && linksKey(nitRound, 'final nit pass r2'), [promptOf(swept, 're-review r2').slice(-1500), labels(nitRound.calls)])
+  check('class: the first review of a pull request with no earlier round is asked nothing of it, in its prompt or its schema', !promptOf(swept, 'review r1').includes('sameClassAs') && !linksKey(swept, 'review r1') && pick(swept.calls, 'review r1').opts.schema.properties.findings.items.required.join() === 'id,file,line,side,category,severity,confidence,title,description,proposedFix,knownAs,carriedFrom', pick(swept.calls, 'review r1').opts.schema.properties.findings.items)
+  // A link to a finding an earlier run on the pull request fixed stands as well: the launch's
+  // prior-findings record shows it as fixed. That record holds no cause, so the shaper is shown
+  // the earlier finding by its place and its reply.
+  const earlierRun = { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { title: 'The normaliser misreads form 1', comment_id: 41, reply: { id: 51, body: 'fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline' } }), prior('R1-2', 'decided', { comment_id: 42, reply: { id: 52, body: 'The author changes it. Applied in 2bbbbbb. · decided by: @author' } })] }
+  const acrossRuns = await go('class: the first round of a later run links a finding to one an earlier run fixed, fixed as an instance', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']] })
+  check('class: a link to a finding an earlier run fixed stands, and an instance fix under it stops at shape', stopsAtShape(acrossRuns, INSTANCE('R2-1', 'R1-1'), 'shape r2'), detail(acrossRuns))
+  check('class: the first review of a run that is shown earlier rounds\' findings is asked for sameClassAs', promptOf(acrossRuns, 'review r2').includes(LINK_ASK) && linksKey(acrossRuns, 'review r2'), promptOf(acrossRuns, 'review r2').slice(-1500))
+  const acrossShape = promptOf(acrossRuns, 'shape r2')
+  check('class: for a finding an earlier run fixed the shaper is shown its place and its reply, since that record holds no cause', acrossShape.includes(LINKS) && acrossShape.includes('"reply": "fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline"') && !acrossShape.includes('"cause"'), acrossShape.slice(acrossShape.indexOf(LINKS), acrossShape.indexOf(LINKS) + 900))
+  const acrossBounced = await go('class: the same, swept, its plan bounced once', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']], causeOf: { 'R2-1': sweepCause }, planBounce: 1 })
+  check('class: the reshape prompt carries the same block, and a sweep goes on', acrossBounced.res.status === 'done' && promptOf(acrossBounced, 'reshape r2 #1').includes(LINKS) && promptOf(acrossBounced, 'reshape r2 #1').includes(LINK_RULE), [detail(acrossBounced), promptOf(acrossBounced, 'reshape r2 #1').slice(-2500)])
+  const acrossInstance = await go('class: the same, the reshape answers instance', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']], causeOf: { 'R2-1': sweepCause }, causeAt: { 'reshape r2 #1': { 'R2-1': { where: 'app/x.php', outcome: 'instance', why: 'w' } } }, planBounce: 1 })
+  check('class: a reshape that answers instance under a link stops at the reshape', stopsAtShape(acrossInstance, INSTANCE('R2-1', 'R1-1'), 'reshape r2 #1'), detail(acrossInstance))
+
+  // A link stands only to a finding the record shows as fixed. Every other id is cleared with a
+  // warning before the review is posted, and a finding with no link left carries no key, so
+  // its round's prompts are those of a round with no link.
+  const CLEARED = (round, id, to, why) => `round ${round}: the reviewer linked ${id} to ${to} as one class (sameClassAs), but ${why}; the link is cleared`
+  const mixed = () => ({ reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness'), f('R1-4', 'correctness')], [f('R2-1', 'correctness', { sameClassAs: ['R1-2', 'R1-3', 'R1-4', 'R2-2', 'R9-9', 'R1-2'] }), f('R2-2', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], defer: ['R1-4'], commitIds: [['R1-1', 'R1-3', 'R1-4'], ['R2-1', 'R2-2']] })
+  const cleared = await go('class: links to a declined finding, a call\'s applied fix, a deferral, a finding of the same round and an unknown id', { ...baseArgs, interrupt: 'autopilot' }, mixed())
+  const clearedWarnings = cleared.res.warnings || []
+  check('class: a link to a declined finding, to a call\'s applied fix, to a deferral, to a finding of the same round and to an id that names nothing is each cleared with a warning', cleared.res.status === 'done' && [CLEARED(2, 'R2-1', 'R1-2', 'round 1 recorded R1-2 as declined, not as fixed'), CLEARED(2, 'R2-1', 'R1-3', 'round 1 recorded R1-3 as decided, not as fixed'), CLEARED(2, 'R2-1', 'R1-4', 'round 1 recorded R1-4 as deferred, not as fixed'), CLEARED(2, 'R2-1', 'R2-2', 'R2-2 is a finding of this round'), CLEARED(2, 'R2-1', 'R9-9', 'R9-9 names no finding Redline recorded on this pull request')].every((w) => clearedWarnings.includes(w)) && clearedWarnings.filter((w) => w.includes('the link is cleared')).length === 5, [detail(cleared), clearedWarnings])
+  check('class: a finding whose links are all cleared carries no key, is posted and shaped as any finding, and may be fixed as an instance', !promptOf(cleared, 'post r2').includes('sameClassAs') && !promptOf(cleared, 'shape r2').includes('sameClassAs') && !promptOf(cleared, 'shape r2').includes(LINK_RULE) && !('sameClassAs' in cleared.res.rounds[1].findings[0]), [promptOf(cleared, 'shape r2').slice(-2500)])
+  const partly = await go('class: links to a fixed finding and to a declined one', { ...baseArgs, interrupt: 'autopilot' }, { ...mixed(), reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], [f('R2-1', 'correctness', { sameClassAs: ['R1-2', 'R1-1'] })], []], ask: [], defer: [], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': onePlace } })
+  check('class: of two links the one to the fixed finding stands and the other is cleared', partly.res.status === 'done' && JSON.stringify(partly.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]' && (partly.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-2', 'round 1 recorded R1-2 as declined, not as fixed')), [detail(partly), partly.res.rounds[1].findings])
+  const priorOther = await go('class: a link to a finding an earlier run decided at a call', earlierRun, { reviews: [[one(2, ['R1-2'])], []], commitIds: [['R2-1']] })
+  check('class: a link to a finding an earlier run recorded as decided is cleared, whatever its reply says of a commit', priorOther.res.status === 'done' && (priorOther.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-2', 'an earlier run recorded R1-2 as decided, not as fixed')), detail(priorOther))
+  const unasked = await go('class: the first review of a pull request with no earlier round returns a link anyway', baseArgs, { reviews: [[f('R1-1', 'correctness', { sameClassAs: ['R0-1'] })], []], commitIds: [['R1-1']] })
+  check('class: a link returned by a review that was shown no earlier finding is cleared with a warning', unasked.res.status === 'done' && (unasked.res.warnings || []).includes(CLEARED(1, 'R1-1', 'R0-1', 'this review was shown no earlier finding')) && !promptOf(unasked, 'post r1').includes('sameClassAs'), detail(unasked))
+  // A revise-only pass reads its findings from an earlier run's file and holds no record of
+  // that run, so a link the file carries cannot be checked and is cleared.
+  const reviseOnly = await go('class: a revise-only pass over findings that carry a link', { ...baseArgs, revise: { round: 2, specFolder: 'agent-os/specs/2026-10-20-1600-114-review-round-2', findings: [one(2, ['R1-1'])], commentIds: {}, posted: true } }, { reviews: [], commitIds: [['R2-1']] })
+  check('class: a revise-only pass clears a link it has no record to check, with a warning, and shapes the finding as any other', reviseOnly.res.status === 'done' && (reviseOnly.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-1', 'R1-1 names no finding Redline recorded on this pull request')) && !promptOf(reviseOnly, 'shape r2').includes('sameClassAs'), detail(reviseOnly))
+  // A human review pass's fix is in this run's record, so its final nit pass can link to it.
+  const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please change H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanArgs = { ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h], commentIds: { 'H1-1': 900 }, posted: true } }
+  const afterHuman = await go('class: a human pass\'s final nit pass links a finding to the pass\'s fix, fixed as an instance', humanArgs, { reviews: [[f('R3-1', 'correctness', { sameClassAs: ['H1-1'] })]], commitIds: [['H1-1'], ['R3-1']] })
+  check('class: a link from a final nit pass to a human review pass\'s fix stands', stopsAtShape(afterHuman, INSTANCE('R3-1', 'H1-1'), 'shape r3'), detail(afterHuman))
+
+  // The checks of the cause itself, each the workflow's own check of what the shaper returned.
+  const fresh = (causeOf, extra) => ({ reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], causeOf, ...(extra || {}) })
+  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`
+  const noCause = await go('class: a fix with no cause', baseArgs, fresh({ 'R1-1': null }))
+  check('class: a fix with no cause stops at shape, the workflow\'s own check', stopsAtShape(noCause, NO_CAUSE('R1-1', 'no cause'), 'shape r1'), detail(noCause))
+  const noWhy = await go('class: a fix whose cause has no why and an outcome outside the three', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'class', why: ' ' } }))
+  check('class: a cause with an outcome outside the three, or no why, stops the same way, naming what is missing', stopsAtShape(noWhy, NO_CAUSE('R1-1', 'outcome "class", no why'), 'shape r1'), detail(noWhy))
+  const OUTSIDE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; where names the file or folder the cause lives in`
+  const outside = await go('class: a cause that lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'instance', why: 'w' } }))
+  check('class: a where outside the repository stops at shape', stopsAtShape(outside, OUTSIDE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outside))
+  const elsewhere = await go('class: a one-place fix whose cause lives in a file its task does not touch', baseArgs, fresh({ 'R1-1': { where: 'app/normalise.php', outcome: 'one-place', why: 'w' } }))
+  check('class: a one-place fix whose where is not among its task\'s files stops at shape', stopsAtShape(elsewhere, 'the shaper called the fix for R1-1 one-place, made where the cause lives, but its task\'s files (app/x.php) do not include app/normalise.php; a one-place fix changes the place the cause lives in', 'shape r1'), detail(elsewhere))
+  const folded = await go('class: a one-place fix whose where is its file written another way', baseArgs, fresh({ 'R1-1': { where: './app//x.php', outcome: 'one-place', why: 'w' } }))
+  check('class: where is read as every path is, so one file written another way is that file', folded.res.status === 'done', detail(folded))
+  const NO_SWEEP = (id, got) => `the shaper called the fix for ${id} a sweep and returned no usable list of what the sweep covered (${got}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`
+  const unswept = await go('class: a sweep with no swept list', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w' } }))
+  check('class: a sweep with no swept list stops at shape', stopsAtShape(unswept, NO_SWEEP('R1-1', 'no swept list'), 'shape r1'), detail(unswept))
+  const emptySweep = await go('class: a sweep whose swept list is empty', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [] } }))
+  check('class: a sweep whose swept list is empty stops the same way', stopsAtShape(emptySweep, NO_SWEEP('R1-1', 'no swept list'), 'shape r1'), detail(emptySweep))
+  const openMember = await go('class: a sweep with a member that is neither holds nor fixed', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [{ member: 'a doubled slash', found: 'fixed' }, { member: 'a trailing /.', found: 'exposed' }, { member: ' ', found: 'holds' }] } }))
+  check('class: a swept entry with no member, or found as anything but holds or fixed, stops the same way: a member left exposed is no sweep', stopsAtShape(openMember, NO_SWEEP('R1-1', '"a trailing /." found "exposed", an entry with no member'), 'shape r1'), detail(openMember))
+  const instanceAlone = await go('class: an instance fix under no link', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'instance', why: 'The cause is this one call.' } }))
+  check('class: an instance fix under no link is the shaper\'s to state, and the plan approver\'s to judge', instanceAlone.res.status === 'done' && promptOf(instanceAlone, 'plan approver r1').includes('"why": "The cause is this one call."'), detail(instanceAlone))
+
+  // Who is held: a fix of a Redline round the shaper sorted itself. A finding the person or
+  // autopilot decided is not, after a reshape, and a human review pass has no cause at all.
+  const decidedReshaped = await go('class: a reshape returns a decided call as a fix with no cause', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFix: ['R1-1'], causeAt: { 'reshape r1 #1': { 'R1-1': null } }, commitIds: [['R1-1']] })
+  check('class: a finding the person or autopilot decided is not held to a cause when a reshape returns it as a fix', decidedReshaped.res.status === 'done', detail(decidedReshaped))
+  const reshapedBare = await go('class: a reshape returns the shaper\'s own fix with no cause', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, causeAt: { 'reshape r1 #1': { 'R1-1': null } }, commitIds: [['R1-1']] })
+  check('class: the shaper\'s own fix is held after a reshape, and the stop names the reshape', stopsAtShape(reshapedBare, NO_CAUSE('R1-1', 'no cause'), 'reshape r1 #1'), detail(reshapedBare))
+  const underRule = await go('class: a fix with no cause on a finding a paths rule leaves to the person', { ...baseArgs, askRules: [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }] }, { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml' })], []], causeOf: { 'R1-1': null }, commitIds: [[]] })
+  check('class: a finding a rule leaves to the person is an ask by the time the cause is read, so it is not held', underRule.res.status === 'handoff', detail(underRule))
+  const humanRun = await go('class: a human review pass', humanArgs, { reviews: [[]], commitIds: [['H1-1']] })
+  const causeSchema = (findingSchema(again, 'shape r1').properties || {}).cause || {}
+  check('class: a Redline round\'s shaper schema lets a finding carry cause, with its outcome one of the three and its swept entries found as holds or fixed', JSON.stringify(causeSchema.required) === '["where","outcome","why"]' && (((causeSchema.properties || {}).outcome || {}).enum || []).join('|') === 'one-place|sweep|instance' && ((((((causeSchema.properties || {}).swept || {}).items || {}).properties || {}).found || {}).enum || []).join('|') === 'holds|fixed' && !(findingSchema(again, 'shape r1').required || []).includes('cause'), causeSchema)
+  check('class: a human review pass\'s schema has no cause, its prompt asks for none, and its fix is held to none', humanRun.res.status === 'done' && !('cause' in (findingSchema(humanRun, 'shape h1').properties || {})) && !promptOf(humanRun, 'shape h1').includes('cause') && !('cause' in humanRun.res.rounds[0].dispositions[0]), [detail(humanRun), Object.keys(findingSchema(humanRun, 'shape h1').properties || {})])
+
+  // Every prompt that returns a Redline round's shape asks for the cause.
+  const CAUSE_ASK = 'for a fix also cause, where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class, with swept listing every member the sweep measured as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it; instance: the cause is not a class) and why (one sentence)'
+  check('class: the shape prompt and the reshape prompt of a Redline round ask for the cause of every fix', promptOf(again, 'shape r1').includes(CAUSE_ASK) && promptOf(acrossBounced, 'reshape r2 #1').includes(CAUSE_ASK) && promptOf(decidedReshaped, 'reshape r1 #1').includes(CAUSE_ASK), [promptOf(again, 'shape r1').slice(-1800)])
+
+  // The statements an agent and a reader meet.
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  check('class: the shaper\'s file has the step, its three outcomes, what each found value means, and what a member that is neither makes of the finding', shaperAgent.includes('**Instance or class.**') && shaperAgent.includes('`one-place`, the fix is made where the cause lives') && shaperAgent.includes('`holds` when you measured it and the code as it stands already handles it') && shaperAgent.includes('`fixed` when you measured it exposed and this task\'s change closes it') && shaperAgent.includes('fits neither value, and then the outcome is not a sweep') && shaperAgent.includes('never `instance`') && shaperAgent.includes('"cause": {"where": "app/Http/Requests/StoreOrderRequest.php", "outcome": "one-place"'), 'agents/redline-shaper.md')
+  check('class: the plan approver\'s file says an instance whose own plan admits the same is needed elsewhere is a bounce, and so is a sweep with no table or one traced and not run', approverAgent.includes('**Instance or class.**') && approverAgent.includes('admits that another input, caller or entry will need the same change is a bounce') && approverAgent.includes('traced through the code and not run'), 'agents/redline-plan-approver.md')
+  check('class: the reviewer\'s file says when a finding is one class with an earlier one, as its prompt does', reviewerAgent.includes('**One class with an earlier finding.**') && reviewerAgent.includes('`sameClassAs`') && reviewerAgent.includes('"sameClassAs": []') === false && reviewerAgent.includes('keeps only a link to a finding its record shows as fixed'), 'agents/redline-reviewer.md')
+  check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
 }
 
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))

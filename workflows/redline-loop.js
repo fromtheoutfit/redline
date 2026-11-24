@@ -868,18 +868,24 @@ const COVERAGE_SCHEMA = {
   properties: { index: int, outcome: { type: 'string', enum: COVERAGE_OUTCOMES }, ref: str },
 }
 
-const REVIEW_SCHEMA = {
+// A review's schema, built for the call (#75): `links` adds sameClassAs to a finding, the ids of
+// earlier findings the verifier judges to be one class with it. Only a review whose prompt lists
+// earlier findings is asked for it (showsEarlier), in its prompt and in its schema, so the first
+// review of a pull request with no earlier round is the call it was before #75 and replays.
+const reviewSchema = (links) => ({
   type: 'object',
   required: ['round', 'reviewed', 'findings', 'resolved', 'summary'],
   properties: {
     round: int,
     reviewed: { type: 'string', enum: ['pr', 'fix-diff', 'final-nit-pass'] },
-    findings: { type: 'array', items: FINDING_SCHEMA },
+    findings: { type: 'array', items: links ? { ...FINDING_SCHEMA, properties: { ...FINDING_SCHEMA.properties, sameClassAs: strings } } : FINDING_SCHEMA },
     resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
     coverage: { type: 'array', items: COVERAGE_SCHEMA },
   },
-}
+})
+const REVIEW_SCHEMA = reviewSchema(false)
+const REVIEW_SCHEMA_LINKS = reviewSchema(true)
 
 const POST_SCHEMA = {
   type: 'object',
@@ -1027,7 +1033,23 @@ function firstPerId(list) {
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
 // and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
 // its own run, and the other way about.
-function shapeSchema(reasons, dispositions) {
+// A Redline round's finding may carry `cause` (#75): for a fix, where its cause lives, what the
+// fix makes of it and why, and for a sweep what the sweep covered. It is not required here,
+// since only a fix has one; checkCauses holds every fix of the shaper's own to it. A human
+// review pass has no such step, so its schema has no such key (`cause` false).
+const CAUSE_OUTCOMES = ['one-place', 'sweep', 'instance']
+const SWEPT_FOUND = ['holds', 'fixed']
+const CAUSE_SCHEMA = {
+  type: 'object',
+  required: ['where', 'outcome', 'why'],
+  properties: {
+    where: str,
+    outcome: { type: 'string', enum: CAUSE_OUTCOMES },
+    why: str,
+    swept: { type: 'array', items: { type: 'object', required: ['member', 'found'], properties: { member: str, found: { type: 'string', enum: SWEPT_FOUND } } } },
+  },
+}
+function shapeSchema(reasons, dispositions, cause) {
   return {
     type: 'object',
     required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
@@ -1066,6 +1088,7 @@ function shapeSchema(reasons, dispositions) {
             // plannedFiles reads the paths of a deferral (#100).
             files: strings,
             askRule: str,
+            ...(cause ? { cause: CAUSE_SCHEMA } : {}),
           },
         },
       },
@@ -1101,7 +1124,10 @@ const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empt
 // prompts (#49).
 const LEFT_CALL = askRules.length ? 'a finding left to the person (one a repository ask rule covers, or one on a file of Redline\'s own)' : 'a finding on a file of Redline\'s own, which is left to the person'
 const OPTIONS_ASK = `ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend); on a call for ${LEFT_CALL}, an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one`
-const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
+// How a Redline round's shape prompts ask for the cause of a fix (#75), with what each value
+// means, since the record is read from it: the outcomes, and what a sweep's entries say.
+const CAUSE_ASK = 'for a fix also cause, where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class, with swept listing every member the sweep measured as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it; instance: the cause is not a class) and why (one sentence)'
+const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask'], true), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none'], false) }
 
 const RESOLVE_SCHEMA = {
   type: 'object',
@@ -1817,6 +1843,12 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 // `candidates` is the coverage pass's list on a round that ran one (#79), null otherwise: with
 // null the prompt carries no candidates block and none of its rules, so `coverage off` is the
 // reviewer alone under the same contract (#93): facts only, no accounting.
+// Whether a review's prompt lists earlier findings (#75): this run's, with their outcomes (the
+// history block), or the ones Redline's earlier rounds on the pull request handled (the handled
+// block, whose test this repeats). Such a review is asked for sameClassAs, in its prompt and in
+// its schema, and no other is.
+const showsEarlier = (reviewed, history, candidates) => history.length > 0 || Boolean(trackedList.length && (reviewed === 'pr' || Array.isArray(candidates)))
+const LINK_ASK = 'For each finding, state sameClassAs when its cause is one class with the cause of an earlier finding listed above that was fixed: the ids of those earlier findings, and leave it out when there is none. One class is one cause that takes one kind of fix, met again in another place or through another input: a second form of path a normaliser misreads after the first was fixed, a second caller that needs the guard a fix gave the first. It is a fact you state with care, as outsideDiff is, never because two findings sit in one file or read alike. The run checks each id against its record and keeps only a link to a finding recorded as fixed; a finding that keeps one is shaped as a class, so its fix may not be one more instance.'
 function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
   const noFixDiff = reviewed === 'fix-diff' && range.empty === true
   const diff = reviewed === 'pr'
@@ -1891,6 +1923,11 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   // is, right after the sentence on what a correctness finding buys, which this qualifies.
   if (reviewed === 'fix-diff' && !noFixDiff) {
     lines.push('', `For each finding, state inFixDiff: true when its cause is in the fix diff named above, in code round ${round - 1}'s fixes added or changed, and false when it is in the pull request's own code or anywhere else. It is a fact you state with care, as outsideDiff is, and the run checks it against the files round ${round - 1}'s plan named: a low-severity correctness finding whose cause is in those fixes is fixed like a nit and buys no further round, so never set it because a finding is small.`)
+  }
+  // One class with an earlier finding (#75): only a review that is shown earlier findings is
+  // asked, after the facts it states of a finding's place, so every other review reads as it did.
+  if (showsEarlier(reviewed, history, candidates)) {
+    lines.push('', LINK_ASK)
   }
   lines.push('', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
@@ -2183,6 +2220,35 @@ ${step2}
 Return only the JSON your instructions specify, with operation "post-review" and files listing the paths you wrote.`
 }
 
+// A finding the verifier links to an earlier one that was fixed, as one class (#75), with what
+// the run's record holds of each earlier finding: its place, and the cause its round recorded,
+// when this run fixed it; its place and its reply when an earlier run did, since that run's
+// record is the pull request's threads, which hold no cause. Only links the record honoured
+// reach here (honourLinks), so every id names a finding recorded as fixed.
+function earlierFinding(id) {
+  const record = rounds.find((r) => r.findings.some((x) => x.id === id))
+  if (record) {
+    const f = record.findings.find((x) => x.id === id)
+    const s = (record.dispositions || []).find((x) => x.id === id)
+    return { id, round: record.round, title: f.title, file: f.file, line: f.line, ...(s && s.cause ? { cause: s.cause } : {}) }
+  }
+  const p = priorById[id]
+  return p ? { id, round: p.round, title: p.title, file: p.file, line: p.line, reply: p.reply ? p.reply.body : '' } : { id }
+}
+// The block a shape prompt and a reshape prompt carry for the links that stand (#75): the whole
+// of what a link asks of the shaper, in the prompt of the round it concerns and in no other, so
+// a round with no link keeps the prompt it would have had. It ends with the rule checkCauses
+// holds a fix to.
+const LINK_RULE = 'A cause fixed once and found again is a class until shown otherwise. For each finding listed here the question of instance or class is answered: a fix for it closes the class, as one-place or as a sweep, and never says instance, and the workflow stops the round on one that does. When closing the class does not belong in this pull request, the finding is a defer or an ask, as your rules say.'
+const linked = (f) => (Array.isArray(f.sameClassAs) ? f.sameClassAs : [])
+function linksBlock(inScope) {
+  const withLinks = inScope.filter((f) => linked(f).length)
+  if (!withLinks.length) {
+    return ''
+  }
+  return `\nFindings of this round that the verifier links to an earlier finding that was fixed, as one class (sameClassAs), each with what the run's record holds of the earlier finding, as JSON:\n${json(withLinks.map((f) => ({ id: f.id, sameClassAs: linked(f).map(earlierFinding) })))}\n\n${LINK_RULE}\n`
+}
+
 function shapePrompt(round, specFolder, reviewed, inScope, prBody) {
   const nitNote = reviewed === 'nits'
     ? '\nThis round has no correctness findings: it is the final nit round, and the plan covers the nits only.\n'
@@ -2208,10 +2274,10 @@ ${description}
 
 Findings for this round, as JSON:
 ${json(inScope)}
-
+${linksBlock(inScope)}
 Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. ${DRAFT_FORM} Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn, with why_human naming its case, and with ${OPTIONS_ASK}).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; ${CAUSE_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn, with why_human naming its case, and with ${OPTIONS_ASK}).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -2284,10 +2350,10 @@ ${json(adjustments)}
 
 The round's findings, as JSON:
 ${json(inScope)}
-
+${linksBlock(inScope)}
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${OPTIONS_ASK}).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : `, ${CAUSE_ASK}, reason for a decline, and secondLook for a finding the verifier could not confirm`}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${OPTIONS_ASK}).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -2869,7 +2935,7 @@ function result(status, extra) {
       range: record.range,
       // What would confirm an unconfirmed finding rides with it, so the skill's review-only summary
       // can say it (#94, R7-3); compactFinding stays as history() uses it in the reviewer's prompt.
-      findings: record.findings.map((f) => ({ ...compactFinding(f), ...(f.confidence === 'unconfirmed' ? { wouldConfirm: f.wouldConfirm || 'not stated' } : {}) })),
+      findings: record.findings.map((f) => ({ ...compactFinding(f), ...(f.confidence === 'unconfirmed' ? { wouldConfirm: f.wouldConfirm || 'not stated' } : {}), ...(linked(f).length ? { sameClassAs: linked(f).slice() } : {}) })),
       // What the correctness-only scope declined in this round (#93). Those items stay in findings,
       // as the round's record keeps them, and are listed here apart so the skill's summaries can
       // name them (#94, R3-8).
@@ -2943,6 +3009,50 @@ async function gather(round) {
   return facts
 }
 
+// One class with an earlier finding (#75). The verifier states the link, sameClassAs, and the
+// workflow keeps an id only where its record can show the earlier finding was fixed: a finding
+// of an earlier round of this run whose outcome is `fixed`, or one of an earlier run on the pull
+// request that the launch's prior-findings record gives the disposition `fixed`. A fix made at a
+// call or as a deferral's mitigation is recorded as decided or deferred, so it is no link; no
+// reply text is read to find one. Every other id is cleared with a warning, here, before the
+// review is posted, and a finding left with no link carries no key at all, so its round's
+// prompts and its findings file are those of a round with no link. A review that was shown no
+// earlier finding was not asked, and whatever it returned is cleared the same way.
+function linkFault(id) {
+  const record = rounds.find((r) => r.findings.some((x) => x.id === id))
+  if (record) {
+    const kind = (record.outcomeKinds || {})[id]
+    return kind === 'fixed' ? '' : `${passOf(record).name} recorded ${id} ${kind ? `as ${kind}` : 'with no outcome'}, not as fixed`
+  }
+  const p = priorById[id]
+  if (p) {
+    return p.disposition === 'fixed' ? '' : `an earlier run recorded ${id} as ${p.disposition}, not as fixed`
+  }
+  return `${id} names no finding Redline recorded on this pull request`
+}
+function honourLinks(round, findings, asked) {
+  for (const f of findings) {
+    if (f.sameClassAs === undefined) {
+      continue
+    }
+    const named = unique((Array.isArray(f.sameClassAs) ? f.sameClassAs : []).map((id) => (typeof id === 'string' ? id.trim() : '')).filter((id) => id !== ''))
+    const stands = []
+    for (const id of named) {
+      const why = !asked ? 'this review was shown no earlier finding' : findings.some((x) => x.id === id) ? `${id} is a finding of this round` : linkFault(id)
+      if (why) {
+        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
+      } else {
+        stands.push(id)
+      }
+    }
+    if (stands.length) {
+      f.sameClassAs = stands
+    } else {
+      delete f.sameClassAs
+    }
+  }
+}
+
 async function review(round, reviewed, range, facts, source) {
   // What is reviewed, not the round number, picks the model and the label: a human review pass's
   // final nit pass carries the run's first round number and is still a nit pass (#36).
@@ -2967,12 +3077,14 @@ async function review(round, reviewed, range, facts, source) {
     }
     candidates = parsed.candidates
   }
-  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history(), source, candidates), {
+  const earlier = history()
+  const linksAsked = showsEarlier(reviewed, earlier, candidates)
+  const out = await run('review', reviewPrompt(round, reviewed, range, facts, earlier, source, candidates), {
     agentType: 'redline:redline-reviewer',
     ...modelOpts(key),
     label: `${reviewed === 'pr' ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
     phase: reviewed === 'pr' ? 'Review' : 'Re-review',
-    schema: REVIEW_SCHEMA,
+    schema: linksAsked ? REVIEW_SCHEMA_LINKS : REVIEW_SCHEMA,
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
   // Each rename is recorded, old id to new, so the coverage refs naming it follow (#80, R2-3); the
@@ -3019,6 +3131,9 @@ async function review(round, reviewed, range, facts, source) {
       f.askRule = ''
     }
   })
+  // The links (#75), read after the ids are the round's own, so a link to a finding of this
+  // same round is seen as one.
+  honourLinks(round, out.findings, linksAsked)
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
   // accounting the reviewer wrote anyway is cleared.
@@ -3483,6 +3598,58 @@ function checkOptions(pass, record, shaped, known, shaperLabel) {
         warnings.push(`${pass.name}: the shaper gave ${call.id}'s option ${JSON.stringify(optionLabel(option))} a drafted issue, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`)
         delete option.draft
       }
+    }
+  }
+}
+
+// Instance or class (#75): every fix the shaper sorted itself, in a Redline round, says where
+// its cause lives and what the fix makes of it, and the workflow reads four things it can check.
+// The cause is there and whole: a path, one of the three outcomes, a reason. The path is inside
+// the repository, read as every path is (repoPath). A one-place fix changes the place it names:
+// `where` is among the files of the finding's task. A sweep says what it covered: `swept` lists
+// at least one member, each measured as holds or fixed, the two values that mean closed once the
+// task lands, so a member left exposed is no sweep. And a finding the verifier links to an
+// earlier one that was fixed (a link honourLinks kept) is never fixed as one more instance,
+// whatever an earlier round decided. Each is the workflow's own check of what the shaper
+// returned. Whether the cause is where the shaper says, whether an instance is truly one, and
+// whether a sweep was measured by running and is complete are the plan approver's to judge.
+// It runs after forceAskRules and the path cleanup: a finding a rule leaves to the person is an
+// ask by then, and the files are in one form. On a reshape it skips the round's decided
+// findings, as checkDrafts does: their fix is the resolve agent's plan of the person's decision,
+// which is asked no cause. A human review pass has no such step.
+function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
+  if (pass.human) {
+    return
+  }
+  const text = (value) => (typeof value === 'string' ? value.trim() : '')
+  for (const s of shaped.findings.filter((x) => x.disposition === 'fix' && !decided.includes(x.id))) {
+    const cause = s.cause && typeof s.cause === 'object' && !Array.isArray(s.cause) ? s.cause : null
+    const missing = !cause
+      ? ['no cause']
+      : [text(cause.where) === '' && 'no where', !CAUSE_OUTCOMES.includes(cause.outcome) && (cause.outcome === undefined ? 'no outcome' : `outcome ${JSON.stringify(cause.outcome)}`), text(cause.why) === '' && 'no why'].filter(Boolean)
+    if (missing.length) {
+      throw checkError('shape', `the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`, {}, shaperLabel)
+    }
+    const where = repoPath(cause.where)
+    if (where.outside || where.path === '') {
+      throw checkError('shape', `the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; where names the file or folder the cause lives in`, {}, shaperLabel)
+    }
+    const files = Array.isArray(s.files) ? s.files : []
+    if (cause.outcome === 'one-place' && !files.includes(where.path)) {
+      throw checkError('shape', `the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`, {}, shaperLabel)
+    }
+    if (cause.outcome === 'sweep') {
+      const swept = Array.isArray(cause.swept) ? cause.swept : []
+      const unusable = swept.length === 0
+        ? ['no swept list']
+        : swept.filter((entry) => !entry || text(entry.member) === '' || !SWEPT_FOUND.includes(entry.found)).map((entry) => (entry && text(entry.member) !== '' ? `${JSON.stringify(text(entry.member))} found ${JSON.stringify(entry.found === undefined ? null : entry.found)}` : 'an entry with no member'))
+      if (unusable.length) {
+        throw checkError('shape', `the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`, {}, shaperLabel)
+      }
+    }
+    const links = linked(inScope.find((f) => f.id === s.id) || {})
+    if (cause.outcome === 'instance' && links.length) {
+      throw checkError('shape', `the shaper returned an instance fix for ${s.id}, which the verifier links to ${andList(links)}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`, {}, shaperLabel)
     }
   }
 }
@@ -4014,6 +4181,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkDrafts(shaped, label, decided)
   checkWhy(pass, shaped, known, label)
   checkOptions(pass, record, shaped, known, label)
+  checkCauses(pass, shaped, inScope, label, decided)
   record.dispositions = shaped.findings
 }
 
@@ -5527,6 +5695,10 @@ try {
       commentIds: A.revise.commentIds && typeof A.revise.commentIds === 'object' ? A.revise.commentIds : {},
       reviewPosted: A.revise.posted === true,
     }
+    // A link a findings file carries (#75) was kept by the run that wrote the file, against a
+    // record this pass does not hold: a revise-only pass is given no earlier findings. So it is
+    // held to what this run can show, like any other, and cleared with a warning otherwise.
+    honourLinks(round, record.findings, true)
     rounds.push(record)
     const inScope = record.findings.filter((f) => !f.knownAs)
     const kind = inScope.some((f) => f.category === 'correctness') ? 'correctness' : 'nits'
