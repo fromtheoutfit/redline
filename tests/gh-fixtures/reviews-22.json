@@ -1,0 +1,20 @@
+[
+  {
+    "id": 80,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "Redline round 1\n\nReviewed the whole pull request.\n\nThree items.\n\n### Correctness (3)\n\n- **R1-1** · correctness · medium · confirmed · `config/project/project.yaml:3` · Field handle renamed in project config · left to @author under rule craft-config\n- **R1-2** · correctness · low · confirmed · `.claude/redline.json:3` · The ask rule's glob misses a folder\n- **R1-3** · correctness · low · confirmed · `config/project/sections.yaml:9` · Section handle renamed in project config · left to @author under rule craft-config\n\nEach item has an inline comment with the detail.",
+    "submitted_at": "2026-11-24T10:00:00Z"
+  },
+  {
+    "id": 81,
+    "user": {
+      "login": "author"
+    },
+    "state": "COMMENTED",
+    "body": "",
+    "submitted_at": "2026-11-24T12:00:00Z"
+  }
+]
