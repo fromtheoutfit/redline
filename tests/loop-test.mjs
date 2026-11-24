@@ -4600,7 +4600,7 @@ function samePrefix(name, first, second, n) {
 
   // Every prompt that returns the shaper's JSON asks for the two fields: the shape, the human
   // pass's shape, and the reshape of each, with and without a decided finding.
-  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend); on a call for '
+  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
   const bounced = await go('ends: a round with no call, its plan bounced once', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, commitIds: [['R1-1']] })
   const bouncedDecided = await go('ends: a round whose call autopilot decided, its plan bounced once', { ...baseArgs, interrupt: 'autopilot' }, { ...one, planBounce: 1 })
   const humanBounced = await go('ends: a human pass with no call, its plan bounced once', humanArgs(), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
@@ -4957,7 +4957,12 @@ function samePrefix(name, first, second, n) {
   const humanCall = { reviews: [[]], ask: ['H1-1'], whyHuman: { 'H1-1': 'repository rule craft-config' }, callOf: { 'H1-1': { options: [own[0], own[1], { ...own[2], draft: { title: 'Lock H1-1', found: 'found H1-1', why: 'why H1-1', fullFix: 'a lock' } }], recommended: 'Change it by hand', recommendation: 'Change it by hand.' } }, commitIds: [[]] }
   const humanPicked = await go('left: a human pass, the author defers a comment a rule covers', humanArgs({ decisions: pickOf('Track it', 'The author tracks the rename in an issue.', 'H1-1'), deferrals: goAhead('H1-1') }), humanCall)
   check('left: in a human pass the deferred rule call is filed, and its reply keeps the pass\'s wording and names the issue', humanPicked.res.status === 'done' && replyFor(humanPicked.calls, 'push and reply h1', 'H1-1') === `Redline human review 1: left to the author under repository rule craft-config (${reason}). The author tracks the rename in an issue. Deferred to #301. · decided by: @author\n\n<!-- redline:answers 905 -->`, [detail(humanPicked), replyFor(humanPicked.calls, 'push and reply h1', 'H1-1')])
-  check('left: a human pass\'s shape prompt asks for the draft on a left call\'s defer option too', promptOf(humanPicked, 'shape h1').includes(LEFT_ASK), promptOf(humanPicked, 'shape h1').slice(-500))
+  // A human pass never leaves a finding on one of Redline's own files to the person (#127, R1-2),
+  // so its options sentence names a rule call alone, and in a repository with no rules none.
+  const HUMAN_LEFT_ASK = `on a call for a finding a repository ask rule covers, which is left to the person${DRAFT_ASK}`
+  check('left: a human pass\'s shape prompt asks for the draft on a rule call\'s defer option, and names no file of Redline\'s own', promptOf(humanPicked, 'shape h1').includes(HUMAN_LEFT_ASK) && !promptOf(humanPicked, 'shape h1').includes('file of Redline\'s own'), promptOf(humanPicked, 'shape h1').slice(-500))
+  const humanNoRules = await go('left: a human pass in a repository with no ask rules, its plan bounced once', humanArgs({ askRules: [] }), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
+  check('left: in a repository with no ask rules a human pass\'s shape prompt and its reshape prompt carry no left-call clause', ['shape h1', 'reshape h1 #1'].every((label) => promptOf(humanNoRules, label) !== '' && !promptOf(humanNoRules, label).includes('file of Redline\'s own') && !promptOf(humanNoRules, label).includes('on a call for')), [detail(humanNoRules), promptOf(humanNoRules, 'shape h1').slice(-500), promptOf(humanNoRules, 'reshape h1 #1').slice(-500)])
   const summary = pick(humanPicked.calls, 'summary comment') ? comment(humanPicked.calls, 'summary comment') : ''
   check('left: the human pass\'s summary names the finding once, as left under the rule with where its draft went', summary === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 left to @author under repository rule craft-config (H1-1 deferred to #301). No fix was committed, so no final nit pass.', summary)
 

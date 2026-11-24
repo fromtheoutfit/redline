@@ -1121,9 +1121,14 @@ const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empt
 // with the reviewer's and the plan approver's prompts, which this ask does not concern, and a
 // finding on one of Redline's own files is left to the person in a repository with no rules.
 // A repository with no rules is told of Redline's own files alone, so no rule text reaches its
-// prompts (#49).
+// prompts (#49). A human pass never leaves a finding on one of Redline's own files to the person
+// (forceAskRules records one only when !pass.human), so its sentence names a rule call alone,
+// and in a repository with no rules carries no left-call clause at all (#127, R1-2).
 const LEFT_CALL = askRules.length ? 'a finding left to the person (one a repository ask rule covers, or one on a file of Redline\'s own)' : 'a finding on a file of Redline\'s own, which is left to the person'
-const OPTIONS_ASK = `ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend); on a call for ${LEFT_CALL}, an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one`
+const ENDS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
+const LEFT_DRAFT_ASK = ', an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one'
+const OPTIONS_ASK = `${ENDS_ASK}; on a call for ${LEFT_CALL}${LEFT_DRAFT_ASK}`
+const HUMAN_OPTIONS_ASK = askRules.length ? `${ENDS_ASK}; on a call for a finding a repository ask rule covers, which is left to the person${LEFT_DRAFT_ASK}` : ENDS_ASK
 // How a Redline round's shape prompts ask for the cause of a fix (#75), with what each value
 // means, since the record is read from it: the outcomes, and what a sweep's entries say.
 const CAUSE_ASK = 'for a fix also cause, where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class, with swept listing every member the sweep measured as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it; instance: the cause is not a class) and why (one sentence)'
@@ -2316,7 +2321,7 @@ What differs from a Redline round:
 
 Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn and with ${OPTIONS_ASK}).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn and with ${HUMAN_OPTIONS_ASK}).`
 }
 
 // `decided` is the findings the person or autopilot decided whose task the round reads from its
@@ -2353,7 +2358,7 @@ ${json(inScope)}
 ${linksBlock(inScope)}
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : `, ${CAUSE_ASK}, reason for a decline, and secondLook for a finding the verifier could not confirm`}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${OPTIONS_ASK}).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : `, ${CAUSE_ASK}, reason for a decline, and secondLook for a finding the verifier could not confirm`}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${pass.human ? HUMAN_OPTIONS_ASK : OPTIONS_ASK}).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
