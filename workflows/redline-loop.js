@@ -3585,35 +3585,41 @@ const optionOf = (call, label) => (Array.isArray(call.options) ? call.options : 
 // resolve agent write the draft, as a typed defer on a call that offered no draft does; a draft
 // such an option does carry is the one filed on a pick, so it is held complete like any left
 // call's, and a call the shaper wrote as left is held to its draft as before (#127, R1-4).
+// It names every fault of every call in one error, since a reshape is told to correct what the
+// error names and each fault it leaves out is one more relaunch (workflow/replay, #127, R1-5).
 function checkOptions(pass, record, shaped, known, shaperLabel) {
   const decided = (id) => known.some((c) => c.id === id)
+  const faults = []
   for (const call of shaped.judgmentCalls.filter((c) => !decided(c.id))) {
     const options = Array.isArray(call.options) ? call.options : []
     const endless = options.filter((option) => optionLabel(option) === '' || !CALL_ENDS.includes(option.ends))
     if (endless.length) {
-      throw checkError('shape', `the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}); every option of a judgment call carries a label and states what it ends in, fix, defer or accept`, {}, shaperLabel)
+      faults.push(`the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}); every option of a judgment call carries a label and states what it ends in, fix, defer or accept`)
     }
     const names = options.map(optionLabel)
     const repeated = unique(names.filter((name, i) => names.indexOf(name) !== i))
     if (repeated.length) {
-      throw checkError('shape', `the shaper gave ${call.id} more than one option labelled ${repeated.map((name) => JSON.stringify(name)).join(', ')}; a decision names the option it picks by its label, so each label names one option`, {}, shaperLabel)
+      faults.push(`the shaper gave ${call.id} more than one option labelled ${repeated.map((name) => JSON.stringify(name)).join(', ')}; a decision names the option it picks by its label, so each label names one option`)
     }
     const recommended = typeof call.recommended === 'string' ? call.recommended.trim() : ''
     if (!names.includes(recommended)) {
-      throw checkError('shape', `the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}); recommended names the option the shaper recommends by its label`, {}, shaperLabel)
+      faults.push(`the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}); recommended names the option the shaper recommends by its label`)
     }
     const left = Boolean((record.forced || {})[call.id])
     const relabelled = left && Boolean(record.forced[call.id].relabelled)
-    const undrafted = left ? options.filter((option) => option.ends === 'defer' && (!relabelled || option.draft !== undefined) && draftMissing(option.draft).length) : []
+    const undrafted = left ? options.filter((option) => option && option.ends === 'defer' && (!relabelled || option.draft !== undefined) && draftMissing(option.draft).length) : []
     if (undrafted.length) {
-      throw checkError('shape', `the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: missing ${draftMissing(option.draft).join(', ')}`).join('; ')}); the person is shown the draft before deciding, and Redline files it when they pick the option`, {}, shaperLabel)
+      faults.push(`the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: missing ${draftMissing(option.draft).join(', ')}`).join('; ')}); the person is shown the draft before deciding, and Redline files it when they pick the option`)
     }
     for (const option of options) {
-      if (option.draft !== undefined && !(left && option.ends === 'defer')) {
+      if (option && option.draft !== undefined && !(left && option.ends === 'defer')) {
         warnings.push(`${pass.name}: the shaper gave ${call.id}'s option ${JSON.stringify(optionLabel(option))} a drafted issue, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`)
         delete option.draft
       }
     }
+  }
+  if (faults.length) {
+    throw checkError('shape', faults.join('; also, '), {}, shaperLabel)
   }
 }
 
@@ -3631,27 +3637,30 @@ function checkOptions(pass, record, shaped, known, shaperLabel) {
 // It runs after forceAskRules and the path cleanup: a finding a rule leaves to the person is an
 // ask by then, and the files are in one form. On a reshape it skips the round's decided
 // findings, as checkDrafts does: their fix is the resolve agent's plan of the person's decision,
-// which is asked no cause. A human review pass has no such step.
+// which is asked no cause. A human review pass has no such step. It names every fault of every
+// fix in one error, since a reshape is told to correct what the error names and each fault it
+// leaves out is one more relaunch (workflow/replay, #127, R1-5).
 function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
   if (pass.human) {
     return
   }
   const text = (value) => (typeof value === 'string' ? value.trim() : '')
+  const faults = []
   for (const s of shaped.findings.filter((x) => x.disposition === 'fix' && !decided.includes(x.id))) {
     const cause = s.cause && typeof s.cause === 'object' && !Array.isArray(s.cause) ? s.cause : null
     const missing = !cause
       ? ['no cause']
       : [text(cause.where) === '' && 'no where', !CAUSE_OUTCOMES.includes(cause.outcome) && (cause.outcome === undefined ? 'no outcome' : `outcome ${JSON.stringify(cause.outcome)}`), text(cause.why) === '' && 'no why'].filter(Boolean)
     if (missing.length) {
-      throw checkError('shape', `the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`, {}, shaperLabel)
+      faults.push(`the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`)
+      continue
     }
     const where = repoPath(cause.where)
-    if (where.outside || where.path === '') {
-      throw checkError('shape', `the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; where names the file or folder the cause lives in`, {}, shaperLabel)
-    }
     const files = Array.isArray(s.files) ? s.files : []
-    if (cause.outcome === 'one-place' && !files.includes(where.path)) {
-      throw checkError('shape', `the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`, {}, shaperLabel)
+    if (where.outside || where.path === '') {
+      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; where names the file or folder the cause lives in`)
+    } else if (cause.outcome === 'one-place' && !files.includes(where.path)) {
+      faults.push(`the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`)
     }
     if (cause.outcome === 'sweep') {
       const swept = Array.isArray(cause.swept) ? cause.swept : []
@@ -3659,13 +3668,16 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
         ? ['no swept list']
         : swept.filter((entry) => !entry || text(entry.member) === '' || !SWEPT_FOUND.includes(entry.found)).map((entry) => (entry && text(entry.member) !== '' ? `${JSON.stringify(text(entry.member))} found ${JSON.stringify(entry.found === undefined ? null : entry.found)}` : 'an entry with no member'))
       if (unusable.length) {
-        throw checkError('shape', `the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`, {}, shaperLabel)
+        faults.push(`the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`)
       }
     }
     const links = linked(inScope.find((f) => f.id === s.id) || {})
     if (cause.outcome === 'instance' && links.length) {
-      throw checkError('shape', `the shaper returned an instance fix for ${s.id}, which the verifier links to ${andList(links)}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`, {}, shaperLabel)
+      faults.push(`the shaper returned an instance fix for ${s.id}, which the verifier links to ${andList(links)}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`)
     }
+  }
+  if (faults.length) {
+    throw checkError('shape', faults.join('; also, '), {}, shaperLabel)
   }
 }
 
