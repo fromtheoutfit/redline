@@ -128,6 +128,62 @@ New names a reader meets: the decision key `option`; the shaper's `cause`, `ends
 
 Every count of this spec is in this section.
 
+### The tasks
+
+The person made every commit. Base `24d15b8`; the loop harness there holds 1,674 checks in 639 runs, and as built 1,879 checks in 741 runs.
+
+| Task | Commit | Red before, green as built |
+|---|---|---|
+| 1. The spec folder | `9781ab9` | No harness ran: nothing under test changed |
+| 2. Option ends and the pick (#105's comment) | `14c891c` | Loop: 30 of the new `ends:` checks and 3 updated pins red against the committed workflow; 1,737 green as built |
+| 3. A rule call the person defers (#126) | `64312d0` | Loop: 39 of the new `left:` checks and 4 updated pins red; 1,812 green. gh harness: 284 green, its 5 new cases green from the start, since they pin a script this spec does not change. Shellcheck clean |
+| 4. Instance or class (#75) | `99c39a6` | Loop: 26 of the new `class:` checks and 2 updated pins red; 1,870 green. The #112 replay runs to the round cap on the committed workflow and stops at `shape r2` as built |
+| 5. Template v6, the setup rerun, 0.5.0 (#105) | `96587e3` | Loop: 7 of the 8 new `template:` checks red against the committed template and section; 1,878 green. Setup harness: its 4 new merge checks red against the committed template; 517 green. Shellcheck clean |
+| 6. The sweep and the mutations | `f5de73d` | Loop: the one new check red under the base workflow; 1,879 green |
+| 7. Verification Gate | this commit | `.claude/redline/checks.sh --baseline`: nine of nine green at each boundary from Task 2 on, and again here |
+
+Shellcheck is CI's command, `shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh`, run before the boundaries of Tasks 3 and 5 (shellcheck 0.11.0): no output, exit 0.
+
+What changed, outside the spec folder: 21 files, 3 of them new fixtures and 1 the frozen v5 body. `workflows/redline-loop.js` went from 5,506 lines to 5,893, `tests/loop-test.mjs` from 4,514 to 5,163. The workflow raises a stop that is its own check at 26 sites, where the base had 17: nine new, all at stage `shape` (three checks of a call's options, one of a left call's draft, five of a fix's cause), and the eight at `resolve` unchanged. No resume sentence was added or reworded.
+
+### Docs entries, with their commits (gate step 10)
+
+| File | Section it updates | Commit |
+|---|---|---|
+| `workflows/redline-loop.js` | `docs/running.md`: "A deferral you chose at a call", "Hand-off and relaunch", "Decided by", the `ask` disposition; `README.md`: Known limits | `14c891c` |
+| `workflows/redline-loop.js` | `docs/running.md`: "Left to you", "Deferred items" (the draft), the handoff's sections, the threads line, the plan dial; `docs/contract.md`: "Ask rules" | `64312d0` |
+| `workflows/redline-loop.js` | `docs/running.md`: the Review and Shape steps, Dispositions ("Instance or class") | `99c39a6` |
+| `agents/redline-shaper.md` | `docs/running.md`: Dispositions | `14c891c`, `64312d0`, `99c39a6` |
+| `agents/redline-resolve.md` | `docs/running.md`: "A deferral you chose at a call", "Left to you" | `14c891c`, `64312d0` |
+| `agents/redline-plan-approver.md` | `docs/running.md`: Dispositions ("Instance or class"), "Left to you" | `14c891c`, `64312d0`, `99c39a6` |
+| `agents/redline-reviewer.md` | `docs/running.md`: the Review step, Dispositions ("Instance or class") | `99c39a6` |
+| `skills/redline/SKILL.md` | `docs/running.md`: "Hand-off and relaunch", "Left to you" | `14c891c`, `64312d0`, `99c39a6` |
+| `templates/shape-spec-unattended.md`, `templates/history/shape-spec-unattended.v5.md` | `docs/contract.md`: "The unattended section" and the marker in "checks.sh"; `docs/upgrading.md`: "Unattended section versions" | `96587e3` |
+| `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` | `docs/upgrading.md`: "A stopped run across 0.5.0" | `96587e3` |
+
+Nothing under `scripts/` or `hooks/` changed. New names a reader meets: the decision key `option`; the shaper's `ends`, `recommended`, `draft` and `cause`; the verifier's `sameClassAs`. No new config key, subcommand, allow rule or exit code. Version (gate step 11): 0.5.0 in both manifests, a minor bump with the unattended marker at v6; no changelog entry and no tag in this pull request, as decision 1 has it.
+
+### Where the build differs from the plan
+
+Each is a decision in `shape.md` (35 to 46).
+
+- The setup rerun had one conflicting hunk; the person chose the template's side with this repository's point 11 put back (35).
+- The sweep found one difference the plan's list did not name; the person kept the clause that makes it (36).
+- `checkOptions` has one stop more than the plan listed, for an option with no label or with an end outside the three (37).
+- Seventeen older cases that script the resolve agent's statement moved from autopilot to an answer in the person's own words (38).
+- The ask-rules block is unchanged, against table B, row 15; the ask for a left call's draft is in the shape prompts' Return sentence (39).
+- The `prior-findings` fixture is PR 22 (40).
+- A link is also cleared when a review that was not asked returns one, and in a revise-only pass (41).
+- The result's `rounds[].findings` carries `sameClassAs` when a link stands (42).
+- The pick sentence is left out of a prompt whose picked decision carries `rule` (43).
+- Two mutations crashed the harness in older checks; a drafted issue covers those checks (44).
+- Two more comments and two check names lost a count, beside the two of decision 34 (45).
+- Three sentences of `agent-os/standards/workflow/agents.md` that state what the code does were left behind by Tasks 2 and 3 and are put right by the retrospective (46).
+
+### The standards retrospective (gate step 12)
+
+Twelve edits in five standards, listed with the classification of every decision in `shape.md` ("Standards retrospective (proposed)"). The person approved all twelve on 2026-11-24 (decision 47). Four put right a sentence the build made wrong (three in `workflow/agents.md`, and a count in `testing/tests.md`), and eight record what the spec taught. They land in their own commit, after Task 7's.
+
 ### The sweep (Task 6)
 
 **How.** The loop harness as built (`tests/loop-test.mjs` at Task 6's commit: 741 runs) ran twice with every agent call written out (label, agent type, prompt, options): once with the workflow as `git show 24d15b8:workflows/redline-loop.js` gives it, once with the file as built. The harness's stubs are the same on both sides, so every difference is the workflow's. Under the base workflow the harness has 1,797 checks green and 101 red; as built, 1,879 and 0. Runs are compared in order, and within a run call by call for as long as the labels agree: 12,402 calls. A prompt that differs is first put back, text by text, by taking out what this spec added (the options ask, the cause ask, the links block, the link ask, the pick sentence with the named-disposition sentence a pick brings, the left-deferred bullet, the human pass's sentence). What is left is compared line by line and every remaining line named: a decision's `option`; a `disposition` set or shown by what a decision ends in; the forced call's `ends`, `recommended` and `draft`; a `sameClassAs` the record kept or cleared. No call was left unexplained.
@@ -185,5 +241,3 @@ The two crashes, reported as crashes:
 
 - **The forced call's `ends` taken away.** Every call the workflow writes then fails the options check, so the run of section 12's first scenario stops at shape, and that section's older check reads `judgmentCalls[0].id` of a result with no call: the harness dies there (`TypeError: Cannot read properties of undefined (reading 'id')`), before the new pin. The same pin was then reached by a narrower mutation, the end's value changed from `fix` to `accept`: 2 red.
 - **A human review pass held to a cause.** Every human pass with a fix then stops at shape, and section 10's older check reads the summary comment of a run that made none: the harness dies there (`TypeError: Cannot read properties of undefined (reading 'prompt')`), before the new pin. No narrower mutation exists, since the pin is that a human pass is not held. The scenario of the pin, run alone under the mutated workflow, ends `error` at stage `shape` (`the shaper returned the fix for H1-1 with no cause it can be read from (no cause)`), where as built it ends `done`.
-
-The rest of this section is filled by Task 7.

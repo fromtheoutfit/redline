@@ -80,6 +80,23 @@ Settled by the design, not asked, and approved with the plan (decisions 25 to 34
 33. **The template is the last code slice.** Gate step 7 holds this checkout's section to the template's marker (`tests/setup-test.sh:922`), and a setup rerun merges a body once per marker, so the bump, the frozen v5, the pin and the rerun are one commit. Until it, this checkout is a v5 repository under the new workflow, the state answer f measured.
 34. **Counts leave two comments.** The comment on `checkError` ("Seventeen sites") and the loop test's ("the seventeen sites below") name their groups without a number, since this spec adds sites.
 
+Made during the build (decisions 35 to 46); 35 and 36 were asked, the rest follow from a decision above:
+
+35. **The setup rerun's one conflict (2026-11-24, asked).** The dry run of the merge into this repository's section was clean but for one hunk: the template changes the sentence under point 10's example, and this repository's hand-added point 11 sits on the next line. The person chose the template's side for the hunk (`--pick 1=theirs`) with point 11 put back as the committed file has it. The setup test that re-merges this checkout's section finds the file unchanged, with its three hand edits. `docs/upgrading.md` says how a repository with a point of its own after point 10 resolves the same hunk.
+36. **The sweep's one difference outside the plan's list (2026-11-24, asked).** A decided fix that a reshape leaves to the person under a rule is shown to the next plan approver pass and the implementer as the shaper returned it, an `ask`, where the base showed `fix`: decision 22's clause, on the twin of decision 32's case. The person kept the clause. One check pins it, and the drafted comments for #119 and #115 say it.
+37. **One stop more in `checkOptions`.** An option with no label, or with an end outside `fix`, `defer` and `accept`, stops the round at shape. The plan listed the repeated label and the `recommended` that names nothing. The schema refuses a bad end in the shaper's own run, and this is the second layer, as `checkWhy` is for a call's reason: the workflow reads the field to decide what a pick ends in.
+38. **The statement's cases moved off autopilot.** Autopilot's decision is a pick (answer c), so nothing is stated for it. The seventeen older loop cases that script what the resolve agent states now answer the call in the person's own words (`typedAnswer`), and the scripted shaper's recommended option ends, by default, in what the scripted resolve plans, so every other autopilot scenario behaves as it did.
+39. **The ask-rules block is unchanged.** Table B, row 15 has it changing. The block is shared with the reviewer's and the plan approver's prompts, so a change there would rerun the first review of a run in flight in every repository with ask rules. The ask for the draft of a left call's option is in the sentence every shape prompt ends with, and it names ask rules only in a repository that has some, so no rule text reaches a repository with none (a check from #49 holds that).
+40. **The fixture is PR 22.** `tests/gh-test.sh` already uses 20 and 21.
+41. **Two more links are cleared.** One a review returns when its prompt listed no earlier finding, since it was not asked. And one a revise-only pass reads from an earlier run's findings file: that pass is given no earlier findings, so its record cannot show the fix. Both follow from the follow-up to answer b.
+42. **The result keeps a link that stands**, as `sameClassAs` on the finding in `rounds[].findings`.
+43. **The pick sentence is for a pick no rule covers.** A picked decision that carries `rule` follows the bullets for a finding left to the person, the new one for a deferral included.
+44. **Two mutations crashed the harness in older checks**, which read a call's prompt or a stop's first judgment call with no fallback. They are recorded as crashes, with what showed each pin red another way. The older checks are left as they are and a drafted issue covers them ("For you to open", 4).
+45. **Counts left four more places**, beside the two of decision 34: the comment on `vetShape` ("the eight checks"), the loop test's comment on the sites, and the names of two of its checks.
+46. **Three standards sentences were behind the code** from Task 2 and Task 3 until the retrospective: `workflow/agents.md` still said a left finding's thread always stays open, that a thread settles for four kinds only, and that a call's decision names no disposition. `process/standards-retrospective.md` asks for such a sentence to change in the commit of the code it describes.
+47. **Standards retrospective (2026-11-24, asked): twelve edits, all approved.** The list and the classification of every decision are under "Standards retrospective (proposed)" below. The person chose to apply all twelve, in five standards (`workflow/agents.md`, `workflow/replay.md`, `testing/tests.md`, `process/standards-retrospective.md`, `process/release.md`). They land in a commit of their own, after this spec's Task 7 commit.
+
+
 ## How the tables were built
 
 By running `workflows/redline-loop.js` through the harness of `tests/loop-test.mjs` (its `mock`, `go` and fixtures, loaded from the file up to its first scenario; nothing written to disk), not by tracing:
@@ -272,7 +289,7 @@ Every new fact an agent states is a named field. These are the ones no check of 
 
 ## For you to open
 
-Drafted in the form of this repository's issues. No open issue covers any of them (the open list was read on 2026-11-24; the nearest are #75, which this spec closes, #104 and #115).
+Drafted in the form of this repository's issues. No open issue covers any of them (the open list was read on 2026-11-24, and again for the fourth after the mutation run; the nearest are #75, which this spec closes, #104 and #115).
 
 ### 1. Ask instance or class of a fix the resolve agent plans, and let a class link name one
 
@@ -304,6 +321,16 @@ Drafted in the #105 spec (`agent-os/specs/2026-11-24-1231-105-template-v6-ends-c
 
 Drafted in the #105 spec (`agent-os/specs/2026-11-24-1231-105-template-v6-ends-class-rule-defer/shape.md`, "For you to open").
 
+### 4. Make the loop test's older checks fail, not throw, when a run takes another path
+
+**What was found.** `tests/loop-test.mjs` reads a call's prompt as `pick(calls, label).prompt` in 132 places with no fallback, and as `(pick(calls, label) || { prompt: '' }).prompt` in 33; some older checks also read a stop's first judgment call the same way (`judgmentCalls[0].id`). When a change makes a run stop before the call a check reads, the check throws a `TypeError`, the harness dies at that line, and every check after it goes unreported. `agent-os/standards/testing/tests.md` already says a check fails and does not throw. Two of the 105 mutations of the template v6 spec (#105) met it: the forced call written without its options' ends stops section 12's first run at shape, and a human review pass held to a cause stops section 10's at shape, and each killed the harness in an older check before the new pin was reached. Both are recorded there as crashes, with the pin shown red another way.
+
+**Why it was not fixed with template v6 (#105).** The reads are in sections that spec does not touch, and guarding them one at a time only moves the crash to the next: the two sections alone hold dozens. It is one change across the harness.
+
+**Proposed fix.** Read every prompt through one function that returns an empty string when the call is absent (the newer sections each define a `promptOf` for it), and a stop's calls through a list that may be empty; keep `pick` for the checks that ask whether a call was made. Then rerun the two mutations and record their red counts in place of the crashes.
+
+Drafted in the #105 spec (`agent-os/specs/2026-11-24-1231-105-template-v6-ends-class-rule-defer/shape.md`, "For you to open").
+
 ## For you to add
 
 Drafted comments; posting is yours.
@@ -332,11 +359,97 @@ Drafted comments; posting is yours.
 
 ## Yours after the build
 
-Every commit; the pull request; its self-review, where a real shaper returns `cause` on every fix; the #817 rerun; the setup rerun in each other repository; the four comments and the three issues above.
+Every commit; the pull request; its self-review, where a real shaper returns `cause` on every fix; the #817 rerun; the setup rerun in each other repository; the four comments and the four issues above.
 
 ## Not shown by this pull request
 
 That a real shaper names the right cause, that a real plan approver bounces a sweep that was traced and not run, and that a real verifier links a second instance to the first. The loop's stubs cannot show an agent's judgement. The source pins show that each agent is told the rule; the two live checks above show whether it follows it.
+
+## Standards retrospective (proposed)
+
+Gate step 12, done from the lists and not from memory: every decision above (1 to 46), every difference in `plan.md`'s As built, and every check that went red and was fixed by learning something. Twelve edits are proposed, in five files; none adds a heading, and none holds a count. Put to the person on 2026-11-24, who approved all twelve (decision 47); they are applied as drafted here, in their own commit.
+
+### What each item is
+
+| Item | Classified | Where |
+|---|---|---|
+| 1. One template version: bump, freeze, pin, rerun, minor version | Already in a standard | `process/release.md` (every PR bumps the version; the markers move in the same PR); `testing/tests.md` (the unattended body's pinned hashes, the history cases, this checkout's section) |
+| 2. `files` in point 10's example | Missing | E9 |
+| 3, 11, 12. What an option ends in; a pick holds the plan; a picked call is shown by its end | Missing, and one sentence now wrong | E4; E3 |
+| 4, 8, 9, 10, 19, 21. Instance or class; the link; the sweep's field | The rule is in `workflow/agents.md` (a class an earlier round fixed is fixed as the class; a fact an agent states is checked against the record). The fields that now carry it are missing | E5 |
+| 5, 14, 15, 16, 20, 23, 25 to 28. A rule call the person defers; the thread | Two sentences now wrong | E1; E2 |
+| 6. Named fields; a judgement named with its agent | Already in a standard | `workflow/agents.md` (the workflow reads fields, never text; a list the record is read from is required in its schema and asked for in every prompt that returns it) |
+| 7, 13. Template, agent files and prompts in step; the human pass's sentence reworded | Already in a standard | `workflow/agents.md` (a decision that changes a rule a prompt states is applied everywhere the prompt and the agent file state it) |
+| The brief's rules: an out-of-scope issue that shares a reader is a question; what is found and left alone is tracked | Missing | E5, its last clause |
+| The brief's rules: a new ask in its own block; a sweep proves an unchanged prompt; no schema on a Skill caller | Already in a standard | `workflow/replay.md` (a new ask sits in the block that only the calls it concerns carry); `testing/tests.md` (a sweep as well as a check); `workflow/agents.md` (a skill pass has no schema) |
+| 17. No upgrade fallback; `docs/upgrading.md` says both | Already in a standard | `process/docs-gate.md` (a change to what a stopped run does across a release gets a section there); `workflow/replay.md` (a fallback is weighed against the runs in flight) |
+| 18. Done shown by a loop replay, its limit stated | Already in a standard | `process/docs-gate.md` (a behaviour a spec records as unmeasured is stated as expected) |
+| 22, 36. A left finding is shown as the shaper returned it | Already in a standard for the list every agent is shown; the sweep's part is missing | `workflow/agents.md` (`effectiveDispositions`); E10 |
+| 24. The remaining silent drop | Tracked, no standard | The drafted comment for #109 |
+| 29, 30, 31, 33. A malformed pick; no resume sentence reworded; a round with no link keeps its prompts; the template last | Already in a standard | `workflow/replay.md` (`relaunch.how` gives each answer its shape; a reworded resume line changes a run in flight; the block-only ask); `testing/tests.md` (this checkout's section carries the template's marker) |
+| 32. One older check moves on purpose | The spec's own | None |
+| 34, 45. Counts leave the comments | One count is in a standard, and stale | E7 |
+| 35. The setup rerun's conflict | Missing | E12 |
+| 37. One stop more: the second layer | Already in a standard | `workflow/agents.md` (the workflow's test is the second layer behind the schema) |
+| 38. The statement's cases moved off autopilot; red: the scripted shaper took the links block's ids for findings | Missing | E8 |
+| 39. The ask-rules block unchanged; red: rule text reached a repository with no rules | Missing | E6 |
+| 40, 42. The fixture's number; the result keeps a link | Nothing to learn | None |
+| 41. Two more links cleared | Already in a standard | `workflow/agents.md` (a claim the record cannot honour is cleared with a warning before anything is posted) |
+| 43. The pick sentence kept from a rule's decision | Already in a standard | `workflow/agents.md` (an ask names every item the workflow does not read it for) |
+| 44. Two mutations crashed in older checks | Already in a standard; what was done about it is missing | `testing/tests.md` (a check fails, it does not throw; a crash is reported as a crash); E10; drafted issue 4 |
+| 46. Three standards sentences behind the code | Missing | E11 |
+
+No pattern was used that is not in `agent-os/standards/`: the named-disposition path, `checkError`, the block-only ask, the schema built per call, the frozen body with its pin and the fact checked against the record are all there. The one new mechanism, the workflow giving a decision the end an option states, is what E4 records.
+
+### The edits
+
+**E1. `workflow/agents.md`, the line on a finding a repository ask rule covers (now wrong).** Replace `its thread stays open for the person, a human pass's` with `its thread stays open for the person unless they defer it to an issue (below), a human pass's`, and append to the line:
+
+> ; and the person may defer what is left to them (#126): an option of the finding's call that ends in `defer` carries a drafted issue, the shaper's own or the one `forceAskRules` keeps from the shaper's deferral of the finding, and a pick of it, or a defer typed for the finding, has the run file that draft. That is the one end of a left finding the workflow acts on: the kind stays `left`, no task is planned and nothing is demanded, the reply keeps its opening and closes with where the draft went, and the thread is resolved once the draft is filed. Any other answer, and autopilot, leave the finding as before
+
+**E2. `workflow/agents.md`, the line on the thread sweep (now wrong).** Replace `Settled is fixed, deferred, declined or decided with the reply posted, one list (`SETTLED_KINDS`) read for` with:
+
+> Settled is fixed, deferred, declined or decided, or left to the person with its drafted issue filed (#126), with the reply posted, one test (`settles`, over `SETTLED_KINDS`) read for
+
+**E3. `workflow/agents.md`, the line on lists read off final outcomes (now wrong).** Replace `a call's decision names none, and is read from what the resolve agent states it ends in, `fix`, `defer` or `accept`, never from the entry or the task beside it,` with:
+
+> a call answered in the person's own words names none, and is read from what the resolve agent states it ends in, `fix`, `defer` or `accept`, never from the entry or the task beside it (a call answered by picking an option names one: the workflow gives its decision the end the shaper stated on that option, so it is read as an override is, #105),
+
+**E4. `workflow/agents.md`, the line on a fact an agent states (missing).** Replace `a check that would see it compares against something stated before that agent ran (#99);` with:
+
+> a check that would see it compares against something stated before that agent ran (#99), which #105 built for a pick: every option of a call states what it ends in (`ends`) and the call names its recommended option by label (`recommended`), the decision carries the label (`option`) and never a disposition of the session's own, and the workflow sets the end from the option, so the plan the resolve agent writes is held to a fact stated before anyone decided, while an answer in the person's own words still rests on the statement;
+
+**E5. `workflow/agents.md`, the line on a class an earlier round fixed (missing).** Append:
+
+> ; and since #75 the rule is a step with fields: every fix the shaper sorts states `cause` (where the cause lives, and `one-place`, `sweep` with what the sweep covered, or `instance`), the verifier states `sameClassAs` in a review that is shown earlier findings, the workflow keeps a link only to a finding its record shows as fixed, and an `instance` fix under a link that stands stops the round at shape; that the cause is where the shaper says, and that a sweep was measured by running and is complete, stay the plan approver's judgement, and the spec names each such judgement with its agent; and a spec shaped by hand whose table shows that an open issue it keeps out of scope shares a reader it changes puts the overlap to the person as a question and leaves a drafted comment for that issue, and what it finds and leaves alone gets a drafted issue in its `shape.md`, after a check that no open issue covers it (#105)
+
+**E6. `workflow/replay.md`, the line on a new ask in a prompt (missing).** Append:
+
+> ; and a block several agents' prompts share (the ask-rules block, in the reviewer's, the shaper's and the plan approver's) is not where an ask for one of them goes: the ask sits in that agent's own sentence, so the others' calls stay byte-identical, and where it names what a per-repository list declares it is worded without that in a repository with none, so the no-list identity above holds (#126: the draft of a left call's option is asked in the shape prompts' Return sentence, which names ask rules only where the repository has some)
+
+**E7. `testing/tests.md`, the line on a rule pinned over every scenario (a count, now stale).** Replace `(#116, `ownCheck` on every error result, seventeen sites)` with:
+
+> (#116, `ownCheck` on every error result; the table is the list of sites, and no count of them is kept here, since each spec that adds a stop would leave it stale, #105)
+
+**E8. `testing/tests.md`, the line on what a loop-test mock answers (missing).** Append:
+
+> ; and what one scripted agent states of what another will do is scripted by default from what the scenario has that other agent return (the scripted shaper's recommended option ends in what the scripted resolve plans), so a scenario is one script for both agents and only a case about a mismatch scripts an end; and a case about what an agent states runs where the agent is asked for it: since #105 autopilot's decision is a pick and nothing is stated for it, so the cases that script a statement answer the call in the person's own words (`typedAnswer`); and a scripted agent reads the round's findings from the list the prompt gives it and from no later block: the scripted shaper took an earlier finding named in the links block for a finding of the round until it read ids up to that block (#75)
+
+**E9. `testing/tests.md`, the line on key phrases in the agent files and the template (missing).** Append:
+
+> ; and a return example that the template, this repository's section and the agent file each carry is parsed and held, in each, to what the schema requires of it, since a key phrase cannot see a key an example lacks: the template's example showed `files` on no finding from #100 until #105
+
+**E10. `testing/tests.md`, the line on the sweep and the mutations (missing).** Append:
+
+> ; and each call that differs is explained, not only counted: the text the spec added is taken out of the as-built prompt, what is left is named line by line, the spec's own scenarios are set apart from the ones that predate it, and a difference the plan did not list is put to the person before it is recorded (#105: a decided fix that a reshape leaves to the person, shown as the shaper returned it); and where a mutation crashes the harness in an older check and no narrower mutation reaches the pin, the pin's own scenario is run alone under the mutated script and its result recorded beside the crash (#105)
+
+**E11. `process/standards-retrospective.md`, the line on a standards sentence that states what the code does (missing).** Append:
+
+> ; the sentences are found before a task's commit by searching `agent-os/standards/` for the names the task changes (an outcome kind, a list, what a decision carries), as the docs are searched: two tasks of #105 changed what a left finding and a call's decision end in and left three sentences of `workflow/agents.md` on the old rule until the retrospective
+
+**E12. `process/release.md`, a new last line (missing).**
+
+> - A change to the unattended template's body is dry-run against this checkout's own section before the body is final (`redline-setup.sh unattended ... --merge --dry-run`): a point a repository added by hand beside a line the template changes conflicts in the merge, the person says how that hunk is resolved, and `docs/upgrading.md` names the lines that moved and the resolution, for the repositories that will meet the same hunk (#105: the sentence under point 10's example, beside this repository's point 11)
 
 ## Context
 
