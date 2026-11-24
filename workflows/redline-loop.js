@@ -3035,7 +3035,10 @@ function linkFault(id) {
   }
   return `${id} names no finding Redline recorded on this pull request`
 }
-function honourLinks(round, findings, asked) {
+// A pass that holds no record of earlier rounds (`noRecord`, the revise-only pass) cannot check a
+// link to one, so it is cleared with that reason, never with one that says the earlier finding
+// was not recorded (#127, R1-3).
+function honourLinks(round, findings, asked, noRecord = false) {
   for (const f of findings) {
     if (f.sameClassAs === undefined) {
       continue
@@ -3043,7 +3046,7 @@ function honourLinks(round, findings, asked) {
     const named = unique((Array.isArray(f.sameClassAs) ? f.sameClassAs : []).map((id) => (typeof id === 'string' ? id.trim() : '')).filter((id) => id !== ''))
     const stands = []
     for (const id of named) {
-      const why = !asked ? 'this review was shown no earlier finding' : findings.some((x) => x.id === id) ? `${id} is a finding of this round` : linkFault(id)
+      const why = !asked ? 'this review was shown no earlier finding' : findings.some((x) => x.id === id) ? `${id} is a finding of this round` : noRecord ? 'this revise-only pass holds no record of earlier rounds to check it against' : linkFault(id)
       if (why) {
         warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
       } else {
@@ -5719,8 +5722,9 @@ try {
     }
     // A link a findings file carries (#75) was kept by the run that wrote the file, against a
     // record this pass does not hold: a revise-only pass is given no earlier findings. So it is
-    // held to what this run can show, like any other, and cleared with a warning otherwise.
-    honourLinks(round, record.findings, true)
+    // cleared with a warning that says this pass holds no record of earlier rounds to check it
+    // against, since the earlier finding may well be recorded, only not here (#127, R1-3).
+    honourLinks(round, record.findings, true, true)
     rounds.push(record)
     const inScope = record.findings.filter((f) => !f.knownAs)
     const kind = inScope.some((f) => f.category === 'correctness') ? 'correctness' : 'nits'
