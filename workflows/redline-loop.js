@@ -3570,7 +3570,13 @@ const optionOf = (call, label) => (Array.isArray(call.options) ? call.options : 
 // issue Redline files when the person picks the option, shown with the call before they decide,
 // so one short of a field stops the round as a deferral without its draft does (checkDrafts). On
 // any other option it is dropped with a warning: an ordinary call's deferral is drafted by the
-// resolve agent after the decision, with its mitigation, as before.
+// resolve agent after the decision, with its mitigation, as before. A call forceAskRules
+// relabelled from a reason that does not mark a left call (neither redline's own file nor a
+// repository rule, the two LEFT_CALL tells the shaper to draft for) was written as an ordinary
+// call, so a defer option of it that carries no draft is not held to one, and a pick of it has the
+// resolve agent write the draft, as a typed defer on a call that offered no draft does; a draft
+// such an option does carry is the one filed on a pick, so it is held complete like any left
+// call's, and a call the shaper wrote as left is held to its draft as before (#127, R1-4).
 function checkOptions(pass, record, shaped, known, shaperLabel) {
   const decided = (id) => known.some((c) => c.id === id)
   for (const call of shaped.judgmentCalls.filter((c) => !decided(c.id))) {
@@ -3589,7 +3595,8 @@ function checkOptions(pass, record, shaped, known, shaperLabel) {
       throw checkError('shape', `the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}); recommended names the option the shaper recommends by its label`, {}, shaperLabel)
     }
     const left = Boolean((record.forced || {})[call.id])
-    const undrafted = left ? options.filter((option) => option.ends === 'defer' && draftMissing(option.draft).length) : []
+    const relabelled = left && Boolean(record.forced[call.id].relabelled)
+    const undrafted = left ? options.filter((option) => option.ends === 'defer' && (!relabelled || option.draft !== undefined) && draftMissing(option.draft).length) : []
     if (undrafted.length) {
       throw checkError('shape', `the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: missing ${draftMissing(option.draft).join(', ')}`).join('; ')}); the person is shown the draft before deciding, and Redline files it when they pick the option`, {}, shaperLabel)
     }
@@ -3801,6 +3808,7 @@ function forceAskRules(record, pass, inScope, shaped) {
     shaped.deferred = shaped.deferred.filter((d) => d.id !== f.id)
     const why = `repository rule ${rule.id}`
     let call = shaped.judgmentCalls.find((c) => c.id === f.id)
+    let relabelled = false
     if (!call) {
       call = {
         id: f.id,
@@ -3821,6 +3829,15 @@ function forceAskRules(record, pass, inScope, shaped) {
       }
       shaped.judgmentCalls.push(call)
     } else {
+      // A call the shaper wrote as an ordinary one, for a reason that does not mark a left call
+      // (neither Redline's own file nor any repository rule, the two LEFT_CALL tells it to draft
+      // for), is relabelled (#127, R1-4): it keeps the options the shaper wrote, so checkOptions
+      // does not hold a defer option of it that carries no draft to one, and the run says so once.
+      const old = call.why_human
+      relabelled = old !== OWN_FILE && !(typeof old === 'string' && old.startsWith('repository rule '))
+      if (relabelled) {
+        warnings.push(`${pass.name}: the shaper asked about ${f.id} because of ${JSON.stringify(old)}; repository rule ${rule.id} leaves it to the person, and its call keeps the options the shaper wrote`)
+      }
       call.why_human = why
     }
     // A decline the rule overrides is recorded with what Redline would have done, for the
@@ -3829,7 +3846,7 @@ function forceAskRules(record, pass, inScope, shaped) {
     // with no call, and an entry rebuilt from that would drop what Redline would have declined
     // (#94, R7-7).
     if (!(decisions[f.id] && record.forced[f.id])) {
-      record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}) }
+      record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}), ...(relabelled ? { relabelled: true } : {}) }
     }
   }
 }
