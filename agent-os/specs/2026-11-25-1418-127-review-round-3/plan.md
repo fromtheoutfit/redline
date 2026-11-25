@@ -240,3 +240,44 @@ Steps 10, 11, 12 and 13 stay as written:
 - **11. Version.** `0.5.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged: the pull request bumped it, and no template body changes this round.
 - **12. Standards retrospective.** The list under "Standards retrospective (proposed)" in `shape.md`, as the standards approver approves it, applied in its own commit after the finding commits: `redline: record the round 3 review lessons in the standards (#105)`.
 - **13. Spec folder.** `plan.md` gains an As built section (each task's commit, its red and green counts read off the gate's summary line, every mutation run, every existing check that followed a task and why), and any deviation is recorded under Decisions in `shape.md`, in the last commit: `redline: record the as-built state of review round 3 for PR #127 (#105)`.
+
+---
+
+## As built
+
+Built by the Redline implementer on the PR's head branch, from `b696aee`. Every count below is the loop harness's own summary line (`<n> checks passed, <m> failed`), read off the kept result of a run of `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-25-1418-127-review-round-3/redline/snapshot.json`; in every run below every other gate check exited 0. Each task was built red, then green, and committed before the next was begun, so each commit holds only its own checks.
+
+| Task | Finding | Commit | Red | Green |
+|---|---|---|---|---|
+| 1 | spec folder | `cc9af40` | | |
+| 2 | R3-4 | `865ae26` | 1964 passed, 6 failed | 1971 passed, 0 failed |
+| 3 | R3-5 | `4824c91` | 1971 passed, 2 failed | 1974 passed, 0 failed |
+| 4 | R3-6 | `93c01e1` | 1976 passed, 3 failed | 1982 passed, 0 failed |
+| 5 | R3-10 | `a76da6d` | 1988 passed, 6 failed | 1991 passed, 0 failed |
+| 6 | R3-1 | `30d17e5` | docs only | `grep -n -e 'ships v6' -e 'unattended: v6' docs/contract.md` prints nothing |
+| 7 | R3-2 | `616dffe` | 1991 passed, 2 failed | 1993 passed, 0 failed |
+| 8 | R3-3 | `24c62f8` | docs only | `grep -n -e 'stops once more to show' skills/redline/SKILL.md docs/running.md` prints nothing; the next run (Task 9's red) kept the `left:` check that pins `shown with its draft's title` passing |
+| 9 | R3-7 | `a60771e` | 1994 passed, 2 failed | 1996 passed, 0 failed |
+| 10 | R3-8 | `c4dafaf` | 1997 passed, 1 failed | 1998 passed, 0 failed |
+| 11 | R3-9 | `f51f4a6` | 1998 passed, 1 failed | 2000 passed, 0 failed |
+| 12 | R3-11 | `db59918` | 2002 passed, 2 failed | 2004 passed, 0 failed |
+| 12 (standards) | | `aa945f1` | | the four approved edits, as `shape.md` proposes them |
+
+Per task:
+
+- **Task 2.** Red: the relaunch's replay pin and its no-override check, the unapplied warning, the two intake refusals and the text check. The check that the marked defer files its draft and replies `left to ... Deferred to #301.` held before the change, since the override path the bug took also filed it: it was seen red under a mutation of the clause it turns on (`resolveWith`'s left-finding branch dropping a typed `defer` with the other dispositions), at 1977 passed, 31 failed, and the mutation was reverted. The first green run read 1970 passed, 1 failed: the stray-mark check expected the reply to say `Applied in`, where a shaper's fix replies `fixed in`; the check was corrected to the exact reply and the next run was green. The `reshape:` block's `draftFor` is out of the `left:` block's scope, so the block has its own `draftOf`.
+- **Task 3.** Red: the warning and the prompt checks (the run stopped at `shape r2` on the instance fix under the link). `grep -c 'and this is the second layer), and one that names an id the review renamed, which may mean either finding; and a fix' docs/running.md` prints `1`.
+- **Task 4.** Red: the untagged autopilot case, the guided pick and the paths-rule case; the tagged neighbour held. Each red case stopped at the check for want of a commit for `R1-1`.
+- **Task 5.** Red: every new check but the setup pin. The setup pin held before the change and was seen red under a mutation that drops `ends` from the scenario, with the change in place: 1990 passed, 1 failed, the pin alone; the mutation was reverted. The `resume:` pins followed the new stop, each count read off the source with `grep -o ... | wc -l` before it was written: `sites("throw checkError('resolve', \`the resolve agent ")` and `sites("checkError('resolve', ")` from 8 to 9, `sites('throw checkError(')` from 19 to 20.
+- **Task 7.** Red: the agent-file check and the nested-draft stop. The existing `places:` pin of `refuses a key it does not name` in both agent files, the `defer:` check of today's message, and `sites("throw checkError('shape', ") === 11` stayed green.
+- **Task 9 to Task 12.** Red as the plan says; each neighbour named there is an existing check and stayed green.
+
+Docs entries (gate step 10), each with its commit: Task 2, `skills/redline/SKILL.md` and `relaunch.how` updated, `docs/running.md` no reader-facing change (`865ae26`); Task 3, `docs/running.md`, "Instance or class" (`4824c91`); Task 4, `docs/contract.md`, "Ask rules" (`93c01e1`); Task 5, no reader-facing change (`a76da6d`); Task 7, `docs/running.md` and `docs/upgrading.md` (`616dffe`); Task 8, `docs/running.md`, "Left to you" (`24c62f8`); Tasks 9 to 12, no reader-facing change (`a60771e`, `c4dafaf`, `f51f4a6`, `db59918`).
+
+Version (gate step 11): `0.5.0`, unchanged. Standards retrospective (gate step 12): the four approved edits, in `aa945f1`, a commit of lessons that finishes no finding.
+
+Deviations, each recorded under Decisions in `shape.md` ("As built"):
+
+1. Task 1's commit subject is `redline: save review round 3 spec for PR #127 (#105)`, the implementer's form that every earlier round's spec commit used, not `redline: shape PR #127 review round 3 (#105)`.
+2. Task 5's reshape case reads the `left:` block's `namedLater` run, not `forcedDefer`: `forcedDefer` is scoped to the `reshape:` block, and `namedLater` is the same case (a call whose decision names defer, a first resolve entry with the mitigation `a guard`, a reshape that leaves the finding under `billing`).
+3. Task 11's two checks, the filed draft and the warning, are one check over the same run.

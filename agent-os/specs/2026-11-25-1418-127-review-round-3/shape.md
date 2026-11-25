@@ -186,6 +186,16 @@ The plan approver sent back three tasks. Each adjustment is applied in `plan.md`
 
 Decided by: redline
 
+### As built
+
+Three deviations from the plan, none of which changes a finding's disposition, cause or outcome; `plan.md`, "As built", has the counts.
+
+1. **Task 1's commit subject.** `redline: save review round 3 spec for PR #127 (#105)`, the implementer's form, which every earlier round's spec commit used (`966ca1b` for round 1 of this pull request), where the plan wrote `redline: shape PR #127 review round 3 (#105)`.
+2. **Task 5's reshape case.** The check reads the `left:` block's `namedLater` run, not `forcedDefer`, which is scoped to the `reshape:` block; the two are the same case (a call whose decision names defer, a first resolve entry with the mitigation `a guard`, a reshape that leaves the finding under `billing`), and the check holds the warning and the empty mitigation in the `plan approver r1 #2` and `implement r1` prompts as the plan says.
+3. **Task 11's checks.** The filed draft and the warning are one check over the same run.
+
+Decided by: redline
+
 ### Standards retrospective
 
 Proposed below, under "Standards retrospective (proposed)"; the standards approver approves the list and the implementer applies it in its own commit.
