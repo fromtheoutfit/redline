@@ -881,13 +881,19 @@ const COVERAGE_SCHEMA = {
 // earlier findings the verifier judges to be one class with it. Only a review whose prompt lists
 // earlier findings is asked for it (showsEarlier), in its prompt and in its schema, so the first
 // review of a pull request with no earlier round is the call it was before #75 and replays.
+// A review that is asked for links also refuses a key its schema does not name, on the result
+// and on a finding (the follow-up of #127): a link written beside findings is then refused in
+// the reviewer's own run, with its path and its name, where the workflow could only warn and
+// clear it. The first review of a pull request with no earlier round keeps the schema it had,
+// for the same reason it keeps its prompt.
 const reviewSchema = (links) => ({
   type: 'object',
+  ...(links ? { additionalProperties: false } : {}),
   required: ['round', 'reviewed', 'findings', 'resolved', 'summary'],
   properties: {
     round: int,
     reviewed: { type: 'string', enum: ['pr', 'fix-diff', 'final-nit-pass'] },
-    findings: { type: 'array', items: links ? { ...FINDING_SCHEMA, properties: { ...FINDING_SCHEMA.properties, sameClassAs: strings } } : FINDING_SCHEMA },
+    findings: { type: 'array', items: links ? { ...FINDING_SCHEMA, additionalProperties: false, properties: { ...FINDING_SCHEMA.properties, sameClassAs: strings } } : FINDING_SCHEMA },
     resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
     coverage: { type: 'array', items: COVERAGE_SCHEMA },
@@ -967,9 +973,13 @@ const SPEC_STATUS_SCHEMA = {
 // before deciding, and a decision that picks an option takes that end as its disposition
 // (resolveWith), so the end is stated before the decision and never read from a label or from
 // prose. Both are required in both passes' schemas, and checkOptions is the second layer.
+// A call, an option and a draft each refuse a key the schema does not name (the follow-up of
+// #127; see shapeSchema), so ends or draft written on the call, or recommended on an option, is
+// refused in the shaper's own run.
 function judgmentCallSchema(reasons) {
   return {
     type: 'object',
+    additionalProperties: false,
     required: ['id', 'title', 'story', 'why_human', 'options', 'recommended', 'recommendation', 'dependsOn'],
     properties: {
       id: str,
@@ -982,7 +992,7 @@ function judgmentCallSchema(reasons) {
         // finding left to the person: Redline files it when the person picks that option. Its
         // fields are checked by the workflow (checkOptions), not required here, as a deferred
         // entry's are; on any other option it is dropped.
-        items: { type: 'object', required: ['label', 'cost', 'effect', 'ends'], properties: { label: str, cost: str, effect: str, ends: { type: 'string', enum: CALL_ENDS }, draft: { type: 'object', properties: { title: str, found: str, why: str, fullFix: str } } } },
+        items: { type: 'object', additionalProperties: false, required: ['label', 'cost', 'effect', 'ends'], properties: { label: str, cost: str, effect: str, ends: { type: 'string', enum: CALL_ENDS }, draft: { type: 'object', additionalProperties: false, properties: { title: str, found: str, why: str, fullFix: str } } } },
       },
       recommended: str,
       recommendation: str,
@@ -1048,19 +1058,30 @@ function firstPerId(list) {
 // review pass has no such step, so its schema has no such key (`cause` false).
 const CAUSE_OUTCOMES = ['one-place', 'sweep', 'instance']
 const SWEPT_FOUND = ['holds', 'fixed']
+// The shaper's result refuses a key its schema does not name (the follow-up of #127), on the
+// result, a finding, cause, an entry of swept, a call, an option and its draft: a key written a
+// level out (swept on the finding, beside cause, as #127's round 2 returned it twice) is then
+// refused in the shaper's own run and corrected there, and nobody relaunches. A probe with one
+// real agent measured it: such a result was refused with "/findings/0: must NOT have additional
+// properties ('swept' is not allowed)". A schema that only names a key inside cause accepts the
+// same key beside it, which is how both real returns got through. The workflow's own checks
+// stay as the second layer, for a result the schema did not hold. A deferred entry keeps the
+// schema it shares with the resolve agent's.
 const CAUSE_SCHEMA = {
   type: 'object',
+  additionalProperties: false,
   required: ['where', 'outcome', 'why'],
   properties: {
     where: str,
     outcome: { type: 'string', enum: CAUSE_OUTCOMES },
     why: str,
-    swept: { type: 'array', items: { type: 'object', required: ['member', 'found'], properties: { member: str, found: { type: 'string', enum: SWEPT_FOUND } } } },
+    swept: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['member', 'found'], properties: { member: str, found: { type: 'string', enum: SWEPT_FOUND } } } },
   },
 }
 function shapeSchema(reasons, dispositions, cause) {
   return {
     type: 'object',
+    additionalProperties: false,
     required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
     properties: {
       specFolder: str,
@@ -1068,6 +1089,7 @@ function shapeSchema(reasons, dispositions, cause) {
         type: 'array',
         items: {
           type: 'object',
+          additionalProperties: false,
           // `files` is required (#100): the round reads whether a deferral planned a mitigation from
           // it, so an empty list has to mean no task, never a list the shaper was not asked for.
           required: ['id', 'disposition', 'decidedBy', 'recommendation', 'files'],

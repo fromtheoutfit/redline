@@ -75,7 +75,7 @@ For each candidate:
 
 ## What you return
 
-Raw JSON, no prose around it:
+Raw JSON, no prose around it. Each key sits where the shape below shows it. In a review that is asked for `sameClassAs`, the tool you return through refuses a key it does not name, one written a level out included (a link beside `findings`), and names the path and the key: put it in its place and return again.
 
 ```json
 {

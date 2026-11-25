@@ -535,6 +535,35 @@ const findingRequired = (calls, label) => {
   const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
   return (((schema.properties || {}).findings || {}).items || {}).required || []
 }
+// What a call's schema makes of a result (the follow-up of #127): the keywords the workflow's
+// schemas use (type, required, enum, properties, items, additionalProperties), each fault as
+// the structured-output tool words it, with the path it names. The harness holds no scripted
+// result to its schema, so a check that needs the schema layer runs a result through this.
+function schemaFaults(schema, value, at = '') {
+  const where = at === '' ? 'root' : at
+  if (!schema) {
+    return []
+  }
+  const is = { object: (v) => v !== null && typeof v === 'object' && !Array.isArray(v), array: Array.isArray, string: (v) => typeof v === 'string', integer: Number.isInteger, number: (v) => typeof v === 'number', boolean: (v) => typeof v === 'boolean' }[schema.type]
+  if (is && !is(value)) {
+    return [`${where}: must be ${schema.type}`]
+  }
+  const faults = schema.enum && !schema.enum.includes(value) ? [`${where}: must be equal to one of the allowed values`] : []
+  if (schema.type === 'object') {
+    faults.push(...(schema.required || []).filter((key) => !(key in value)).map((key) => `${where}: must have required property '${key}'`))
+    for (const [key, item] of Object.entries(value)) {
+      if (schema.properties && key in schema.properties) {
+        faults.push(...schemaFaults(schema.properties[key], item, `${at}/${key}`))
+      } else if (schema.additionalProperties === false) {
+        faults.push(`${where}: must NOT have additional properties ('${key}' is not allowed)`)
+      }
+    }
+  }
+  if (schema.type === 'array' && schema.items) {
+    value.forEach((item, i) => faults.push(...schemaFaults(schema.items, item, `${at}/${i}`)))
+  }
+  return faults
+}
 // What every shape, human-pass and reshape prompt asks of a finding's files (#100).
 const FILES_ASKED = 'an empty list when it has no task'
 const comment = (calls, label) => {
@@ -5302,6 +5331,77 @@ function samePrefix(name, first, second, n) {
 
   // The asks and the reviewer's file say the place.
   check('places: every shape prompt asks for recommended on the call itself, and a review that is shown earlier findings for sameClassAs as a key of the finding, as the reviewer\'s file does', promptOf(endsOnCall, 'shape r1').includes('and, on the call itself, recommended (the label, as written, of the option you recommend)') && promptOf(linkNone, 're-review r2').includes('a key of that finding itself and never beside findings') && reviewerAgent.includes('a key of that finding itself and never beside `findings`'), promptOf(linkNone, 're-review r2').slice(-1500))
+
+  // The first layer (the follow-up of #127): the schemas of the agents that return these keys
+  // refuse a key they do not name, so one written a level out is refused in the agent's own
+  // run, with its path and its name, and nobody relaunches. A probe with one real agent
+  // measured it: a result with swept on the finding was refused with the words pinned below,
+  // and the corrected one was accepted. The harness runs no schema, so these checks read each
+  // schema object and run the table's misplaced results through schemaFaults.
+  const schemaOf = (r, label) => (pick(r.calls, label) || { opts: {} }).opts.schema || {}
+  const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please change H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanArgs = (extra) => ({ ...baseArgs, firstRound: 3, ...(extra || {}), revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h], commentIds: { 'H1-1': 900 }, posted: true } })
+  const humanRun = await go('places: a human review pass', humanArgs(), { reviews: [[]], commitIds: [['H1-1']] })
+  const humanRules = await go('places: a human review pass in a repository with ask rules', humanArgs({ askRules: rules }), { reviews: [[]], commitIds: [['H1-1']] })
+  const bounced = await go('places: a round whose plan bounced once', baseArgs, fresh({ 'R1-1': instance }, { planBounce: 1 }))
+  const shaperSchemas = [[endsOnCall, 'shape r1'], [draftOnCall, 'shape r1'], [bounced, 'reshape r1 #1'], [humanRun, 'shape h1'], [humanRules, 'shape h1']].map(([r, label]) => [`${r === humanRules || r === draftOnCall ? 'with rules, ' : ''}${label}`, schemaOf(r, label)])
+  const closedObjects = (schema) => {
+    const finding = ((schema.properties || {}).findings || {}).items || {}
+    const cause = (finding.properties || {}).cause
+    const call = ((schema.properties || {}).judgmentCalls || {}).items || {}
+    const option = ((call.properties || {}).options || {}).items || {}
+    return { result: schema, finding, ...(cause ? { cause, 'a swept entry': ((cause.properties || {}).swept || {}).items || {} } : {}), call, option, draft: (option.properties || {}).draft || {} }
+  }
+  const open = shaperSchemas.flatMap(([name, schema]) => Object.entries(closedObjects(schema)).filter(([, object]) => object.additionalProperties !== false).map(([where]) => `${name}: ${where}`))
+  check('places: every shaper schema, a round\'s and a human pass\'s, with and without ask rules, at the shape and at a reshape, refuses unknown keys on the result, a finding, cause, a swept entry, a call, an option and its draft', shaperSchemas.every(([, schema]) => schema.type === 'object') && open.length === 0 && 'cause' in closedObjects(shaperSchemas[0][1]) && !('cause' in closedObjects(shaperSchemas[3][1])), open)
+  const linkSchema = schemaOf(linkNone, 're-review r2')
+  const firstSchema = schemaOf(linkNone, 'review r1')
+  check('places: a review that is asked for links refuses unknown keys on its result and on a finding, and the first review of a pull request with no earlier round keeps the schema it had, so it still replays', linkSchema.additionalProperties === false && linkSchema.properties.findings.items.additionalProperties === false && 'sameClassAs' in linkSchema.properties.findings.items.properties && !JSON.stringify(firstSchema).includes('additionalProperties') && firstSchema.type === 'object', [linkSchema.additionalProperties, Object.keys(firstSchema)])
+  check('places: a deferred entry and the resolve agent\'s result stay open, as the plan left them', !JSON.stringify(shaperSchemas[0][1].properties.deferred).includes('additionalProperties') && !JSON.stringify(schemaOf(named, 'resolve r1')).includes('additionalProperties') && schemaOf(named, 'resolve r1').type === 'object', Object.keys(schemaOf(named, 'resolve r1')))
+
+  // The table's misplaced results, held to the schemas.
+  const roundSchema = schemaOf(draftOnCall, 'shape r1')
+  const good = () => ({
+    specFolder: 'agent-os/specs/x',
+    findings: [{ id: 'R1-1', disposition: 'fix', decidedBy: 'redline', recommendation: 'r', files: ['app/x.php'], cause: { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [{ member: 'm', found: 'holds' }] } }, { id: 'R1-2', disposition: 'ask', decidedBy: 'pending', recommendation: 'Track it.', files: [], askRule: 'craft-config' }],
+    deferred: [],
+    judgmentCalls: [{ id: 'R1-2', title: 't', story: 's', why_human: 'repository rule craft-config', options: [{ label: 'Change it by hand', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Leave it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft: { ...draft } }], recommended: 'Track it', recommendation: 'Track it.', dependsOn: [] }],
+  })
+  const moved = (edit) => { const value = good(); edit(value); return schemaFaults(roundSchema, value) }
+  const REFUSED = (at, key) => `${at}: must NOT have additional properties ('${key}' is not allowed)`
+  check('places: a shaper result with every key in its place passes the schema', schemaFaults(roundSchema, good()).length === 0, schemaFaults(roundSchema, good()))
+  check('places: swept on the finding is refused with the words the real tool gave the probe', JSON.stringify(moved((v) => { v.findings[0].swept = v.findings[0].cause.swept; delete v.findings[0].cause.swept })) === JSON.stringify([REFUSED('/findings/0', 'swept')]) && REFUSED('/findings/0', 'swept') === '/findings/0: must NOT have additional properties (\'swept\' is not allowed)', moved((v) => { v.findings[0].swept = v.findings[0].cause.swept; delete v.findings[0].cause.swept }))
+  const misplaced = [
+    ['cause beside findings', (v) => { v.cause = { 'R1-1': v.findings[0].cause }; delete v.findings[0].cause }, REFUSED('root', 'cause')],
+    ['where on the finding', (v) => { v.findings[0].where = v.findings[0].cause.where; delete v.findings[0].cause.where }, REFUSED('/findings/0', 'where')],
+    ['outcome on the finding', (v) => { v.findings[0].outcome = 'sweep' }, REFUSED('/findings/0', 'outcome')],
+    ['why on the finding', (v) => { v.findings[0].why = 'w' }, REFUSED('/findings/0', 'why')],
+    ['member on cause', (v) => { v.findings[0].cause.member = 'm' }, REFUSED('/findings/0/cause', 'member')],
+    ['found on cause', (v) => { v.findings[0].cause.found = 'holds' }, REFUSED('/findings/0/cause', 'found')],
+    ['ends on the call', (v) => { v.judgmentCalls[0].ends = { 'Leave it': 'accept' } }, REFUSED('/judgmentCalls/0', 'ends')],
+    ['draft on the call', (v) => { v.judgmentCalls[0].draft = v.judgmentCalls[0].options[2].draft; delete v.judgmentCalls[0].options[2].draft }, REFUSED('/judgmentCalls/0', 'draft')],
+    ['a draft\'s title on the option', (v) => { v.judgmentCalls[0].options[2].title = 'Lock R1-2' }, REFUSED('/judgmentCalls/0/options/2', 'title')],
+    ['a key the draft does not hold', (v) => { v.judgmentCalls[0].options[2].draft.mitigation = '' }, REFUSED('/judgmentCalls/0/options/2/draft', 'mitigation')],
+    ['recommended on the finding', (v) => { v.findings[1].recommended = 'Track it' }, REFUSED('/findings/1', 'recommended')],
+    ['recommended inside an option', (v) => { v.judgmentCalls[0].options[2].recommended = true }, REFUSED('/judgmentCalls/0/options/2', 'recommended')],
+    ['sameClassAs from the shaper', (v) => { v.findings[0].sameClassAs = ['R0-1'] }, REFUSED('/findings/0', 'sameClassAs')],
+  ]
+  const passedSchema = misplaced.filter(([, edit, fault]) => !moved(edit).includes(fault)).map(([name, edit]) => `${name}: ${JSON.stringify(moved(edit))}`)
+  check('places: every other key of the table returned a level out by the shaper is refused by its schema, at the place it was put, by name', passedSchema.length === 0, passedSchema)
+  const review = (extra, findingExtra) => ({ round: 2, reviewed: 'fix-diff', findings: [{ ...f('R2-1', 'correctness'), ...(findingExtra || {}) }], resolved: [], summary: 'S', ...(extra || {}) })
+  check('places: a review with its link on the finding passes the schema, and one with the link beside findings, or as one id and no list, is refused', schemaFaults(linkSchema, review({}, { sameClassAs: ['R1-1'] })).length === 0 && schemaFaults(linkSchema, review({ sameClassAs: { 'R2-1': ['R1-1'] } })).includes(REFUSED('root', 'sameClassAs')) && schemaFaults(linkSchema, review({}, { sameClassAs: 'R1-1' })).length === 1 && schemaFaults(firstSchema, review({ sameClassAs: { 'R2-1': ['R1-1'] } })).length === 0, [schemaFaults(linkSchema, review({}, { sameClassAs: ['R1-1'] })), schemaFaults(linkSchema, review({ sameClassAs: {} })), schemaFaults(linkSchema, review({}, { sameClassAs: 'R1-1' }))])
+  // No example an agent is shown holds a key its schema refuses.
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const exampleOf = (text, key) => {
+    const from = text.indexOf(key)
+    const open = text.lastIndexOf('```json', from)
+    const fence = text.slice(text.lastIndexOf('\n', open) + 1, open)
+    return JSON.parse(text.slice(text.indexOf('\n', open) + 1, text.indexOf(`\n${fence}\`\`\``, from)))
+  }
+  const unnamed = (schema, value) => schemaFaults(schema, value).filter((fault) => fault.includes('must NOT have additional properties'))
+  const refusedExamples = [['the template', unnamed(roundSchema, exampleOf(read('templates', 'shape-spec-unattended.md'), '"specFolder"'))], ['this repository\'s section', unnamed(roundSchema, exampleOf(read('.claude', 'commands', 'agent-os', 'shape-spec.md'), '"specFolder"'))], ['the shaper\'s file', unnamed(roundSchema, exampleOf(read('agents', 'redline-shaper.md'), '"specFolder"'))], ['the reviewer\'s file', unnamed(linkSchema, exampleOf(reviewerAgent, '"reviewed"'))]].filter(([, faults]) => faults.length)
+  check('places: no return example an agent is shown, in the template, this repository\'s section, the shaper\'s file or the reviewer\'s, holds a key its schema refuses', refusedExamples.length === 0, refusedExamples)
+  check('places: the shaper\'s file and the reviewer\'s say a key the schema does not name is refused when they return', read('agents', 'redline-shaper.md').includes('refuses a key it does not name') && reviewerAgent.includes('refuses a key it does not name'), 'agents/redline-shaper.md, agents/redline-reviewer.md')
 }
 
 // ---------------------------------------------------------------------------
