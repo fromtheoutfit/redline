@@ -3658,7 +3658,8 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
     const where = repoPath(cause.where)
     const files = Array.isArray(s.files) ? s.files : []
     if (where.outside || where.path === '') {
-      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; where names the file or folder the cause lives in`)
+      // Worded by outcome (#127, R1-6): a one-place fix's where is one of its task's files.
+      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; ${cause.outcome === 'one-place' ? "a one-place fix's where names one of the task's files, the one the cause lives in" : 'where names the file or folder the cause lives in'}`)
     } else if (cause.outcome === 'one-place' && !files.includes(where.path)) {
       faults.push(`the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`)
     }

@@ -5101,6 +5101,11 @@ function samePrefix(name, first, second, n) {
   const OUTSIDE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; where names the file or folder the cause lives in`
   const outside = await go('class: a cause that lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'instance', why: 'w' } }))
   check('class: a where outside the repository stops at shape', stopsAtShape(outside, OUTSIDE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outside))
+  // A one-place fix is told what its contract asks, one of the task's files, never a folder
+  // (#127, R1-6).
+  const OUTSIDE_ONE_PLACE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; a one-place fix's where names one of the task's files, the one the cause lives in`
+  const outsideOnePlace = await go('class: a one-place fix whose cause lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'one-place', why: 'w' } }))
+  check('class: a one-place fix with a where outside the repository stops at shape, told where names one of the task\'s files', stopsAtShape(outsideOnePlace, OUTSIDE_ONE_PLACE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outsideOnePlace))
   const elsewhere = await go('class: a one-place fix whose cause lives in a file its task does not touch', baseArgs, fresh({ 'R1-1': { where: 'app/normalise.php', outcome: 'one-place', why: 'w' } }))
   check('class: a one-place fix whose where is not among its task\'s files stops at shape', stopsAtShape(elsewhere, 'the shaper called the fix for R1-1 one-place, made where the cause lives, but its task\'s files (app/x.php) do not include app/normalise.php; a one-place fix changes the place the cause lives in', 'shape r1'), detail(elsewhere))
   const folded = await go('class: a one-place fix whose where is its file written another way', baseArgs, fresh({ 'R1-1': { where: './app//x.php', outcome: 'one-place', why: 'w' } }))
