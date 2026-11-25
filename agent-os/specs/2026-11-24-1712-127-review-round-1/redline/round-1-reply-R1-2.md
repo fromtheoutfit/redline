@@ -1,0 +1,1 @@
+Redline round 1: fixed in eed6f8b (redline: R1-2 name only a rule call in a human pass's options sentence (#105)). · decided by: redline

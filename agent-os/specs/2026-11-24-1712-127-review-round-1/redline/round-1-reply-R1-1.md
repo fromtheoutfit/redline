@@ -1,0 +1,1 @@
+Redline round 1: fixed in e70a33c (redline: R1-1 say the 0.5.0 replay note holds only on a pull request with no earlier answered round (#105)). · decided by: redline
