@@ -3890,9 +3890,15 @@ const FOLLOW_UP = /\bfollow[- ]?up\b(?!\s+spec)|\b(?:another|a separate|a new|a 
 // whatever the reshape lists, so a restatement is not held to a draft of its own (#97, R3-4).
 function checkDrafts(shaped, shaperLabel, decided = []) {
   for (const f of shaped.findings.filter((s) => s.disposition === 'defer' && !decided.includes(s.id))) {
-    const missing = draftMissing(shaped.deferred.find((d) => d.id === f.id))
+    const entry = shaped.deferred.find((d) => d.id === f.id)
+    const missing = draftMissing(entry)
     if (missing.length) {
-      throw checkError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
+      // A deferred entry is open (DEFERRED_SCHEMA), so a draft nested under `draft`, as an
+      // option's is, passes the schema and is read by nothing; the stop says where the fields
+      // were found (#127, R3-2), and with no such object it reads as it always did.
+      const nested = entry && entry.draft && typeof entry.draft === 'object' && !Array.isArray(entry.draft)
+      const message = `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one${nested ? '; this entry carries a draft object, which is not read on a deferred entry: the entry holds title, found, why and fullFix itself, beside mitigation' : ''}`
+      throw checkError('shape', message, {}, shaperLabel)
     }
   }
 }
