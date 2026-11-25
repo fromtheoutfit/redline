@@ -258,6 +258,10 @@ function mock(scenario) {
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
           ...(disposition(id) === 'fix' && !human && causeOf(id) !== null ? { cause: causeOf(id) } : {}),
+          // scenario.findingKeys[id] puts keys on the finding itself, as a shaper that returns a
+          // key one level out does (the two real returns of #127's round 2: swept beside cause),
+          // and scenario.findingKeysAt[label][id] does the same for one shaper call alone.
+          ...((scenario.findingKeys || {})[id] || {}), ...(((scenario.findingKeysAt || {})[opts.label] || {})[id] || {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding, and
         // scenario.mitigations[id] (#95) one finding's own, '' or 'none' for a deferral that ships
@@ -5110,19 +5114,33 @@ function samePrefix(name, first, second, n) {
   check('class: a one-place fix whose where is not among its task\'s files stops at shape', stopsAtShape(elsewhere, 'the shaper called the fix for R1-1 one-place, made where the cause lives, but its task\'s files (app/x.php) do not include app/normalise.php; a one-place fix changes the place the cause lives in', 'shape r1'), detail(elsewhere))
   const folded = await go('class: a one-place fix whose where is its file written another way', baseArgs, fresh({ 'R1-1': { where: './app//x.php', outcome: 'one-place', why: 'w' } }))
   check('class: where is read as every path is, so one file written another way is that file', folded.res.status === 'done', detail(folded))
-  const NO_SWEEP = (id, got) => `the shaper called the fix for ${id} a sweep and returned no usable list of what the sweep covered (${got}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`
+  const NO_SWEEP = (id, got) => `the shaper called the fix for ${id} a sweep and returned no usable list of what the sweep covered (${got}); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed`
   const unswept = await go('class: a sweep with no swept list', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w' } }))
-  check('class: a sweep with no swept list stops at shape', stopsAtShape(unswept, NO_SWEEP('R1-1', 'no swept list'), 'shape r1'), detail(unswept))
+  check('class: a sweep with no swept list stops at shape', stopsAtShape(unswept, NO_SWEEP('R1-1', 'no cause.swept list'), 'shape r1'), detail(unswept))
   const emptySweep = await go('class: a sweep whose swept list is empty', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [] } }))
-  check('class: a sweep whose swept list is empty stops the same way', stopsAtShape(emptySweep, NO_SWEEP('R1-1', 'no swept list'), 'shape r1'), detail(emptySweep))
+  check('class: a sweep whose swept list is empty stops the same way', stopsAtShape(emptySweep, NO_SWEEP('R1-1', 'no cause.swept list'), 'shape r1'), detail(emptySweep))
   const openMember = await go('class: a sweep with a member that is neither holds nor fixed', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [{ member: 'a doubled slash', found: 'fixed' }, { member: 'a trailing /.', found: 'exposed' }, { member: ' ', found: 'holds' }] } }))
   check('class: a swept entry with no member, or found as anything but holds or fixed, stops the same way: a member left exposed is no sweep', stopsAtShape(openMember, NO_SWEEP('R1-1', '"a trailing /." found "exposed", an entry with no member'), 'shape r1'), detail(openMember))
+  // The list one level out (the follow-up of #127): the shaper of #127's round 2 returned swept on
+  // the finding, beside cause, twice, the second time with the stop's words in its prompt, which
+  // named no place. The list is read in cause and nowhere else, and the stop says where it found it.
+  const ON_FINDING = 'no cause.swept list; the finding carries swept beside cause, where the workflow does not read it'
+  const SWEPT = [{ member: 'skills/redline/SKILL.md:213', found: 'fixed' }, { member: 'docs/running.md:134', found: 'holds' }]
+  const bareSweep = { where: 'app/x.php', outcome: 'sweep', why: 'The sentence is written in more than one place.' }
+  const beside = await go('class: a sweep whose swept list is on the finding, beside cause', baseArgs, fresh({ 'R1-1': bareSweep }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('class: a swept list returned on the finding, beside cause, stops at shape, and the stop names cause.swept and where the list was found', stopsAtShape(beside, NO_SWEEP('R1-1', ON_FINDING), 'shape r1') && !labels(beside.calls).includes('plan approver r1'), detail(beside))
+  const besideReshaped = await go('class: a reshape returns the sweep with its swept list on the finding', baseArgs, fresh({ 'R1-1': { ...bareSweep, swept: SWEPT } }, { planBounce: 1, causeAt: { 'reshape r1 #1': { 'R1-1': bareSweep } }, findingKeysAt: { 'reshape r1 #1': { 'R1-1': { swept: SWEPT } } } }))
+  check('class: the same from a reshape stops the same way, and the stop names the reshape', stopsAtShape(besideReshaped, NO_SWEEP('R1-1', ON_FINDING), 'reshape r1 #1'), detail(besideReshaped))
+  const flatMember = await go('class: a sweep whose cause carries member and found, with no list', baseArgs, fresh({ 'R1-1': { ...bareSweep, member: 'docs/running.md:134', found: 'holds' } }))
+  check('class: member and found on cause itself, with no list, stop the same way, told that each member is an entry of cause.swept', stopsAtShape(flatMember, NO_SWEEP('R1-1', 'no cause.swept list; cause carries member and found itself, not in a list: each member is one entry of cause.swept'), 'shape r1'), detail(flatMember))
+  const nested = await go('class: the same sweep with its list inside cause', baseArgs, fresh({ 'R1-1': { ...bareSweep, swept: SWEPT } }))
+  check('class: the same list inside cause goes on, and the round records it there', nested.res.status === 'done' && JSON.stringify(nested.res.rounds[0].dispositions[0].cause.swept) === JSON.stringify(SWEPT) && !('swept' in nested.res.rounds[0].dispositions[0]), detail(nested))
   const instanceAlone = await go('class: an instance fix under no link', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'instance', why: 'The cause is this one call.' } }))
   check('class: an instance fix under no link is the shaper\'s to state, and the plan approver\'s to judge', instanceAlone.res.status === 'done' && promptOf(instanceAlone, 'plan approver r1').includes('"why": "The cause is this one call."'), detail(instanceAlone))
   // Every fault in one error (#127, R1-5): a reshape is told to correct what the error names, so
   // a fault the error leaves out is one more relaunch.
   const twoFaults = await go('class: two fixes, one with no cause and one a sweep with no swept list', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1', 'R1-2']], causeOf: { 'R1-1': null, 'R1-2': { where: 'app/x.php', outcome: 'sweep', why: 'w' } } })
-  check('class: two fixes with faulty causes stop at shape with one error that names both', stopsAtShape(twoFaults, `${NO_CAUSE('R1-1', 'no cause')}; also, ${NO_SWEEP('R1-2', 'no swept list')}`, 'shape r1'), detail(twoFaults))
+  check('class: two fixes with faulty causes stop at shape with one error that names both', stopsAtShape(twoFaults, `${NO_CAUSE('R1-1', 'no cause')}; also, ${NO_SWEEP('R1-2', 'no cause.swept list')}`, 'shape r1'), detail(twoFaults))
 
   // Who is held: a fix of a Redline round the shaper sorted itself. A finding the person or
   // autopilot decided is not, after a reshape, and a human review pass has no cause at all.
@@ -5138,16 +5156,17 @@ function samePrefix(name, first, second, n) {
   check('class: a human review pass\'s schema has no cause, its prompt asks for none, and its fix is held to none', humanRun.res.status === 'done' && !('cause' in (findingSchema(humanRun, 'shape h1').properties || {})) && !promptOf(humanRun, 'shape h1').includes('cause') && !('cause' in humanRun.res.rounds[0].dispositions[0]), [detail(humanRun), Object.keys(findingSchema(humanRun, 'shape h1').properties || {})])
 
   // Every prompt that returns a Redline round's shape asks for the cause.
-  const CAUSE_ASK = 'for a fix also cause, where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class, with swept listing every member the sweep measured as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it; instance: the cause is not a class) and why (one sentence)'
+  const CAUSE_ASK = 'for a fix also cause, an object on the finding that says where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class; instance: the cause is not a class) and why (one sentence), and for a sweep also swept, inside cause beside where, outcome and why and never on the finding itself: a list of every member the sweep measured, each entry as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it'
   check('class: the shape prompt and the reshape prompt of a Redline round ask for the cause of every fix', promptOf(again, 'shape r1').includes(CAUSE_ASK) && promptOf(acrossBounced, 'reshape r2 #1').includes(CAUSE_ASK) && promptOf(decidedReshaped, 'reshape r1 #1').includes(CAUSE_ASK), [promptOf(again, 'shape r1').slice(-1800)])
 
   // The statements an agent and a reader meet.
   const shaperAgent = read('agents', 'redline-shaper.md')
   const approverAgent = read('agents', 'redline-plan-approver.md')
   check('class: the shaper\'s file has the step, its three outcomes, what each found value means, and what a member that is neither makes of the finding', shaperAgent.includes('**Instance or class.**') && shaperAgent.includes('`one-place`, the fix is made where the cause lives') && shaperAgent.includes('`holds` when you measured it and the code as it stands already handles it') && shaperAgent.includes('`fixed` when you measured it exposed and this task\'s change closes it') && shaperAgent.includes('fits neither value, and then the outcome is not a sweep') && shaperAgent.includes('never `instance`') && shaperAgent.includes('"cause": {"where": "app/Http/Requests/StoreOrderRequest.php", "outcome": "one-place"'), 'agents/redline-shaper.md')
+  check('class: the shaper\'s file says where a sweep\'s list sits, in the step, in what the workflow stops on and in what it returns', shaperAgent.includes('returned inside `cause`, as `cause.swept`, never on the finding beside it') && shaperAgent.includes('a `sweep` with no usable list in `cause.swept`') && shaperAgent.includes('inside `cause` beside them and never on the finding itself') && !shaperAgent.includes('returned as `swept`') && !shaperAgent.includes('no usable `swept`'), 'agents/redline-shaper.md')
   check('class: the plan approver\'s file says an instance whose own plan admits the same is needed elsewhere is a bounce, and so is a sweep with no table or one traced and not run', approverAgent.includes('**Instance or class.**') && approverAgent.includes('admits that another input, caller or entry will need the same change is a bounce') && approverAgent.includes('traced through the code and not run'), 'agents/redline-plan-approver.md')
   check('class: the reviewer\'s file says when a finding is one class with an earlier one, as its prompt does', reviewerAgent.includes('**One class with an earlier finding.**') && reviewerAgent.includes('`sameClassAs`') && reviewerAgent.includes('"sameClassAs": []') === false && reviewerAgent.includes('keeps only a link to a finding its record shows as fixed'), 'agents/redline-reviewer.md')
-  check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
+  check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('skills', 'redline', 'SKILL.md').includes('inside it, in `swept`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('in `cause.swept`') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
 }
 
 // ---------------------------------------------------------------------------

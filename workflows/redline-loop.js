@@ -1131,7 +1131,11 @@ const OPTIONS_ASK = `${ENDS_ASK}; on a call for ${LEFT_CALL}${LEFT_DRAFT_ASK}`
 const HUMAN_OPTIONS_ASK = askRules.length ? `${ENDS_ASK}; on a call for a finding a repository ask rule covers, which is left to the person${LEFT_DRAFT_ASK}` : ENDS_ASK
 // How a Redline round's shape prompts ask for the cause of a fix (#75), with what each value
 // means, since the record is read from it: the outcomes, and what a sweep's entries say.
-const CAUSE_ASK = 'for a fix also cause, where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class, with swept listing every member the sweep measured as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it; instance: the cause is not a class) and why (one sentence)'
+// It says where each key sits (the follow-up of #127): cause is an object on the finding, and a
+// sweep's list is inside it. Until then the ask said "with swept listing every member", the
+// template and the shaper's file said "and for a sweep also swept", and the shaper of #127's
+// round 2 returned the list on the finding, beside cause, twice.
+const CAUSE_ASK = 'for a fix also cause, an object on the finding that says where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class; instance: the cause is not a class) and why (one sentence), and for a sweep also swept, inside cause beside where, outcome and why and never on the finding itself: a list of every member the sweep measured, each entry as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it'
 const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask'], true), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none'], false) }
 
 const RESOLVE_SCHEMA = {
@@ -3665,11 +3669,18 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
     }
     if (cause.outcome === 'sweep') {
       const swept = Array.isArray(cause.swept) ? cause.swept : []
+      // A list that is not in its place is named with where it was found (the follow-up of
+      // #127): on the finding, beside cause, as the shaper of #127's round 2 returned it, or as
+      // one member's keys on cause itself. The list is read in cause.swept and nowhere else.
+      const flat = ['member', 'found'].filter((key) => cause[key] !== undefined)
+      const elsewhere = s.swept !== undefined
+        ? '; the finding carries swept beside cause, where the workflow does not read it'
+        : flat.length ? `; cause carries ${andList(flat)} itself, not in a list: each member is one entry of cause.swept` : ''
       const unusable = swept.length === 0
-        ? ['no swept list']
+        ? [`no cause.swept list${elsewhere}`]
         : swept.filter((entry) => !entry || text(entry.member) === '' || !SWEPT_FOUND.includes(entry.found)).map((entry) => (entry && text(entry.member) !== '' ? `${JSON.stringify(text(entry.member))} found ${JSON.stringify(entry.found === undefined ? null : entry.found)}` : 'an entry with no member'))
       if (unusable.length) {
-        faults.push(`the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in swept, each as member and found, holds or fixed`)
+        faults.push(`the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed`)
       }
     }
     const links = linked(inScope.find((f) => f.id === s.id) || {})
