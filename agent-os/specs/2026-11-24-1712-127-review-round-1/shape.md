@@ -111,7 +111,18 @@ Decided by: redline
 
 ### Standards retrospective
 
-Proposed below, under "Standards retrospective (proposed)"; the standards approver approves the list and the implementer applies it in its own commit.
+Proposed below, under "Standards retrospective (proposed)"; the standards approver approves the list and the implementer applies it in its own commit. The approver approved items 1 to 3. They landed in `508060f`, and items 4 and 5 make no change.
+
+### Build deviations
+
+Recorded as built (`plan.md`, As built, Deviations). None of them reopens a decision.
+
+1. The spec commit and the standards commit use the message forms the implementer's instructions give, and earlier rounds used: `redline: save review round 1 spec for PR #127 (#105)` and `redline: record the round 1 review lessons in the standards (#105)`.
+2. Task 6 updated the source-count pin in the loop test's `resume:` section. `checkCauses` and `checkOptions` now throw once each, so the count of `throw checkError('shape', ` sites falls from 18 to 11 and the count of every `throw checkError(` from 26 to 19.
+3. Task 6's `checkOptions` runs every check of a call, the draft-dropping loop included, after a fault. A null option is guarded so it reaches neither `ends` nor `draft`.
+4. Task 3's `docs/running.md` sentence is followed by "Either way the round stops once more", so the paragraph reads in order.
+
+Decided by: redline
 
 ## Declined
 

@@ -169,3 +169,47 @@ Gate steps 1 to 9: **run `.claude/redline/checks.sh /Users/michaelwitwicki/Code/
 11. **Version.** `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` both stay `0.5.0`; the setup test's last cases check they agree.
 12. **Standards retrospective.** Apply the list under "Standards retrospective (proposed)" in `shape.md` as the standards approver approved it, in its own commit (`redline: land the PR #127 round 1 standards retrospective (#105)`), staging only the standards files it names; or, if it approved none, record "Standards retrospective: no changes" under Decisions in `shape.md`.
 13. **Spec folder.** Add an "As built" section to this file with each task's commit, its red and green runs, the three mutation runs of Task 3's pins, and any deviation, and record each deviation under Decisions in `shape.md`; commit both in the round's last commit.
+
+---
+
+## As built
+
+Every red and green run below is a gate run, `.claude/redline/checks.sh /Users/michaelwitwicki/Code/Claude/redline/agent-os/specs/2026-11-24-1712-127-review-round-1/redline/snapshot.json`. Each task was seen red and then green on its own; no red runs were combined.
+
+- **Task 1:** `966ca1b` `redline: save review round 1 spec for PR #127 (#105)`.
+- **Task 2 (R1-1):** `e70a33c`. A docs change only: the first paragraph of "A stopped run across 0.5.0" now states the review-dial and later-stop sentences for a pull request where no earlier Redline run replied to a finding with anything other than "not changed in this round". A second paragraph says what happens on any other pull request: the first review and the post rerun, and the round's two files are rewritten. The closing advice now covers both cases.
+- **Task 3 (R1-4):** `cf1a39a`.
+  - Red: 1881 passed, 2 failed (the relabelled hand-off case and the relabelled autopilot case, both stopped at `shape` with the undrafted-defer error).
+  - Green: every check passed.
+  - Mutations, one at a time, each reverted before the commit:
+    - The `undrafted` filter with `option.draft !== undefined` dropped, which exempts every defer option of a relabelled call: 1 failed, the partial-draft pin.
+    - The `relabelled` condition with the `OWN_FILE` exclusion dropped: 1 failed, the own-file pin.
+    - The `relabelled` condition with the `repository rule ` prefix exclusion dropped: 1 failed, `bareDefer`.
+- **Task 4 (R1-2):** `eed6f8b`.
+  - Red: 1884 passed, 2 failed (the changed human-pass check and the new no-rules check).
+  - Green: every check passed.
+  - The Redline round's `OPTIONS_ASK` is unchanged. It is now built from `ENDS_ASK` and `LEFT_DRAFT_ASK`, and `HUMAN_OPTIONS_ASK` is the human pass's form.
+- **Task 5 (R1-3):** `38592e4`.
+  - Red: 1885 passed, 1 failed (`reviseOnly`).
+  - Green: every check passed.
+  - `honourLinks` takes a fourth parameter, `noRecord`.
+- **Task 6 (R1-5, mitigation):** `cd69669`.
+  - Red: 1886 passed, 2 failed (both new two-fault checks, each error naming only its first fault).
+  - First green run: 1887 passed, 1 failed, the source-count pin in the `resume:` section (`throw checkError('shape', ` sites). Updated (deviation 2), then every check passed.
+- **Task 7 (R1-6):** `11b10cc`.
+  - Red: 1888 passed, 1 failed (the new one-place outside-path check).
+  - Green: every check passed.
+- **Task 8:**
+  - Steps 1 to 9: see the final gate run, below.
+  - Step 10, Docs: Task 2 is the docs change itself (`e70a33c`). Task 3 updated `docs/running.md`, "Left to you" (`cf1a39a`). Tasks 4 to 7 have no reader-facing change, each for the reason its task gives.
+  - Step 11, Version: `0.5.0` in both manifests, unchanged.
+  - Step 12, Standards retrospective: `508060f` `redline: record the round 1 review lessons in the standards (#105)`. It holds the three approved edits (`workflow/replay.md` line 19, `workflow/agents.md` lines 11 and 16) and carries no part of a finding's fix, so it names no finding.
+  - Step 13: this section, committed in the round's last commit.
+- **Final gate run:** every check passed after the As built commit; the run's JSON is the evidence.
+
+### Deviations
+
+1. **Commit messages of Task 1 and Task 8 step 12.** The spec commit is `redline: save review round 1 spec for PR #127 (#105)` and the standards commit is `redline: record the round 1 review lessons in the standards (#105)`. These are the forms the implementer's instructions give, and earlier review rounds used them; the plan's wording was `redline: shape PR #127 review round 1 (#105)` and `redline: land the PR #127 round 1 standards retrospective (#105)`.
+2. **Task 6 updated the source-count pin in the `resume:` section of `tests/loop-test.mjs`** (the check whose name opens "resume: the hold and the checks of the shaper's result"). That check counts `throw checkError('shape', ` sites in the workflow. Each of `checkCauses` and `checkOptions` now throws once with every fault, so the count falls from 18 to 11 and the count of every `throw checkError(` from 26 to 19. The check also now pins the two collected throws (`throw checkError('shape', faults.join('; also, ')`). Its comment says why. The file is one Task 6 names.
+3. **Task 6, `checkOptions`, the draft-dropping loop** runs for every call, a call with a fault included. A null option no longer reaches `option.ends` or `option.draft` (both are guarded), since the later checks now run after the no-label-or-end fault where they used to be skipped by its throw.
+4. **Task 3, `docs/running.md`:** the sentence after the new one now opens "Either way the round stops once more", so the paragraph still reads in order.
