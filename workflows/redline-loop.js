@@ -4548,6 +4548,22 @@ async function revise(record, inScope, reviewedKind) {
   // rule. It is the one end of a left finding the round acts on: its drafted issue is raised,
   // filed and posted like any deferral's, and still nothing is planned, built or demanded for it.
   const leftDeferred = (id) => Boolean(record.forced[id]) && Boolean(roundDecisions[id]) && endsIn(id) === 'defer'
+  // A left finding's deferred entry carries no mitigation (#127, R3-10), as docs/running.md, "Left
+  // to you", says: "no task is planned and nothing is written under the rule". Until R3-10 that
+  // was the resolve prompt's alone, so the agent's own entry, kept when the call offered no draft
+  // to take, reached the plan approver and the implementer with its mitigation. A mitigation
+  // cleared here is warned about. It is applied wherever deferred takes entries: the end of each
+  // resolve, and the rebuild after each reshape, which can newly leave a decided deferral.
+  const leftEntry = (d) => {
+    const forced = record.forced[d.id]
+    if (!forced) {
+      return d
+    }
+    if (typeof d.mitigation === 'string' && d.mitigation.trim() !== '') {
+      warnings.push(`${pass.name}: the resolve agent gave ${d.id}, a finding left to the person under ${leftUnder(forced)}, the mitigation ${JSON.stringify(d.mitigation)}; it is cleared, since no task writes anything for it`)
+    }
+    return { ...d, mitigation: '' }
+  }
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     // The ids this resolve applies: its calls and its overrides.
     const applied = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))
@@ -4746,6 +4762,13 @@ async function revise(record, inScope, reviewedKind) {
     // cannot take one out of plan.md, and the implementer builds the plan as written. An entry
     // short of a draft field stopped above, and an entry beside a fix or an accept was dropped.
     const taskFiles = (id) => taskFilesOf(out.tasks, id)
+    // No task writes anything for a finding left to the person, deferred or not (#127, R3-10):
+    // a task with files for one this resolve applies stops here, where a resume reruns the agent,
+    // before a plan approver could pass it and the build write under the rule.
+    const leftTasked = applied.filter((id) => record.forced[id] && taskFiles(id).length > 0)
+    if (leftTasked.length) {
+      throw checkError('resolve', `the resolve agent planned a task with files for ${leftTasked.map((id) => `${id} (${taskFiles(id).join(', ')}), a finding left to the person under ${leftUnder(record.forced[id])}`).join('; ')}; no task writes anything for it`)
+    }
     const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
     const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
     if (undeferred.length) {
@@ -4787,7 +4810,7 @@ async function revise(record, inScope, reviewedKind) {
     for (const id of applied.filter((x) => !(x in decidedFiles))) {
       decidedFiles[id] = taskFiles(id)
     }
-    deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
+    deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id))).map(leftEntry)
     return out
   }
   // Dispositions after the overrides: what the plan approver and the implementer are shown, what
@@ -4976,7 +4999,7 @@ async function revise(record, inScope, reviewedKind) {
       warnings.push(`${pass.name}: the reshape listed ${restated.join(', ')} as deferred, a finding the person or autopilot decided; the reshape's entry is dropped, since the decision stands`)
     }
     const reshaped = shaped.deferred.filter((d) => !roundDecisions[d.id])
-    deferred = reshaped.concat(deferred.filter((item) => !reshaped.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
+    deferred = reshaped.concat(deferred.filter((item) => !reshaped.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id)).map(leftEntry)
     const openRaised = raised.filter((call) => !decisions[call.id])
     const stopForRaised = settle(openRaised)
     const redrafted = draftStop()

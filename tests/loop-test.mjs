@@ -1728,8 +1728,8 @@ function samePrefix(name, first, second, n) {
   // cause, #75, each set raised as one error naming every fault, #127, R1-5), and neither the spec check (a
   // missing file can be a refused Write, which a person fixes) nor the spec check's own failure.
   const sites = (text) => src.split(text).length - 1
-  check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 8 && sites("checkError('resolve', ") === 8 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
-  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 11 && sites("throw checkError('shape', faults.join('; also, ')") === 2 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 19, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
+  check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 9 && sites("checkError('resolve', ") === 9 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
+  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 11 && sites("throw checkError('shape', faults.join('; also, ')") === 2 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 20, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -5087,6 +5087,34 @@ function samePrefix(name, first, second, n) {
   // A paths rule the call names, on a finding outside the rule's paths, holds it the same way.
   const pathsNamed = await go('left: a call asked under a paths rule, its finding outside the rule\'s paths, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, { ...untagged, whyHuman: { 'R1-1': 'repository rule craft-config' } })
   check('left: a call asked under a paths rule whose finding lies outside its paths is held to that rule, with the same warning', pathsNamed.res.status === 'done' && (pathsNamed.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'craft-config') && (pathsNamed.res.warnings || []).includes(UNTAGGED('craft-config')), [detail(pathsNamed), pathsNamed.res.forced])
+
+  // A left finding's entry carries no mitigation, and its task no files (#127, R3-10): "no task is
+  // planned and nothing is written under the rule" was the prompt's alone. A typed defer on a call
+  // with no option that ends in defer, and a pick of a relabelled call's undrafted Mitigate, keep
+  // the resolve agent's own entry, and until R3-10 its mitigation stood and was handed to the
+  // implementer, and a task with files for the finding was planned and built.
+  const CLEARED = (rule) => `round 1: the resolve agent gave R1-1, a finding left to the person under repository rule ${rule}, the mitigation "a guard"; it is cleared, since no task writes anything for it`
+  const LEFT_TASK = 'the resolve agent planned a task with files for R1-1 (app/x.php), a finding left to the person under repository rule craft-config; no task writes anything for it'
+  const guarded = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  const noDeferOption = { reviews: [[cfg], []], ask: ['R1-1'], ends: { 'R1-1': 'fix' }, resolveDeferred: [guarded], commitIds: [[]] }
+  const noDeferStop = await go('left: a relabelled call none of whose options ends in defer', ruleArgs, noDeferOption)
+  check('left: the setup: the relabelled call\'s two options both end in fix, so it offers no draft', noDeferStop.res.status === 'handoff' && JSON.stringify((((noDeferStop.res.judgmentCalls || [])[0] || {}).options || []).map((o) => [o.label, o.ends])) === '[["Keep it","fix"],["Change it","fix"]]', [detail(noDeferStop), (noDeferStop.res.judgmentCalls || [])[0]])
+  const markedTyped = { 'R1-1': { ...typedDefer()['R1-1'], call: true } }
+  const mitigatePick = { ...relabelledCall('outside the pull request'), resolveDeferred: [guarded] }
+  for (const [name, decisions, scenario] of [
+    ['a typed defer on a call with no option that ends in defer', markedTyped, noDeferOption],
+    ['a pick of a relabelled call\'s undrafted Mitigate', pickOf('Mitigate', tracked), mitigatePick],
+  ]) {
+    const cleared = await go(`left: ${name}, the resolve agent giving a mitigation`, { ...ruleArgs, decisions, deferrals: goAhead('R1-1') }, scenario)
+    check(`left: ${name}: the plan approver and the implementer are shown its entry with no mitigation, a warning says it was cleared, and its draft is filed`, cleared.res.status === 'done' && ['plan approver r1', 'implement r1'].every((label) => promptOf(cleared, label).includes('"mitigation": ""') && !promptOf(cleared, label).includes('"mitigation": "a guard"')) && (cleared.res.warnings || []).includes(CLEARED('craft-config')) && filedCalls(cleared).join('|') === 'file deferred r1', [detail(cleared), promptOf(cleared, 'implement r1').slice(0, 1500)])
+    const withFiles = await go(`left: ${name}, the resolve agent planning a task with files`, { ...ruleArgs, decisions, deferrals: goAhead('R1-1') }, { ...scenario, resolveFiles: { 'R1-1': ['app/x.php'] } })
+    check(`left: ${name}: a task with files for it stops at resolve, the workflow's own check, resumable there`, withFiles.res.status === 'error' && withFiles.res.stage === 'resolve' && withFiles.res.error === LEFT_TASK && withFiles.res.ownCheck === true && (withFiles.res.resumeFrom || {}).label === 'resolve r1', detail(withFiles))
+  }
+  const fullFixFiles = await go('left: a relabelled call\'s Full fix picked, the resolve agent planning a task with files', { ...ruleArgs, decisions: pickOf('Full fix', 'The author makes the full fix by hand.') }, { ...relabelledCall('outside the pull request'), resolveFiles: { 'R1-1': ['app/x.php'] } })
+  check('left: a task with files for a left finding nobody deferred stops at resolve the same way', fullFixFiles.res.status === 'error' && fullFixFiles.res.stage === 'resolve' && fullFixFiles.res.error === LEFT_TASK && fullFixFiles.res.ownCheck === true && (fullFixFiles.res.resumeFrom || {}).label === 'resolve r1', detail(fullFixFiles))
+  // A reshape that newly leaves a decided deferral keeps its earlier entry, and the entry's
+  // mitigation is cleared there: `namedLater` above, whose first resolve's entry carries one.
+  check('left: a decided deferral a reshape leaves to the person is shown with no mitigation after the reshape, with the warning', ['plan approver r1 #2', 'implement r1'].every((label) => promptOf(namedLater, label).includes('"mitigation": ""') && !promptOf(namedLater, label).includes('"mitigation": "a guard"')) && (namedLater.res.warnings || []).includes(CLEARED('billing')), [detail(namedLater), promptOf(namedLater, 'implement r1').slice(0, 1500)])
 }
 
 // ---------------------------------------------------------------------------
