@@ -4038,7 +4038,8 @@ function forceAskRules(record, pass, inScope, shaped) {
           ...(kept ? [{ label: DEFER_TO_ISSUE, cost: 'None in this pull request', effect: `Redline files the drafted issue, "${draftTitle(kept.title)}"; the change stays to be made outside the run.`, ends: 'defer', draft: kept }] : []),
         ],
         recommended: kept ? DEFER_TO_ISSUE : wasDecline ? ACCEPT_AS_IS : BY_HAND,
-        recommendation: kept ? `${DEFER_TO_ISSUE}: ${draftTitle(kept.title)}.` : wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        // A title that ends in a period keeps one, as the sibling sentences strip theirs (#127, R3-7).
+        recommendation: kept ? `${DEFER_TO_ISSUE}: ${draftTitle(kept.title).replace(/\.$/, '')}.` : wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
       shaped.judgmentCalls.push(call)

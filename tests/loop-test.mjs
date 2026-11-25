@@ -4838,6 +4838,16 @@ function samePrefix(name, first, second, n) {
   const call = ((stop.res || {}).judgmentCalls || [])[0] || { options: [], forced: {} }
   check('left: the call for a finding the shaper deferred under a rule keeps the drafted issue, as a third option that ends in defer and is the recommended one', stop.res.status === 'handoff' && JSON.stringify(call.options.map((o) => [o.label, o.ends])) === `[["${BY_HAND}","fix"],["${ACCEPT}","accept"],["${DEFER}","defer"]]` && JSON.stringify(call.options[2].draft) === JSON.stringify(draft) && call.recommended === DEFER && call.recommendation === 'Defer to an issue: Lock R1-1.' && call.forced.recommendation === 'Defer to an issue: Lock R1-1.', call)
   check('left: no draft is raised at the stop for it: the draft is the option\'s, shown with the call', JSON.stringify(stop.res.draftsNeeded) === '[]' && JSON.stringify(stop.res.decisionsNeeded) === '["R1-1"]' && (stop.res.warnings || []).includes('round 1: the shaper sorted R1-1 as defer; repository rule craft-config makes it an ask for the person'), [stop.res.draftsNeeded, stop.res.decisionsNeeded, stop.res.warnings])
+  // A kept draft whose title ends in a period gives a recommendation that ends in one (#127,
+  // R3-7): until then the recommendation added its own and doubled it, in the call, in the
+  // record and in autopilot's Left to line.
+  const periodTitle = { ...deferredUnderRule, drafts: { 'R1-1': { title: 'Lock R1-1.' } } }
+  const periodStop = await go('left: the shaper deferred a finding under a paths rule, its draft\'s title ending in a period', ruleArgs, periodTitle)
+  const periodCall = ((periodStop.res || {}).judgmentCalls || [])[0] || { forced: {} }
+  check('left: a kept draft whose title ends in a period gives a call recommendation that ends in one period', periodCall.recommendation === 'Defer to an issue: Lock R1-1.' && (periodCall.forced || {}).recommendation === 'Defer to an issue: Lock R1-1.', periodCall)
+  const periodAuto = await go('left: the same, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, periodTitle)
+  const periodOpen = ((periodAuto.res.forced || []).find((x) => x.id === 'R1-1') || {}).open || ''
+  check('left: on autopilot its Left to entry ends in the title\'s one period', periodOpen.endsWith('Lock R1-1.') && !periodOpen.includes('..'), [detail(periodAuto), periodOpen])
   const undrafted = await go('left: the shaper deferred a finding under a paths rule with no drafted issue', ruleArgs, { ...deferredUnderRule, noDraft: ['R1-1'] })
   const undraftedCall = ((undrafted.res || {}).judgmentCalls || [])[0] || { options: [] }
   check('left: a deferral with no complete draft under a rule gets the two options, and the round does not stop for the draft', undrafted.res.status === 'handoff' && undraftedCall.options.map((o) => o.label).join('|') === `${BY_HAND}|${ACCEPT}` && undraftedCall.recommended === BY_HAND, [detail(undrafted), undraftedCall])
