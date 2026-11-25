@@ -38,11 +38,12 @@ You produce one spec folder under `agent-os/specs/` with `plan.md`, `shape.md`, 
   "specFolder": "agent-os/specs/<YYYY-MM-DD-HHMM>-<pr>-review-round-<n>",
   "findings": [
     {"id": "R1-1", "disposition": "fix", "decidedBy": "redline", "recommendation": "Reject a status outside the enum in the request rules; a feature test proves it.", "files": ["app/Http/Requests/StoreOrderRequest.php", "tests/Feature/Orders/StoreOrderTest.php"], "cause": {"where": "app/Http/Requests/StoreOrderRequest.php", "outcome": "one-place", "why": "The request rules are the one place a status is validated, so every caller is covered there."}},
-    {"id": "R1-2", "disposition": "ask", "decidedBy": "pending", "recommendation": "Accept; add a comment.", "files": []},
+    {"id": "R1-2", "disposition": "ask", "decidedBy": "pending", "recommendation": "Accept, no change.", "files": []},
     {"id": "R1-3", "disposition": "ask", "decidedBy": "pending", "recommendation": "By hand: rename the field handle through the control panel.", "files": ["config/project/project.yaml"], "askRule": "craft-project-config"},
     {"id": "R1-4", "disposition": "defer", "decidedBy": "redline", "recommendation": "Defer the queue client's retry policy; log the retry count now.", "files": ["app/Jobs/SyncOrders.php"]},
     {"id": "R1-5", "disposition": "decline", "decidedBy": "redline", "recommendation": "Decline; the pull request's spec settled it.", "reason": "the pull request's spec keeps the name on purpose (decision 4 in its shape.md)", "files": []},
-    {"id": "R1-6", "disposition": "decline", "decidedBy": "redline", "recommendation": "Decline; it cannot be confirmed from the repository.", "reason": "could not confirm: needs two workers on one queue", "secondLook": "unconfirmed", "files": []}
+    {"id": "R1-6", "disposition": "decline", "decidedBy": "redline", "recommendation": "Decline; it cannot be confirmed from the repository.", "reason": "could not confirm: needs two workers on one queue", "secondLook": "unconfirmed", "files": []},
+    {"id": "R1-7", "disposition": "fix", "decidedBy": "redline", "recommendation": "Read the status through the enum in the export, the one reader of three that compared the raw string; a test for each reader proves it.", "files": ["app/Exports/OrdersExport.php", "tests/Feature/Orders/OrdersExportTest.php"], "cause": {"where": "app/Exports/OrdersExport.php", "outcome": "sweep", "why": "Each reader of an order's status compares it itself, so every reader was run with a lower-case status.", "swept": [{"member": "OrdersExport::query", "found": "fixed"}, {"member": "OrderPolicy::update", "found": "holds"}, {"member": "SyncOrders::handle", "found": "holds"}]}}
   ],
   "deferred": [{"id": "R1-4", "mitigation": "Log the retry count when the queue is down.", "title": "Back off retries in the queue client when the queue is down", "found": "`SyncOrders` retries at once and without limit when the queue connection drops, so one outage becomes a retry storm.", "why": "The retry policy lives in the queue client, which this pull request does not touch.", "fullFix": "Give the client a capped exponential backoff and have `SyncOrders` use it."}],
   "judgmentCalls": [{
@@ -52,7 +53,16 @@ You produce one spec folder under `agent-os/specs/` with `plan.md`, `shape.md`, 
     "why_human": "product decision | spec assumption | outside the pull request | no clear pick | unconfirmed, serious if true | redline's own file | repository rule <id>",
     "options": [{"label": "Full fix", "cost": "...", "effect": "...", "ends": "fix"}, {"label": "Mitigate", "cost": "...", "effect": "...", "ends": "defer"}, {"label": "Accept", "cost": "...", "effect": "...", "ends": "accept"}],
     "recommended": "Accept",
-    "recommendation": "Accept; add a comment.",
+    "recommendation": "Accept, no change.",
+    "dependsOn": []
+  }, {
+    "id": "R1-3",
+    "title": "Short summary",
+    "story": "An editor opens the entry form, sees the old field handle, and the template that reads the new one prints nothing.",
+    "why_human": "repository rule craft-project-config",
+    "options": [{"label": "Rename it by hand", "cost": "...", "effect": "...", "ends": "fix"}, {"label": "Accept", "cost": "...", "effect": "...", "ends": "accept"}, {"label": "Track it", "cost": "...", "effect": "...", "ends": "defer", "draft": {"title": "Rename the field handle in the project config", "found": "The template reads a field handle the project config does not define, so the field prints nothing.", "why": "The project config is applied through the control panel, which no Redline role may write.", "fullFix": "Rename the handle in the control panel and commit the project config it writes."}}],
+    "recommended": "Rename it by hand",
+    "recommendation": "By hand: rename the field handle through the control panel.",
     "dependsOn": []
   }]
 }

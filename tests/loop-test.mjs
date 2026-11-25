@@ -5174,6 +5174,8 @@ function samePrefix(name, first, second, n) {
 //     own copy, says what the shaper's file and the workflow's prompts say. Point 10's example
 //     shows `files` on every finding, as the shaper's file always did (#105), and the three
 //     rules the cases above pin in the agent files are pinned here in the section too.
+//     Template v7 (the follow-up of #127): a sweep's list is stated inside cause, an example
+//     shows one, and the example's call recommends what its recommendation says (#127, R2-2).
 // ---------------------------------------------------------------------------
 {
   const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
@@ -5191,10 +5193,26 @@ function samePrefix(name, first, second, n) {
   }
   const examples = { template: exampleOf(template), section: exampleOf(section), 'the shaper\'s file': exampleOf(shaperAgent) }
   const lacking = (test) => Object.entries(examples).filter(([, example]) => !test(example)).map(([name]) => name)
-  check('template: the marker is v6, in the template and in this repository\'s section', both('<!-- redline-unattended: v6 -->'), [template.match(/redline-unattended: v\d+/), section.match(/redline-unattended: v\d+/)])
+  check('template: the marker is v7, in the template and in this repository\'s section', both('<!-- redline-unattended: v7 -->'), [template.match(/redline-unattended: v\d+/), section.match(/redline-unattended: v\d+/)])
   check('template: point 10\'s example lists files on every finding, in the template, the section and the shaper\'s file (#105)', lacking((example) => example.findings.length > 0 && example.findings.every((finding) => Array.isArray(finding.files))).length === 0, lacking((example) => example.findings.every((finding) => Array.isArray(finding.files))))
   check('template: the example\'s fix carries its cause, every option of its call what it ends in, and the call a recommended option that is one of them', lacking((example) => example.findings.filter((finding) => finding.disposition === 'fix').every((finding) => finding.cause && ['one-place', 'sweep', 'instance'].includes(finding.cause.outcome) && finding.files.includes(finding.cause.where)) && example.judgmentCalls.every((call) => call.options.every((option) => ['fix', 'defer', 'accept'].includes(option.ends)) && call.options.some((option) => option.label === call.recommended))).length === 0, examples.template.judgmentCalls)
   check('template: the sentence under the example names files on every finding, the cause of a fix, and what a call\'s options carry', missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']).length === 0, missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']))
+  // v7: the keys an example shows are shown in their place. A sweep's list is inside cause in
+  // every example and on no finding; a call recommends what its recommendation says, an option
+  // that ends in accept for no change and no files (#127, R2-2); every ask has its call; and the
+  // shaper's file shows a drafted option on its rule finding's call, on that option alone.
+  const sweepShown = (example) => example.findings.some((finding) => finding.cause && finding.cause.outcome === 'sweep' && Array.isArray(finding.cause.swept) && finding.cause.swept.length > 1 && finding.cause.swept.every((entry) => typeof entry.member === 'string' && ['holds', 'fixed'].includes(entry.found))) && example.findings.every((finding) => !('swept' in finding))
+  check('template: an example fix is a sweep with its list inside cause, and no finding carries swept, in the template, the section and the shaper\'s file', lacking(sweepShown).length === 0, lacking(sweepShown))
+  const callsAgree = (example) => example.findings.filter((finding) => finding.disposition === 'ask').every((finding) => example.judgmentCalls.filter((call) => call.id === finding.id).length === 1) && example.judgmentCalls.every((call) => {
+    const finding = example.findings.find((x) => x.id === call.id) || { files: ['?'] }
+    const recommended = call.options.find((option) => option.label === call.recommended) || {}
+    return finding.recommendation === call.recommendation && (recommended.ends !== 'accept' || (finding.files.length === 0 && call.recommendation === 'Accept, no change.'))
+  })
+  check('template: every ask of an example has its call, and a call that recommends an option ending in accept recommends no change and lists no files (#127, R2-2)', lacking(callsAgree).length === 0 && !template.includes('Accept; add a comment') && !section.includes('Accept; add a comment') && !shaperAgent.includes('Accept; add a comment'), lacking(callsAgree))
+  const draftShown = examples['the shaper\'s file'].judgmentCalls.filter((call) => /^repository rule /.test(call.why_human))
+  check('template: the shaper\'s file shows the call of its rule finding with a drafted issue on the option that ends in defer, and on no other option', draftShown.length === 1 && draftShown[0].options.some((option) => option.ends === 'defer' && option.draft && ['title', 'found', 'why', 'fullFix'].every((key) => typeof option.draft[key] === 'string' && option.draft[key] !== '')) && examples['the shaper\'s file'].judgmentCalls.every((call) => !('draft' in call) && call.options.every((option) => option.ends === 'defer' || !('draft' in option))), draftShown)
+  const nestedList = ['returned inside `cause`, as `cause.swept`, never on the finding beside it', 'inside `cause` beside them and never on the finding itself']
+  check('template: point 5 and the sentence under the example say a sweep\'s list sits inside cause, as the shaper\'s file does', missing(nestedList).length === 0 && nestedList.every((phrase) => shaperAgent.includes(phrase)) && !template.includes('returned as `swept`') && !section.includes('returned as `swept`'), missing(nestedList))
   const ends = ['Every option of a call states what choosing it ends in, in `ends`', 'The call names the option you recommend in `recommended`, by its label as written', 'the pending entry lists each option with its end']
   check('template: point 3 says every option states what it ends in and the call names the recommended one (#105)', missing(ends).length === 0 && shaperAgent.includes(ends[0]), missing(ends))
   const left = ['make the change by hand after the run, which ends in `fix`, or accept it as it is, which ends in `accept`', 'an option that ends in `defer` and carries its drafted issue in `draft`', 'Redline then files that draft, plans no task and writes nothing under the rule', 'A `draft` is read on that option alone']
