@@ -282,6 +282,26 @@ for (const [id, entry] of Object.entries(decisions)) {
     fail(`args.decisions must not give both an option and a disposition: a pick takes its disposition from the option it names, and a typed disposition names no option; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
   }
 }
+// A decision marked as an answer to a judgment call carries "call": true (#127, R3-4). The typed
+// defer for a finding left to the person is the one answer to a call that carries a disposition
+// (#126), and a decision answering a call a reshape raised enters only with that call
+// (agent-os/standards/workflow/replay.md, line 6), never as a plan-dial override: until R3-4 a
+// defer typed at a reshape's stop was read on the relaunch, whose first shape raised no call for
+// it, as an override, and a first resolve the launch never ran planned it. The mark is true or
+// absent, and any other value is refused here, before any agent runs. A marked id is kept in
+// callAnswers and the key is dropped from the run's copy, so no prompt shows it.
+const callAnswers = new Set()
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || entry.call === undefined) {
+    continue
+  }
+  if (entry.call !== true) {
+    fail(`args.decisions must give call as true, the mark of an answer to a judgment call, when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+  const { call: _mark, ...rest } = entry
+  decisions[id] = rest
+  callAnswers.add(id)
+}
 // plan dial: the passes whose disposition list the person approved (relaunch carries them all):
 // a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
 // its final nit pass never share a key when their numbers are equal (#38, R1-5).
@@ -3022,7 +3042,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it; any other disposition typed for one is not applied, and any other answer leaves it to the person with nothing filed. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it, recorded with "call": true beside it, since it answers a call; any other disposition typed for one is not applied, and any other answer leaves it to the person with nothing filed. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -4401,9 +4421,10 @@ async function revise(record, inScope, reviewedKind) {
   const openDrafts = (drafts) => (raisesDrafts ? drafts.filter((d) => !draftAnswered(d.item.id, d.version)) : [])
   // What the shaper deferred. A disposition the person changed at a stop replaces the draft that
   // stop showed, so that one is not asked about here: the round's resolve applies the change, and
-  // a deferral it drafts is raised after it.
+  // a deferral it drafts is raised after it. A decision marked as a call's answer changed no
+  // disposition (#127, R3-4): it is applied with its call, whichever stop raised it.
   const shaperDrafts = draftsOf(shaped.deferred.filter((d) => shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')), shaperFiles)
-    .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition))
+    .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition && !callAnswers.has(d.item.id)))
   if (interrupt === 'plan' && !approvedPlans.includes(pass.planKey)) {
     const pendingCalls = shaped.judgmentCalls.filter((call) => !decisions[call.id])
     return { handoff: true, kind: 'plan', pending: pendingCalls, calls: shaped.judgmentCalls, shaped, drafts: openDrafts(shaperDrafts) }
@@ -4439,8 +4460,10 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   // A decision on a finding that was not a judgment call is a disposition override from the plan
-  // dial: the person changed fix/defer/ask to fix, defer or accept after seeing the list.
-  const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !known.some((call) => call.id === f.id))
+  // dial: the person changed fix/defer/ask to fix, defer or accept after seeing the list. A
+  // decision marked as a call's answer is no override, whichever call it answers (#127, R3-4): a
+  // call a reshape raised is not among the first shape's, and its answer enters with it.
+  const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !callAnswers.has(f.id) && !known.some((call) => call.id === f.id))
   let overrides = overridesFor(calls)
   // Whether a decided finding is a disposition override, read from the round's own overrides as
   // they entered (#114, R2-5), never from `calls`: a reshape that returns a call for an override's
@@ -4934,6 +4957,12 @@ async function revise(record, inScope, reviewedKind) {
       }
     }
     phase('Approve')
+  }
+  // A decision marked as a call's answer whose finding no shape or reshape of the round raised a
+  // call for answers nothing here (#127, R3-4). It is warned about, not a stop: the decision is
+  // the person's, and a round whose shapes replay raises the same calls.
+  for (const f of inScope.filter((x) => callAnswers.has(x.id) && !calls.some((call) => call.id === x.id))) {
+    warnings.push(`${pass.name}: the decision for ${f.id} answers a judgment call, but no shape of ${pass.name} raised one for it; it is not applied`)
   }
   const finalDispositions = effectiveDispositions()
 

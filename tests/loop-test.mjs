@@ -5032,6 +5032,39 @@ function samePrefix(name, first, second, n) {
   check('left: the plan approver\'s file says a left finding the person deferred has its drafted issue and still no task with files', approverAgent.includes('When that decision also carries `disposition` `defer`, the person deferred the finding to an issue'), 'agents/redline-plan-approver.md')
   check('left: the skill shows a left call\'s defer option with its draft\'s title, records a typed defer for it, and says back that any other wording files nothing', skill.includes('shown with its draft\'s title') && skill.includes('`<id>: defer. <reason>` typed for such a finding is recorded with `"disposition": "defer"`') && skill.includes('nothing is filed for it') && skill.includes('its thread is resolved once the draft is filed'), 'skills/redline/SKILL.md')
   check('left: the result tells a relaunching session how a finding left to the person is deferred', stop.res.relaunch.how.includes('A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it'), stop.res.relaunch.how)
+
+  // A typed defer for a left call is marked as a call's answer (#127, R3-4). A reshape after a
+  // bounced plan can newly leave a finding to the person and raise its call; a defer typed at
+  // that stop was read on the relaunch, whose first shape raised no call for it, as a plan-dial
+  // override, so a first resolve the launch never ran planned it before it was left. Marked, it
+  // enters only with the raised call, and the prompts before the stop replay.
+  const draftOf = (id) => ({ fullFix: 'a lock', title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}` })
+  const markedDefer = { 'R1-1': { choice: 'defer', notes: 'The author defers R1-1 to an issue.', date: '2026-11-25', disposition: 'defer', call: true } }
+  const reshapeLeaves = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [['R1-2'], []] }
+  const reshapeStop = await go('left: a reshape leaves a finding to the person under a prose rule, guided', { ...baseArgs, askRules: billing }, reshapeLeaves)
+  check('left: a reshape that newly leaves a finding to the person stops at its raised call, with no resolve run', reshapeStop.res.status === 'handoff' && JSON.stringify(reshapeStop.res.decisionsNeeded) === '["R1-1"]' && !labels(reshapeStop.calls).some((l) => l.startsWith('resolve r1')), detail(reshapeStop))
+  const markedRun = await go('left: the reshape\'s left call answered with a marked typed defer, relaunched', { ...baseArgs, askRules: billing, decisions: markedDefer, deferrals: goAhead('R1-1') }, { ...reshapeLeaves, resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draftOf('R1-1') }] })
+  samePrefix('left: a reshape\'s left call answered with a marked typed defer', reshapeStop.calls, markedRun.calls, reshapeStop.calls.length)
+  const markedResolve = promptOf(markedRun, 'resolve r1 #1')
+  check('left: a marked typed defer at a reshape\'s stop is no override: no first resolve runs, and the resolve the raised call sets off applies it under the rule', !labels(markedRun.calls).includes('resolve r1') && markedResolve.includes('"R1-1": {') && markedResolve.includes('"rule": "billing"') && markedResolve.includes('"disposition": "defer"') && !markedRun.calls.some((c) => c.prompt.includes('"call": true')), [detail(markedRun), markedResolve.slice(0, 2000)])
+  const markedReply = replyFor(markedRun.calls, 'push and reply r1', 'R1-1')
+  check('left: the marked typed defer files the draft, and the reply says the change is the person\'s under the rule and names the issue', markedRun.res.status === 'done' && filedCalls(markedRun).join('|') === 'file deferred r1' && markedReply.startsWith('Redline round 1: left to @author under repository rule billing') && /Deferred to #\d+\. · decided by: @author$/.test(markedReply), [detail(markedRun), markedReply])
+  // The neighbour that must not change: the same answer with no mark is still read as a
+  // plan-dial override, and the round's first resolve applies it.
+  const { call: _mark, ...unmarkedDefer } = markedDefer['R1-1']
+  const unmarkedRun = await go('left: the reshape\'s left call answered with an unmarked typed defer, relaunched', { ...baseArgs, askRules: billing, decisions: { 'R1-1': unmarkedDefer }, deferrals: goAhead('R1-1') }, { ...reshapeLeaves, resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draftOf('R1-1') }] })
+  const unmarkedResolve = promptOf(unmarkedRun, 'resolve r1')
+  check('left: an unmarked decision with a disposition is still a plan-dial override, applied by the round\'s first resolve', unmarkedResolve.includes('Disposition overrides, as JSON') && unmarkedResolve.indexOf('"R1-1": {', unmarkedResolve.indexOf('Disposition overrides, as JSON')) > 0, [detail(unmarkedRun), unmarkedResolve.slice(0, 1500)])
+  // A mark on a decision no shape of the round raised a call for is warned about and not
+  // applied: the finding is posted as the shaper sorted it.
+  const strayMark = await go('left: a marked decision on a finding no shape raised a call for', { ...baseArgs, decisions: markedDefer }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1'], []] })
+  check('left: a marked decision no shape of the round raised a call for is warned about and not applied, and the finding is posted as the shaper\'s fix', strayMark.res.status === 'done' && !labels(strayMark.calls).some((l) => l.startsWith('resolve r1')) && (strayMark.res.warnings || []).includes('round 1: the decision for R1-1 answers a judgment call, but no shape of round 1 raised one for it; it is not applied') && replyFor(strayMark.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline', [detail(strayMark), replyFor(strayMark.calls, 'push and reply r1', 'R1-1')])
+  // The mark is true or absent: any other value is refused before any agent runs.
+  for (const [value, name] of [['yes', 'a string'], [false, 'false']]) {
+    const badMark = await go(`left: a decision whose call mark is ${name}`, { ...baseArgs, decisions: { 'R1-1': { ...markedDefer['R1-1'], call: value } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+    check(`left: a decision whose call mark is ${name} is refused before any agent runs`, Boolean(badMark.thrown) && badMark.thrown.message.includes('args.decisions must give call as true, the mark of an answer to a judgment call, when it gives one; got "R1-1": ') && badMark.calls.length === 0, [badMark.thrown && badMark.thrown.message, badMark.calls.length])
+  }
+  check('left: the skill records a typed defer for a left call with the mark of a call\'s answer, and the result tells a relaunching session so', skill.includes('"disposition": "defer", "call": true') && stop.res.relaunch.how.includes('recorded with "call": true beside it'), [stop.res.relaunch.how])
 }
 
 // ---------------------------------------------------------------------------
