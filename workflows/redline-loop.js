@@ -4592,12 +4592,13 @@ async function revise(record, inScope, reviewedKind) {
       // from the copy with a warning, and the resolve agent states what the decision ends in.
       // On a finding left to the person no end is kept, as none is for a disposition typed for
       // one: no task writes anything whatever the answer, and the option rides along for the
-      // record.
+      // record. The warning says what is true there (#127, R3-8): no statement is asked of the
+      // resolve agent for a left finding, so it stays left, and nothing is filed.
       const call = newCalls.find((c) => c.id === id)
       if (call && decision.option !== undefined) {
         const option = optionOf(call, decision.option)
         if (!option) {
-          warnings.push(`${pass.name}: the decision for ${id} names the option ${JSON.stringify(decision.option)}, which is the label of none of its call's options (${(Array.isArray(call.options) ? call.options : []).map(optionLabel).join(', ')}); it is read as an answer in the person's own words, and the resolve agent states what it ends in`)
+          warnings.push(`${pass.name}: the decision for ${id} names the option ${JSON.stringify(decision.option)}, which is the label of none of its call's options (${(Array.isArray(call.options) ? call.options : []).map(optionLabel).join(', ')}); it is read as an answer in the person's own words${forced ? `: ${id} stays left to the person, and nothing is filed` : ', and the resolve agent states what it ends in'}`)
           delete decision.option
         } else if (!forced || option.ends === 'defer') {
           decision.disposition = option.ends

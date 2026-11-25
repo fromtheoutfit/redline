@@ -5125,6 +5125,12 @@ function samePrefix(name, first, second, n) {
   // A reshape that newly leaves a decided deferral keeps its earlier entry, and the entry's
   // mitigation is cleared there: `namedLater` above, whose first resolve's entry carries one.
   check('left: a decided deferral a reshape leaves to the person is shown with no mitigation after the reshape, with the warning', ['plan approver r1 #2', 'implement r1'].every((label) => promptOf(namedLater, label).includes('"mitigation": ""') && !promptOf(namedLater, label).includes('"mitigation": "a guard"')) && (namedLater.res.warnings || []).includes(CLEARED('billing')), [detail(namedLater), promptOf(namedLater, 'implement r1').slice(0, 1500)])
+
+  // An option that names none of a left call's options is the person's own words, and for a
+  // finding left to the person the warning says what follows (#127, R3-8): no statement is asked
+  // of the resolve agent for one, so the finding stays left and nothing is filed.
+  const unmatchedLeft = await go('left: a call left to the person answered with an option none of its options has', { ...ruleArgs, decisions: pickOf('Defer it now', tracked) }, deferredUnderRule)
+  check('left: an unmatched option on a left call is warned about as the person\'s own words that leave the finding left with nothing filed', unmatchedLeft.res.status === 'done' && filedCalls(unmatchedLeft).length === 0 && (unmatchedLeft.res.warnings || []).includes(`round 1: the decision for R1-1 names the option "Defer it now", which is the label of none of its call's options (${BY_HAND}, ${ACCEPT}, ${DEFER}); it is read as an answer in the person's own words: R1-1 stays left to the person, and nothing is filed`), detail(unmatchedLeft))
 }
 
 // ---------------------------------------------------------------------------
