@@ -5207,7 +5207,10 @@ async function revise(record, inScope, reviewedKind) {
   // filed all the same, and the warning names the files, since a commit that carries it under
   // another subject is not counted either.
   const landed = (id) => roundCommits.some((c) => ownCommit(c, id))
-  for (const d of roundDeferrals) {
+  const ownShas = (id) => andList(roundCommits.filter((c) => ownCommit(c, id)).map((c) => short(c.sha)))
+  // A finding left to the person is warned about on its own below (#127, R3-11): its plan is no
+  // task with files, by rule, so neither warning here says anything true of it.
+  for (const d of roundDeferrals.filter((x) => !record.forced[x.item.id])) {
     const files = plannedFiles(d.item.id)
     if (files.length && !landed(d.item.id)) {
       warnings.push(`${pass.name}: ${d.item.id} planned a mitigation in ${files.join(', ')} and no commit of its own landed; posted as shipping nothing`)
@@ -5216,10 +5219,17 @@ async function revise(record, inScope, reviewedKind) {
       // record, so it counts, and the warning says whose list was empty: a reshape's, when one
       // changed a decided finding's task and left it with none (#106), since the resolve agent
       // may well have planned one.
-      const shas = andList(roundCommits.filter((c) => ownCommit(c, d.item.id)).map((c) => short(c.sha)))
+      const shas = ownShas(d.item.id)
       const emptyBy = reshapedTasks[d.item.id] ? 'the reshape left its task with no files; posted with its decision' : roundDecisions[d.item.id] ? 'the resolve agent planned no task with files for it; posted with its decision' : 'the shaper listed no files for its task; posted as its mitigation'
       warnings.push(`${pass.name}: ${d.item.id} has a commit of its own (${shas}) and ${emptyBy}`)
     }
+  }
+  // A commit of its own for a finding left to the person, deferred or not (#127, R3-11): no task
+  // writes anything for one, and a left outcome carries no commit, so no reply or handoff names
+  // it. Until R3-11 a left deferral's was said to have no task planned with files, whatever the
+  // resolve agent planned, and a left finding nobody deferred had no warning at all.
+  for (const f of inScope.filter((x) => record.forced[x.id] && landed(x.id))) {
+    warnings.push(`${pass.name}: ${f.id} has a commit of its own (${ownShas(f.id)}), but it is left to the person under ${leftUnder(record.forced[f.id])}: no task writes anything for it, and its reply and the handoff name no commit`)
   }
   for (const d of toFile) {
     deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))

@@ -5138,6 +5138,16 @@ function samePrefix(name, first, second, n) {
   const another = { id: 'R1-1', mitigation: '', fullFix: 'another lock', title: 'Another title', found: 'found again', why: 'why again' }
   const laterResolve = await go('left: a deferred left call beside a call a reshape raises, every resolve returning another draft for it', { ...ruleArgs, decisions: { ...pickOf(DEFER, tracked), ...typedAnswer('R1-2') }, deferrals: goAhead('R1-1') }, { reviews: [[cfg, f('R1-2', 'correctness')], []], defer: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [another], commitIds: [['R1-2'], []] })
   check('left: a later resolve\'s entry for a left deferral an earlier resolve applied is dropped with a warning, and the option\'s draft is filed', laterResolve.res.status === 'done' && labels(laterResolve.calls).includes('resolve r1 #1') && promptOf(laterResolve, 'file deferred r1').includes('# Lock R1-1') && !promptOf(laterResolve, 'file deferred r1').includes('Another title') && (laterResolve.res.warnings || []).includes('round 1: the resolve agent returned a deferred entry for R1-1, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands'), [detail(laterResolve), promptOf(laterResolve, 'file deferred r1').slice(0, 800)])
+
+  // A commit of its own for a finding left to the person is warned about truly (#127, R3-11):
+  // until then a left deferral's was said to have no task planned with files, whatever the
+  // resolve agent planned, and implied a reply named the commit; a left finding nobody deferred
+  // had no warning at all. No reply or handoff names it, since a left outcome carries no commit.
+  const LEFT_COMMIT = 'round 1: R1-1 has a commit of its own (1bbbbbb), but it is left to the person under repository rule craft-config: no task writes anything for it, and its reply and the handoff name no commit'
+  for (const [name, label] of [['defers', DEFER], ['accepts', ACCEPT]]) {
+    const leftCommit = await go(`left: a finding left to the person with a commit of its own, which the person ${name}`, { ...ruleArgs, decisions: pickOf(label, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, commitIds: [['R1-1'], []] })
+    check(`left: a commit of its own for a left finding the person ${name} is warned about as left under its rule, naming no reply`, leftCommit.res.status === 'done' && (leftCommit.res.warnings || []).includes(LEFT_COMMIT) && !(leftCommit.res.warnings || []).some((w) => w.includes('the resolve agent planned no task with files for it')), [detail(leftCommit)])
+  }
 }
 
 // ---------------------------------------------------------------------------
