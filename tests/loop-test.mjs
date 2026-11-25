@@ -188,6 +188,9 @@ function mock(scenario) {
       return {
         round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: scenario.summary ? scenario.summary[reviewN - 1] || 'S' : 'S',
         ...(scenario.coverageOut ? { coverage: scenario.coverageOut[reviewN - 1] || [] } : {}),
+        // scenario.reviewKeys[n] puts keys at the top of the nth review, beside findings, as a
+        // reviewer that returns a key one level out does (the follow-up of #127).
+        ...((scenario.reviewKeys || [])[reviewN - 1] || {}),
       }
     }
     if (t === 'redline:redline-shaper') {
@@ -284,6 +287,9 @@ function mock(scenario) {
         // agents; scenario.ends[id] scripts another end for it. Change it ends in a fix.
         // scenario.callOf[id] replaces fields of one call (its options, its recommended), and
         // scenario.callAt[label][id] does the same for one shaper call alone, by its label.
+        // scenario.shapeKeys puts keys at the top of the shaper's result, beside findings, and
+        // scenario.shapeKeysAt[label] does the same for one shaper call alone.
+        ...(scenario.shapeKeys || {}), ...((scenario.shapeKeysAt || {})[opts.label] || {}),
         judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({
           id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision',
           options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: (scenario.ends && scenario.ends[id]) || ((scenario.resolveDeferred || []).some((e) => e.id === id) ? 'defer' : (scenario.acceptedCalls || []).includes(id) ? 'accept' : 'fix') }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }],
@@ -448,6 +454,7 @@ const OWN_CHECKS = [
   ['shape', /^the shaper said the cause of .* lives at .*, which is no path inside the repository/],
   ['shape', /^the shaper called the fix for .* one-place, made where the cause lives, but its task's files/],
   ['shape', /^the shaper called the fix for .* a sweep and returned no usable list of what the sweep covered/],
+  ['shape', /^the shaper returned .* for the fix for .*, which it did not call a sweep/],
   ['shape', /^the shaper returned an instance fix for .*, which the verifier links to /],
 ].map(([stage, re]) => ({ stage, re, seen: 0 }))
 const ownWrong = []
@@ -4604,7 +4611,7 @@ function samePrefix(name, first, second, n) {
 
   // Every prompt that returns the shaper's JSON asks for the two fields: the shape, the human
   // pass's shape, and the reshape of each, with and without a decided finding.
-  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
+  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and, on the call itself, recommended (the label, as written, of the option you recommend)'
   const bounced = await go('ends: a round with no call, its plan bounced once', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, commitIds: [['R1-1']] })
   const bouncedDecided = await go('ends: a round whose call autopilot decided, its plan bounced once', { ...baseArgs, interrupt: 'autopilot' }, { ...one, planBounce: 1 })
   const humanBounced = await go('ends: a human pass with no call, its plan bounced once', humanArgs(), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
@@ -4619,13 +4626,13 @@ function samePrefix(name, first, second, n) {
   const REPEATED = (id) => `the shaper gave ${id} more than one option labelled "Keep it"; a decision names the option it picks by its label, so each label names one option`
   const repeated = await go('ends: two options of one call share a label', baseArgs, { ...one, callOf: { 'R1-1': { options: twoKeeps } } })
   check('ends: a call with two options under one label stops at shape, the workflow\'s own check, resumable at the shaper', stopsAtShape(repeated, REPEATED('R1-1')), stopDetail(repeated))
-  const NONE_RECOMMENDED = (id, named) => `the shaper recommended ${JSON.stringify(named)} for ${id}, which is the label of none of its options (Keep it, Change it); recommended names the option the shaper recommends by its label`
+  const NONE_RECOMMENDED = (id, named) => `the shaper recommended ${JSON.stringify(named)} for ${id}, which is the label of none of its options (Keep it, Change it); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label`
   const noneRecommended = await go('ends: the recommended label names no option of the call', baseArgs, { ...one, callOf: { 'R1-1': { recommended: 'Keep' } } })
   check('ends: a call whose recommended names none of its options stops at shape, the workflow\'s own check', stopsAtShape(noneRecommended, NONE_RECOMMENDED('R1-1', 'Keep')), stopDetail(noneRecommended))
   const noRecommended = await go('ends: a call with no recommended at all', baseArgs, { ...one, callOf: { 'R1-1': { recommended: undefined } } })
   check('ends: a call with no recommended stops the same way', stopsAtShape(noRecommended, NONE_RECOMMENDED('R1-1', '')), stopDetail(noRecommended))
   const endless = await go('ends: an option with an end outside the three, and one with none and no label', baseArgs, { ...one, callOf: { 'R1-1': { options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'mitigate' }, { label: ' ', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }] } } })
-  check('ends: an option with no label, or with an end that is none of the three, stops at shape, the workflow\'s own check, as the second layer behind the schema', stopsAtShape(endless, 'the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in "mitigate", "" ends in null); every option of a judgment call carries a label and states what it ends in, fix, defer or accept'), stopDetail(endless))
+  check('ends: an option with no label, or with an end that is none of the three, stops at shape, the workflow\'s own check, as the second layer behind the schema', stopsAtShape(endless, 'the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in "mitigate", "" ends in null); every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept'), stopDetail(endless))
   const humanNoneRecommended = await go('ends: a human pass, the recommended label names no option', humanArgs(), { ...humanOne, callOf: { 'H1-1': { recommended: 'Keep' } } })
   check('ends: a human pass\'s call is held to the same check', stopsAtShape(humanNoneRecommended, NONE_RECOMMENDED('H1-1', 'Keep'), 'shape h1'), stopDetail(humanNoneRecommended))
   // After a reshape the check reads the calls still pending or newly raised: a call the reshape
@@ -4916,13 +4923,13 @@ function samePrefix(name, first, second, n) {
   // there it is complete. On any other option it is dropped with a warning.
   const shortDraft = [{ ...own[0] }, { ...own[1] }, { ...own[2], draft: { title: 'Lock R1-1', fullFix: 'a lock' } }]
   const noOptionDraft = await go('left: a rule call the shaper wrote, its defer option\'s draft short', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: shortDraft, recommended: 'Track it' } } })
-  check('left: a defer option of a call left to the person with no complete draft stops at shape, the workflow\'s own check', noOptionDraft.res.status === 'error' && noOptionDraft.res.stage === 'shape' && noOptionDraft.res.error === 'the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue ("Track it": missing found, why); the person is shown the draft before deciding, and Redline files it when they pick the option' && noOptionDraft.res.ownCheck === true && (noOptionDraft.res.resumeFrom || {}).label === 'shape r1', detail(noOptionDraft))
+  check('left: a defer option of a call left to the person with no complete draft stops at shape, the workflow\'s own check', noOptionDraft.res.status === 'error' && noOptionDraft.res.stage === 'shape' && noOptionDraft.res.error === 'the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue ("Track it": draft missing found, why); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option' && noOptionDraft.res.ownCheck === true && (noOptionDraft.res.resumeFrom || {}).label === 'shape r1', detail(noOptionDraft))
   const bareDefer = await go('left: a rule call the shaper wrote, its defer option with no draft at all', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [own[0], own[1], { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer' }], recommended: 'Track it' } } })
-  check('left: a defer option of a call left to the person with no draft at all stops the same way', bareDefer.res.status === 'error' && bareDefer.res.stage === 'shape' && (bareDefer.res.error || '').includes('("Track it": missing title, found, why, fullFix)') && bareDefer.res.ownCheck === true, detail(bareDefer))
+  check('left: a defer option of a call left to the person with no draft at all stops the same way', bareDefer.res.status === 'error' && bareDefer.res.stage === 'shape' && (bareDefer.res.error || '').includes('("Track it": no draft)') && bareDefer.res.ownCheck === true, detail(bareDefer))
   // Every fault of a call's options in one error (#127, R1-5): a repeated label and a
   // recommended that names none of them are both named.
   const twoOptionFaults = await go('left: a rule call the shaper wrote with a repeated label and a recommended that names none', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [own[0], own[1], { ...own[1] }], recommended: 'Nope' } } })
-  check('left: a call whose options have two faults stops at shape with one error that names both', twoOptionFaults.res.status === 'error' && twoOptionFaults.res.stage === 'shape' && twoOptionFaults.res.ownCheck === true && (twoOptionFaults.res.resumeFrom || {}).label === 'shape r1' && twoOptionFaults.res.error === 'the shaper gave R1-1 more than one option labelled "Leave it"; a decision names the option it picks by its label, so each label names one option; also, the shaper recommended "Nope" for R1-1, which is the label of none of its options (Change it by hand, Leave it, Leave it); recommended names the option the shaper recommends by its label', detail(twoOptionFaults))
+  check('left: a call whose options have two faults stops at shape with one error that names both', twoOptionFaults.res.status === 'error' && twoOptionFaults.res.stage === 'shape' && twoOptionFaults.res.ownCheck === true && (twoOptionFaults.res.resumeFrom || {}).label === 'shape r1' && twoOptionFaults.res.error === 'the shaper gave R1-1 more than one option labelled "Leave it"; a decision names the option it picks by its label, so each label names one option; also, the shaper recommended "Nope" for R1-1, which is the label of none of its options (Change it by hand, Leave it, Leave it); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label', detail(twoOptionFaults))
   const DROPPED_DRAFT = (label) => `round 1: the shaper gave R1-1's option ${JSON.stringify(label)} a drafted issue, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`
   const wrongOption = await go('left: a rule call the shaper wrote, a draft on its by-hand option', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [{ ...own[0], draft }, own[1]], recommended: 'Change it by hand' } } })
   check('left: a draft on an option of a left call that does not end in defer is dropped with a warning', wrongOption.res.status === 'handoff' && (wrongOption.res.warnings || []).includes(DROPPED_DRAFT('Change it by hand')) && !('draft' in wrongOption.res.judgmentCalls[0].options[0]), [detail(wrongOption), (wrongOption.res.judgmentCalls || [])[0]])
@@ -4943,9 +4950,9 @@ function samePrefix(name, first, second, n) {
   const relabelledAuto = await go('left: an ordinary call a paths rule turns out to cover, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, relabelledCall('outside the pull request'))
   check('left: on autopilot the relabelled call is left to the person under the rule, the run finishes, and nothing is filed', relabelledAuto.res.status === 'done' && relabelledAuto.res.stage !== 'shape' && (relabelledAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'craft-config') && filedCalls(relabelledAuto).length === 0 && (relabelledAuto.res.deferred || []).length === 0, [detail(relabelledAuto), relabelledAuto.res.forced])
   const relabelledShort = await go('left: an ordinary call a paths rule turns out to cover, its Mitigate option\'s draft short', ruleArgs, relabelledCall('outside the pull request', { draft: { title: 'Lock R1-1' } }))
-  check('left: a draft a relabelled call\'s defer option does carry is held complete, and one short of a field stops at shape', relabelledShort.res.status === 'error' && relabelledShort.res.stage === 'shape' && relabelledShort.res.ownCheck === true && (relabelledShort.res.resumeFrom || {}).label === 'shape r1' && (relabelledShort.res.error || '').startsWith(UNDRAFTED) && (relabelledShort.res.error || '').includes('("Mitigate": missing found, why, fullFix)'), detail(relabelledShort))
+  check('left: a draft a relabelled call\'s defer option does carry is held complete, and one short of a field stops at shape', relabelledShort.res.status === 'error' && relabelledShort.res.stage === 'shape' && relabelledShort.res.ownCheck === true && (relabelledShort.res.resumeFrom || {}).label === 'shape r1' && (relabelledShort.res.error || '').startsWith(UNDRAFTED) && (relabelledShort.res.error || '').includes('("Mitigate": draft missing found, why, fullFix)'), detail(relabelledShort))
   const ownReason = await go('left: a call the shaper wrote for Redline\'s own file, which a paths rule covers, its Mitigate option undrafted', ruleArgs, relabelledCall('redline\'s own file'))
-  check('left: a call the shaper wrote as left for Redline\'s own file is not relabelled, and its undrafted defer option stops at shape', ownReason.res.status === 'error' && ownReason.res.stage === 'shape' && ownReason.res.ownCheck === true && (ownReason.res.resumeFrom || {}).label === 'shape r1' && (ownReason.res.error || '').startsWith(UNDRAFTED) && (ownReason.res.error || '').includes('("Mitigate": missing title, found, why, fullFix)'), detail(ownReason))
+  check('left: a call the shaper wrote as left for Redline\'s own file is not relabelled, and its undrafted defer option stops at shape', ownReason.res.status === 'error' && ownReason.res.stage === 'shape' && ownReason.res.ownCheck === true && (ownReason.res.resumeFrom || {}).label === 'shape r1' && (ownReason.res.error || '').startsWith(UNDRAFTED) && (ownReason.res.error || '').includes('("Mitigate": no draft)'), detail(ownReason))
   const draftSchema = (r, label) => (((((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).judgmentCalls || {}).items || {}).properties || {}).options || {}).items || {}
   check('left: the shaper\'s schema lets an option carry a draft, its four fields strings, and requires none of it', JSON.stringify(Object.keys(((draftSchema(stop, 'shape r1').properties || {}).draft || {}).properties || {})) === '["title","found","why","fullFix"]' && !(draftSchema(stop, 'shape r1').required || []).includes('draft'), draftSchema(stop, 'shape r1'))
   // Every shape prompt asks for it, in the sentence that asks for the options' ends. A
@@ -5050,7 +5057,7 @@ function samePrefix(name, first, second, n) {
 
   // The ask and the schema key sit only in a review that is shown earlier findings, so the first
   // review of a pull request with no earlier round is as it was.
-  const LINK_ASK = 'For each finding, state sameClassAs when its cause is one class with the cause of an earlier finding listed above that was fixed: the ids of those earlier findings, and leave it out when there is none.'
+  const LINK_ASK = 'For each finding, state sameClassAs, a key of that finding itself and never beside findings, when its cause is one class with the cause of an earlier finding listed above that was fixed: a list of the ids of those earlier findings, and leave it out when there is none.'
   const linksKey = (r, label) => Boolean((((((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}).properties) || {}).sameClassAs)
   const nitRound = await go('class: a round of nits and its final nit pass', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
   check('class: a review that is shown this run\'s earlier findings is asked for sameClassAs, in its prompt and in its schema, a final nit pass included', promptOf(swept, 're-review r2').includes(LINK_ASK) && linksKey(swept, 're-review r2') && promptOf(nitRound, 'final nit pass r2').includes(LINK_ASK) && linksKey(nitRound, 'final nit pass r2'), [promptOf(swept, 're-review r2').slice(-1500), labels(nitRound.calls)])
@@ -5097,17 +5104,17 @@ function samePrefix(name, first, second, n) {
 
   // The checks of the cause itself, each the workflow's own check of what the shaper returned.
   const fresh = (causeOf, extra) => ({ reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], causeOf, ...(extra || {}) })
-  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`
+  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`
   const noCause = await go('class: a fix with no cause', baseArgs, fresh({ 'R1-1': null }))
   check('class: a fix with no cause stops at shape, the workflow\'s own check', stopsAtShape(noCause, NO_CAUSE('R1-1', 'no cause'), 'shape r1'), detail(noCause))
   const noWhy = await go('class: a fix whose cause has no why and an outcome outside the three', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'class', why: ' ' } }))
-  check('class: a cause with an outcome outside the three, or no why, stops the same way, naming what is missing', stopsAtShape(noWhy, NO_CAUSE('R1-1', 'outcome "class", no why'), 'shape r1'), detail(noWhy))
-  const OUTSIDE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; where names the file or folder the cause lives in`
+  check('class: a cause with an outcome outside the three, or no why, stops the same way, naming what is missing', stopsAtShape(noWhy, NO_CAUSE('R1-1', 'cause.outcome "class", no cause.why'), 'shape r1'), detail(noWhy))
+  const OUTSIDE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; cause.where names the file or folder the cause lives in`
   const outside = await go('class: a cause that lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'instance', why: 'w' } }))
   check('class: a where outside the repository stops at shape', stopsAtShape(outside, OUTSIDE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outside))
   // A one-place fix is told what its contract asks, one of the task's files, never a folder
   // (#127, R1-6).
-  const OUTSIDE_ONE_PLACE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; a one-place fix's where names one of the task's files, the one the cause lives in`
+  const OUTSIDE_ONE_PLACE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; a one-place fix's cause.where names one of the task's files, the one the cause lives in`
   const outsideOnePlace = await go('class: a one-place fix whose cause lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'one-place', why: 'w' } }))
   check('class: a one-place fix with a where outside the repository stops at shape, told where names one of the task\'s files', stopsAtShape(outsideOnePlace, OUTSIDE_ONE_PLACE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outsideOnePlace))
   const elsewhere = await go('class: a one-place fix whose cause lives in a file its task does not touch', baseArgs, fresh({ 'R1-1': { where: 'app/normalise.php', outcome: 'one-place', why: 'w' } }))
@@ -5167,6 +5174,134 @@ function samePrefix(name, first, second, n) {
   check('class: the plan approver\'s file says an instance whose own plan admits the same is needed elsewhere is a bounce, and so is a sweep with no table or one traced and not run', approverAgent.includes('**Instance or class.**') && approverAgent.includes('admits that another input, caller or entry will need the same change is a bounce') && approverAgent.includes('traced through the code and not run'), 'agents/redline-plan-approver.md')
   check('class: the reviewer\'s file says when a finding is one class with an earlier one, as its prompt does', reviewerAgent.includes('**One class with an earlier finding.**') && reviewerAgent.includes('`sameClassAs`') && reviewerAgent.includes('"sameClassAs": []') === false && reviewerAgent.includes('keeps only a link to a finding its record shows as fixed'), 'agents/redline-reviewer.md')
   check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('skills', 'redline', 'SKILL.md').includes('inside it, in `swept`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('in `cause.swept`') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
+}
+
+// ---------------------------------------------------------------------------
+// Key places (the follow-up of #127): every key #127 added that sits inside another object or
+//     beside one is read in one place. Found one level out and absent from its place, it stops
+//     the round at the agent that returned it, and the stop names the key by its full path and
+//     says where it was found; found out of place beside a copy in its place, it is a stray,
+//     dropped with a warning. A class link out of place or in a form the workflow cannot read
+//     is cleared with a warning, as every link it cannot keep is, and a decision whose choice
+//     is an option's label and that names no option says so. One case a row of the spec's
+//     table, each beside the neighbour that must not change.
+// ---------------------------------------------------------------------------
+{
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const detail = (r) => [(r.res || {}).status, (r.res || {}).handoffKind, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-5), (r.res || {}).warnings, r.thrown && r.thrown.message]
+  const stopsAtShape = (r, error, label = 'shape r1') => Boolean(r.res) && r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const warned = (r, text) => ((r.res || {}).warnings || []).includes(text)
+  const fresh = (causeOf, extra) => ({ reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], causeOf, ...(extra || {}) })
+  const SWEPT = [{ member: 'a doubled slash', found: 'holds' }, { member: 'a ./ segment', found: 'fixed' }]
+  const instance = { where: 'app/x.php', outcome: 'instance', why: 'The cause is this one call.' }
+  const onePlace = { where: 'app/x.php', outcome: 'one-place', why: 'The normaliser is the one place a path is read.' }
+  const sweep = { where: 'app/x.php', outcome: 'sweep', why: 'Every form of a path goes through the one normaliser.', swept: SWEPT }
+  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`
+
+  // Rows 1 to 4: cause and its three parts.
+  const topCause = await go('places: cause beside findings, keyed by id', baseArgs, fresh({ 'R1-1': null }, { shapeKeys: { cause: { 'R1-1': instance } } }))
+  check('places: a cause returned beside findings, and on no fix, stops at shape, told it is read on the finding', stopsAtShape(topCause, NO_CAUSE('R1-1', 'no cause; the result carries cause beside findings, where the workflow does not read it: it is read on the finding')), detail(topCause))
+  const strayTop = await go('places: cause beside findings as well as on the fix', baseArgs, fresh({ 'R1-1': instance }, { shapeKeys: { cause: { 'R1-1': instance } } }))
+  check('places: a cause beside findings as well as on every fix is a stray: dropped with a warning, and the round goes on', strayTop.res.status === 'done' && warned(strayTop, 'round 1: the shaper returned cause beside findings as well as on each fix; the workflow reads the finding\'s, and the copy beside findings is dropped'), detail(strayTop))
+  const flatWhere = await go('places: where on the finding, beside cause', baseArgs, fresh({ 'R1-1': { outcome: 'instance', why: 'w' } }, { findingKeys: { 'R1-1': { where: 'app/x.php' } } }))
+  check('places: a part of cause returned on the finding stops at shape, named by its path and by where it was found', stopsAtShape(flatWhere, NO_CAUSE('R1-1', 'no cause.where; the finding itself carries where, where the workflow does not read it: it is read inside cause')), detail(flatWhere))
+  const flatAll = await go('places: where, outcome and why on the finding, no cause', baseArgs, fresh({ 'R1-1': null }, { findingKeys: { 'R1-1': { where: 'app/x.php', outcome: 'instance', why: 'w' } } }))
+  check('places: every part on the finding and no cause stops the same way, naming them all', stopsAtShape(flatAll, NO_CAUSE('R1-1', 'no cause; the finding itself carries where, outcome and why, where the workflow does not read them: they are read inside cause')), detail(flatAll))
+  const partsMissing = await go('places: a cause with no where and an outcome outside the three, nothing out of place', baseArgs, fresh({ 'R1-1': { outcome: 'class', why: 'w' } }))
+  check('places: a part missing everywhere is named by its path, with no word of another place', stopsAtShape(partsMissing, NO_CAUSE('R1-1', 'no cause.where, cause.outcome "class"')), detail(partsMissing))
+  const strayWhy = await go('places: why on the finding as well as inside cause', baseArgs, fresh({ 'R1-1': instance }, { findingKeys: { 'R1-1': { why: 'said again' } } }))
+  check('places: a part on the finding as well as inside cause is a stray: dropped with a warning, shown to no later agent, and the round goes on', strayWhy.res.status === 'done' && warned(strayWhy, 'round 1: the shaper returned why for R1-1 on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped') && !promptOf(strayWhy, 'plan approver r1').includes('said again') && !('why' in strayWhy.res.rounds[0].dispositions[0]) && strayWhy.res.rounds[0].dispositions[0].cause.why === instance.why, detail(strayWhy))
+
+  // Rows 5 to 7: a sweep's list and its entries. (The list on the finding of a sweep, and one
+  // member's keys on cause with no list, are the class section's cases.)
+  const NOT_A_SWEEP = (id, what) => `the shaper returned ${what} for the fix for ${id}, which it did not call a sweep; a sweep's list is read in cause.swept, a list inside cause, and a fix that is no sweep carries none`
+  const strayList = await go('places: a sweep with its list inside cause and on the finding too', baseArgs, fresh({ 'R1-1': sweep }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding as well as inside cause is a stray: dropped with a warning, and the round records the one in cause', strayList.res.status === 'done' && warned(strayList, 'round 1: the shaper returned swept for R1-1 on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped') && !('swept' in strayList.res.rounds[0].dispositions[0]) && strayList.res.rounds[0].dispositions[0].cause.swept.length === 2, detail(strayList))
+  const emptyInPlace = await go('places: a sweep with an empty list inside cause and its list on the finding', baseArgs, fresh({ 'R1-1': { ...sweep, swept: [] } }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding beside an empty one inside cause is no stray: the sweep stops, told where its list was found', stopsAtShape(emptyInPlace, 'the shaper called the fix for R1-1 a sweep and returned no usable list of what the sweep covered (no cause.swept list; the finding carries swept beside cause, where the workflow does not read it); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed'), detail(emptyInPlace))
+  const listNoSweep = await go('places: a one-place fix with a swept list on the finding', baseArgs, fresh({ 'R1-1': onePlace }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding of a fix that is no sweep, and in no cause, stops at shape', stopsAtShape(listNoSweep, NOT_A_SWEEP('R1-1', 'swept on the finding, beside cause')), detail(listNoSweep))
+  const listInPlace = await go('places: a one-place fix with a swept list inside cause', baseArgs, fresh({ 'R1-1': { ...onePlace, swept: SWEPT } }))
+  check('places: a list inside the cause of a fix that is no sweep is in its place, and goes on as it did', listInPlace.res.status === 'done' && (listInPlace.res.warnings || []).every((w) => !w.includes('swept')), detail(listInPlace))
+  const strayMember = await go('places: a sweep with its list, and member and found on cause too', baseArgs, fresh({ 'R1-1': { ...sweep, member: 'a doubled slash', found: 'holds' } }))
+  check('places: member and found on cause beside a usable list are strays: dropped with a warning', strayMember.res.status === 'done' && warned(strayMember, 'round 1: the shaper returned member and found for R1-1 on cause itself as well as in cause.swept; the workflow reads the list, and the copy on cause is dropped') && !('member' in strayMember.res.rounds[0].dispositions[0].cause) && !('found' in strayMember.res.rounds[0].dispositions[0].cause), detail(strayMember))
+  const memberNoSweep = await go('places: a one-place fix whose cause carries member and found', baseArgs, fresh({ 'R1-1': { ...onePlace, member: 'a doubled slash', found: 'holds' } }))
+  check('places: member and found on the cause of a fix that is no sweep, with no list, stop at shape', stopsAtShape(memberNoSweep, NOT_A_SWEEP('R1-1', 'member and found on cause itself')), detail(memberNoSweep))
+
+  // Rows 8 and 11: an option's end and the call's recommended option.
+  const askOne = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const bare = [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }]
+  const shown = (r) => (((r.res || {}).judgmentCalls || [])[0]) || { options: [] }
+  const ENDS_TAIL = 'every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept'
+  const endsOnCall = await go('places: ends on the call, beside options, as a map by label', baseArgs, { ...askOne, callOf: { 'R1-1': { options: bare, ends: { 'Keep it': 'fix', 'Change it': 'fix' } } } })
+  check('places: ends returned on the call, and on no option, stops at shape, told each option states its own', stopsAtShape(endsOnCall, `the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in null, "Change it" ends in null; the call carries ends beside options, where the workflow does not read it); ${ENDS_TAIL}`), detail(endsOnCall))
+  const strayEnds = await go('places: ends on every option and on the call too', baseArgs, { ...askOne, callOf: { 'R1-1': { ends: { 'Keep it': 'fix' } } } })
+  check('places: ends on the call as well as on every option is a stray: dropped with a warning, and the call the person is shown carries none', strayEnds.res.status === 'handoff' && warned(strayEnds, 'round 1: the shaper gave R1-1 ends beside its options as well as on each option; the workflow reads the option\'s, and the copy on the call is dropped') && !('ends' in shown(strayEnds)) && shown(strayEnds).options.every((o) => o.ends === 'fix'), detail(strayEnds))
+  const REC_TAIL = 'recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label'
+  const recOnFinding = await go('places: recommended on the finding, not on the call', baseArgs, { ...askOne, callOf: { 'R1-1': { recommended: undefined } }, findingKeys: { 'R1-1': { recommended: 'Keep it' } } })
+  check('places: recommended returned on the finding, and not on the call, stops at shape, told it is a key of the call', stopsAtShape(recOnFinding, `the shaper recommended "" for R1-1, which is the label of none of its options (Keep it, Change it; its finding carries recommended, where the workflow does not read it); ${REC_TAIL}`), detail(recOnFinding))
+  const recOnOption = await go('places: recommended as a flag inside an option', baseArgs, { ...askOne, callOf: { 'R1-1': { recommended: undefined, options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'fix', recommended: true }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }] } } })
+  check('places: recommended returned inside an option stops the same way, naming the option', stopsAtShape(recOnOption, `the shaper recommended "" for R1-1, which is the label of none of its options (Keep it, Change it; its option "Keep it" carries recommended itself, where the workflow does not read it); ${REC_TAIL}`), detail(recOnOption))
+  const strayRec = await go('places: recommended on the call and on the finding too', baseArgs, { ...askOne, findingKeys: { 'R1-1': { recommended: 'Change it' } } })
+  check('places: recommended on the finding as well as on the call is a stray: dropped with a warning, and the call\'s stands', strayRec.res.status === 'handoff' && warned(strayRec, 'round 1: the shaper returned recommended for R1-1 on its finding as well as on its call; the workflow reads the call\'s, and the copy on the finding is dropped') && shown(strayRec).recommended === 'Keep it', detail(strayRec))
+
+  // Rows 9 and 10: an option's draft and its fields.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const cfg = () => f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })
+  const draft = { title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1', fullFix: 'a lock' }
+  const own = (track) => [{ label: 'Change it by hand', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Leave it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', ...track }]
+  const leftCall = (track, callKeys) => ({ reviews: [[cfg()], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule craft-config' }, callOf: { 'R1-1': { options: own(track), recommended: 'Track it', recommendation: 'Track it.', ...(callKeys || {}) } }, commitIds: [[]] })
+  const UNDRAFTED = (got) => `the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${got}); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option`
+  const draftOnCall = await go('places: a rule call, draft on the call beside options', ruleArgs, leftCall({}, { draft }))
+  check('places: a draft returned on a left call, and on no option, stops at shape, told it is an object on the option', stopsAtShape(draftOnCall, UNDRAFTED('"Track it": no draft; the call carries draft beside options, where the workflow does not read it')), detail(draftOnCall))
+  const draftFlat = await go('places: a rule call, the draft\'s fields flat on its defer option', ruleArgs, leftCall(draft))
+  check('places: a draft\'s fields returned on the option itself stop the same way, told they sit inside draft', stopsAtShape(draftFlat, UNDRAFTED('"Track it": no draft; the option "Track it" carries title, found, why and fullFix itself, not inside draft')), detail(draftFlat))
+  const draftBoth = await go('places: a rule call, draft on its defer option and on the call too', ruleArgs, leftCall({ draft }, { draft: { ...draft, title: 'Another' } }))
+  check('places: a draft on the call as well as on the option is a stray: dropped with a warning, and the person is shown the option\'s', draftBoth.res.status === 'handoff' && warned(draftBoth, 'round 1: the shaper gave R1-1 a drafted issue beside its options as well as on its option that ends in defer; the workflow reads the option\'s, and the copy on the call is dropped') && !('draft' in shown(draftBoth)) && shown(draftBoth).options[2].draft.title === 'Lock R1-1', detail(draftBoth))
+  const three = (mitigate) => [{ label: 'Full fix', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Mitigate', cost: 'c', effect: 'e', ends: 'defer', ...(mitigate || {}) }, { label: 'Accept', cost: 'c', effect: 'e', ends: 'accept' }]
+  const relabelled = (callKeys) => ({ reviews: [[cfg()], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'outside the pull request' }, callOf: { 'R1-1': { options: three(), recommended: 'Full fix', recommendation: 'Full fix.', ...(callKeys || {}) } }, commitIds: [[]] })
+  const relabelledDraft = await go('places: an ordinary call a paths rule turns out to cover, draft on the call', ruleArgs, relabelled({ draft }))
+  check('places: a draft on the call of a relabelled call stops at shape, where until this spec it was lost and the person shown none', stopsAtShape(relabelledDraft, UNDRAFTED('"Mitigate": no draft; the call carries draft beside options, where the workflow does not read it')), detail(relabelledDraft))
+  const relabelledBare = await go('places: the same call with no draft anywhere', ruleArgs, relabelled())
+  check('places: a relabelled call with no draft anywhere is still not held to one', relabelledBare.res.status === 'handoff' && !('draft' in shown(relabelledBare).options[1]), detail(relabelledBare))
+  const DROPPED_ON_CALL = 'round 1: the shaper gave R1-1 a drafted issue beside its options, on the call itself, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped'
+  const ordinaryDraft = await go('places: an ordinary call, draft on the call', baseArgs, { ...askOne, callOf: { 'R1-1': { options: three(), recommended: 'Mitigate', draft } } })
+  check('places: a draft on the call of an ordinary call is dropped with a warning, as one on its option is, and the call the person is shown carries none', ordinaryDraft.res.status === 'handoff' && warned(ordinaryDraft, DROPPED_ON_CALL) && !('draft' in shown(ordinaryDraft)), detail(ordinaryDraft))
+
+  // Row 12: a decision's option, which the session writes.
+  const threeWay = { ...askOne, callOf: { 'R1-1': { options: three(), recommended: 'Mitigate', recommendation: 'Mitigate; add a guard.' } }, acceptedCalls: ['R1-1'], commitIds: [[]] }
+  const NO_OPTION = (label, rest) => `round 1: the decision for R1-1 gives ${JSON.stringify(label)}, the label of ${rest}`
+  const ORDINARY = 'one of its call\'s options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words, and the resolve agent states what it ends in'
+  const labelOnly = await go('places: a decision whose choice is an option\'s label, with no option', { ...baseArgs, decisions: { 'R1-1': { choice: ' Accept ', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  check('places: a choice that is an option\'s label with no option is read as the person\'s own words, with a warning that says so, and carries no disposition', labelOnly.res.status === 'done' && warned(labelOnly, NO_OPTION('Accept', ORDINARY)) && !/"R1-1": \{[^}]*"disposition"/.test(promptOf(labelOnly, 'resolve r1')), detail(labelOnly))
+  const named = await go('places: the same decision with its option named', { ...baseArgs, decisions: { 'R1-1': { choice: 'Accept', option: 'Accept', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  const ownWords = await go('places: an answer in the person\'s own words that holds a label', { ...baseArgs, decisions: { 'R1-1': { choice: 'Accept it for now', notes: 'Leave it as it is for now.', date: '2026-11-25' } } }, threeWay)
+  check('places: a pick that names its option, and an answer that merely holds a label, warn of nothing', [named, ownWords].every((r) => r.res.status === 'done' && (r.res.warnings || []).every((w) => !w.includes('names no option'))) && /"R1-1": \{[^}]*"disposition": "accept"/.test(promptOf(named, 'resolve r1')), [detail(named), detail(ownWords)])
+  const leftLabel = await go('places: a rule call, its defer option\'s label as the choice, with no option', { ...ruleArgs, decisions: { 'R1-1': { choice: 'Track it', notes: 'Track it.', date: '2026-11-25' } }, deferrals: goAhead('R1-1') }, leftCall({ draft }))
+  check('places: on a finding left to the person, the label of its option that ends in defer with no option files nothing, and the warning says so', leftLabel.res.status === 'done' && !labels(leftLabel.calls).some((l) => l.startsWith('file deferred')) && warned(leftLabel, NO_OPTION('Track it', 'its call\'s option that ends in defer, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words: R1-1 stays left to the person, and nothing is filed')), detail(leftLabel))
+  const leftOther = await go('places: a rule call, another option\'s label as the choice, with no option', { ...ruleArgs, decisions: { 'R1-1': { choice: 'Leave it', notes: 'Leave it.', date: '2026-11-25' } } }, leftCall({ draft }))
+  check('places: on a finding left to the person, any other option\'s label warns too, and says the finding stays left as it would with the pick', leftOther.res.status === 'done' && warned(leftOther, NO_OPTION('Leave it', 'one of its call\'s options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words: R1-1 stays left to the person, as it would with the pick')), detail(leftOther))
+  const notAnObject = await go('places: an entry of decisions that is no object', { ...baseArgs, decisions: { option: 'Accept', 'R1-1': { choice: 'Accept', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  check('places: an entry of args.decisions that is no object, a key written beside the entries, is refused before any agent runs', Boolean(notAnObject.thrown) && /args\.decisions must map each finding id to an object/.test(notAnObject.thrown.message) && notAnObject.thrown.message.includes('"option": "Accept"') && notAnObject.calls.length === 0, [notAnObject.thrown && notAnObject.thrown.message, notAnObject.calls.length])
+
+  // Row 13: the reviewer's class link.
+  const one = (n, links) => f(`R${n}-1`, 'correctness', { title: `The normaliser misreads form ${n}`, ...(links !== undefined ? { sameClassAs: links } : {}) })
+  const twoRounds = (links, extra) => ({ reviews: [[one(1)], [one(2, links)], []], commitIds: [['R1-1'], ['R2-1']], ...(extra || {}) })
+  const BESIDE = 'round 2: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it'
+  const linkBeside = await go('places: sameClassAs beside findings, keyed by id', baseArgs, twoRounds(undefined, { reviewKeys: [null, { sameClassAs: { 'R2-1': ['R1-1'] } }] }))
+  check('places: a link returned beside findings is cleared with a warning that names its place, and the round goes on with no link', linkBeside.res.status === 'done' && warned(linkBeside, BESIDE) && !promptOf(linkBeside, 'shape r2').includes('sameClassAs') && !('sameClassAs' in linkBeside.res.rounds[1].findings[0]), detail(linkBeside))
+  const UNREADABLE = (value, rest) => `round 2: the reviewer stated sameClassAs for R2-1 as ${JSON.stringify(value)}, which is no list of finding ids; ${rest}`
+  const linkString = await go('places: sameClassAs on its finding as one id, a string', baseArgs, twoRounds('R1-1'))
+  const linkObjects = await go('places: sameClassAs on its finding as a list of objects', baseArgs, twoRounds([{ id: 'R1-1' }]))
+  check('places: a link that is no list of ids is cleared with a warning, a string and a list of objects alike', linkString.res.status === 'done' && warned(linkString, UNREADABLE('R1-1', 'the link is cleared')) && linkObjects.res.status === 'done' && warned(linkObjects, UNREADABLE([{ id: 'R1-1' }], 'the link is cleared')) && !('sameClassAs' in linkObjects.res.rounds[1].findings[0]), [detail(linkString), detail(linkObjects)])
+  const linkMixed = await go('places: sameClassAs as a list of one id and one number', baseArgs, twoRounds(['R1-1', 7], { causeOf: { 'R2-1': sweep } }))
+  check('places: of a list that holds an id and an entry that is none, the id stands and the other is cleared with a warning', linkMixed.res.status === 'done' && warned(linkMixed, UNREADABLE(['R1-1', 7], 'the entries that are no id are cleared')) && JSON.stringify(linkMixed.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]', detail(linkMixed))
+  const linkNone = await go('places: sameClassAs as an empty list', baseArgs, twoRounds([]))
+  check('places: an empty list states no link and warns of nothing', linkNone.res.status === 'done' && (linkNone.res.warnings || []).every((w) => !w.includes('sameClassAs')), detail(linkNone))
+
+  // The asks and the reviewer's file say the place.
+  check('places: every shape prompt asks for recommended on the call itself, and a review that is shown earlier findings for sameClassAs as a key of the finding, as the reviewer\'s file does', promptOf(endsOnCall, 'shape r1').includes('and, on the call itself, recommended (the label, as written, of the option you recommend)') && promptOf(linkNone, 're-review r2').includes('a key of that finding itself and never beside findings') && reviewerAgent.includes('a key of that finding itself and never beside `findings`'), promptOf(linkNone, 're-review r2').slice(-1500))
 }
 
 // ---------------------------------------------------------------------------

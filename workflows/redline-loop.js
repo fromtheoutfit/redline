@@ -235,6 +235,15 @@ const AUTOPILOT = 'redline (autopilot)'
 // the check demands, an issue with or without a mitigation, or no change.
 const CALL_ENDS = ['fix', 'defer', 'accept']
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
+// Every entry is one finding's decision, an object (the follow-up of #127). A key of a decision
+// written one level out, beside the entries ("option": "Accept" next to "R1-1": {...}), is an
+// entry that is none: until then it was skipped by every reader, so a pick lost its option with
+// no word. It is refused here, before any agent runs, as a decision's other faults are.
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    fail(`args.decisions must map each finding id to an object, that finding's decision ({"choice", "notes", "date"}, with "option" or "disposition" inside it when it carries one); got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
 // A decision that names its own disposition names one of the three (#108, R2-6): the skill
 // records only fix, defer or accept, and every reader of the field matches those exact values,
 // so any other would be neither checked at resolve nor demanded at the check. Until #99 a
@@ -1125,7 +1134,7 @@ const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empt
 // (forceAskRules records one only when !pass.human), so its sentence names a rule call alone,
 // and in a repository with no rules carries no left-call clause at all (#127, R1-2).
 const LEFT_CALL = askRules.length ? 'a finding left to the person (one a repository ask rule covers, or one on a file of Redline\'s own)' : 'a finding on a file of Redline\'s own, which is left to the person'
-const ENDS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and recommended (the label, as written, of the option you recommend)'
+const ENDS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and, on the call itself, recommended (the label, as written, of the option you recommend)'
 const LEFT_DRAFT_ASK = ', an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one'
 const OPTIONS_ASK = `${ENDS_ASK}; on a call for ${LEFT_CALL}${LEFT_DRAFT_ASK}`
 const HUMAN_OPTIONS_ASK = askRules.length ? `${ENDS_ASK}; on a call for a finding a repository ask rule covers, which is left to the person${LEFT_DRAFT_ASK}` : ENDS_ASK
@@ -1857,7 +1866,7 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 // block, whose test this repeats). Such a review is asked for sameClassAs, in its prompt and in
 // its schema, and no other is.
 const showsEarlier = (reviewed, history, candidates) => history.length > 0 || Boolean(trackedList.length && (reviewed === 'pr' || Array.isArray(candidates)))
-const LINK_ASK = 'For each finding, state sameClassAs when its cause is one class with the cause of an earlier finding listed above that was fixed: the ids of those earlier findings, and leave it out when there is none. One class is one cause that takes one kind of fix, met again in another place or through another input: a second form of path a normaliser misreads after the first was fixed, a second caller that needs the guard a fix gave the first. It is a fact you state with care, as outsideDiff is, never because two findings sit in one file or read alike. The run checks each id against its record and keeps only a link to a finding recorded as fixed; a finding that keeps one is shaped as a class, so its fix may not be one more instance.'
+const LINK_ASK = 'For each finding, state sameClassAs, a key of that finding itself and never beside findings, when its cause is one class with the cause of an earlier finding listed above that was fixed: a list of the ids of those earlier findings, and leave it out when there is none. One class is one cause that takes one kind of fix, met again in another place or through another input: a second form of path a normaliser misreads after the first was fixed, a second caller that needs the guard a fix gave the first. It is a fact you state with care, as outsideDiff is, never because two findings sit in one file or read alike. The run checks each id against its record and keeps only a link to a finding recorded as fixed; a finding that keeps one is shaped as a class, so its fix may not be one more instance.'
 function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
   const noFixDiff = reviewed === 'fix-diff' && range.empty === true
   const diff = reviewed === 'pr'
@@ -3048,6 +3057,14 @@ function honourLinks(round, findings, asked, noRecord = false) {
       continue
     }
     const named = unique((Array.isArray(f.sameClassAs) ? f.sameClassAs : []).map((id) => (typeof id === 'string' ? id.trim() : '')).filter((id) => id !== ''))
+    // A link in a form the workflow cannot read (one id as a string, a list of objects) names
+    // nothing, and until the follow-up of #127 it was cleared with no word, so the round fixed
+    // one more instance and nothing said why. The review's schema refuses such a form in the
+    // reviewer's own run; this is the second layer. An empty list states no link and warns of
+    // nothing.
+    if (!Array.isArray(f.sameClassAs) || f.sameClassAs.some((id) => typeof id !== 'string' || id.trim() === '')) {
+      warnings.push(`round ${round}: the reviewer stated sameClassAs for ${f.id} as ${JSON.stringify(f.sameClassAs)}, which is no list of finding ids; ${named.length ? 'the entries that are no id are cleared' : 'the link is cleared'}`)
+    }
     const stands = []
     for (const id of named) {
       const why = !asked ? 'this review was shown no earlier finding' : findings.some((x) => x.id === id) ? `${id} is a finding of this round` : noRecord ? 'this revise-only pass holds no record of earlier rounds to check it against' : linkFault(id)
@@ -3145,6 +3162,15 @@ async function review(round, reviewed, range, facts, source) {
   })
   // The links (#75), read after the ids are the round's own, so a link to a finding of this
   // same round is seen as one.
+  // A link is a key of its finding. One returned beside findings, at the top of the result, is
+  // read by nothing, and until the follow-up of #127 nothing said so: the shaper was shown no
+  // link and the round fixed an instance. It is cleared with a warning that names the place,
+  // as honourLinks clears every link it cannot keep; the key has one reading, so it is never
+  // taken from here.
+  if (out.sameClassAs !== undefined) {
+    warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it`)
+    delete out.sameClassAs
+  }
   honourLinks(round, out.findings, linksAsked)
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
@@ -3598,7 +3624,10 @@ function checkOptions(pass, record, shaped, known, shaperLabel) {
     const options = Array.isArray(call.options) ? call.options : []
     const endless = options.filter((option) => optionLabel(option) === '' || !CALL_ENDS.includes(option.ends))
     if (endless.length) {
-      faults.push(`the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}); every option of a judgment call carries a label and states what it ends in, fix, defer or accept`)
+      faults.push(`the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}${call.ends !== undefined ? '; the call carries ends beside options, where the workflow does not read it' : ''}); every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept`)
+    } else if (call.ends !== undefined) {
+      warnings.push(`${pass.name}: the shaper gave ${call.id} ends beside its options as well as on each option; the workflow reads the option's, and the copy on the call is dropped`)
+      delete call.ends
     }
     const names = options.map(optionLabel)
     const repeated = unique(names.filter((name, i) => names.indexOf(name) !== i))
@@ -3606,14 +3635,41 @@ function checkOptions(pass, record, shaped, known, shaperLabel) {
       faults.push(`the shaper gave ${call.id} more than one option labelled ${repeated.map((name) => JSON.stringify(name)).join(', ')}; a decision names the option it picks by its label, so each label names one option`)
     }
     const recommended = typeof call.recommended === 'string' ? call.recommended.trim() : ''
+    // recommended one level out: on the call's finding, or inside an option as a flag.
+    const finding = shaped.findings.find((x) => x.id === call.id)
+    const flagged = options.filter((option) => option && option.recommended !== undefined)
+    const strayRecommended = [finding && finding.recommended !== undefined ? 'its finding carries recommended' : '', ...flagged.map((option) => `its option ${JSON.stringify(optionLabel(option))} carries recommended itself`)].filter(Boolean)
     if (!names.includes(recommended)) {
-      faults.push(`the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}); recommended names the option the shaper recommends by its label`)
+      faults.push(`the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}${strayRecommended.map((where) => `; ${where}, where the workflow does not read it`).join('')}); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label`)
+    } else {
+      if (finding && finding.recommended !== undefined) {
+        warnings.push(`${pass.name}: the shaper returned recommended for ${call.id} on its finding as well as on its call; the workflow reads the call's, and the copy on the finding is dropped`)
+        delete finding.recommended
+      }
+      for (const option of flagged) {
+        warnings.push(`${pass.name}: the shaper returned recommended for ${call.id} on its option ${JSON.stringify(optionLabel(option))} as well as on its call; the workflow reads the call's, and the copy on the option is dropped`)
+        delete option.recommended
+      }
     }
     const left = Boolean((record.forced || {})[call.id])
     const relabelled = left && Boolean(record.forced[call.id].relabelled)
-    const undrafted = left ? options.filter((option) => option && option.ends === 'defer' && (!relabelled || option.draft !== undefined) && draftMissing(option.draft).length) : []
+    // A draft one level out (the follow-up of #127): on the call, beside options, or as its
+    // four fields on the option itself. On a left call it is a draft the shaper wrote and the
+    // workflow would not read, so the option is held to its draft, a relabelled call's
+    // included: until then that call's draft was lost with no word and the person was shown
+    // none. Beside a complete draft in its place the call's copy is a stray, dropped with a
+    // warning. On any other call no draft is read anywhere, so the call's copy is dropped with
+    // the warning one on its option gets.
+    const flatDraft = (option) => DRAFT_FIELDS.filter((key) => option[key] !== undefined)
+    const undrafted = left ? options.filter((option) => option && option.ends === 'defer' && (!relabelled || option.draft !== undefined || call.draft !== undefined || flatDraft(option).length) && draftMissing(option.draft).length) : []
     if (undrafted.length) {
-      faults.push(`the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: missing ${draftMissing(option.draft).join(', ')}`).join('; ')}); the person is shown the draft before deciding, and Redline files it when they pick the option`)
+      const elsewhere = (call.draft !== undefined ? ['the call carries draft beside options, where the workflow does not read it'] : []).concat(undrafted.filter((option) => flatDraft(option).length).map((option) => `the option ${JSON.stringify(optionLabel(option))} carries ${andList(flatDraft(option))} itself, not inside draft`))
+      faults.push(`the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: ${option.draft === undefined ? 'no draft' : `draft missing ${draftMissing(option.draft).join(', ')}`}`).concat(elsewhere).join('; ')}); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option`)
+    } else if (call.draft !== undefined) {
+      warnings.push(left && options.some((option) => option && option.ends === 'defer' && option.draft !== undefined)
+        ? `${pass.name}: the shaper gave ${call.id} a drafted issue beside its options as well as on its option that ends in defer; the workflow reads the option's, and the copy on the call is dropped`
+        : `${pass.name}: the shaper gave ${call.id} a drafted issue beside its options, on the call itself, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`)
+      delete call.draft
     }
     for (const option of options) {
       if (option && option.draft !== undefined && !(left && option.ends === 'defer')) {
@@ -3650,20 +3706,43 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
   }
   const text = (value) => (typeof value === 'string' ? value.trim() : '')
   const faults = []
-  for (const s of shaped.findings.filter((x) => x.disposition === 'fix' && !decided.includes(x.id))) {
+  // Each key is read in one place (the follow-up of #127): cause on the finding, its parts and
+  // a sweep's list inside it, a member's keys inside an entry of the list. One found a level
+  // out and absent from its place is named in the stop with where it was found, since a
+  // reshape corrects what the error names and a message that named no place stopped #127's
+  // round 2 twice. One found a level out beside a copy in its place is a stray: it is dropped
+  // with a warning, so no later agent is shown it.
+  const held = shaped.findings.filter((x) => x.disposition === 'fix' && !decided.includes(x.id))
+  const PARTS = ['where', 'outcome', 'why']
+  const them = (keys) => (keys.length === 1 ? ['it', 'it is'] : ['them', 'they are'])
+  for (const s of held) {
     const cause = s.cause && typeof s.cause === 'object' && !Array.isArray(s.cause) ? s.cause : null
+    const absent = !cause
+      ? PARTS
+      : [text(cause.where) === '' && 'where', !CAUSE_OUTCOMES.includes(cause.outcome) && 'outcome', text(cause.why) === '' && 'why'].filter(Boolean)
     const missing = !cause
       ? ['no cause']
-      : [text(cause.where) === '' && 'no where', !CAUSE_OUTCOMES.includes(cause.outcome) && (cause.outcome === undefined ? 'no outcome' : `outcome ${JSON.stringify(cause.outcome)}`), text(cause.why) === '' && 'no why'].filter(Boolean)
+      : absent.map((key) => (key === 'outcome' && cause.outcome !== undefined ? `cause.outcome ${JSON.stringify(cause.outcome)}` : `no cause.${key}`))
     if (missing.length) {
-      faults.push(`the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}); a fix says where its cause lives (where, a path in the repository), what the fix makes of it (outcome: one-place, sweep or instance) and why, in one sentence`)
+      const onFinding = absent.filter((key) => s[key] !== undefined)
+      const elsewhere = (onFinding.length ? `; the finding itself carries ${andList(onFinding)}, where the workflow does not read ${them(onFinding)[0]}: ${them(onFinding)[1]} read inside cause` : '')
+        + (!cause && shaped.cause !== undefined ? '; the result carries cause beside findings, where the workflow does not read it: it is read on the finding' : '')
+      faults.push(`the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}${elsewhere}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`)
       continue
+    }
+    // A list is in its place when cause.swept holds at least one entry; an empty one there
+    // beside a list on the finding is the list out of place, not a stray copy of it.
+    const listed = Array.isArray(cause.swept) && cause.swept.length > 0
+    const strayParts = PARTS.concat(listed ? ['swept'] : []).filter((key) => s[key] !== undefined)
+    if (strayParts.length) {
+      warnings.push(`${pass.name}: the shaper returned ${andList(strayParts)} for ${s.id} on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped`)
+      strayParts.forEach((key) => delete s[key])
     }
     const where = repoPath(cause.where)
     const files = Array.isArray(s.files) ? s.files : []
     if (where.outside || where.path === '') {
       // Worded by outcome (#127, R1-6): a one-place fix's where is one of its task's files.
-      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; ${cause.outcome === 'one-place' ? "a one-place fix's where names one of the task's files, the one the cause lives in" : 'where names the file or folder the cause lives in'}`)
+      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; ${cause.outcome === 'one-place' ? "a one-place fix's cause.where names one of the task's files, the one the cause lives in" : 'cause.where names the file or folder the cause lives in'}`)
     } else if (cause.outcome === 'one-place' && !files.includes(where.path)) {
       faults.push(`the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`)
     }
@@ -3681,6 +3760,16 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
         : swept.filter((entry) => !entry || text(entry.member) === '' || !SWEPT_FOUND.includes(entry.found)).map((entry) => (entry && text(entry.member) !== '' ? `${JSON.stringify(text(entry.member))} found ${JSON.stringify(entry.found === undefined ? null : entry.found)}` : 'an entry with no member'))
       if (unusable.length) {
         faults.push(`the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed`)
+      } else if (flat.length) {
+        warnings.push(`${pass.name}: the shaper returned ${andList(flat)} for ${s.id} on cause itself as well as in cause.swept; the workflow reads the list, and the copy on cause is dropped`)
+        flat.forEach((key) => delete cause[key])
+      }
+    } else {
+      // A fix that is no sweep carries no list. One inside its cause is in its place and is
+      // kept as returned; one a level out is in no place the workflow reads.
+      const out = [s.swept !== undefined && !listed ? 'swept on the finding, beside cause' : '', !listed && ['member', 'found'].some((key) => cause[key] !== undefined) ? `${andList(['member', 'found'].filter((key) => cause[key] !== undefined))} on cause itself` : ''].filter(Boolean)
+      if (out.length) {
+        faults.push(`the shaper returned ${out.join(' and ')} for the fix for ${s.id}, which it did not call a sweep; a sweep's list is read in cause.swept, a list inside cause, and a fix that is no sweep carries none`)
       }
     }
     const links = linked(inScope.find((f) => f.id === s.id) || {})
@@ -3690,6 +3779,11 @@ function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
   }
   if (faults.length) {
     throw checkError('shape', faults.join('; also, '), {}, shaperLabel)
+  }
+  // A cause beside findings as well as on every fix that needs one is a stray.
+  if (shaped.cause !== undefined) {
+    warnings.push(`${pass.name}: the shaper returned cause beside findings as well as on each fix; the workflow reads the finding's, and the copy beside findings is dropped`)
+    delete shaped.cause
   }
 }
 
@@ -4399,6 +4493,22 @@ async function revise(record, inScope, reviewedKind) {
           delete decision.option
         } else if (!forced || option.ends === 'defer') {
           decision.disposition = option.ends
+        }
+      } else if (call && decision.disposition === undefined && decision.decidedBy !== AUTOPILOT && typeof decision.choice === 'string' && optionOf(call, decision.choice)) {
+        // A choice that is the label of one of the call's options, with no option (the
+        // follow-up of #127): the session left the key off, or wrote it a level out. The key
+        // has one reading, so the choice is never taken as a pick: the decision is the
+        // person's own words, as it was read until then, and now a warning says so. On a
+        // finding left to the person the warning says what is true there: no statement is
+        // asked of the resolve agent for one, the option that ends in defer is the one whose
+        // pick would have filed its draft, and any other leaves the finding as its pick would.
+        const option = optionOf(call, decision.choice)
+        if (!forced) {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of one of its call's options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words, and the resolve agent states what it ends in`)
+        } else if (option.ends === 'defer') {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of its call's option that ends in defer, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words: ${id} stays left to the person, and nothing is filed`)
+        } else {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of one of its call's options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words: ${id} stays left to the person, as it would with the pick`)
         }
       }
       // Of what a left finding's decision ends in, one thing is kept: that it is a deferral
