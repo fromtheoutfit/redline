@@ -4687,7 +4687,8 @@ async function revise(record, inScope, reviewedKind) {
     // no task writes anything for a left finding, and an entry the resolve agent returns for it
     // that differs is dropped with a warning. Only when the call offered no draft to take does
     // the agent's own entry stand, held to its fields below like any deferral's. An entry for a
-    // left finding nobody deferred is dropped without one, as before (#109).
+    // left finding nobody deferred is dropped without one, as before (#109), and one for a left
+    // deferral an earlier resolve applied is dropped with one (#127, R3-9).
     const optionDraft = {}
     for (const id of applied.filter((x) => record.forced[x] && roundDecisions[x].disposition === 'defer')) {
       const call = newCalls.find((c) => c.id === id)
@@ -4699,7 +4700,14 @@ async function revise(record, inScope, reviewedKind) {
         optionDraft[id] = { id, mitigation: '', ...Object.fromEntries(DRAFT_FIELDS.map((key) => [key, source.draft[key]])) }
       }
     }
-    const returned = out.deferred.filter((item) => !record.forced[item.id] || leftDeferred(item.id))
+    // A left deferral's entry is taken only from the resolve that applies it (#127, R3-9): one a
+    // later resolve of the round returns for it, a resolve a reshape's raised call set off, is
+    // dropped with a warning, so the earlier entry, the option's draft the person was shown
+    // included, stands. Until R3-9 it replaced that draft with no word.
+    const returned = out.deferred.filter((item) => !record.forced[item.id] || (leftDeferred(item.id) && applied.includes(item.id)))
+    for (const id of unique(out.deferred.filter((item) => leftDeferred(item.id) && !applied.includes(item.id)).map((item) => item.id))) {
+      warnings.push(`${pass.name}: the resolve agent returned a deferred entry for ${id}, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands`)
+    }
     const rewritten = unique(returned.filter((item) => optionDraft[item.id] && DRAFT_FIELDS.some((key) => String(item[key] === undefined ? '' : item[key]).trim() !== String(optionDraft[item.id][key]).trim())).map((item) => item.id))
     for (const id of rewritten) {
       warnings.push(`${pass.name}: the resolve agent returned a drafted issue for ${id} that differs from the one its call's option carries; the option's is filed, since the person was shown it before deciding`)

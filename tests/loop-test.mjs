@@ -5131,6 +5131,13 @@ function samePrefix(name, first, second, n) {
   // of the resolve agent for one, so the finding stays left and nothing is filed.
   const unmatchedLeft = await go('left: a call left to the person answered with an option none of its options has', { ...ruleArgs, decisions: pickOf('Defer it now', tracked) }, deferredUnderRule)
   check('left: an unmatched option on a left call is warned about as the person\'s own words that leave the finding left with nothing filed', unmatchedLeft.res.status === 'done' && filedCalls(unmatchedLeft).length === 0 && (unmatchedLeft.res.warnings || []).includes(`round 1: the decision for R1-1 names the option "Defer it now", which is the label of none of its call's options (${BY_HAND}, ${ACCEPT}, ${DEFER}); it is read as an answer in the person's own words: R1-1 stays left to the person, and nothing is filed`), detail(unmatchedLeft))
+
+  // A later resolve takes no entry for a left deferral an earlier resolve applied (#127, R3-9):
+  // the person picked the option's draft, and until R3-9 a resolve a reshape's raised call set
+  // off could return another entry for it that replaced that draft with no word.
+  const another = { id: 'R1-1', mitigation: '', fullFix: 'another lock', title: 'Another title', found: 'found again', why: 'why again' }
+  const laterResolve = await go('left: a deferred left call beside a call a reshape raises, every resolve returning another draft for it', { ...ruleArgs, decisions: { ...pickOf(DEFER, tracked), ...typedAnswer('R1-2') }, deferrals: goAhead('R1-1') }, { reviews: [[cfg, f('R1-2', 'correctness')], []], defer: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [another], commitIds: [['R1-2'], []] })
+  check('left: a later resolve\'s entry for a left deferral an earlier resolve applied is dropped with a warning, and the option\'s draft is filed', laterResolve.res.status === 'done' && labels(laterResolve.calls).includes('resolve r1 #1') && promptOf(laterResolve, 'file deferred r1').includes('# Lock R1-1') && !promptOf(laterResolve, 'file deferred r1').includes('Another title') && (laterResolve.res.warnings || []).includes('round 1: the resolve agent returned a deferred entry for R1-1, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands'), [detail(laterResolve), promptOf(laterResolve, 'file deferred r1').slice(0, 800)])
 }
 
 // ---------------------------------------------------------------------------
