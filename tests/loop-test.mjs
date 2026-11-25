@@ -5065,6 +5065,28 @@ function samePrefix(name, first, second, n) {
     check(`left: a decision whose call mark is ${name} is refused before any agent runs`, Boolean(badMark.thrown) && badMark.thrown.message.includes('args.decisions must give call as true, the mark of an answer to a judgment call, when it gives one; got "R1-1": ') && badMark.calls.length === 0, [badMark.thrown && badMark.thrown.message, badMark.calls.length])
   }
   check('left: the skill records a typed defer for a left call with the mark of a call\'s answer, and the result tells a relaunching session so', skill.includes('"disposition": "defer", "call": true') && stop.res.relaunch.how.includes('recorded with "call": true beside it'), [stop.res.relaunch.how])
+
+  // A call asked under a repository rule holds its finding to that rule when the shaper did not
+  // tag the finding (#127, R3-6). Until then the rule was read from the tag alone, so such a call
+  // ran as an ordinary one: autopilot took its recommended fix, and a pick of a fix was built.
+  const UNTAGGED = (rule) => `round 1: the shaper asked about R1-1 because of repository rule ${rule} and did not tag the finding with it; it is left to the person under that rule`
+  const shownFiles = (r, label, id) => {
+    const p = promptOf(r, label)
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return JSON.stringify((list.find((x) => x.id === id) || {}).files)
+  }
+  const untagged = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule billing' }, commitIds: [[], []] }
+  const untaggedAuto = await go('left: a call asked under a prose rule with no tag on its finding, on autopilot', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, untagged)
+  check('left: on autopilot a call asked under a prose rule with no tag on its finding is left to the person under that rule, with a warning', untaggedAuto.res.status === 'done' && (untaggedAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing') && promptOf(untaggedAuto, 'resolve r1').includes('"rule": "billing"') && replyFor(untaggedAuto.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && (untaggedAuto.res.warnings || []).includes(UNTAGGED('billing')), [detail(untaggedAuto), untaggedAuto.res.forced, replyFor(untaggedAuto.calls, 'push and reply r1', 'R1-1')])
+  const untaggedPick = await go('left: a call asked under a prose rule with no tag on its finding, its fix picked', { ...baseArgs, askRules: billing, decisions: pickOf('Change it', 'The author changes it.') }, untagged)
+  check('left: a pick of such a call\'s option that ends in fix leaves it to the person, and the implementer is shown no task with files for it', untaggedPick.res.status === 'done' && replyFor(untaggedPick.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && shownAs(untaggedPick, 'implement r1', 'R1-1') === 'ask' && shownFiles(untaggedPick, 'implement r1', 'R1-1') === '[]' && !labels(untaggedPick.calls).includes('repair r1'), [detail(untaggedPick), shownAs(untaggedPick, 'implement r1', 'R1-1'), shownFiles(untaggedPick, 'implement r1', 'R1-1')])
+  // The neighbour: the same call with the tag is left as before, with no such warning.
+  const taggedAuto = await go('left: a call asked under a prose rule, its finding tagged, on autopilot', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, { ...untagged, askRule: { 'R1-1': 'billing' } })
+  check('left: a tagged finding under the same call is left as before, with no warning of a missing tag', taggedAuto.res.status === 'done' && (taggedAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing') && !(taggedAuto.res.warnings || []).some((w) => w.includes('did not tag the finding')), [detail(taggedAuto)])
+  // A paths rule the call names, on a finding outside the rule's paths, holds it the same way.
+  const pathsNamed = await go('left: a call asked under a paths rule, its finding outside the rule\'s paths, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, { ...untagged, whyHuman: { 'R1-1': 'repository rule craft-config' } })
+  check('left: a call asked under a paths rule whose finding lies outside its paths is held to that rule, with the same warning', pathsNamed.res.status === 'done' && (pathsNamed.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'craft-config') && (pathsNamed.res.warnings || []).includes(UNTAGGED('craft-config')), [detail(pathsNamed), pathsNamed.res.forced])
 }
 
 // ---------------------------------------------------------------------------

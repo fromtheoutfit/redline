@@ -3935,7 +3935,8 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 
 // The forcing point (#49): after shaping, whatever fix, decline, defer or ask the shaper returned, a finding
 // a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
-// and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
+// and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag or,
+// with no tag, the rule its call names (#127, R3-6). The
 // finding becomes ask and pending, loses its deferred entry, gets a judgment call when the shaper
 // gave none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
 // The drafted issue of an entry it loses is kept when it is complete (#126), as the option of
@@ -3962,7 +3963,21 @@ function forceAskRules(record, pass, inScope, shaped) {
     }
     const files = Array.isArray(s.files) ? s.files : []
     const tagged = typeof s.askRule === 'string' && s.askRule.trim() !== '' ? s.askRule.trim() : ''
-    const rule = ruleForPaths([f.file || ''].concat(files)) || (tagged && ruleById[tagged]) || null
+    let rule = ruleForPaths([f.file || ''].concat(files)) || (tagged && ruleById[tagged]) || null
+    // An ask whose call the shaper wrote under `repository rule <id>`, for a declared rule, with
+    // no tag on its finding is held to that rule (#127, R3-6): the call's reason is the shaper's
+    // judgment as much as the tag is, and until R3-6 such a call ran as an ordinary one, so
+    // autopilot took its recommended fix and a pick of a fix was built. The lookup reads the
+    // reason before it is rewritten below, and a call under it keeps relabelled false, as a
+    // tagged one does.
+    if (!rule && !tagged && s.disposition === 'ask') {
+      const askedCall = shaped.judgmentCalls.find((c) => c.id === f.id)
+      const named = askedCall && typeof askedCall.why_human === 'string' && askedCall.why_human.startsWith('repository rule ') ? askedCall.why_human.slice('repository rule '.length).trim() : ''
+      if (named && ruleById[named]) {
+        rule = ruleById[named]
+        warnings.push(`${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and did not tag the finding with it; it is left to the person under that rule`)
+      }
+    }
     if (!rule) {
       if (tagged) {
         warnings.push(`${pass.name}: the shaper tagged ${f.id} with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; ignored`)
