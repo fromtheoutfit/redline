@@ -82,13 +82,13 @@ Listed mechanically, put to the person, applied in its own commit.
 
 | File | Section that describes it | Commit, or reason |
 |---|---|---|
-| `workflows/redline-loop.js` (Task 3) | `docs/running.md`, "Dispositions", "Instance or class" | Task 3's |
-| `agents/redline-shaper.md` (Tasks 3, 4) | `docs/running.md`, the same; `docs/contract.md`, "The unattended section" | Tasks 3 and 4's |
-| `skills/redline/SKILL.md` (Task 3) | it is the reader-facing text | Task 3's |
-| `templates/shape-spec-unattended.md`, `templates/history/shape-spec-unattended.v6.md` (Task 4) | `docs/contract.md`, "The unattended section"; `docs/upgrading.md`, "Unattended section versions" | Task 4's |
-| `workflows/redline-loop.js` (Task 5) | `docs/running.md`: the stops at stage `shape`, the warnings | Task 5's |
-| `agents/redline-reviewer.md` (Task 5) | `docs/running.md`, "Instance or class" | Task 5's |
-| `workflows/redline-loop.js` (Task 6) | `docs/running.md`; `docs/upgrading.md`, the 0.5.0 replay note | Task 6's |
+| `workflows/redline-loop.js` (Task 3) | `docs/running.md`, "Dispositions", "Instance or class" | `49d1259` |
+| `agents/redline-shaper.md` (Tasks 3 to 6) | `docs/running.md`, the same; `docs/contract.md`, "The unattended section" | `49d1259`, `4792ca1`, `694716f`, `245b3aa` |
+| `skills/redline/SKILL.md` (Task 3) | it is the reader-facing text | `49d1259` |
+| `templates/shape-spec-unattended.md`, `templates/history/shape-spec-unattended.v6.md` (Task 4) | `docs/contract.md`, "The unattended section"; `docs/upgrading.md`, "Unattended section versions" | `4792ca1` |
+| `workflows/redline-loop.js` (Task 5) | `docs/running.md`: "Instance or class" (the stops and the link warnings) and the judgment-call paragraph (the calls' keys, a decision with no `option`) | `694716f` |
+| `agents/redline-reviewer.md` (Tasks 5, 6) | `docs/running.md`, "Instance or class" | `694716f`, `245b3aa` |
+| `workflows/redline-loop.js` (Task 6) | `docs/running.md`, "Instance or class"; `docs/upgrading.md`, "A stopped run across 0.5.0" | `245b3aa` |
 | No new config key, subcommand, allow rule or exit code | - | - |
 
 README: no reader-facing change; its Known limits and tables name none of these keys.
@@ -102,4 +102,51 @@ README: no reader-facing change; its Known limits and tables name none of these 
 
 ## As built
 
-Written at Task 7.
+Built on 2026-11-25, one commit a task, each made by the person at its boundary.
+
+| Task | Commit | What it holds |
+|---|---|---|
+| 1 | `de8dfff` | this folder as shaped |
+| 3 | `49d1259` | `CAUSE_ASK`, the sweep's stop, the shaper file's rules 3 and 10, the skill and `docs/running.md` |
+| 4 | `4792ca1` | template v7, v6 frozen, both examples, R2-2, this checkout's section, the setup test, the docs |
+| 5 | `694716f` | the second layer: the stops' paths, the strays, the link and decision warnings, the refusal of an entry that is no object |
+| 6 | `245b3aa` | the first layer: the closed schemas, `schemaFaults`, the agent files' sentence |
+| 2 | no file | the probe, run between Tasks 5 and 6; recorded in `shape.md` |
+| 7 | this commit | the probe, decisions 13 to 25, this section and the proposed retrospective |
+| 8 | the commit after this one | the standards retrospective: seven clauses, in `workflow/agents`, `testing/tests` and `process/release`, each appended to its line and the line read back whole |
+
+**The gate.** `.claude/redline/checks.sh --baseline` at `245b3aa`: `ok` true, each of the nine checks exit 0. Their own counts: loop 1959 passed, 0 failed (1889 at `f4e85e7`; 1895 after Task 3, 1899 after Task 4, 1947 after Task 5); setup 520 passed, 0 failed (517 at `f4e85e7`); gate stamp 117; prefs 175; GitHub wrapper 284; background 39; the guard table is untouched and its harness exited 0. `claude plugin validate .` passes with the known icon warning. CI's shellcheck command printed nothing before Task 4's boundary, the one commit that touches a `.sh` file.
+
+**Red before green.** Each task's cases and pins were written before its code and run red. Loop test: 10 failed before Task 3's code, 5 before Task 4's, 6 before Task 6's. For Task 5 the committed loop test, run against the tree at Task 4's commit, fails 47 checks. Setup test: 3 failed before the template moved to v7. One expectation was changed together with its code and so was never red on its own: decision 16's warning for a left finding's other options, whose case first expected no warning.
+
+**Version (gate step 11).** `.claude-plugin/plugin.json` and the marketplace entry stay at 0.5.0, kept on purpose: this pull request already moves the plugin from 0.4.5 to 0.5.0, and nothing of it is merged or tagged. The unattended marker moves from v6 to v7 in the same pull request, with v6 frozen and v7 pinned.
+
+**The merge of this checkout's section.** `redline-setup.sh unattended ... --merge --dry-run` reported base v6, not guessed, and one conflict: the sentence under point 10's example (one line in the base and in the template, two in the section, the second being point 11). `--merge --pick 1=theirs` wrote the section; point 11 was put back as it read (decision 18). After it the section differs from the template where it did before: the two fill-ins, the story line and point 11. The setup test's own-section cases and the gate stamp's test are green.
+
+**The sweep.** The whole loop harness was run once under the workflow as it read at `f4e85e7` and once as built, and the two records compared (`testing/tests`: never both scripts inside one `go()`). 790 scenarios under each, in the same order; 787 make the same calls in the same order; 13,184 calls compared; 11,768 identical in prompt, schema and options; 1,416 differ:
+
+| Call | Calls | Differ | In what |
+|---|---|---|---|
+| shape (a round's and a human pass's) | 798 | 798 | prompt and schema |
+| reshape | 121 | 121 | prompt and schema |
+| re-review | 400 | 400 | prompt and schema |
+| final nit pass | 72 | 72 | prompt and schema |
+| review (a run's first) | 703 | 19 | prompt and schema: the 19 that are shown earlier findings and asked for links |
+| plan approver | 729 | 3 | prompt |
+| implement | 601 | 3 | prompt |
+
+Every prompt difference of the first five rows is one or more of the three reworded asks (`CAUSE_ASK`, `ENDS_ASK`, `LINK_ASK`) and nothing else: replacing the old wording with the new in the base prompt gives the built one. The 684 first reviews of a pull request with no earlier round are byte-identical, schema included, so that call still replays. The six plan-approver and implementer prompts are in the three scenarios of this spec where a stray copy is dropped (`why` on the finding, a list on the finding, `member` and `found` on `cause`): the base workflow showed those agents the stray key, the built one does not. Every other call kind is identical in every scenario: gather, post, spec status, resolve, the approvers outside those three, the checker, the filing, push and reply, and Finish.
+
+The three scenarios whose calls differ in number are this spec's: the two fixes that are no sweep with a list out of place (the base workflow went on, the built one stops at shape) and the entry of `decisions` that is no object (the base ran; the built one refuses before any agent).
+
+Results: 32 scenarios end differently, all in the sections this spec wrote or repinned (ends 4, left 5, class 12, places 11): 31 are the same stop with its message reworded, and one is new, the relabelled call with `draft` on the call, a hand-off before and a stop now. Warnings alone differ in 81 scenarios, and only by warnings the built workflow adds; the base gives none the built one lacks. 15 are this spec's own cases. The other 66 are older scenarios, which between them carry 74 of the new warning that a decision gives an option's label as its choice and names no option (decision 22): those fixtures answer a call in the form from before #105, and their calls, prompts and results are unchanged. 62 scenarios are identical in every call, result and warning.
+
+**The probe.** One real agent, two calls, 2026-11-25: recorded in `shape.md`, "The probe".
+
+**Docs (gate step 10).** Every entry in the table above names its commit.
+
+**Where the build differs from the plan.** `shape.md`, decisions 13 to 24.
+
+**Standards retrospective (gate step 12).** Seven edits proposed, all approved (`shape.md`, decision 25), applied in their own commit. No standard's heading changed, and no plugin file changed after Task 6's commit, so the gate's result at `245b3aa` stands for the tree the two last commits leave.
+
+**Corrections to what a boundary message said.** Task 5's boundary said the loop test went red with 39 failed. That figure was not read off the run, whose summary line was cut from what was shown; the measured figure is the 47 above. Task 6's boundary gave the sweep as 789 scenarios and 13,162 calls, and the older scenarios that gained the warning as 75. Those came from a first form of the sweep that ran both scripts inside one `go()`; the figures above are from the form the standard prescribes, and 75 was a count of warnings, not of scenarios.

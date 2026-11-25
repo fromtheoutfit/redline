@@ -94,6 +94,22 @@ Following from those, listed in the approved plan:
 11. **One example shows `draft`.** The shaper file's example gains the judgment call its rule finding R1-3 lacks today, with an option that ends in `defer` and carries `draft`. The template's example gains the sweep only.
 12. **The #105 hunk conflicts again and is resolved as then.** A dry run of the merge on a copy of this checkout's section, with the v6 body as its base and a drafted new body, gave one conflict: the sentence under point 10's example, beside this repository's point 11. The template's side is taken and point 11 is put back.
 
+Decided during the build, each a difference from the approved plan, reported at its commit boundary:
+
+13. **The probe ran after Task 5, and proved the schema layer.** The word for it came with Task 5's commit. Tasks 3 to 5 did not depend on it. Structured output refused the misplaced key in the agent's own run (see "The probe"), so Task 6 landed and the issue held in reserve was not drafted.
+14. **One stop is new.** A list on the finding of a fix that is no sweep, or `member` and `found` on such a cause, had no existing stop to join, so decision 9 needed a message of its own ("the shaper returned ... for the fix for <id>, which it did not call a sweep"). It is in the loop test's own-check list. Every other stop keeps its opening words.
+15. **A list is in its place only when it holds an entry.** An empty `cause.swept` beside a list on the finding is the list out of place, and stops; it is not a stray copy.
+16. **On a finding left to the person every option's label warns**, as decision 7 says, in words that are true there: the option that ends in defer says nothing is filed, any other says the finding stays left as it would with the pick. No warning for a left finding promises a statement from the resolve agent (the fault R2-4 names in the neighbouring message, which is not touched).
+17. **The stops that name a part of `cause` name it by path in every form**, the two that say where a cause lives included (`cause.where`), beyond the three the plan listed.
+18. **Point 11 was put back by a script that ran twice.** Its first form refused to run: its check for a point 11 already present matched the Verification Gate's own "11. **Version**" line. Narrowed to the guard point's opening words, it ran. The section differs from the template only where it did before the merge.
+19. **The frozen v6 needed no new pin**: its body hashes to the pin the setup test already held.
+20. **The loop test's mock gained five scenario keys** to put a key where a schema names none (`findingKeys`, `findingKeysAt`, `shapeKeys`, `shapeKeysAt`, `reviewKeys`), and the test gained `schemaFaults`, the validator of the shaping runs, worded as the tool words a refusal. One check pins the refusal the probe recorded.
+21. **Two checks beyond the plan**: no return example an agent is shown holds a key its schema refuses, and a deferred entry and the resolve agent's schema stay open.
+22. **The no-`option` warning reaches older scenarios.** Their fixtures answer a call with an option's label as the choice and no `option`, the form from before #105. Their results are unchanged; the sweep counts them (`plan.md`, "As built").
+23. **The shaper's and the reviewer's files each say an unnamed key is refused when they return**; the template does not, since its v7 body was pinned by Task 4's commit before Task 6 was known to land.
+24. **`docs/upgrading.md` says what a section still at v6 does**, as it does for v3 to v5.
+25. **Standards retrospective: all seven proposed edits are applied** (asked on 2026-11-25, with the gate green), in a commit of their own after this folder's. The list and each clause as drafted are under "Standards retrospective (proposed)".
+
 ## How the tables were built
 
 By running `workflows/redline-loop.js` through the harness of `tests/loop-test.mjs` (its `mock`, `body` and fixtures, loaded from the file up to its first scenario; nothing written to disk), not by tracing:
@@ -271,7 +287,16 @@ Round fixtures are the loop test's. "Schema" is the patched call's schema as the
 
 ## The probe (Task 2)
 
-To be recorded here: whether structured output refuses a key its schema does not name when the schema says `additionalProperties: false`, and the refusal's words.
+Run on 2026-11-25, once the word for it was given, as a one-agent workflow (`wf_4b3db9f9-540`): the path Redline's own agents return through. The agent's schema was a cut-down of a Redline round's shape schema with `additionalProperties: false` on the result, a finding, `cause` and an entry of `swept`. Its prompt gave it one result to return unchanged, with `swept` on the finding beside `cause`, and told it to return the corrected result if the tool refused the first.
+
+Read off the tool's own replies in the agent's transcript, not off what the agent reported:
+
+| Call | `swept` | The tool's reply |
+|---|---|---|
+| first | on the finding | error: `Output does not match required schema: /findings/0: must NOT have additional properties ('swept' is not allowed)` |
+| second | inside `cause` | `Structured output provided successfully` |
+
+So structured output enforces `additionalProperties: false`, in the agent's own run, and its refusal names the path and the key. Task 6 landed, and the third issue the plan held in reserve is not drafted. One call was made; the measurement is of one key at one level, and the loop test's `schemaFaults` words every other refusal the same way without a real call behind it.
 
 ## For you to open
 
@@ -296,10 +321,66 @@ Drafted in the form of this repository's issues. No open issue covers either (th
 ## Yours after the build
 
 - Every commit, at each boundary.
-- The word for Task 2's probe, a one-agent workflow.
 - `/redline 127`, Start fresh: round 3 carries R2-1 and R2-3 to R2-7. R2-2's thread will be answered by that run's review of the head.
-- The two drafted issues, and the third if Task 2 says so.
+- The two drafted issues.
 - The rerun of `/redline:setup` in each other repository once this merges: v7 is the first body any of them will take past v5 unless one already took v6 from this branch, where the merge now sees an older marker and offers the change.
+
+## Standards retrospective (proposed)
+
+Listed mechanically (gate step 12): every decision above, every deviation in `plan.md`'s As built, and every check that went red and was fixed by learning something about the tooling.
+
+### What each item is
+
+| Item | In a standard already | Missing |
+|---|---|---|
+| 1, 17: a key's place stated everywhere it is stated, and named by path in its stop | `workflow/agents`, the line on a rule a prompt states: applied everywhere it is stated | that a key inside another object is stated with its place, shown by an example and named by path: edit 1 |
+| 2, 18, 19: template v7 | `process/release`, the last line (the dry run, the hunk beside point 11); `testing/tests`, the pinned bodies (the older pins never change) | that an unmerged version is no exception, and how a point put back is found: edit 5 |
+| 3, 11, 21: the examples (R2-2, a sweep, a drafted option, no key a schema refuses) | `testing/tests`, the line on the agent files: an example is parsed and held to what the schema requires | that an example shows each key in its place and agrees with itself: edit 3 |
+| 4: tables measured by running; one reading per key | `workflow/agents`, the line on a class: a table built by running, recorded in `shape.md` | one reading per key: edit 2. A table of statements checked against its files: edit 1 |
+| 5, 9, 10, 13, 14, 15, 23: the two layers | `workflow/agents`, the line on checking a result: the schema refuses in the shaper's own run and the workflow's test is the second layer; `workflow/replay`: every failure in one error | that a schema refuses unknown keys, what the probe measured, which schemas stay open, and what the second layer does with a key a level out: edit 2 |
+| 6, 8: a link out of place or unreadable is cleared with a warning | `workflow/agents`, the line on a class: the workflow keeps a link only to a fixed finding and clears any other with a warning | covered by edit 2's last clause |
+| 7, 16: a decision with no `option` | `workflow/agents`, the line on a message the run shows the person: it says what is true when it fires | that a key the session writes has no schema and is refused or warned of: edit 2 |
+| 12: the #105 hunk, resolved as then | `process/release`, the last line, which names that hunk | nothing |
+| 20, 21: the mock's key hooks and `schemaFaults` | `testing/tests`, the line on mocks: a mock returns every key the schema requires | the hooks, and that the harness runs no schema: edit 4. Both were used before they were proposed here |
+| 22: the warning reaches older scenarios, found by the sweep | `testing/tests`, the line on the sweep | that the sweep compares schemas and groups warnings: edit 6 |
+| 24: `docs/upgrading.md` says what a section one version behind does | `process/release`, the last line | nothing |
+| Red: the first sweep ran both scripts inside one `go()` and gave other counts | `testing/tests`, the line on the sweep: the whole harness once under each script, never both inside one `go()` | nothing; the standard was right and the sweep was run again its way |
+| Red: a red count told at a boundary was not read off the run | `testing/tests`, red before green | where a recorded red count comes from: edit 7 |
+| Red: `grep` on this machine is ugrep, where a bounded repetition fails with no output | not a rule of the repository: CI and the scripts do not use the form | nothing |
+
+No rule a standard states was found wrong.
+
+### The edits
+
+Each is a clause appended to the line named, which is read back whole when applied (`process/standards-retrospective`). None holds a count.
+
+**1. `agent-os/standards/workflow/agents.md`, the line "A decision that changes a rule a prompt states is applied everywhere", appended:**
+
+> ; and a key an agent returns inside another object is stated with its place in every sentence that tells the agent to write it, the prompt's ask, the agent file and the template alike, is shown in that place by a return example, and is named by its full path in the stop that reads it, which says where it found one a level out: "and for a `sweep` also `swept`" named no place in the template, the shaper's file, the ask or the stop, no example showed a sweep, and the shaper of #127's round 2 returned the list beside `cause` twice, the second time with the stop's words in its prompt; the places are found by a table of every statement of every such key, generated from a list of place, file and quoted words with each fragment checked to be in its file as written, so no row quotes what a file does not say (the follow-up of #127)
+
+**2. `agent-os/standards/workflow/agents.md`, the line "The workflow checks a result before it acts on it", appended:**
+
+> ; and a schema that names a key inside an object accepts the same key beside it, so the schema of an agent that returns nested keys refuses unknown keys on every object that holds one (`additionalProperties: false`): structured output enforces it in the agent's own run and names the path and the key (a probe with a real agent: `/findings/0: must NOT have additional properties ('swept' is not allowed)`), a schema whose call must replay keeps the form it had (the first review of a pull request with no earlier round), and one whose agent returns its file's whole block for every operation stays open (the GitHub agent); the workflow's own check is the second layer and gives each key one reading, never a second place it is also accepted from: found a level out and absent from its place it stops the round with its path and where it was found, found there beside a copy in its place it is dropped with a warning, a class link out of place or in a form that is no list of ids is cleared with a warning as every link the workflow cannot keep is, and a key the session writes, which no schema holds, is refused before any agent runs or warned of where only the round can see it (the follow-up of #127)
+
+**3. `agent-os/standards/testing/tests.md`, the line "`tests/loop-test.mjs` also reads `agents/redline-reviewer.md`", appended:**
+
+> ; and an example is held to more than what the schema requires: it shows each key the shape can carry in the place it is read, it agrees with itself, and it holds no key its schema refuses: no example showed a sweep's list or a drafted option, and the template's call recommended an option that ends in `accept` beside a recommendation that adds a comment, until the follow-up of #127 (R2-2)
+
+**4. `agent-os/standards/testing/tests.md`, the line "A loop-test mock answers as the real agent would", appended:**
+
+> ; and the harness holds no scripted result to its call's schema, so a scenario puts a key where a schema names none through the mock's own keys (`findingKeys`, `shapeKeys`, `reviewKeys`), and a check that needs the schema layer runs the result through `schemaFaults`, which reads a schema with the keywords the workflow's schemas use and words a refusal as the tool does (the follow-up of #127)
+
+**5. `agent-os/standards/process/release.md`, the last line ("A change to the unattended template's body is dry-run"), appended:**
+
+> ; and a body change bumps the marker even while the version it would change is unmerged: at an equal marker `redline-setup.sh unattended` compares the fill-ins only, so a rerun writes nothing to a checkout that already took that version, this one included, and the body's pin fails the change (the follow-up of #127 set out to keep v6, measured both, and went to v7 with the plugin's version kept); and a point put back after the template's side is taken is found by its opening words, never by its number, since the file holds another list with the same number (the Verification Gate's)
+
+**6. `agent-os/standards/testing/tests.md`, the line "A claim that prompts stay byte-identical across a change is proven by a sweep", appended:**
+
+> ; and the sweep compares each call's schema as well as its prompt, and groups what differs in the results and the warnings by form, so a warning a change adds to older scenarios is seen and explained and never met first in a run (the follow-up of #127: a warning for a decision that names no option fired in older scenarios whose fixtures answer a call in the form from before #105)
+
+**7. `agent-os/standards/testing/tests.md`, the line "A bug fix lands red before green", appended:**
+
+> ; and a red count a spec records is the harness's own summary line, read off the run: one that was not read is measured again from the commits, the task's committed test against the tree before it, and the record says so (the follow-up of #127)
 
 ## Context
 
