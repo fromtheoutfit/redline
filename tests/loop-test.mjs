@@ -5236,6 +5236,16 @@ function samePrefix(name, first, second, n) {
   check('class: the plan approver\'s file says an instance whose own plan admits the same is needed elsewhere is a bounce, and so is a sweep with no table or one traced and not run', approverAgent.includes('**Instance or class.**') && approverAgent.includes('admits that another input, caller or entry will need the same change is a bounce') && approverAgent.includes('traced through the code and not run'), 'agents/redline-plan-approver.md')
   check('class: the reviewer\'s file says when a finding is one class with an earlier one, as its prompt does', reviewerAgent.includes('**One class with an earlier finding.**') && reviewerAgent.includes('`sameClassAs`') && reviewerAgent.includes('"sameClassAs": []') === false && reviewerAgent.includes('keeps only a link to a finding its record shows as fixed'), 'agents/redline-reviewer.md')
   check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('skills', 'redline', 'SKILL.md').includes('inside it, in `swept`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('in `cause.swept`') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
+
+  // A link that names an id the review renamed (#127, R3-5). A round-2 reviewer that numbers its
+  // findings with round 1's prefix and links the second to the first: the rename makes them R2-1
+  // and R2-2, and the old id R1-1 then named round 1's fixed finding, so the link stood with no
+  // word and the shaper was shown an unrelated earlier finding. The id may mean either, so the
+  // link is cleared with a warning.
+  const renamedLink = await go('class: a round-2 review returns R1-1 and R1-2, the second linked to the first', baseArgs, { reviews: [[f('R1-1', 'correctness')], [f('R1-1', 'correctness'), f('R1-2', 'correctness', { sameClassAs: ['R1-1'] })], []], commitIds: [['R1-1'], ['R2-1', 'R2-2'], []] })
+  const renamedR22 = (((renamedLink.res || {}).rounds || [])[1] || { findings: [] }).findings.find((x) => x.id === 'R2-2') || {}
+  check('class: a link that names an id the review renamed is cleared with a warning that says the link is ambiguous', ((renamedLink.res || {}).warnings || []).includes('round 2: the reviewer linked R2-2 to R1-1 as one class (sameClassAs), but this review renamed a finding it returned as R1-1 to R2-1, so the link is ambiguous; the link is cleared'), detail(renamedLink))
+  check('class: the shape prompt is shown no link for it, and the posted findings carry none', promptOf(renamedLink, 'shape r2') !== '' && !promptOf(renamedLink, 'shape r2').includes('Findings of this round that the verifier links to an earlier finding') && promptOf(renamedLink, 'post r2') !== '' && !promptOf(renamedLink, 'post r2').includes('"sameClassAs"') && !('sameClassAs' in renamedR22), [detail(renamedLink), renamedR22])
 }
 
 // ---------------------------------------------------------------------------

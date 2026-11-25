@@ -3213,6 +3213,31 @@ async function review(round, reviewed, range, facts, source) {
     warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it`)
     delete out.sameClassAs
   }
+  // A link that names an id this review renamed is cleared, never trusted or mapped (#127,
+  // R3-5): the old id may name the sibling the reviewer numbered with an earlier round's prefix
+  // or the earlier finding that has that id, so it is ambiguous. Until R3-5 it was looked up
+  // among earlier rounds and stood with no word when one recorded that id as fixed. A list left
+  // empty is deleted, as honourLinks deletes one; a link in another form is left to honourLinks,
+  // which warns of it.
+  for (const f of out.findings) {
+    if (!Array.isArray(f.sameClassAs)) {
+      continue
+    }
+    const kept = []
+    for (const id of f.sameClassAs) {
+      const old = typeof id === 'string' ? id.trim() : id
+      if (typeof old === 'string' && renamed.has(old)) {
+        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${old} as one class (sameClassAs), but this review renamed a finding it returned as ${old} to ${renamed.get(old)}, so the link is ambiguous; the link is cleared`)
+      } else {
+        kept.push(id)
+      }
+    }
+    if (kept.length) {
+      f.sameClassAs = kept
+    } else {
+      delete f.sameClassAs
+    }
+  }
   honourLinks(round, out.findings, linksAsked)
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
