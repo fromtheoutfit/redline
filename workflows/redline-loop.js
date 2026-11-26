@@ -3996,6 +3996,11 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 // replays it. The numeric limits of #25 force here too, when they come. A finding on one of
 // Redline's own files, a Redline round's ask whose call gives `redline's own file`, is recorded the
 // same way, marked `own` (#94, R8-4).
+// `decided` is the round's decided ids on a reshape, [] on the shape, as checkDrafts reads them. A
+// decided finding's call is not shown again, so the two warnings about the call (a draft not kept
+// as its option, the options it keeps) are not given for one (#127, R5-2): its decision stands
+// whatever the reshape lists. The warnings that hold for a decided finding (its sorting made an
+// ask, the rule its call names, a tag that names none) are given as before.
 const BY_HAND = 'Make the change by hand after the run'
 const ACCEPT_AS_IS = 'Accept, no change'
 const DEFER_TO_ISSUE = 'Defer to an issue'
@@ -4006,7 +4011,7 @@ const DEFER_TO_ISSUE = 'Defer to an issue'
 // after the same vetShape, and never written to the record, so the record, the prompts and every
 // replayed result are unchanged.
 const leftByTask = new Set()
-function forceAskRules(record, pass, inScope, shaped) {
+function forceAskRules(record, pass, inScope, shaped, decided = []) {
   leftByTask.clear()
   record.forced = record.forced || {}
   for (const f of inScope) {
@@ -4077,7 +4082,7 @@ function forceAskRules(record, pass, inScope, shaped) {
     // it was dropped with no word; an absent entry lacks every field.
     const shaperEntry = s.disposition === 'defer' ? shaped.deferred.find((d) => d.id === f.id) : null
     const kept = shaperEntry && draftMissing(shaperEntry).length === 0 ? Object.fromEntries(DRAFT_FIELDS.map((key) => [key, shaperEntry[key]])) : null
-    if (s.disposition === 'defer' && !kept) {
+    if (s.disposition === 'defer' && !kept && !decided.includes(f.id)) {
       warnings.push(`${pass.name}: the shaper deferred ${f.id} with no complete drafted issue (missing ${draftMissing(shaperEntry).join(', ')}); repository rule ${rule.id} leaves it to the person, and the draft is not kept as an option of its call, since only a complete one is`)
     }
     s.disposition = 'ask'
@@ -4122,7 +4127,7 @@ function forceAskRules(record, pass, inScope, shaped) {
       // does not hold a defer option of it that carries no draft to one, and the run says so once.
       const old = call.why_human
       relabelled = old !== OWN_FILE && !(typeof old === 'string' && old.startsWith('repository rule '))
-      if (relabelled) {
+      if (relabelled && !decided.includes(f.id)) {
         warnings.push(`${pass.name}: the shaper asked about ${f.id} because of ${JSON.stringify(old)}; repository rule ${rule.id} leaves it to the person, and its call keeps the options the shaper wrote`)
       }
       call.why_human = why
@@ -4468,7 +4473,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkDispositions(pass, shaped, label)
   checkSecondLook(pass, shaped, inScope)
   checkCalls(shaped, known, label)
-  forceAskRules(record, pass, inScope, shaped)
+  forceAskRules(record, pass, inScope, shaped, decided)
   // Each finding's files are read through the one path function here, where the shape is taken
   // in, so every reader after this point sees one form: the shaper's own list for its deferral
   // (shaperFiles), the list shown for a finding nobody decided (effectiveDispositions), a stop's
