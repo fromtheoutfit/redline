@@ -3975,13 +3975,20 @@ function forceAskRules(record, pass, inScope, shaped) {
     // judgment as much as the tag is, and until R3-6 such a call ran as an ordinary one, so
     // autopilot took its recommended fix and a pick of a fix was built. The lookup reads the
     // reason before it is rewritten below, and a call under it keeps relabelled false, as a
-    // tagged one does.
-    if (!rule && !tagged && s.disposition === 'ask') {
+    // tagged one does. R3-6 gated the lookup on the tag being absent, where the question is
+    // whether any input named a declared rule, so a tag that names no declared rule (a typo)
+    // still ran the call as an ordinary one (#127, R4-1): the lookup runs whenever no rule was
+    // found, tagged or not, and the warning says which input named nothing.
+    if (!rule && s.disposition === 'ask') {
       const askedCall = shaped.judgmentCalls.find((c) => c.id === f.id)
       const named = askedCall && typeof askedCall.why_human === 'string' && askedCall.why_human.startsWith('repository rule ') ? askedCall.why_human.slice('repository rule '.length).trim() : ''
       if (named && ruleById[named]) {
         rule = ruleById[named]
-        warnings.push(`${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and did not tag the finding with it; it is left to the person under that rule`)
+        warnings.push(
+          tagged
+            ? `${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and tagged the finding with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; it is left to the person under ${rule.id}`
+            : `${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and did not tag the finding with it; it is left to the person under that rule`,
+        )
       }
     }
     if (!rule) {
