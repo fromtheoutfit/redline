@@ -1,0 +1,1 @@
+Redline round 3: fixed in 30d17e5 (redline: R3-1 name the unattended section's marker as v7 in the contract (#105)). · decided by: redline

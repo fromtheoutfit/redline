@@ -1,0 +1,1 @@
+Redline round 5: fixed in 3e6be84 (redline: R5-3 give a decision a reshape newly leaves to the person what a resolve gives one (#105)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 3: fixed in a76da6d (redline: R3-10 keep a left finding's entry free of a mitigation and its task free of files (#105)). · decided by: redline

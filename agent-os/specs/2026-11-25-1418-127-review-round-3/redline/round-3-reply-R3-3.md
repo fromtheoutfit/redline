@@ -1,0 +1,1 @@
+Redline round 3: fixed in 24c62f8 (redline: R3-3 say a deferred left finding's draft is shown before it is filed, at the round's stop or the end of the run (#105)). · decided by: redline

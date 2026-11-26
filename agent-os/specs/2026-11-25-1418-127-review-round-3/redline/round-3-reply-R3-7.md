@@ -1,0 +1,1 @@
+Redline round 3: fixed in a60771e (redline: R3-7 end a kept draft's call recommendation in one period (#105)). · decided by: redline

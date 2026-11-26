@@ -1,0 +1,1 @@
+Redline round 4: fixed in d66b6b9 (redline: R4-3 warn when a typed defer names none of a left call's drafted issues (#105)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 4: fixed in e68c426 (redline: R4-1 hold a finding to the rule its call names when its tag names no declared rule (#105)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 3: fixed in 616dffe (redline: R3-2 say which objects the shaper's and the reviewer's schemas refuse an unnamed key on (#105)). · decided by: redline

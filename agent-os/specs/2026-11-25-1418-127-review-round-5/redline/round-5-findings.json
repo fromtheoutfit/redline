@@ -1,0 +1,123 @@
+{
+  "round": 5,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "20a760372362e85dd39a998443ffacfe49bb7460",
+    "to": "10f2630eab6ac58fbf044c76503a9a0515591a8a"
+  },
+  "summary": "The round 4 fixes do what each finding asked. The undeclared-tag lookup now reads the call's reason, a short draft is warned about, and a typed defer over several drafts says what it files. Every decided finding is named to a reshape, and a left one is held to no task with files. What the three findings share is the reshape path. A decision that a reshape newly leaves to the person gets only part of what `resolveWith` gives a left decision. Warnings written for an ordinary finding, or for an asked review, fire with a reason that does not hold for a decided finding or an unasked review. No scheduled or queued work touches these files, and the fix diff's docs changes are in `docs/running.md` and `docs/contract.md`.",
+  "findings": [
+    {
+      "id": "R5-1",
+      "file": "workflows/redline-loop.js",
+      "line": 3220,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "On a review that was not asked for links, two warnings give a reason for clearing a link that is not the real one",
+      "description": "`linksAsked` is false on the first review of a pull request with no earlier round (line 3159). That review gets `REVIEW_SCHEMA`, which is open: `reviewSchema(false)` sets no `additionalProperties: false` (lines 909-922). So a top-level `sameClassAs` can reach the workflow only on that review. The asked schema refuses the key in the reviewer's own run. On that path the warning at line 3220 says the link was 'beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it'. That implies the link would have been kept if it sat on a finding. But `honourLinks` clears every link on such a review with 'this review was shown no earlier finding' (line 3119, `!asked`). The rename loop at lines 3229-3247 (R3-5) also runs before `honourLinks` whatever `linksAsked` is. On the same unasked review it calls a link to a renamed id 'ambiguous' (line 3237), where the true reason is that no link was asked for. Conditions: a first review with no earlier round whose reviewer returns `sameClassAs` anyway, at the top of its result or naming an id the review renamed. The messages are from the #127 follow-up and from R3-5, in this pull request's code but not in round 4's fixes. This is the class of R1-3, a cleared link's reason that is false on one path, as the standard in agent-os/standards/workflow/agents.md records.",
+      "proposedFix": "When `linksAsked` is false, clear the top-level key and any renamed-id links with the 'this review was shown no earlier finding' reason, for example by guarding the two blocks at lines 3219 and 3229 on `linksAsked` and letting `honourLinks` give its reason. Add a loop case: a round 1 review with no prior round that returns a top-level `sameClassAs` gets the 'shown no earlier finding' warning.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R1-3"
+      ]
+    },
+    {
+      "id": "R5-2",
+      "file": "workflows/redline-loop.js",
+      "line": 4044,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The R4-2 warning says a decided deferral's draft is not kept when a reshape leaves it, while the decision's own draft is filed",
+      "description": "`forceAskRules` runs inside every `vetShape`, reshapes included (line 4434). The R4-2 warning at lines 4043-4045 reads only the reshape's own deferred entry and never checks whether the finding is decided. Take a decided deferral (a pick of an option that ends in `defer`, whose resolve returned a complete entry) that a reshape returns as `defer` with a short entry and a declared tag or rule. The run warns that the shaper deferred it 'with no complete drafted issue ... and the draft is not kept as an option of its call'. For a decided finding, the reshape's entry would be dropped whatever it held, since the decision stands. `checkDrafts` skips decided ids (line 3899) for that reason. The rebuild at lines 5080-5091 then keeps the resolve's entry through `stillDeferred`, `leftDeferred` (line 4592) reads the finding as a deferral, and that draft is filed. So the person is warned that a draft is lost while the run files the decision's draft. The relabel warning at line 4089 ('its call keeps the options the shaper wrote') fires the same way for a decided finding. A decided call is in `calls`, so the reshape's copy is never raised or resolved again (line 5074). That warning dates from R1-4 and is not in round 4's fixes. Conditions: a reshape after a bounce that re-sorts a decided finding under a rule and returns a short deferred entry for it, or an ordinary call for it.",
+      "proposedFix": "In forceAskRules, skip the R4-2 warning (and the R1-4 relabel warning) when `decisions[f.id]` is set, or word them for a decided finding, for example '...; its decision stands, and the draft its resolve wrote is the one filed'. Add a loop case pinning the wording for a decided deferral a reshape leaves with a short entry.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R5-3",
+      "file": "workflows/redline-loop.js",
+      "line": 4999,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A decided call that a reshape newly leaves to the person keeps its fix or accept disposition beside the new `rule`",
+      "description": "`resolveWith` gives a picked option's end to the decision when the finding is not forced (lines 4633-4640). Since #105, every pick and every autopilot take of `recommended` gets `disposition` that way. For a left finding it also drops any non-defer disposition with a warning (lines 4663-4667). The R4-4 loop at lines 4999-5004 handles a call a reshape newly leaves to the person, which no resolve applies again. It adds `rule` and `own`, 'as resolveWith gives a left decision', but does not drop the disposition. So `roundDecisions` holds, for example, `{option: \"Change it\", disposition: \"fix\", rule: \"billing-code\"}`. The plan approver's next pass (line 2524) and the implementer (line 2602) are shown that decision. The approver's file says a decision carrying `rule` gets a `Left to the person` task with no files (rule 1). It also says a decision's `disposition` is the one the plan must follow (rule 6). So the approver gets two readings and can bounce the left task as a missing fix. The comment at lines 2446-2448 states that `rule` with `disposition` happens only for `defer`, and this loop now breaks that. Effects are bounded: `needCommits` excludes forced ids (line 5200), `isDeferral` reads `leftDeferred` (line 4916), and the hold at line 5060 refuses a left task with files, so no commit is demanded and nothing under the rule is built. Conditions: a picked or autopilot call that ends in fix or accept, and a reshape after a bounce that puts its finding under a rule with no files listed, for example by the call's `repository rule <id>`. This is the class of R4-4: the reshape path does not give a newly left decision all of what `resolveWith` gives one.",
+      "proposedFix": "In the loop at line 4999, after setting `rule`, do what resolveWith does: when `roundDecisions[id].disposition` is present and not `defer`, push `${pass.name}: ${id} is left to the person under ${leftUnder(record.forced[id])}; the disposition \"<d>\" is not applied` and delete it, keeping `defer`, which `leftDeferred` reads. Better, move resolveWith's left treatment into one helper both call. Add a loop case: a call answered by a pick that ends in fix, a bounce, and a reshape that returns it as an ask whose call names a declared rule with no files; pin that 'plan approver r1 #2' and 'implement r1' show the decision with `rule` and no `disposition`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R4-4"
+      ]
+    }
+  ],
+  "coverage": {
+    "head": "10f2630eab6ac58fbf044c76503a9a0515591a8a",
+    "candidates": 3,
+    "counts": {
+      "verified": 3,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R5-3"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R5-2"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R5-1"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 4999,
+        "summary": "After a reshape newly leaves a decided call to the person, the run's copy of the decision keeps its fix or accept disposition next to the new `rule`, with no warning. The R4-4 loop after `vetShape` adds `rule` (and `own`) \"as resolveWith gives a left decision\". But it skips the other half of what `resolveWith` does for a left finding: drop a non-defer disposition and warn that it is not applied. Since #105, every pick (a person's `option` or autopilot's recommended one) carries the option's end as its disposition, so this is the normal path for a picked call. The plan approver and the implementer then get `{\"option\": \"Change it\", \"disposition\": \"fix\", \"rule\": \"billing-code\"}`. Fix: in that loop, when the decision's disposition is present and not `defer`, push the same warning `resolveWith` gives and delete it (keep `defer`, which `leftDeferred` reads). Add a loop case with a picked fix that a reshape newly leaves.",
+        "failure_scenario": "Guided run with askRules [billing-code, paths app/billing/**]. R1-1 is a call answered by picking `Change it` (ends fix), so the resolve sets disposition fix. The plan bounces, and the reshape returns R1-1 as an ask whose call names `repository rule billing-code`, with no files. Probe result: the 'plan approver r1 #2' and 'implement r1' prompts both list R1-1 as {choice, option: \"Change it\", disposition: \"fix\", rule: \"billing-code\"}. The only warning is the R4-1 tag notice, not the usual 'the disposition \"fix\" is not applied'. On autopilot the recommended `Keep it` gives the same decision with decidedBy redline (autopilot). The approver's rule 6 says a decision's `disposition` is what the plan must follow, and its rule 1 says a decision with `rule` gets no task with files. The approver can bounce the 'Left to the person' task as a missing fix, or pass a fix task that writes under a prose rule."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 4043,
+        "summary": "When a reshape newly leaves an already-decided deferral to the person, `forceAskRules` warns that its draft is lost, but the decision's draft is filed. The R4-2 warning ('the shaper deferred X with no complete drafted issue ...; the draft is not kept as an option of its call, since only a complete one is') reads only the reshape's own deferred entry. It never checks whether the finding is decided, and a decided finding keeps the entry its resolve wrote: `stillDeferred` keeps it and `leftDeferred` files it. The R1-4 relabel warning at line 4087 fires the same way for a decided call, which is a known call the round never reads again ('its call keeps the options the shaper wrote'). Fix: skip both warnings when `decisions[f.id]` is set, or word them for a decided finding.",
+        "failure_scenario": "Call R1-1 is answered with a pick whose option ends in defer, and the resolve returns the entry 'Lock R1-1'. The plan bounces. The reshape returns R1-1 as defer with an entry short of title/found/why, plus a declared prose askRule tag. Probe result: the warnings say the draft is not kept and that R1-1's call keeps its options. The run then files the resolve's draft: the deferred outcome is 'left to @author under repository rule billing: Defer it. Deferred to #301.' The person reading the warnings is told something false."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 3219,
+        "summary": "A review that was not asked for class links still gets warnings that blame where the link was placed, rather than saying the review was not asked. When the review got `REVIEW_SCHEMA` (no earlier findings, so no `LINK_ASK`), a top-level `sameClassAs` is reported as 'returned beside findings ...; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it'. That implies the link would have been kept on a finding, while `honourLinks` would clear it anyway as 'this review was shown no earlier finding'. The R3-5 rename loop likewise calls a renamed id 'ambiguous' on an unasked review. Fix: when `linksAsked` is false, clear the top-level key and any renamed-id links with the 'shown no earlier finding' reason, or let `honourLinks` give that reason for all of them.",
+        "failure_scenario": "Round 1 of a pull request with no earlier Redline round (linksAsked false). The reviewer returns {sameClassAs: [\"R1-1\"]} at the top of its result. Probe result: the warning is 'the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding ... so no link is kept from it'. In the same run, a link placed on a finding is cleared as 'this review was shown no earlier finding'."
+      }
+    ]
+  }
+}

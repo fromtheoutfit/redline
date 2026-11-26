@@ -1,0 +1,1 @@
+Redline round 3: fixed in db59918 (redline: R3-11 warn truly of a commit of its own for a finding left to the person (#105)). · decided by: redline
