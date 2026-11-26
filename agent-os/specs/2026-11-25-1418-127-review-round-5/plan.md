@@ -205,3 +205,36 @@ Steps 10, 11, 12 and 13 stay as written:
 - **11. Version.** `0.5.0` in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, unchanged: the pull request bumped it, and no template body changes this round.
 - **12. Standards retrospective.** The list under "Standards retrospective (proposed)" in `shape.md`, as the standards approver approves it, applied in its own commit after the finding commits: `redline: record the round 5 review lessons in the standards (#105)`.
 - **13. Spec folder.** `plan.md` gains an As built section in the last commit: `redline: record the as-built state of review round 5 for PR #127 (#105)`. It records each task's commit, its red and green counts read off the gate's summary line, every mutation run, and the id the rename gave in Task 3's renamed case. Any deviation is recorded under Decisions in `shape.md`.
+
+## As built
+
+Every count below is the loop harness's own summary line, read off a gate run. The JSON the gate prints keeps only the tail of a failing check's output, so each line was read from the full result the gate saves at its `kept` path. A passing loop prints nothing in the gate's JSON, so each green count was read from the same saved result.
+
+The red runs of Tasks 3 and 4 were seen together with the mutation run of the task before each, one gate run apiece, as the plan allows. Each task was committed with only its own checks.
+
+- **Task 1** (`a1a4df7`): the spec folder, `plan.md`, `shape.md`, `standards.md` and `references.md`.
+- **Task 2, R5-3** (`3e6be84`).
+  - Red: `2029 checks passed, 4 failed`, exactly the four planned: the named-fix check, both pick cases and the autopilot case. The two neighbours passed before the change.
+  - Green: `2033 checks passed, 0 failed`. `grep -c 'and none for a pick, as at a call (#127, R5-3)' docs/running.md` prints `1`. Docs: `docs/running.md`, "Dispositions", "A reshape after your decision", in this commit.
+  - **Mutation**, seen in the gate run that held Task 3's red checks. With `decision.disposition !== 'defer'` dropped from `leaveDecision`'s condition, the run read `2007 checks passed, 40 failed`. Four of those were Task 3's. The other 36 were every check that reads a left finding's defer, among them the `namedLater` neighbour and one `reshape:` check. Restored before Task 3's commit.
+- **Task 3, R5-1** (`f54a16f`).
+  - Red: in the same run as Task 2's mutation, Task 3's four planned checks failed: the beside, renamed and two no-list cases. The empty-list case passed before the change, as planned.
+  - The rename gave `R0-1` the id `R1-3`: the findings read `["R1-3","R1-2"]`, which the renamed case pins.
+  - Green: `2043 checks passed, 0 failed`. `grep -c 'with the one reason that it was shown no earlier finding (#127, R5-1)' docs/running.md` prints `1`. Docs: `docs/running.md`, "Dispositions", "Instance or class", in this commit.
+  - **Mutation**, seen in the gate run that held Task 4's red check. `clearUnasked`'s empty-list branch was made to push the `FORM_UNASKED` warning, and the run read `2043 checks passed, 2 failed`: the empty-list case, which warned `round 1: the reviewer stated sameClassAs for R1-1 as [], but this review was shown no earlier finding; the link is cleared`, and Task 4's new case. Restored before Task 4's commit.
+- **Task 4, R5-2** (`7753871`).
+  - Red: in the same run as Task 3's mutation, the new case failed as planned. Both `with no complete drafted issue (missing title)` and `its call keeps the options the shaper wrote` fired on the reshape.
+  - Green: `2045 checks passed, 0 failed`. `grep -c 'unless the finding was already decided, whose decision stands' docs/running.md` prints `1`. Docs: `docs/running.md`, "Dispositions", "Left to you", in this commit.
+- **Standards retrospective** (`09ec719`): the three approved edits to `agent-os/standards/workflow/agents.md`, at lines 10, 11 and 16, as approved. Its message names no finding: each edit is a lesson, and no finding's plan sends part of its fix through the retrospective.
+- **Task 5, Verification Gate.**
+  - Steps 1 to 9: `.claude/redline/checks.sh` with the round's snapshot passes on this commit.
+  - Step 10: every change to `workflows/redline-loop.js` has its docs entry, each in the commit above.
+  - Step 11: the version stays `0.5.0`.
+  - Step 12: `09ec719`.
+  - Step 13: this section, in this commit.
+
+### Deviations
+
+- Task 2's `forcedLater` neighbour is a check in the `filing:` block, beside the named-fix check, since `forcedLater` is declared there and is out of scope in the `left:` block. Task 2's mutation did not turn it red, since its decision carries no disposition. The `namedLater` neighbour, the one the plan names in step 3, did turn red.
+- "The decisions shown in a prompt" is read by a small helper in each block: `decisionsShown` in `filing:`, `leftShown` in `left:`. The two are the same code, since the blocks are separate scopes.
+- Task 3's mutation is written as a warning pushed from `clearUnasked`'s empty-list branch. A per-id warning, as the plan words it, gives none for a list of no ids, so it could not turn the empty-list case red.

@@ -103,6 +103,14 @@ Decided by: redline
 
 Proposed below, under "Standards retrospective (proposed)"; the standards approver approves the list and the implementer applies it in its own commit.
 
+### As built deviations
+
+`plan.md`, "As built", "Deviations", records three. None changes a decision above:
+
+- where Task 2's `forcedLater` neighbour sits;
+- the two copies of the prompt reader in the loop test;
+- how Task 3's empty-list mutation is written.
+
 ## Declined
 
 None.
