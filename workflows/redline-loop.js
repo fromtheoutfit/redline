@@ -4723,7 +4723,10 @@ async function revise(record, inScope, reviewedKind) {
     // that differs is dropped with a warning. Only when the call offered no draft to take does
     // the agent's own entry stand, held to its fields below like any deferral's. An entry for a
     // left finding nobody deferred is dropped without one, as before (#109), and one for a left
-    // deferral an earlier resolve applied is dropped with one (#127, R3-9).
+    // deferral an earlier resolve applied is dropped with one (#127, R3-9). A typed defer names
+    // none of several drafted options, so none is taken and the agent's own draft is filed, and
+    // the run says so (#127, R4-3), where until then the person, shown those drafts at the call,
+    // had a third filed with no word.
     const optionDraft = {}
     for (const id of applied.filter((x) => record.forced[x] && roundDecisions[x].disposition === 'defer')) {
       const call = newCalls.find((c) => c.id === id)
@@ -4731,6 +4734,9 @@ async function revise(record, inScope, reviewedKind) {
       const drafted = options.filter((option) => option && option.draft)
       const picked = call && roundDecisions[id].option !== undefined ? optionOf(call, roundDecisions[id].option) : null
       const source = picked || (roundDecisions[id].option === undefined && drafted.length === 1 ? drafted[0] : null)
+      if (!picked && roundDecisions[id].option === undefined && drafted.length > 1) {
+        warnings.push(`${pass.name}: the decision for ${id} is a defer typed for a call that offers ${drafted.length} drafted issues (${drafted.map(optionLabel).join(', ')}); none of them is taken, so the draft filed is one the resolve agent writes, shown before it is filed; a pick of one of those options files its draft`)
+      }
       if (source && source.draft) {
         optionDraft[id] = { id, mitigation: '', ...Object.fromEntries(DRAFT_FIELDS.map((key) => [key, source.draft[key]])) }
       }

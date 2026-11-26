@@ -5194,6 +5194,22 @@ function samePrefix(name, first, second, n) {
   const another = { id: 'R1-1', mitigation: '', fullFix: 'another lock', title: 'Another title', found: 'found again', why: 'why again' }
   const laterResolve = await go('left: a deferred left call beside a call a reshape raises, every resolve returning another draft for it', { ...ruleArgs, decisions: { ...pickOf(DEFER, tracked), ...typedAnswer('R1-2') }, deferrals: goAhead('R1-1') }, { reviews: [[cfg, f('R1-2', 'correctness')], []], defer: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [another], commitIds: [['R1-2'], []] })
   check('left: a later resolve\'s entry for a left deferral an earlier resolve applied is dropped with a warning, and the option\'s draft is filed', laterResolve.res.status === 'done' && labels(laterResolve.calls).includes('resolve r1 #1') && promptOf(laterResolve, 'file deferred r1').includes('# Lock R1-1') && !promptOf(laterResolve, 'file deferred r1').includes('Another title') && (laterResolve.res.warnings || []).includes('round 1: the resolve agent returned a deferred entry for R1-1, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands'), [detail(laterResolve), promptOf(laterResolve, 'file deferred r1').slice(0, 800)])
+  // A typed defer on a left call that offers more than one drafted issue names none of them, so
+  // none is taken and the draft filed is the resolve agent's (#127, R4-3): the run says so, where
+  // until then the person, shown two drafts at the call, had a third filed with no word.
+  const SEVERAL = 'round 1: the decision for R1-1 is a defer typed for a call that offers 2 drafted issues (Track it, Track the class); none of them is taken, so the draft filed is one the resolve agent writes, shown before it is filed; a pick of one of those options files its draft'
+  const twoDrafts = [
+    { label: BY_HAND, cost: 'c', effect: 'e', ends: 'fix' },
+    { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft: { title: 'Track one', found: 'f1', why: 'w1', fullFix: 'x1' } },
+    { label: 'Track the class', cost: 'c', effect: 'e', ends: 'defer', draft: { title: 'Track all', found: 'f2', why: 'w2', fullFix: 'x2' } },
+  ]
+  const severalRun = await go('left: a defer typed for a left call that offers two drafted issues', { ...ruleArgs, decisions: markedTyped, deferrals: goAhead('R1-1') }, { reviews: [[cfg], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule craft-config' }, callOf: { 'R1-1': { options: twoDrafts, recommended: 'Track it', recommendation: 'Track it' } }, resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'the agent lock', title: 'Agent title', found: 'found by the agent', why: 'why the agent' }], commitIds: [[]] })
+  const severalFiled = promptOf(severalRun, 'file deferred r1')
+  check('left: a defer typed for a left call with two drafted issues files the resolve agent\'s draft, with a warning that names the options', severalRun.res.status === 'done' && severalFiled.includes('# Agent title') && !severalFiled.includes('Track one') && !severalFiled.includes('Track all') && (severalRun.res.warnings || []).includes(SEVERAL), [detail(severalRun), severalFiled.slice(0, 900)])
+  const oneDraftTyped = await go('left: a defer typed for the shaper\'s deferral under a rule, its call carrying one drafted issue', { ...ruleArgs, decisions: markedTyped, deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: a defer typed for a left call with one drafted issue files that draft, with no such warning', oneDraftTyped.res.status === 'done' && promptOf(oneDraftTyped, 'file deferred r1').includes('# Lock R1-1') && !(oneDraftTyped.res.warnings || []).some((w) => w.includes('a defer typed for a call that offers')), [detail(oneDraftTyped), promptOf(oneDraftTyped, 'file deferred r1').slice(0, 900)])
+  check('left: the skill says a typed defer on a call with more than one drafted issue has the resolve agent write one', read('skills', 'redline', 'SKILL.md').includes('or more than one, one the resolve agent writes'), 'skills/redline/SKILL.md')
+  check('left: docs/running.md says a typed defer on a call with more than one drafted issue has the resolve agent write one, with a warning', read('docs', 'running.md').includes('and so does one on a call that offered more than one, with a warning'), 'docs/running.md')
 
   // A commit of its own for a finding left to the person is warned about truly (#127, R3-11):
   // until then a left deferral's was said to have no task planned with files, whatever the
