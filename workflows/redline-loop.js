@@ -2381,7 +2381,7 @@ Return only the JSON object your instructions specify: specFolder, findings (for
 
 // `decided` is the findings the person or autopilot decided whose task the round reads from its
 // own list (#106), each as {id, end}: end is what its decision ends in (endsIn in revise(): fix,
-// defer or accept). The block that names them says what `files` means for each: every shape
+// defer or accept), or left for one a repository rule leaves to the person (#127, R4-4). The block that names them says what `files` means for each: every shape
 // prompt asks, for an ask, for the paths of the recommended change, which is the wrong list for
 // a call the person answered, and after a reshape the workflow takes a decided finding's task
 // from this list. It names each with its end, which the hold after the reshape reads, so the
@@ -2392,12 +2392,19 @@ Return only the JSON object your instructions specify: specFolder, findings (for
 // task names it: a merged task listed for two decided fixes passed it (#114, R2-6). The whole
 // ask sits in the block, and the block is in the prompt only when the round has such a finding,
 // so a reshape of any other round keeps the prompt it had before #106.
+// The rule's clause for a decided finding left to the person (#127, R4-4), stated once: the block
+// below and the shaper's rule 10 carry it word for word.
+const LEFT_KEEPS_NONE = 'and one left to the person keeps none: its task is "Left to the person: <id>" with no files'
 function reshapePrompt(pass, specFolder, inScope, adjustments, attempt, decided) {
   // How the block names each end, in the words of the rule after the list (#114, R1-3). An end
   // the round has not read is named by the id alone.
-  const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted' }
+  // A decided finding left to the person is named as left (#127, R4-4), with the rule's clause
+  // for it, so the hold after the reshape reads its task too; a block that names none reads as
+  // it did before.
+  const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted', left: 'left to the person' }
+  const leftClause = decided.some((d) => d.end === 'left') ? `, ${LEFT_KEEPS_NONE}` : ''
   const decidedBlock = decided.length
-    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none. A decided fix keeps a task of its own, one that names it; a task counts only for the finding it names, so never list one task's files for two findings.`
+    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none${leftClause}. A decided fix keeps a task of its own, one that names it; a task counts only for the finding it names, so never list one task's files for two findings.`
     : ''
   return `This is a Redline run; follow shape-spec in unattended mode.
 
@@ -3955,7 +3962,15 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 const BY_HAND = 'Make the change by hand after the run'
 const ACCEPT_AS_IS = 'Accept, no change'
 const DEFER_TO_ISSUE = 'Defer to an issue'
+// The findings the last forceAskRules left to the person only through the files the shaper lists
+// for them: not their own file, not a declared tag, not their call's `repository rule <id>`. A
+// rule found only through the listed files goes when they go, so the hold after a reshape words
+// such a finding's stop apart, naming the two ways out (#127, R4-4). Read only by the hold right
+// after the same vetShape, and never written to the record, so the record, the prompts and every
+// replayed result are unchanged.
+const leftByTask = new Set()
 function forceAskRules(record, pass, inScope, shaped) {
+  leftByTask.clear()
   record.forced = record.forced || {}
   for (const f of inScope) {
     const s = shaped.findings.find((x) => x.id === f.id)
@@ -4030,6 +4045,14 @@ function forceAskRules(record, pass, inScope, shaped) {
     }
     s.disposition = 'ask'
     s.decidedBy = 'pending'
+    // Whether the rule came only from the files the shaper lists (#127, R4-4), read before the
+    // call's reason is rewritten below: no rule on the finding's own file, no declared tag, and
+    // no call that names a declared rule, read as the lookup above reads it, for any ask.
+    const listedCall = shaped.judgmentCalls.find((c) => c.id === f.id)
+    const callRule = listedCall && typeof listedCall.why_human === 'string' && listedCall.why_human.startsWith('repository rule ') ? listedCall.why_human.slice('repository rule '.length).trim() : ''
+    if (!ruleForPaths([f.file || '']) && !(tagged && ruleById[tagged]) && !(callRule && ruleById[callRule])) {
+      leftByTask.add(f.id)
+    }
     s.askRule = rule.id
     shaped.deferred = shaped.deferred.filter((d) => d.id !== f.id)
     const why = `repository rule ${rule.id}`
@@ -4954,10 +4977,25 @@ async function revise(record, inScope, reviewedKind) {
       throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes, ...(reshaped.length ? { reshaped } : {}) }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
-    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked).map((id) => ({ id, end: endsIn(id) }))), {
+    // Every decided finding is named to the reshape (#127, R4-4), one left to the person as left,
+    // so the hold below reads its task too; a tracked one is named as before. Until R4-4 a left
+    // one was not named, so the files a reshape listed for it were an ask's recommended paths,
+    // and no check read the task its first resolve had planned.
+    const named = inScope.map((f) => f.id).filter((id) => roundDecisions[id])
+    const leftBefore = new Set(Object.keys(record.forced))
+    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, named.map((id) => ({ id, end: record.forced[id] ? 'left' : endsIn(id) }))), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
+    // A decision this reshape newly left to the person carries the rule, as resolveWith gives a
+    // left decision (#127, R4-4): no resolve applies such a decision again, so the plan approver's
+    // next pass and the implementer would otherwise be shown it without the rule.
+    for (const id of named.filter((x) => record.forced[x] && !leftBefore.has(x))) {
+      roundDecisions[id].rule = record.forced[id].rule
+      if (record.forced[id].own) {
+        roundDecisions[id].own = true
+      }
+    }
     // A decided finding's task is the reshape's to correct after a bounce, so its list follows
     // the reshape (#106): the files the reshape returns for it, which its prompt asks for as the
     // task plan.md now holds. Until #106 the list stayed as the resolve planned it, so the plan
@@ -5001,9 +5039,26 @@ async function revise(record, inScope, reviewedKind) {
     // one kind the message reads as it did.
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
     const tasked = heldIds.filter((id) => endsIn(id) === 'accept' && decidedFiles[id].length > 0)
+    // A decided finding left to the person is held to no task with files here too (#127, R4-4).
+    // The resolve that applies a left call rewrites its task (R3-10's check), but a decided call a
+    // reshape newly leaves sets off no resolve, and until R4-4 one left before was not named to a
+    // reshape at all, so the task its first resolve planned stood and was built under the rule.
+    // One left only through the files this reshape lists is worded apart: removing those files
+    // alone takes it out from under the rule, and a resumed reshape shown its decision would then
+    // stop here again as a fix with no task, so the message names the change that keeps the
+    // decision and the return that leaves it to the person.
+    const listedFiles = (id) => {
+      const listed = shaped.findings.find((s) => s.id === id)
+      return cleanPaths(listed && Array.isArray(listed.files) ? listed.files : [])
+    }
+    const leftTasked = named.filter((id) => record.forced[id] && listedFiles(id).length > 0)
+    const byTask = leftTasked.filter((id) => leftByTask.has(id) && !leftBefore.has(id))
+    const keptTask = leftTasked.filter((id) => !byTask.includes(id))
     const left = [
       taskless.length ? `${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes` : '',
       tasked.length ? `${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing` : '',
+      keptTask.length ? `${keptTask.map((id) => `${id}, a finding decided by ${roundDecisions[id].decidedBy} and left to the person under ${leftUnder(record.forced[id])}, with a task with files (${listedFiles(id).join(', ')})`).join('; ')}; no task writes anything for a finding left to the person` : '',
+      ...byTask.map((id) => `${id}, a finding decided by ${roundDecisions[id].decidedBy}, under repository rule ${record.forced[id].rule} only through the files of its task (${listedFiles(id).join(', ')}); to keep the decision, move the change off the rule's paths, and to leave it to the person, return it as an ask with no files whose call names repository rule ${record.forced[id].rule}, since removing its files alone takes it out from under the rule`),
     ].filter(Boolean)
     if (left.length) {
       throw checkError('shape', `the reshape left ${left.join('; and ')}`, {}, `reshape ${pass.tag} #${adjustment + 1}`)

@@ -413,6 +413,9 @@ const forThePerson = []
 // No reshape prompt of a round with no decided finding holds the decided-findings block (#106):
 // every run is read, and one check at the end names the offenders.
 const DECIDED_BLOCK = 'Findings the person or the autopilot decided: '
+// The rule's clause for a decided finding left to the person (#127, R4-4), stated once: the
+// reshape prompt's block and the shaper's rule 10 both carry it word for word.
+const LEFT_KEEPS_NONE = 'and one left to the person keeps none: its task is "Left to the person: <id>" with no files'
 const strayDecidedBlock = []
 // What a reshape prompt that names decided findings asks of a finding's files (#114, R1-4): an
 // ask the block does not name, pending or newly raised, by its recommended paths (#114, R2-4), a
@@ -1620,12 +1623,22 @@ function samePrefix(name, first, second, n) {
   }
   // The reshape's list is read the same way (#114, R3-3): a call answered with a fix whose task a
   // reshape lists under a paths rule with a doubled slash is left to the person under the rule at
-  // that reshape, as one listed as written is, and the round finishes with no repair. Until R3-3
-  // it stayed tracked, its list became the folded path under the rule, and the fix was demanded.
+  // that reshape, as one listed as written is. Until R3-3 it stayed tracked, its list became the
+  // folded path under the rule, and the fix was demanded. Since #127, R4-4 a decided finding a
+  // reshape leaves to the person is held to no task with files, so the run stops at that
+  // reshape, the stop naming the path as read once: the doubled slash is still read as under the
+  // rule. Its task's files alone put it there, so the stop names the two ways out, and the case
+  // after it takes the second.
   const billingPaths = [{ id: 'billing-code', when: { paths: ['app/billing/**'] }, reason: 'Billing code is changed by finance' }]
   const reshapedUnder = await go('rules: a call answered with a fix whose task a reshape lists under a paths rule with a doubled slash', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFiles: { 'R1-1': ['app//billing/charge.php'] }, commitIds: [[], []] })
-  const reshapedUnderReply = replyFor(reshapedUnder.calls, 'push and reply r1', 'R1-1')
-  check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash is left to the person under the rule, with no repair', (reshapedUnder.res || {}).status === 'done' && !labels(reshapedUnder.calls).includes('repair r1') && reshapedUnderReply.startsWith('Redline round 1: left to @author under repository rule billing-code'), [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6), reshapedUnderReply])
+  const BY_TASK = 'the reshape left R1-1, a finding decided by @author, under repository rule billing-code only through the files of its task (app/billing/charge.php); to keep the decision, move the change off the rule\'s paths, and to leave it to the person, return it as an ask with no files whose call names repository rule billing-code, since removing its files alone takes it out from under the rule'
+  check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash stops at that reshape, the stop naming the path as read once and the two ways out', (reshapedUnder.res || {}).status === 'error' && reshapedUnder.res.stage === 'shape' && reshapedUnder.res.ownCheck === true && (reshapedUnder.res.resumeFrom || {}).label === 'reshape r1 #1' && reshapedUnder.res.error === BY_TASK, [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6)])
+  // The way out that leaves it to the person: the reshape returns it as an ask with no files,
+  // its call naming the rule (scripted on the reshape alone, since whyHuman reaches the first
+  // shape too and would leave it there, before the reshape this case is about).
+  const wayOut = await go('rules: a call answered with a fix that a reshape returns as an ask under the paths rule its task named, with no files', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-1'], callAt: { 'reshape r1 #1': { 'R1-1': { why_human: 'repository rule billing-code' } } }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
+  const wayOutReply = replyFor(wayOut.calls, 'push and reply r1', 'R1-1')
+  check('rules: a decided finding the reshape returns as an ask with no files, its call naming the rule, is left to the person under it with no stop and no repair', (wayOut.res || {}).status === 'done' && !labels(wayOut.calls).includes('repair r1') && (wayOut.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing-code') && wayOutReply.startsWith('Redline round 1: left to @author under repository rule billing-code') && ![(wayOut.res.error || '')].concat(wayOut.res.warnings || []).some((w) => w.includes('only through the files of its task')), [(wayOut.res || {}).status, (wayOut.res || {}).error, labels(wayOut.calls).slice(-6), wayOutReply])
   check('rules: docs/contract.md says a paths rule reads a path once, as the guard reads a write target', fs.readFileSync(path.join(here, '..', 'docs', 'contract.md'), 'utf8').includes('which the workflow reads once, as the guard reads a write target'))
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
@@ -3608,10 +3621,14 @@ function samePrefix(name, first, second, n) {
   check('reshape: the reshape prompt of a round with no decided finding has no such block, and is the decided round\'s prompt with the block cut out and the files clause put back', reshapePromptOf(undecided) !== '' && !reshapePromptOf(undecided).includes(DECIDED_BLOCK) && withoutBlock(reshapePromptOf(emptied)) === reshapePromptOf(undecided), [reshapePromptOf(undecided).length, (withoutBlock(reshapePromptOf(emptied)) || '').length])
   check('reshape: a reshape prompt that names decided findings asks for files in one meaning: an ask the block does not name by its recommended paths, a named finding by its task',reshapePromptOf(emptied).includes(FILES_DECIDED) && !reshapePromptOf(emptied).includes(FILES_PENDING) && reshapePromptOf(undecided).includes(FILES_PENDING) && !reshapePromptOf(undecided).includes(FILES_DECIDED), reshapePromptOf(emptied).slice(-900))
   const twoDecided = await go('reshape: a decided fix beside a call left to the person under a rule and a fix nobody decided', { ...baseArgs, askRules: chargeRule, decisions: { 'R1-1': changeIt['R1-1'], 'R1-2': changeIt['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], askRule: { 'R1-2': 'billing' }, planBounce: 1, commitIds: [['R1-1', 'R1-3'], []] })
-  check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix). `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  // Since #127, R4-4 the block names every decided finding, one left to the person as left to the
+  // person with the rule's clause for it, so the hold after the reshape reads its task too.
+  check('reshape: the block names each decided finding, a left one as left to the person, and never one nobody decided', twoDecided.res.status === 'done' && reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix), R1-2 (left to the person). `) && reshapePromptOf(twoDecided).includes(LEFT_KEEPS_NONE), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  check('reshape: a reshape prompt that names no finding left to the person states no clause for one', reshapePromptOf(emptied) !== '' && !reshapePromptOf(emptied).includes('one left to the person keeps none'), reshapePromptOf(emptied).slice(-1600))
   const shaperFile = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
   check('reshape: the shaper\'s file states the same rule for a finding the invoking prompt names as decided', shaperFile.includes('as `plan.md` holds it when you are done') && shaperFile.includes('whatever disposition you return for it') && shaperFile.includes('keeps a task with files'))
-  check('reshape: the shaper\'s file says the invoking prompt names each decided finding with what its decision ends in', shaperFile.includes('each with what its decision ends in (fix, accepted or deferred)'))
+  check('reshape: the shaper\'s file says the invoking prompt names each decided finding with what its decision ends in', shaperFile.includes('each with what its decision ends in (fix, accepted, deferred or left to the person)'))
+  check('reshape: the shaper\'s file says a decided finding left to the person keeps no task', shaperFile.includes(LEFT_KEEPS_NONE))
   // A decided fix's task is its own and counts only for the finding it names, after a reshape as
   // at resolve (#114, R2-6): the hold reads the files the reshape lists for each finding and
   // cannot see which task names it, so a merged task listed for two decided fixes passed it, and
@@ -3628,8 +3645,8 @@ function samePrefix(name, first, second, n) {
   // call whose decision names defer was still shown as a defer here, and its approved draft
   // was not filed; it is filed now (`namedLater`, in the #126 cases).
   const namedDefer = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a guard.', date: '2026-11-20', disposition: 'defer' } }
-  const forcedDefer = await go('reshape: a call whose decision names defer, left to the person under a rule by the reshape', { ...baseArgs, askRules: chargeRule, decisions: namedDefer, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': ['app/y.php'] }, resolveDeferred: [guardEntry], commitIds: [[], []] })
-  check('reshape: a decided finding the reshape leaves to the person under a rule is shown the reshape\'s own list, and its files are not taken or warned about', approverFiles(forcedDefer, 'R1-1', PASS_2) === '["ask",["app/y.php"]]' && !anyWarning(forcedDefer, 'the reshape changed') && labels(forcedDefer.calls).includes('file deferred r1'), [forcedDefer.res.status, forcedDefer.res.error, approverFiles(forcedDefer, 'R1-1', PASS_2), (forcedDefer.res || {}).warnings])
+  const forcedDefer = await go('reshape: a call whose decision names defer, left to the person under a rule by the reshape', { ...baseArgs, askRules: chargeRule, decisions: namedDefer, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, resolveDeferred: [guardEntry], commitIds: [[], []] })
+  check('reshape: a decided finding the reshape leaves to the person under a rule is shown the reshape\'s own list, and its files are not taken or warned about', approverFiles(forcedDefer, 'R1-1', PASS_2) === '["ask",[]]' && !anyWarning(forcedDefer, 'the reshape changed') && labels(forcedDefer.calls).includes('file deferred r1'), [forcedDefer.res.status, forcedDefer.res.error, approverFiles(forcedDefer, 'R1-1', PASS_2), (forcedDefer.res || {}).warnings])
   // A resolve sets the list of the ids it applied and no other (#97, R2-14): a reshape that
   // raises a call runs a resolve for that call alone, and a task that resolve returns for an
   // earlier decision does not undo what the reshape made of it.
@@ -4017,16 +4034,17 @@ function samePrefix(name, first, second, n) {
   // A call stated as a fix that a reshape then leaves to the person under a rule is not
   // demanded (#108, R1-8), as the clause the statement replaced had it: the finding is posted
   // as left to the person. Its neighbour, a call stated as a fix and not forced, is demanded
-  // (`strayFilledUnbuilt` above).
+  // (`strayFilledUnbuilt` above). Its reshape leaves its task with no files, as the hold after a
+  // reshape asks of a decided finding left to the person (#127, R4-4).
   const billingRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
-  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
   const forcedReply = replyFor(forcedLater.calls, 'push and reply r1', 'R1-1')
   check('filing: a call stated as a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedLater.res.status === 'done' && !labels(forcedLater.calls).includes('repair r1'), [forcedLater.res.status, forcedLater.res.stage, forcedLater.res.error, labels(forcedLater.calls).slice(-6)])
   check('filing: that call is posted as left to the person under the rule', forcedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedReply)
   // The same holds for a call whose decision names its own fix (#108, R2-5): no statement is
   // asked of it, so it is demanded through its final disposition, and a reshape that leaves it
   // to the person under a rule after its resolve takes it out of the demand as well.
-  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
   const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
   check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
   check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
@@ -5038,7 +5056,9 @@ function samePrefix(name, first, second, n) {
   // rule is as before (`forcedLater`, `forcedNamed` above).
   const billing = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
   const guard = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
-  const later = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, resolveDeferred: [guard], commitIds: [[], []] }
+  // The reshape leaves the task with no files, as the hold after it asks of a decided finding left
+  // to the person (#127, R4-4).
+  const later = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, resolveDeferred: [guard], commitIds: [[], []] }
   const namedLater = await go('left: a call whose decision names defer, its draft approved, left to the person under a rule by a reshape', { ...baseArgs, askRules: billing, decisions: typedDefer(), deferrals: goAhead('R1-1') }, later)
   check('left: a deferral the person approved is filed when a reshape then leaves its finding to the person under a rule, and the reply says both', namedLater.res.status === 'done' && filedCalls(namedLater).join('|') === 'file deferred r1' && replyFor(namedLater.calls, 'push and reply r1', 'R1-1') === `Redline round 1: left to @author under repository rule billing (Billing changes are reviewed by finance). ${tracked} Deferred to #301. · decided by: @author`, [detail(namedLater), replyFor(namedLater.calls, 'push and reply r1', 'R1-1')])
   const statedLater = await go('left: a call answered in the person\'s own words and stated as a deferral, left to the person under a rule by a reshape', { ...baseArgs, askRules: billing, decisions: { 'R1-1': { choice: 'mitigate it behind a guard', notes: tracked, date: '2026-11-24' } }, deferrals: goAhead('R1-1') }, later)
@@ -5146,6 +5166,21 @@ function samePrefix(name, first, second, n) {
   // A reshape that newly leaves a decided deferral keeps its earlier entry, and the entry's
   // mitigation is cleared there: `namedLater` above, whose first resolve's entry carries one.
   check('left: a decided deferral a reshape leaves to the person is shown with no mitigation after the reshape, with the warning', ['plan approver r1 #2', 'implement r1'].every((label) => promptOf(namedLater, label).includes('"mitigation": ""') && !promptOf(namedLater, label).includes('"mitigation": "a guard"')) && (namedLater.res.warnings || []).includes(CLEARED('billing')), [detail(namedLater), promptOf(namedLater, 'implement r1').slice(0, 1500)])
+  // A decided finding a reshape leaves to the person is held to no task with files at the hold
+  // after that reshape (#127, R4-4). R3-10's check holds a left finding's task at the resolve that
+  // applies it, but a decided call a reshape newly leaves sets off no resolve, so until R4-4 the
+  // task its first resolve planned stood, and it was built under the rule.
+  const KEPT_TASK = (rule, files) => `the reshape left R1-1, a finding decided by @author and left to the person under repository rule ${rule}, with a task with files (${files}); no task writes anything for a finding left to the person`
+  const keptStop = (r, label, message) => r.res.status === 'error' && r.res.stage === 'shape' && r.res.ownCheck === true && (r.res.resumeFrom || {}).label === label && r.res.error === message
+  const keptDefer = await go('left: a call whose decision names defer, left to the person by a reshape that keeps its task', { ...baseArgs, askRules: billing, decisions: typedDefer(), deferrals: goAhead('R1-1') }, { ...later, reshapeFiles: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1'], []] })
+  check('left: a decided deferral a reshape leaves to the person while keeping its task with files stops at that reshape, resumable there, and nothing is built', keptStop(keptDefer, 'reshape r1 #1', KEPT_TASK('billing', 'app/x.php')) && !labels(keptDefer.calls).includes('plan approver r1 #2') && !labels(keptDefer.calls).includes('implement r1'), detail(keptDefer))
+  const { resolveDeferred: _noEntry, ...laterNoEntry } = later
+  const keptFix = await go('left: a call whose decision names a fix, left to the person by a reshape that keeps its task', { ...baseArgs, askRules: billing, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { ...laterNoEntry, reshapeFiles: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1'], []] })
+  check('left: a decided fix a reshape leaves to the person while keeping its task with files stops the same way', keptStop(keptFix, 'reshape r1 #1', KEPT_TASK('billing', 'app/x.php')) && !labels(keptFix.calls).includes('plan approver r1 #2') && !labels(keptFix.calls).includes('implement r1'), detail(keptFix))
+  check('left: a decided finding a reshape leaves to the person with its task emptied runs on, and the plan approver after the reshape is shown its decision with the rule', namedLater.res.status === 'done' && promptOf(namedLater, 'plan approver r1 #2').includes('"rule": "billing"'), [detail(namedLater), promptOf(namedLater, 'plan approver r1 #2').slice(0, 2500)])
+  const leftAgain = await go('left: a call left to the person at the first shape and deferred, whose task a later reshape gives files', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, planBounce: 2, reshapeFilesAt: { 'reshape r1 #2': { 'R1-1': ['app/x.php'] } } })
+  check('left: a decided finding left to the person before a reshape that gives it a task with files stops at that reshape', keptStop(leftAgain, 'reshape r1 #2', KEPT_TASK('craft-config', 'app/x.php')), detail(leftAgain))
+  check('left: the reshape is told a decided finding left to the person is left, with the rule\'s clause for it', promptOf(leftAgain, 'reshape r1 #1').includes(`${DECIDED_BLOCK}R1-1 (left to the person).`) && promptOf(leftAgain, 'reshape r1 #1').includes(LEFT_KEEPS_NONE), promptOf(leftAgain, 'reshape r1 #1').slice(-1800))
 
   // An option that names none of a left call's options is the person's own words, and for a
   // finding left to the person the warning says what follows (#127, R3-8): no statement is asked
