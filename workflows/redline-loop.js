@@ -4590,6 +4590,28 @@ async function revise(record, inScope, reviewedKind) {
   // rule. It is the one end of a left finding the round acts on: its drafted issue is raised,
   // filed and posted like any deferral's, and still nothing is planned, built or demanded for it.
   const leftDeferred = (id) => Boolean(record.forced[id]) && Boolean(roundDecisions[id]) && endsIn(id) === 'defer'
+  // The one place a decision is given what a left finding's decision carries (#49; #126; #127,
+  // R5-3): a fix or an accept it ends in is dropped, since it changes nothing Redline does, and a
+  // defer is kept; then the rule, and the mark of Redline's own files. A dropped end is warned
+  // about only when the decision names it in its own disposition: a pick's end is dropped with no
+  // warning, since a pick of a left call never takes an end other than defer at a resolve, so a
+  // pick that ended in fix or accept was one made before its finding was left. resolveWith calls
+  // it for every decision it applies to a left finding, and the approve loop for a decided one a
+  // reshape newly leaves. Until R5-3 the reshape loop set the rule and the mark alone, so a pick
+  // or a named fix kept its disposition beside the rule.
+  const leaveDecision = (id, decision) => {
+    const forced = record.forced[id]
+    if (decision.disposition && decision.disposition !== 'defer') {
+      if (decision.option === undefined) {
+        warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
+      }
+      delete decision.disposition
+    }
+    decision.rule = forced.rule
+    if (forced.own) {
+      decision.own = true
+    }
+  }
   // A left finding's deferred entry carries no mitigation (#127, R3-10), as docs/running.md, "Left
   // to you", says: "no task is planned and nothing is written under the rule". Until R3-10 that
   // was the resolve prompt's alone, so the agent's own entry, kept when the call offered no draft
@@ -4661,14 +4683,7 @@ async function revise(record, inScope, reviewedKind) {
       // issue; a fix or an accept changes nothing Redline does, so a typed one is dropped with
       // its warning, as before, and a picked one was never set.
       if (forced) {
-        if (decision.disposition && decision.disposition !== 'defer') {
-          warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
-          delete decision.disposition
-        }
-        decision.rule = forced.rule
-        if (forced.own) {
-          decision.own = true
-        }
+        leaveDecision(id, decision)
       }
       roundDecisions[id] = decision
     }
@@ -4993,14 +5008,13 @@ async function revise(record, inScope, reviewedKind) {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
-    // A decision this reshape newly left to the person carries the rule, as resolveWith gives a
-    // left decision (#127, R4-4): no resolve applies such a decision again, so the plan approver's
-    // next pass and the implementer would otherwise be shown it without the rule.
+    // A decision this reshape newly left to the person is given everything resolveWith gives a
+    // left one, through the same helper (#127, R4-4; R5-3): the rule, and the drop of a fix or an
+    // accept it ended in. No resolve applies such a decision again, so the plan approver's next
+    // pass and the implementer would otherwise be shown it without the rule (R4-4), or with the
+    // rule beside a fix (R5-3).
     for (const id of named.filter((x) => record.forced[x] && !leftBefore.has(x))) {
-      roundDecisions[id].rule = record.forced[id].rule
-      if (record.forced[id].own) {
-        roundDecisions[id].own = true
-      }
+      leaveDecision(id, roundDecisions[id])
     }
     // A decided finding's task is the reshape's to correct after a bounce, so its list follows
     // the reshape (#106): the files the reshape returns for it, which its prompt asks for as the

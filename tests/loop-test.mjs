@@ -4048,6 +4048,24 @@ function samePrefix(name, first, second, n) {
   const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
   check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
   check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
+  // The decision a reshape newly leaves to the person is given what a resolve gives a left one
+  // (#127, R5-3): the rule, and the drop of the fix it names, with the warning a typed fix for a
+  // left finding always had. Until R5-3 the reshape set the rule alone, so the plan approver's
+  // next pass and the implementer were shown a left decision with a fix.
+  const decisionsShown = (r, label) => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    const a = p.indexOf('Decisions made outside the shaper')
+    if (a < 0) {
+      return ''
+    }
+    const b = p.indexOf('\n\n', a)
+    return b < 0 ? p.slice(a) : p.slice(a, b)
+  }
+  const NAMED_FIX = 'round 1: R1-1 is left to the person under repository rule billing; the disposition "fix" is not applied'
+  check('filing: a named fix a reshape leaves to the person is shown after the reshape with the rule and no disposition, with one warning that the fix is not applied', decisionsShown(forcedNamed, 'plan approver r1').includes('"disposition": "fix"') && ['plan approver r1 #2', 'implement r1'].every((label) => decisionsShown(forcedNamed, label).includes('"rule": "billing"') && !decisionsShown(forcedNamed, label).includes('"disposition"')) && (forcedNamed.res.warnings || []).filter((w) => w === NAMED_FIX).length === 1, [decisionsShown(forcedNamed, 'plan approver r1'), decisionsShown(forcedNamed, 'plan approver r1 #2'), decisionsShown(forcedNamed, 'implement r1'), forcedNamed.res.warnings])
+  // The neighbour that must not change: an answer in the person's own words carries no
+  // disposition, so it is shown with the rule alone and nothing warns of a disposition dropped.
+  check('filing: a call answered in the person\'s own words that a reshape leaves to the person is shown with the rule and no disposition, and no warning drops one', decisionsShown(forcedLater, 'plan approver r1 #2').includes('"rule": "billing"') && !decisionsShown(forcedLater, 'plan approver r1 #2').includes('"disposition"') && !(forcedLater.res.warnings || []).some((w) => w.includes('is not applied')), [decisionsShown(forcedLater, 'plan approver r1 #2'), forcedLater.res.warnings])
   // It is shown to the plan approver and the implementer as every finding left to the person is,
   // as the shaper returned it, whatever its decision names (#126): an ask, where until #126 the
   // pass after the reshape was shown the fix its decision names, for a finding the round
@@ -5178,6 +5196,28 @@ function samePrefix(name, first, second, n) {
   const keptFix = await go('left: a call whose decision names a fix, left to the person by a reshape that keeps its task', { ...baseArgs, askRules: billing, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { ...laterNoEntry, reshapeFiles: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1'], []] })
   check('left: a decided fix a reshape leaves to the person while keeping its task with files stops the same way', keptStop(keptFix, 'reshape r1 #1', KEPT_TASK('billing', 'app/x.php')) && !labels(keptFix.calls).includes('plan approver r1 #2') && !labels(keptFix.calls).includes('implement r1'), detail(keptFix))
   check('left: a decided finding a reshape leaves to the person with its task emptied runs on, and the plan approver after the reshape is shown its decision with the rule', namedLater.res.status === 'done' && promptOf(namedLater, 'plan approver r1 #2').includes('"rule": "billing"'), [detail(namedLater), promptOf(namedLater, 'plan approver r1 #2').slice(0, 2500)])
+  // A pick, or autopilot's take, that ends in fix or accept and that a reshape then leaves to the
+  // person is shown as a left decision (#127, R5-3): the rule and the option, and no disposition.
+  // Its end is dropped with no warning, as at a call, where a pick of a left call takes no end
+  // other than defer. Until R5-3 the reshape set the rule beside the pick's fix or accept.
+  const leftShown = (r, label) => {
+    const p = promptOf(r, label)
+    const a = p.indexOf('Decisions made outside the shaper')
+    if (a < 0) {
+      return ''
+    }
+    const b = p.indexOf('\n\n', a)
+    return b < 0 ? p.slice(a) : p.slice(a, b)
+  }
+  for (const [label, end, extra] of [['Change it', 'fix', {}], ['Keep it', 'accept', { acceptedCalls: ['R1-1'] }]]) {
+    const picked = await go(`left: a pick that ends in ${end}, left to the person by a reshape after its resolve`, { ...baseArgs, askRules: billing, decisions: pickOf(label, 'The author picks it.') }, { ...laterNoEntry, ...extra })
+    check(`left: a pick that ends in ${end}, left to the person by a reshape, is shown after the reshape with the rule and the option and no disposition, with no warning, and posted as left`, picked.res.status === 'done' && !labels(picked.calls).includes('repair r1') && leftShown(picked, 'plan approver r1').includes(`"disposition": "${end}"`) && ['plan approver r1 #2', 'implement r1'].every((l) => leftShown(picked, l).includes('"rule": "billing"') && leftShown(picked, l).includes(`"option": "${label}"`) && !leftShown(picked, l).includes('"disposition"')) && !(picked.res.warnings || []).some((w) => w.includes('is not applied')) && replyFor(picked.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing'), [detail(picked), leftShown(picked, 'plan approver r1'), leftShown(picked, 'plan approver r1 #2'), leftShown(picked, 'implement r1')])
+  }
+  const autoLeft = await go('left: autopilot\'s take of a recommended fix, left to the person by a reshape after its resolve', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, laterNoEntry)
+  check('left: autopilot\'s take of a fix a reshape leaves to the person is shown after the reshape with the rule and no disposition', autoLeft.res.status === 'done' && leftShown(autoLeft, 'plan approver r1 #2').includes('"rule": "billing"') && !leftShown(autoLeft, 'plan approver r1 #2').includes('"disposition"'), [detail(autoLeft), leftShown(autoLeft, 'plan approver r1 #2')])
+  // The neighbour that must not change: a named deferral a reshape leaves keeps its defer, which
+  // is the one end of a left finding the round acts on.
+  check('left: a named deferral a reshape leaves to the person is shown after the reshape with the rule and its defer', leftShown(namedLater, 'plan approver r1 #2').includes('"rule": "billing"') && leftShown(namedLater, 'plan approver r1 #2').includes('"disposition": "defer"'), leftShown(namedLater, 'plan approver r1 #2'))
   const leftAgain = await go('left: a call left to the person at the first shape and deferred, whose task a later reshape gives files', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, planBounce: 2, reshapeFilesAt: { 'reshape r1 #2': { 'R1-1': ['app/x.php'] } } })
   check('left: a decided finding left to the person before a reshape that gives it a task with files stops at that reshape', keptStop(leftAgain, 'reshape r1 #2', KEPT_TASK('craft-config', 'app/x.php')), detail(leftAgain))
   check('left: the reshape is told a decided finding left to the person is left, with the rule\'s clause for it', promptOf(leftAgain, 'reshape r1 #1').includes(`${DECIDED_BLOCK}R1-1 (left to the person).`) && promptOf(leftAgain, 'reshape r1 #1').includes(LEFT_KEEPS_NONE), promptOf(leftAgain, 'reshape r1 #1').slice(-1800))
