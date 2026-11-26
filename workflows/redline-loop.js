@@ -3097,10 +3097,41 @@ function linkFault(id) {
   }
   return `${id} names no finding Redline recorded on this pull request`
 }
+// A review that was not asked for links clears every link it returns, with that one reason
+// (#127, R5-1). Whether a link was asked for is checked once, before any other reading of a link,
+// so the reason a cleared link gives is the real one on this review: a link beside findings, one
+// that names an id the review renamed, one in a form the workflow cannot read and a well-formed
+// list are each cleared because no link was asked for. Until R5-1 the readers beside `findings`,
+// of a renamed id and of a link's form ran first and gave their own reasons, each implying that
+// a link elsewhere or in another form would have been kept. An empty list states no link and
+// warns of nothing.
+function clearUnasked(round, out) {
+  const why = 'this review was shown no earlier finding'
+  if (out.sameClassAs !== undefined) {
+    warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, but ${why}; the link is cleared`)
+    delete out.sameClassAs
+  }
+  for (const f of out.findings) {
+    if (f.sameClassAs === undefined) {
+      continue
+    }
+    if (Array.isArray(f.sameClassAs) && f.sameClassAs.length === 0) {
+      // An empty list: no link, and nothing to say.
+    } else if (Array.isArray(f.sameClassAs) && f.sameClassAs.every((id) => typeof id === 'string' && id.trim() !== '')) {
+      for (const id of unique(f.sameClassAs.map((x) => x.trim()))) {
+        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
+      }
+    } else {
+      warnings.push(`round ${round}: the reviewer stated sameClassAs for ${f.id} as ${JSON.stringify(f.sameClassAs)}, but ${why}; the link is cleared`)
+    }
+    delete f.sameClassAs
+  }
+}
 // A pass that holds no record of earlier rounds (`noRecord`, the revise-only pass) cannot check a
 // link to one, so it is cleared with that reason, never with one that says the earlier finding
-// was not recorded (#127, R1-3).
-function honourLinks(round, findings, asked, noRecord = false) {
+// was not recorded (#127, R1-3). A review that was not asked for links never reaches it: it is
+// cleared before, by clearUnasked (#127, R5-1).
+function honourLinks(round, findings, noRecord = false) {
   for (const f of findings) {
     if (f.sameClassAs === undefined) {
       continue
@@ -3116,7 +3147,7 @@ function honourLinks(round, findings, asked, noRecord = false) {
     }
     const stands = []
     for (const id of named) {
-      const why = !asked ? 'this review was shown no earlier finding' : findings.some((x) => x.id === id) ? `${id} is a finding of this round` : noRecord ? 'this revise-only pass holds no record of earlier rounds to check it against' : linkFault(id)
+      const why = findings.some((x) => x.id === id) ? `${id} is a finding of this round` : noRecord ? 'this revise-only pass holds no record of earlier rounds to check it against' : linkFault(id)
       if (why) {
         warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
       } else {
@@ -3210,42 +3241,48 @@ async function review(round, reviewed, range, facts, source) {
     }
   })
   // The links (#75), read after the ids are the round's own, so a link to a finding of this
-  // same round is seen as one.
-  // A link is a key of its finding. One returned beside findings, at the top of the result, is
-  // read by nothing, and until the follow-up of #127 nothing said so: the shaper was shown no
-  // link and the round fixed an instance. It is cleared with a warning that names the place,
-  // as honourLinks clears every link it cannot keep; the key has one reading, so it is never
-  // taken from here.
-  if (out.sameClassAs !== undefined) {
-    warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it`)
-    delete out.sameClassAs
-  }
-  // A link that names an id this review renamed is cleared, never trusted or mapped (#127,
-  // R3-5): the old id may name the sibling the reviewer numbered with an earlier round's prefix
-  // or the earlier finding that has that id, so it is ambiguous. Until R3-5 it was looked up
-  // among earlier rounds and stood with no word when one recorded that id as fixed. A list left
-  // empty is deleted, as honourLinks deletes one; a link in another form is left to honourLinks,
-  // which warns of it.
-  for (const f of out.findings) {
-    if (!Array.isArray(f.sameClassAs)) {
-      continue
+  // same round is seen as one. A review that was not asked for links is cleared first, of every
+  // link in any place or form, with that one reason, and none of the readers below runs on it
+  // (#127, R5-1).
+  if (!linksAsked) {
+    clearUnasked(round, out)
+  } else {
+    // A link is a key of its finding. One returned beside findings, at the top of the result, is
+    // read by nothing, and until the follow-up of #127 nothing said so: the shaper was shown no
+    // link and the round fixed an instance. It is cleared with a warning that names the place,
+    // as honourLinks clears every link it cannot keep; the key has one reading, so it is never
+    // taken from here.
+    if (out.sameClassAs !== undefined) {
+      warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it`)
+      delete out.sameClassAs
     }
-    const kept = []
-    for (const id of f.sameClassAs) {
-      const old = typeof id === 'string' ? id.trim() : id
-      if (typeof old === 'string' && renamed.has(old)) {
-        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${old} as one class (sameClassAs), but this review renamed a finding it returned as ${old} to ${renamed.get(old)}, so the link is ambiguous; the link is cleared`)
+    // A link that names an id this review renamed is cleared, never trusted or mapped (#127,
+    // R3-5): the old id may name the sibling the reviewer numbered with an earlier round's prefix
+    // or the earlier finding that has that id, so it is ambiguous. Until R3-5 it was looked up
+    // among earlier rounds and stood with no word when one recorded that id as fixed. A list left
+    // empty is deleted, as honourLinks deletes one; a link in another form is left to honourLinks,
+    // which warns of it.
+    for (const f of out.findings) {
+      if (!Array.isArray(f.sameClassAs)) {
+        continue
+      }
+      const kept = []
+      for (const id of f.sameClassAs) {
+        const old = typeof id === 'string' ? id.trim() : id
+        if (typeof old === 'string' && renamed.has(old)) {
+          warnings.push(`round ${round}: the reviewer linked ${f.id} to ${old} as one class (sameClassAs), but this review renamed a finding it returned as ${old} to ${renamed.get(old)}, so the link is ambiguous; the link is cleared`)
+        } else {
+          kept.push(id)
+        }
+      }
+      if (kept.length) {
+        f.sameClassAs = kept
       } else {
-        kept.push(id)
+        delete f.sameClassAs
       }
     }
-    if (kept.length) {
-      f.sameClassAs = kept
-    } else {
-      delete f.sameClassAs
-    }
+    honourLinks(round, out.findings)
   }
-  honourLinks(round, out.findings, linksAsked)
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
   // accounting the reviewer wrote anyway is cleared.
@@ -6085,7 +6122,7 @@ try {
     // record this pass does not hold: a revise-only pass is given no earlier findings. So it is
     // cleared with a warning that says this pass holds no record of earlier rounds to check it
     // against, since the earlier finding may well be recorded, only not here (#127, R1-3).
-    honourLinks(round, record.findings, true, true)
+    honourLinks(round, record.findings, true)
     rounds.push(record)
     const inScope = record.findings.filter((f) => !f.knownAs)
     const kind = inScope.some((f) => f.category === 'correctness') ? 'correctness' : 'nits'
