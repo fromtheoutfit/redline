@@ -148,6 +148,12 @@ Also read, and unchanged by the wider block. Every prompt with the decided block
 
 Decided by: redline
 
+### As built: where Task 4's neighbour and clause constant sit — recorded
+
+Two placements in `tests/loop-test.mjs` differ from the plan's wording, with no change to what is checked. The `emptied` neighbour is a `reshape:` check, since `emptied` is out of scope in the `left:` block. `LEFT_KEEPS_NONE` is a top-level constant, since both sections read it. The Task 4 mutation run aborted the harness before its summary line, so it is recorded as a red exit. See "As built" in `plan.md`.
+
+Decided by: redline
+
 ### Standards retrospective
 
 Proposed below, under "Standards retrospective (proposed)"; the standards approver approves the list and the implementer applies it in its own commit.
