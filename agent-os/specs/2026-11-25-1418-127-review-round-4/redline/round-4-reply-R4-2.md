@@ -1,0 +1,1 @@
+Redline round 4: fixed in a94e5e0 (redline: R4-2 warn when a rule drops a shaper's draft that is short of a field (#105)). · decided by: redline

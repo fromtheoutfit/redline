@@ -1,0 +1,1 @@
+Redline round 1: fixed in 38592e4 (redline: R1-3 give a link a revise-only pass clears a true reason (#105)). · decided by: redline

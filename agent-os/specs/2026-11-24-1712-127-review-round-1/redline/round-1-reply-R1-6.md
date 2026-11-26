@@ -1,0 +1,1 @@
+Redline round 1: fixed in 11b10cc (redline: R1-6 word the outside-path stop of a one-place fix by its contract (#105)). · decided by: redline

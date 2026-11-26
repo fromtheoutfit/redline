@@ -1,0 +1,1 @@
+Redline round 1: fixed in cf1a39a (redline: R1-4 keep a relabelled call's undrafted options and hold every left call's draft complete (#105)). · decided by: redline

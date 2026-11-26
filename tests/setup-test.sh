@@ -21,7 +21,7 @@ TEMPLATE="$PLUGIN/scripts/checks-template.sh"
 TV="$(grep -m1 '^# redline-template: checks-template.sh ' "$TEMPLATE" | awk '{print $NF}')"
 TN="${TV#v}"
 UT="$PLUGIN/templates/shape-spec-unattended.md"
-# The unattended section's version (v5 on 2026-11-16, #95), read off the template's marker line; the
+# The unattended section's version (v7 on 2026-11-25, the follow-up of #127), read off the template's marker line; the
 # section cases are relative to it, never spelled (#15).
 UV="$(grep -m1 '^<!-- redline-unattended: v' "$UT" | sed 's/^<!-- redline-unattended: \(v[0-9]*\) -->.*/\1/')"
 UN="${UV#v}"
@@ -750,6 +750,12 @@ check "--merge: v2's owner line arrived" grep -q 'Every decision names its owner
 check "--merge: v3's ask-rules sentence arrived" grep -q 'repository rule <id>' "$V1"
 check "--merge: v4's decline and its ask cases arrived (#93)" grep -q 'asked in five cases only' "$V1"
 check "--merge: v5's deferral and its drafted issue arrived (#95)" grep -q 'drafted issue that stands on its own' "$V1"
+check "--merge: v6's option ends arrived (#105)" grep -q 'Every option of a call states what choosing it ends in' "$V1"
+check "--merge: v6's files on every finding of the example arrived (#105), its ask worded as v7 has it (#127, R2-2)" grep -q '"recommendation": "Accept, no change.", "files": \[\]}' "$V1"
+check "--merge: v6's instance or class arrived (#75)" grep -q '\*\*Instance or class\.\*\*' "$V1"
+check "--merge: v6's drafted option of a call left to the person arrived (#126)" grep -q 'carries its drafted issue in `draft`' "$V1"
+check "--merge: v7's place for a sweep's list arrived, in point 5 and under the example (the follow-up of #127)" grep -q 'returned inside `cause`, as `cause.swept`' "$V1"
+check "--merge: v7's sweep arrived in the example, its list inside cause" grep -q '"outcome": "sweep", "why": "[^"]*", "swept": \[{"member": ' "$V1"
 check "--merge: the marker is the template's version" grep -q "^<!-- redline-unattended: $UV -->\$" "$V1"
 check "--merge: the fill-ins are the wanted ones" grep -q '(gate steps 1 to 5)' "$V1"
 [[ "$(grep -c '^## Unattended mode (Redline)$' "$V1")" == "1" ]] && ok "--merge: the heading once" || bad "--merge: the heading once" "$(grep -c '^## Unattended mode (Redline)$' "$V1")"
@@ -869,6 +875,8 @@ ubody_pin() {
         v3) echo "e89c83447394d1317aabfe79a4b9dff0030d12157dfebc02934848402435229a" ;;
         v4) echo "d88ad3f0ea4188a5a93a4b49e9c88634f81e314e45ce4f04aa8b995bd472586b" ;;
         v5) echo "23048ad3b9c0bd45a77a640666bf6f38560466d8050c46e32ffa9cc594da6949" ;;
+        v6) echo "68e54bbaf1c3d931cbf95f9c8418aeec5d15356d0676a65e99602734727eaa31" ;;
+        v7) echo "82cd30a72d62b93a53bd93845ecba9890c4e557ee2edcc426eecdc233ff2cc36" ;;
     esac
 }
 # ubody_sha <file>: the sha256 of the file's body, the lines after its first --- line.

@@ -1,0 +1,1 @@
+Redline round 3: fixed in 865ae26 (redline: R3-4 mark a typed defer as a call's answer, so a later stop's defer is never read as an override (#105)). · decided by: redline

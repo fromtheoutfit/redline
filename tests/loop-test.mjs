@@ -188,12 +188,19 @@ function mock(scenario) {
       return {
         round: reviewN, reviewed: 'pr', findings: scenario.reviews[reviewN - 1] || [], resolved: scenario.resolved ? scenario.resolved[reviewN - 1] || [] : [], summary: scenario.summary ? scenario.summary[reviewN - 1] || 'S' : 'S',
         ...(scenario.coverageOut ? { coverage: scenario.coverageOut[reviewN - 1] || [] } : {}),
+        // scenario.reviewKeys[n] puts keys at the top of the nth review, beside findings, as a
+        // reviewer that returns a key one level out does (the follow-up of #127).
+        ...((scenario.reviewKeys || [])[reviewN - 1] || {}),
       }
     }
     if (t === 'redline:redline-shaper') {
       // scenario.shaperDrop (#10): the ids the shaper leaves out of its findings, a shape-stage error.
       // scenario.reshapeDrop (#94, R8-5): the ids a reshape alone leaves out, a shape-stage error since the reshape is vetted as the shape is.
-      const ids = [...new Set([...prompt.matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id)).filter((id) => !(typeof opts.label === 'string' && opts.label.startsWith('reshape') && (scenario.reshapeDrop || []).includes(id)))
+      // The findings are read off the prompt's findings list, which ends where the block of
+      // links to earlier findings begins (#75): that block names earlier findings by id too, and
+      // they are no findings of this round.
+      const linksAt = prompt.indexOf('Findings of this round that the verifier links to an earlier finding')
+      const ids = [...new Set([...(linksAt < 0 ? prompt : prompt.slice(0, linksAt)).matchAll(/"id": "([RH]\d+-\d+)"/g)].map((m) => m[1]))].filter((id) => !(scenario.shaperDrop || []).includes(id)).filter((id) => !(typeof opts.label === 'string' && opts.label.startsWith('reshape') && (scenario.reshapeDrop || []).includes(id)))
       const ask = scenario.ask || []
       const defer = scenario.defer || []
       const none = scenario.none || []
@@ -230,6 +237,14 @@ function mock(scenario) {
       // The mitigation the shaper writes for a deferred finding (see `deferred` below).
       const mitigationOf = (id) => (scenario.mitigations && id in scenario.mitigations ? scenario.mitigations[id] : scenario.mitigation || 'a guard clause')
       const owner = (id) => (scenario.ownerOf && scenario.ownerOf[id]) || (disposition(id) === 'ask' ? 'pending' : disposition(id) === 'fix' && human ? scenario.shaperOwner || 'reviewer' : 'redline')
+      // A fix of a Redline round says where its cause lives and whether it is an instance or a
+      // class (#75). By default the scripted shaper answers as a shaper did before #75, fixing
+      // the finding as reported: an instance. scenario.causeOf[id] scripts another cause, null
+      // for none at all, and scenario.causeAt[label][id] does the same for one shaper call alone.
+      const causeOf = (id) => {
+        const at = (scenario.causeAt && scenario.causeAt[opts.label]) || {}
+        return id in at ? at[id] : scenario.causeOf && id in scenario.causeOf ? scenario.causeOf[id] : { where: 'app/x.php', outcome: 'instance', why: `the cause of ${id} is this one line` }
+      }
       return {
         specFolder: prompt.match(/agent-os\/specs\/[^/\s]+/)[0],
         // Every finding lists the paths its task touches, as the schema requires (#100): a fix
@@ -245,6 +260,11 @@ function mock(scenario) {
           ...(reshape && scenario.reshapeAskRule && scenario.reshapeAskRule[id] ? { askRule: scenario.reshapeAskRule[id] } : {}),
           ...(disposition(id) === 'decline' && !(scenario.declineNoReason || []).includes(id) ? { reason: (scenario.reason && scenario.reason[id]) || `the spec keeps ${id} as it is on purpose` } : {}),
           ...(scenario.secondLook && scenario.secondLook[id] && (!reshape || prompt.includes('secondLook')) ? { secondLook: scenario.secondLook[id] } : {}),
+          ...(disposition(id) === 'fix' && !human && causeOf(id) !== null ? { cause: causeOf(id) } : {}),
+          // scenario.findingKeys[id] puts keys on the finding itself, as a shaper that returns a
+          // key one level out does (the two real returns of #127's round 2: swept beside cause),
+          // and scenario.findingKeysAt[label][id] does the same for one shaper call alone.
+          ...((scenario.findingKeys || {})[id] || {}), ...(((scenario.findingKeysAt || {})[opts.label] || {})[id] || {}),
         })),
         // scenario.mitigation (#87) is the shaper's mitigation for every deferred finding, and
         // scenario.mitigations[id] (#95) one finding's own, '' or 'none' for a deferral that ships
@@ -260,7 +280,22 @@ function mock(scenario) {
         })).flatMap((entry) => ((scenario.deferTwice || []).includes(entry.id) ? [entry, { ...entry, found: `${entry.found} again` }] : [entry])),
         // scenario.shaperNoCall (#57) leaves an ask without its call; scenario.shaperExtraCall gives a
         // call to a finding sorted otherwise. Both are shape-stage errors.
-        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({ id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision', options: [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }], recommendation: 'Keep it', dependsOn: [] })),
+        // Every option states what it ends in, and the call names the recommended one by its label
+        // (#105). By default the recommended option, Keep it, ends in what the scripted resolve
+        // plans for the call, as `states` reads it below (defer beside its own deferred entry,
+        // accept for an accepted call, fix otherwise), so a scenario is one script for both
+        // agents; scenario.ends[id] scripts another end for it. Change it ends in a fix.
+        // scenario.callOf[id] replaces fields of one call (its options, its recommended), and
+        // scenario.callAt[label][id] does the same for one shaper call alone, by its label.
+        // scenario.shapeKeys puts keys at the top of the shaper's result, beside findings, and
+        // scenario.shapeKeysAt[label] does the same for one shaper call alone.
+        ...(scenario.shapeKeys || {}), ...((scenario.shapeKeysAt || {})[opts.label] || {}),
+        judgmentCalls: ids.filter((id) => !onReshape('reshapeOmitCall').includes(id) && ((ask.includes(id) && !(scenario.shaperNoCall || []).includes(id)) || (scenario.shaperExtraCall || []).includes(id) || onReshape('reshapeAsk').includes(id) || onReshape('reshapeExtraCall').includes(id))).map((id) => ({
+          id, title: `call ${id}`, story: 's', why_human: (scenario.whyHuman && scenario.whyHuman[id]) || 'product decision',
+          options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: (scenario.ends && scenario.ends[id]) || ((scenario.resolveDeferred || []).some((e) => e.id === id) ? 'defer' : (scenario.acceptedCalls || []).includes(id) ? 'accept' : 'fix') }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }],
+          recommended: 'Keep it', recommendation: 'Keep it', dependsOn: [],
+          ...((scenario.callOf || {})[id] || {}), ...(((scenario.callAt || {})[opts.label] || {})[id] || {}),
+        })),
       }
     }
     if (t === 'redline:redline-resolve') {
@@ -358,6 +393,11 @@ const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split
 // is the person letting each draft go ahead as drafted, at its first version. A scenario whose
 // subject is not the stop passes it from the first launch: the answer is read at the stop check
 // and at filing, and by no prompt before, which the stop's own scenarios prove.
+// A call answered in the person's own words (#105): a decision that names no option, whose end
+// the resolve agent states. Until #105 autopilot's decision was stated too, and the cases that
+// script a statement ran on that dial; autopilot now picks the call's recommended option, so
+// those cases are answered here, by the person, from the first launch.
+const typedAnswer = (...ids) => Object.fromEntries(ids.map((id) => [id, { choice: 'In their own words', notes: `The author answers ${id} in their own words.`, date: '2026-11-18' }]))
 const goAhead = (...ids) => Object.fromEntries(ids.map((id) => [id, { action: 'file', title: '', notes: '', date: '2026-11-16', draft: 1 }]))
 const baseArgs = {
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
@@ -373,6 +413,9 @@ const forThePerson = []
 // No reshape prompt of a round with no decided finding holds the decided-findings block (#106):
 // every run is read, and one check at the end names the offenders.
 const DECIDED_BLOCK = 'Findings the person or the autopilot decided: '
+// The rule's clause for a decided finding left to the person (#127, R4-4), stated once: the
+// reshape prompt's block and the shaper's rule 10 both carry it word for word.
+const LEFT_KEEPS_NONE = 'and one left to the person keeps none: its task is "Left to the person: <id>" with no files'
 const strayDecidedBlock = []
 // What a reshape prompt that names decided findings asks of a finding's files (#114, R1-4): an
 // ask the block does not name, pending or newly raised, by its recommended paths (#114, R2-4), a
@@ -382,11 +425,11 @@ const FILES_PENDING = 'for an ask, the paths its recommended change would touch)
 const FILES_DECIDED = 'for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
 const doubleFilesAsk = []
 // Whether a stop was the workflow's own check of what an agent returned (#116): every error result
-// of every scenario says so in ownCheck, true for the stops of the seventeen sites below (the
-// resolve's eight, the hold and the shaper's eight result checks, one of which words its stop
-// two ways) and false for every other. The skill and the resume line read the field, so a site
-// that drops it, and one that gains it, are both red here. Every run is read, and two checks at
-// the end name the offenders and any site no scenario reached.
+// of every scenario says so in ownCheck, true for the stops of the sites below (the resolve's,
+// the hold and the checks of the shaper's result, one of which words its stop two ways) and
+// false for every other. The skill and the resume line read the field, so a site that drops it,
+// and one that gains it, are both red here. Every run is read, and two checks at the end name
+// the offenders and any site no scenario reached.
 const OWN_CHECKS = [
   ['resolve', /^the resolve agent stated no disposition for /],
   ['resolve', /^the resolve agent deferred .* with no drafted issue/],
@@ -406,6 +449,16 @@ const OWN_CHECKS = [
   ['shape', /^the shaper asked about .* because of /],
   ['shape', /^the shaper declined .* with no reason/],
   ['shape', /^the shaper deferred .* with no drafted issue/],
+  ['shape', /^the shaper gave .* an option with no label or with no end the workflow knows/],
+  ['shape', /^the shaper gave .* more than one option labelled /],
+  ['shape', /^the shaper recommended .*, which is the label of none of its options/],
+  ['shape', /^the shaper gave .*, a call for a finding left to the person, an option that ends in defer with no complete drafted issue/],
+  ['shape', /^the shaper returned the fix for .* with no cause it can be read from/],
+  ['shape', /^the shaper said the cause of .* lives at .*, which is no path inside the repository/],
+  ['shape', /^the shaper called the fix for .* one-place, made where the cause lives, but its task's files/],
+  ['shape', /^the shaper called the fix for .* a sweep and returned no usable list of what the sweep covered/],
+  ['shape', /^the shaper returned .* for the fix for .*, which it did not call a sweep/],
+  ['shape', /^the shaper returned an instance fix for .*, which the verifier links to /],
 ].map(([stage, re]) => ({ stage, re, seen: 0 }))
 const ownWrong = []
 // No reshape is told to rewrite its spec folder from scratch (#117), on a first run or a resume:
@@ -484,6 +537,35 @@ const dispositionEnum = (calls, label) => {
 const findingRequired = (calls, label) => {
   const schema = (pick(calls, label) || { opts: {} }).opts.schema || {}
   return (((schema.properties || {}).findings || {}).items || {}).required || []
+}
+// What a call's schema makes of a result (the follow-up of #127): the keywords the workflow's
+// schemas use (type, required, enum, properties, items, additionalProperties), each fault as
+// the structured-output tool words it, with the path it names. The harness holds no scripted
+// result to its schema, so a check that needs the schema layer runs a result through this.
+function schemaFaults(schema, value, at = '') {
+  const where = at === '' ? 'root' : at
+  if (!schema) {
+    return []
+  }
+  const is = { object: (v) => v !== null && typeof v === 'object' && !Array.isArray(v), array: Array.isArray, string: (v) => typeof v === 'string', integer: Number.isInteger, number: (v) => typeof v === 'number', boolean: (v) => typeof v === 'boolean' }[schema.type]
+  if (is && !is(value)) {
+    return [`${where}: must be ${schema.type}`]
+  }
+  const faults = schema.enum && !schema.enum.includes(value) ? [`${where}: must be equal to one of the allowed values`] : []
+  if (schema.type === 'object') {
+    faults.push(...(schema.required || []).filter((key) => !(key in value)).map((key) => `${where}: must have required property '${key}'`))
+    for (const [key, item] of Object.entries(value)) {
+      if (schema.properties && key in schema.properties) {
+        faults.push(...schemaFaults(schema.properties[key], item, `${at}/${key}`))
+      } else if (schema.additionalProperties === false) {
+        faults.push(`${where}: must NOT have additional properties ('${key}' is not allowed)`)
+      }
+    }
+  }
+  if (schema.type === 'array' && schema.items) {
+    value.forEach((item, i) => faults.push(...schemaFaults(schema.items, item, `${at}/${i}`)))
+  }
+  return faults
 }
 // What every shape, human-pass and reshape prompt asks of a finding's files (#100).
 const FILES_ASKED = 'an empty list when it has no task'
@@ -1283,7 +1365,7 @@ function samePrefix(name, first, second, n) {
   check('human: the body reply names no comment, so only thread replies carry the answers line', !replyFor(second.calls, 'push and reply h1', 'H1-4').includes('redline:answers'), replyFor(second.calls, 'push and reply h1', 'H1-4'))
   const pushPrompt = pick(second.calls, 'push and reply h1').prompt
   check('human: the push prompt names the pass, the header line and the duplicate rule', ['Operation: push and reply for human review 1.', 'the finding is the body of @marcamos\'s review, which has no thread', '`**<id>** · from review <review id> by @marcamos`', 'may already hold a Redline round\'s reply; that is not a duplicate', 'opening `Redline human review 1:`'].every((s) => pushPrompt.includes(s)), pushPrompt)
-  check('human: resolve and approvers are told it is the human pass', pick(second.calls, 'resolve h1').prompt.includes('You are the resolve agent for human review 1.') && pick(second.calls, 'plan approver h1').prompt.includes('a fix is decided by them (decidedBy "reviewer")') && pick(second.calls, 'plan approver h1').prompt.includes('a disposition of defer here is a bounce') && pick(second.calls, 'implement h1').prompt.includes('You are the implementer for human review 1.') && pick(second.calls, 'implement h1').prompt.includes('finishing H1-1 (#114)'), pick(second.calls, 'implement h1').prompt.slice(-900))
+  check('human: resolve and approvers are told it is the human pass', pick(second.calls, 'resolve h1').prompt.includes('You are the resolve agent for human review 1.') && pick(second.calls, 'plan approver h1').prompt.includes('a fix is decided by them (decidedBy "reviewer")') && pick(second.calls, 'plan approver h1').prompt.includes('a disposition of defer that no decision below names is a bounce') && pick(second.calls, 'implement h1').prompt.includes('You are the implementer for human review 1.') && pick(second.calls, 'implement h1').prompt.includes('finishing H1-1 (#114)'), pick(second.calls, 'implement h1').prompt.slice(-900))
   const nit = pick(second.calls, 'final nit pass r3')
   check('human: the nit pass is a round-3 final nit pass over the human fixes', nit.prompt.includes('Finding IDs are R3-<n>.') && nit.prompt.includes("after the Redline human review 1 fixes (HEAD 3bbbbbbb") && nit.prompt.includes('This is the final nit pass') && nit.prompt.includes('git diff aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..3bbbbbbb') && nit.opts.phase === 'Re-review', nit.prompt.slice(0, 900))
   check('human: the nit pass sees the human findings and their outcomes', nit.prompt.includes('"id": "H1-1"') && nit.prompt.includes('"outcome": "fixed in 1bbbbbb · decided by: @marcamos"') && nit.prompt.includes('"outcome": "no change requested: none H1-3 this way · decided by: redline"'), nit.prompt)
@@ -1541,12 +1623,22 @@ function samePrefix(name, first, second, n) {
   }
   // The reshape's list is read the same way (#114, R3-3): a call answered with a fix whose task a
   // reshape lists under a paths rule with a doubled slash is left to the person under the rule at
-  // that reshape, as one listed as written is, and the round finishes with no repair. Until R3-3
-  // it stayed tracked, its list became the folded path under the rule, and the fix was demanded.
+  // that reshape, as one listed as written is. Until R3-3 it stayed tracked, its list became the
+  // folded path under the rule, and the fix was demanded. Since #127, R4-4 a decided finding a
+  // reshape leaves to the person is held to no task with files, so the run stops at that
+  // reshape, the stop naming the path as read once: the doubled slash is still read as under the
+  // rule. Its task's files alone put it there, so the stop names the two ways out, and the case
+  // after it takes the second.
   const billingPaths = [{ id: 'billing-code', when: { paths: ['app/billing/**'] }, reason: 'Billing code is changed by finance' }]
   const reshapedUnder = await go('rules: a call answered with a fix whose task a reshape lists under a paths rule with a doubled slash', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFiles: { 'R1-1': ['app//billing/charge.php'] }, commitIds: [[], []] })
-  const reshapedUnderReply = replyFor(reshapedUnder.calls, 'push and reply r1', 'R1-1')
-  check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash is left to the person under the rule, with no repair', (reshapedUnder.res || {}).status === 'done' && !labels(reshapedUnder.calls).includes('repair r1') && reshapedUnderReply.startsWith('Redline round 1: left to @author under repository rule billing-code'), [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6), reshapedUnderReply])
+  const BY_TASK = 'the reshape left R1-1, a finding decided by @author, under repository rule billing-code only through the files of its task (app/billing/charge.php); to keep the decision, move the change off the rule\'s paths, and to leave it to the person, return it as an ask with no files whose call names repository rule billing-code, since removing its files alone takes it out from under the rule'
+  check('rules: a decided finding whose task a reshape lists under a paths rule with a doubled slash stops at that reshape, the stop naming the path as read once and the two ways out', (reshapedUnder.res || {}).status === 'error' && reshapedUnder.res.stage === 'shape' && reshapedUnder.res.ownCheck === true && (reshapedUnder.res.resumeFrom || {}).label === 'reshape r1 #1' && reshapedUnder.res.error === BY_TASK, [(reshapedUnder.res || {}).status, (reshapedUnder.res || {}).error, labels(reshapedUnder.calls).slice(-6)])
+  // The way out that leaves it to the person: the reshape returns it as an ask with no files,
+  // its call naming the rule (scripted on the reshape alone, since whyHuman reaches the first
+  // shape too and would leave it there, before the reshape this case is about).
+  const wayOut = await go('rules: a call answered with a fix that a reshape returns as an ask under the paths rule its task named, with no files', { ...baseArgs, askRules: billingPaths, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-21' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-1'], callAt: { 'reshape r1 #1': { 'R1-1': { why_human: 'repository rule billing-code' } } }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
+  const wayOutReply = replyFor(wayOut.calls, 'push and reply r1', 'R1-1')
+  check('rules: a decided finding the reshape returns as an ask with no files, its call naming the rule, is left to the person under it with no stop and no repair', (wayOut.res || {}).status === 'done' && !labels(wayOut.calls).includes('repair r1') && (wayOut.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing-code') && wayOutReply.startsWith('Redline round 1: left to @author under repository rule billing-code') && ![(wayOut.res.error || '')].concat(wayOut.res.warnings || []).some((w) => w.includes('only through the files of its task')), [(wayOut.res || {}).status, (wayOut.res || {}).error, labels(wayOut.calls).slice(-6), wayOutReply])
   check('rules: docs/contract.md says a paths rule reads a path once, as the guard reads a write target', fs.readFileSync(path.join(here, '..', 'docs', 'contract.md'), 'utf8').includes('which the workflow reads once, as the guard reads a write target'))
   // The reviewer's tag alone is advisory: it marks the review and forces nothing.
   const advisory = await go('rules: the reviewer\'s tag alone', ruleArgs, { reviews: [[f('R1-1', 'correctness', { askRule: 'billing' })], []], commitIds: [['R1-1']] })
@@ -1620,15 +1712,15 @@ function samePrefix(name, first, second, n) {
   // line tells the rerun to correct what its first attempt wrote, decided entries included (#108,
   // R3-4). The recheck above is the neighbour: its resumed prompt ends with the line alone.
   const resolveClause = ' When that error is the check the workflow runs on what the earlier attempt returned, nothing was fixed by hand for it: read shape.md and plan.md as that attempt left them, the entries it already decided and the tasks it already wrote included, correct what the error names, and return the whole result again.'
-  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const stoppedAtResolve = await go('resume: a stop at resolve', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
   const resolveError = (stoppedAtResolve.res || {}).error || ''
-  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] }, ownCheck: true } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const resumedResolve = await go('resume: a stop at resolve, resumed', { ...baseArgs, decisions: typedAnswer('R1-1'), resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] }, ownCheck: true } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   const resumedResolvePrompt = (pick(resumedResolve.calls, 'resolve r1') || { prompt: '' }).prompt
   // The clause is chosen by the field the stop set (#116), never by the error's words: the stop's
   // result says ownCheck, the marker and the skill carry it into the entry, and an entry without
   // it is an ordinary stop whatever its error says. There is no fallback to the wording, so a
   // marker written before the field existed resumes with the line alone.
-  const fieldlessResolve = await go('resume: a stop at resolve, resumed from an entry with no ownCheck', { ...baseArgs, interrupt: 'autopilot', resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
+  const fieldlessResolve = await go('resume: a stop at resolve, resumed from an entry with no ownCheck', { ...baseArgs, decisions: typedAnswer('R1-1'), resume: { 'resolve r1': { attempt: 2, error: resolveError, hand: { commits: [], paths: [] } } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] })
   const fieldlessResolvePrompt = (pick(fieldlessResolve.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: an entry with no ownCheck is an ordinary stop whatever its error says: a resolve resumed from one ends with the line alone', resolveError.startsWith('the resolve agent ') && fieldlessResolvePrompt.endsWith(line(resolveError)) && !fieldlessResolvePrompt.includes(resolveClause), fieldlessResolvePrompt.slice(-400))
   check('resume: a resumed resolve is told the stop was the check of its own result and to correct what it wrote, and the relaunch finishes', resolveError.startsWith('the resolve agent stated no disposition for R1-1') && resumedResolvePrompt.endsWith(line(resolveError) + resolveClause) && (resumedResolve.res || {}).status === 'done', [resolveError, resumedResolvePrompt.slice(-600), (resumedResolve.res || {}).status])
@@ -1642,14 +1734,15 @@ function samePrefix(name, first, second, n) {
   const resumedUnappliedPrompt = (pick(resumedUnapplied.calls, 'resolve r1') || { prompt: '' }).prompt
   check('resume: a resumed resolve after autopilot could not apply a recommendation ends with the resume line alone, with no clause to correct what it wrote', unappliedError.startsWith('autopilot could not apply the shaper\'s recommendation for R1-1') && resumedUnappliedPrompt.endsWith(line(unappliedError)) && !resumedUnappliedPrompt.includes(resolveClause), [unappliedError, resumedUnappliedPrompt.slice(-600)])
   check('resume: the resolve agent\'s file says a decision it could not apply stays pending on a resume, as the resume line leaves it', fs.readFileSync(path.join(here, '..', 'agents', 'redline-resolve.md'), 'utf8').includes('An error that says autopilot could not apply a decision is not that check'))
-  // The field is set where the stop is raised (#116): the seventeen sites that are the workflow's
-  // check of what an agent returned go through checkError, and no other site does. At the resolve
-  // that is every stop but the autopilot one; at the shape stage, the hold and the eight result
-  // checks, and neither the spec check (a missing file can be a refused Write, which a person
-  // fixes) nor the spec check's own failure.
+  // The field is set where the stop is raised (#116): the sites that are the workflow's check of
+  // what an agent returned go through checkError, and no other site does. At the resolve that is
+  // every stop but the autopilot one; at the shape stage, the hold and the checks of the shaper's
+  // result (the four of a call's options among them, #105, #126, and the five of a fix's
+  // cause, #75, each set raised as one error naming every fault, #127, R1-5), and neither the spec check (a
+  // missing file can be a refused Write, which a person fixes) nor the spec check's own failure.
   const sites = (text) => src.split(text).length - 1
-  check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 8 && sites("checkError('resolve', ") === 8 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
-  check('resume: the hold and the shaper\'s eight result checks are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 9 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 17, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
+  check('resume: every resolve stage error but the autopilot stop is raised as the workflow\'s own check', sites("throw checkError('resolve', `the resolve agent ") === 9 && sites("checkError('resolve', ") === 9 && sites("stageError('resolve', ") === 1 && sites("stageError('resolve', `autopilot could not apply ") === 1, [sites("checkError('resolve', "), sites("stageError('resolve', ")])
+  check('resume: the hold and the checks of the shaper\'s result are raised as the workflow\'s own check, the spec check and its own failure are not, and no other stage has one', sites("throw checkError('shape', ") === 11 && sites("throw checkError('shape', faults.join('; also, ')") === 2 && sites("throw checkError('shape', `the reshape left ") === 1 && sites("stageError('shape', ") === 2 && sites("stageError('shape', `the shaper wrote no usable spec in ") === 1 && sites('throw checkError(') === 20, [sites("throw checkError('shape', "), sites("stageError('shape', "), sites('throw checkError(')])
 
   // A hand-off after the resume: the next relaunch adds decisions and keeps resume, so every prompt
   // up to the stop, the resumed one included, replays.
@@ -3528,10 +3621,14 @@ function samePrefix(name, first, second, n) {
   check('reshape: the reshape prompt of a round with no decided finding has no such block, and is the decided round\'s prompt with the block cut out and the files clause put back', reshapePromptOf(undecided) !== '' && !reshapePromptOf(undecided).includes(DECIDED_BLOCK) && withoutBlock(reshapePromptOf(emptied)) === reshapePromptOf(undecided), [reshapePromptOf(undecided).length, (withoutBlock(reshapePromptOf(emptied)) || '').length])
   check('reshape: a reshape prompt that names decided findings asks for files in one meaning: an ask the block does not name by its recommended paths, a named finding by its task',reshapePromptOf(emptied).includes(FILES_DECIDED) && !reshapePromptOf(emptied).includes(FILES_PENDING) && reshapePromptOf(undecided).includes(FILES_PENDING) && !reshapePromptOf(undecided).includes(FILES_DECIDED), reshapePromptOf(emptied).slice(-900))
   const twoDecided = await go('reshape: a decided fix beside a call left to the person under a rule and a fix nobody decided', { ...baseArgs, askRules: chargeRule, decisions: { 'R1-1': changeIt['R1-1'], 'R1-2': changeIt['R1-1'] } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness')], []], ask: ['R1-1', 'R1-2'], askRule: { 'R1-2': 'billing' }, planBounce: 1, commitIds: [['R1-1', 'R1-3'], []] })
-  check('reshape: the block names the decided finding alone, never one left to the person under a rule or one nobody decided', reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix). `), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  // Since #127, R4-4 the block names every decided finding, one left to the person as left to the
+  // person with the rule's clause for it, so the hold after the reshape reads its task too.
+  check('reshape: the block names each decided finding, a left one as left to the person, and never one nobody decided', twoDecided.res.status === 'done' && reshapePromptOf(twoDecided).includes(`${DECIDED_BLOCK}R1-1 (fix), R1-2 (left to the person). `) && reshapePromptOf(twoDecided).includes(LEFT_KEEPS_NONE), [twoDecided.res.status, twoDecided.res.error, reshapePromptOf(twoDecided).slice(-1600)])
+  check('reshape: a reshape prompt that names no finding left to the person states no clause for one', reshapePromptOf(emptied) !== '' && !reshapePromptOf(emptied).includes('one left to the person keeps none'), reshapePromptOf(emptied).slice(-1600))
   const shaperFile = fs.readFileSync(path.join(here, '..', 'agents', 'redline-shaper.md'), 'utf8')
   check('reshape: the shaper\'s file states the same rule for a finding the invoking prompt names as decided', shaperFile.includes('as `plan.md` holds it when you are done') && shaperFile.includes('whatever disposition you return for it') && shaperFile.includes('keeps a task with files'))
-  check('reshape: the shaper\'s file says the invoking prompt names each decided finding with what its decision ends in', shaperFile.includes('each with what its decision ends in (fix, accepted or deferred)'))
+  check('reshape: the shaper\'s file says the invoking prompt names each decided finding with what its decision ends in', shaperFile.includes('each with what its decision ends in (fix, accepted, deferred or left to the person)'))
+  check('reshape: the shaper\'s file says a decided finding left to the person keeps no task', shaperFile.includes(LEFT_KEEPS_NONE))
   // A decided fix's task is its own and counts only for the finding it names, after a reshape as
   // at resolve (#114, R2-6): the hold reads the files the reshape lists for each finding and
   // cannot see which task names it, so a merged task listed for two decided fixes passed it, and
@@ -3543,13 +3640,13 @@ function samePrefix(name, first, second, n) {
   const askedAgain = await go('reshape: a call answered with a fix, the plan bounced', { ...baseArgs, decisions: changeIt }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], files: { 'R1-1': ['app/rec.php'] }, planBounce: 1, commitIds: [['R1-1']] })
   check('reshape: a call answered with a fix is shown its task\'s files on the second pass too, with nothing warned', askedAgain.res.status === 'done' && approverFiles(askedAgain, 'R1-1', PASS_2) === '["ask",["app/x.php"]]' && !anyWarning(askedAgain, 'the reshape changed'), [askedAgain.res.status, askedAgain.res.error, approverFiles(askedAgain, 'R1-1', PASS_2), (askedAgain.res || {}).warnings])
   // A finding a reshape newly leaves to the person under a rule is not read from the list any
-  // more: its task has no files by rule, and it is shown the reshape's own list, as every finding
-  // left to the person is. Only a call whose decision names defer reaches this with a deferral
-  // still shown, and no skill path writes one; an override goes through a second resolve, which
-  // drops its disposition.
+  // more: its task has no files by rule, and it is shown the reshape's own list and disposition,
+  // as every finding left to the person is, whatever its decision names (#126). Until #126 a
+  // call whose decision names defer was still shown as a defer here, and its approved draft
+  // was not filed; it is filed now (`namedLater`, in the #126 cases).
   const namedDefer = { 'R1-1': { choice: 'defer', notes: 'Defer it behind a guard.', date: '2026-11-20', disposition: 'defer' } }
-  const forcedDefer = await go('reshape: a call whose decision names defer, left to the person under a rule by the reshape', { ...baseArgs, askRules: chargeRule, decisions: namedDefer, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': ['app/y.php'] }, resolveDeferred: [guardEntry], commitIds: [[], []] })
-  check('reshape: a decided finding the reshape leaves to the person under a rule is shown the reshape\'s own list, and its files are not taken or warned about', approverFiles(forcedDefer, 'R1-1', PASS_2) === '["defer",["app/y.php"]]' && !anyWarning(forcedDefer, 'the reshape changed'), [forcedDefer.res.status, forcedDefer.res.error, approverFiles(forcedDefer, 'R1-1', PASS_2), (forcedDefer.res || {}).warnings])
+  const forcedDefer = await go('reshape: a call whose decision names defer, left to the person under a rule by the reshape', { ...baseArgs, askRules: chargeRule, decisions: namedDefer, deferrals: goAhead('R1-1') }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, resolveDeferred: [guardEntry], commitIds: [[], []] })
+  check('reshape: a decided finding the reshape leaves to the person under a rule is shown the reshape\'s own list, and its files are not taken or warned about', approverFiles(forcedDefer, 'R1-1', PASS_2) === '["ask",[]]' && !anyWarning(forcedDefer, 'the reshape changed') && labels(forcedDefer.calls).includes('file deferred r1'), [forcedDefer.res.status, forcedDefer.res.error, approverFiles(forcedDefer, 'R1-1', PASS_2), (forcedDefer.res || {}).warnings])
   // A resolve sets the list of the ids it applied and no other (#97, R2-14): a reshape that
   // raises a call runs a resolve for that call alone, and a task that resolve returns for an
   // earlier decision does not undo what the reshape made of it.
@@ -3820,7 +3917,9 @@ function samePrefix(name, first, second, n) {
   // demanded (`strayFilled`, `strayResolve`); the same two beside a call stated as a deferral are
   // the decision's deferral (`strayWorded` and `mitigateAnswer`, `emptyDeferral`).
   // Pin 1 of #99: a fix beside a stray filled entry, which was filed as an issue until #99, on
-  // autopilot with no question.
+  // autopilot with no question. Since #105 autopilot picks the recommended option and nothing is
+  // stated for it, so the statement's cases here are a call the person answered in their own
+  // words (typedAnswer); the same entry beside autopilot's pick is `autoStray`, in the #105 cases.
   const strayEntry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
   const strayScenario = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], resolveDeferred: [strayEntry], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1']] }
   const STRAY_CALL = 'round 1: the resolve agent listed R1-1 as deferred and stated its decision as fix; the entry is dropped, since the statement decides'
@@ -3829,48 +3928,48 @@ function samePrefix(name, first, second, n) {
   const entryDropped = (r) => shownTo(r).every((p) => p !== '' && !p.includes('"title": "Lock R1-1"')) && (r.res.warnings || []).includes(STRAY_CALL)
   const postedAsFix = (r) => r.res.status === 'done' && !labels(r.calls).includes('file deferred r1') && (r.res.deferred || []).length === 0 && (replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(r.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to') && (r.res.rounds[1] || {}).reviewed === 'fix-diff'
   const fixDetail = (r) => [r.res.status, r.res.error, labels(r.calls), replyFor(r.calls, 'push and reply r1', 'R1-1'), r.res.rounds.map((round) => round.reviewed)]
-  const strayFilled = await go('filing: the resolve agent returns a filled entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, strayScenario)
+  const strayFilled = await go('filing: the resolve agent returns a filled entry beside a call it states as a fix', { ...baseArgs, decisions: typedAnswer('R1-1') }, strayScenario)
   check('filing: a filled entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayFilled), fixDetail(strayFilled))
   check('filing: a filled entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayFilled), [shownTo(strayFilled).map((p) => p.includes('"title": "Lock R1-1"')), strayFilled.res.warnings])
-  // On any dial (#99): a guided run whose call is answered raises no draft for the dropped entry,
-  // so the round goes on with no stop and no answer for one.
+  // The same with the reply pinned whole (#99): a guided run whose call is answered raises no
+  // draft for the dropped entry, so the round goes on with no stop and no answer for one.
   const fixCall = { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } }
   const strayFilledGuided = await go('filing: a filled entry beside a call stated as a fix, on the guided dial', { ...baseArgs, decisions: fixCall }, strayScenario)
   check('filing: on the guided dial a filled entry beside a call stated as a fix raises no draft and files nothing', strayFilledGuided.res.status === 'done' && !labels(strayFilledGuided.calls).includes('file deferred r1') && replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Fix it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [strayFilledGuided.res.status, strayFilledGuided.res.handoffKind, labels(strayFilledGuided.calls), replyFor(strayFilledGuided.calls, 'push and reply r1', 'R1-1')])
   // The fix is demanded by the check whatever entry stands beside it (#99): left unbuilt, the
   // round stops at the check after its repair and files nothing. Until #99 the filled entry made
   // it a deferral, whose commit is never demanded (#100), so the round passed with a warning.
-  const strayFilledUnbuilt = await go('filing: a filled entry beside a call stated as a fix, the fix left out', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, commitIds: [[], []] })
+  const strayFilledUnbuilt = await go('filing: a filled entry beside a call stated as a fix, the fix left out', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, commitIds: [[], []] })
   check('filing: a call stated as a fix is demanded beside a filled entry: left unbuilt, the round stops at the check after its repair and files nothing', strayFilledUnbuilt.res.status === 'error' && strayFilledUnbuilt.res.stage === 'check' && (strayFilledUnbuilt.res.error || '').includes('no commit names R1-1') && labels(strayFilledUnbuilt.calls).includes('repair r1') && !labels(strayFilledUnbuilt.calls).includes('file deferred r1'), [strayFilledUnbuilt.res.status, strayFilledUnbuilt.res.stage, strayFilledUnbuilt.res.error, labels(strayFilledUnbuilt.calls).slice(-6)])
   // Pin 2 of #99: a fix beside a stray empty entry. It filed nothing before #99 either (#97,
   // R1-10), by the emptiness of the field, but the entry stayed in the list the plan approver and
   // the implementer were shown, and no warning said so.
-  const strayResolve = await go('filing: the resolve agent returns an empty entry beside a call it states as a fix', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: '' }] })
+  const strayResolve = await go('filing: the resolve agent returns an empty entry beside a call it states as a fix', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: '' }] })
   check('filing: an empty entry beside a call stated as a fix files nothing, and the fix is posted and counted as one', postedAsFix(strayResolve), fixDetail(strayResolve))
   check('filing: an empty entry beside a call stated as a fix is dropped with a warning, and neither the plan approver nor the implementer is shown it', entryDropped(strayResolve), [shownTo(strayResolve).map((p) => p.includes('"title": "Lock R1-1"')), strayResolve.res.warnings])
   // What is stated decides, whatever the entry says (#99): an entry worded `none` beside a planned
   // task, with a deferral stated, is the decision's deferral, filed and posted as applied. Until
   // #99 it was filed because its field was filled (#100). `strayFilled` above is its twin, a
   // filled entry beside the same task with a fix stated, which files nothing.
-  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it states as a deferral', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: 'none' }], resolveDecided: { 'R1-1': 'defer' } })
+  const strayWorded = await go('filing: the resolve agent returns an entry worded none beside a call it states as a deferral', { ...baseArgs, decisions: typedAnswer('R1-1'), deferrals: goAhead('R1-1') }, { ...strayScenario, resolveDeferred: [{ ...strayEntry, mitigation: 'none' }], resolveDecided: { 'R1-1': 'defer' } })
   check('filing: an entry worded none beside a call stated as a deferral is the decision\'s deferral, whatever its words: filed and posted as applied', strayWorded.res.status === 'done' && labels(strayWorded.calls).includes('file deferred r1') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && (replyFor(strayWorded.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to #301.') && !(strayWorded.res.warnings || []).some((w) => w.includes('the entry is dropped')), [strayWorded.res.status, labels(strayWorded.calls), replyFor(strayWorded.calls, 'push and reply r1', 'R1-1'), strayWorded.res.warnings])
   // Every call the resolve applied has its statement (#99): one left out is a result the run
   // cannot use, so the round stops at resolve, where a resume reruns the agent.
-  const unstated = await go('filing: the resolve agent states no disposition for a call it applied', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
+  const unstated = await go('filing: the resolve agent states no disposition for a call it applied', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveUnstated: ['R1-1'], commitIds: [['R1-1']] })
   check('filing: a call with no stated disposition stops at resolve, resumable there, before the plan approver', unstated.res.status === 'error' && unstated.res.stage === 'resolve' && unstated.res.error === 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)' && Boolean(unstated.res.resumeFrom) && unstated.res.resumeFrom.label === 'resolve r1' && !labels(unstated.calls).includes('plan approver r1'), [unstated.res.status, unstated.res.stage, unstated.res.error, unstated.res.resumeFrom, labels(unstated.calls).slice(-3)])
   // One statement a call (#99): the first the agent returned, as for a deferred entry (#97,
   // R2-12). Here the first says fix and the second defer, so the entry is dropped and nothing filed.
-  const statedTwice = await go('filing: the resolve agent states two dispositions for one call', { ...baseArgs, interrupt: 'autopilot' }, { ...strayScenario, resolveDecidedTwice: { 'R1-1': 'defer' } })
+  const statedTwice = await go('filing: the resolve agent states two dispositions for one call', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...strayScenario, resolveDecidedTwice: { 'R1-1': 'defer' } })
   check('filing: of two statements for one call the first is kept, with a warning', postedAsFix(statedTwice) && (statedTwice.res.warnings || []).includes('round 1: the resolve agent stated a disposition for R1-1 more than once; the first is kept'), [fixDetail(statedTwice), statedTwice.res.warnings])
   // A value outside the three is no statement (#99): the schema refuses one in the agent's own
   // run, and the workflow's test is the second layer, as for a judgment call's reason.
-  const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
+  const misstated = await go('filing: the resolve agent states a disposition the workflow does not know', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, commitIds: [['R1-1']] })
   check('filing: a stated disposition outside fix, defer and accept is no statement, so the round stops at resolve', misstated.res.status === 'error' && misstated.res.stage === 'resolve' && (misstated.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstated.res.resumeFrom) && misstated.res.resumeFrom.label === 'resolve r1', [misstated.res.status, misstated.res.stage, misstated.res.error, misstated.res.resumeFrom])
   // One statement a call is the first returned, whatever it holds (#108, R3-3; the spec's
   // decisions 12 and 20): a first statement outside the three is no statement, so the round stops
   // at resolve even with a valid second one beside it. `statedTwice` above is the neighbour, two
   // valid statements, the first kept.
-  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
+  const misstatedFirst = await go('filing: the resolve agent states a disposition the workflow does not know, then a fix, for one call', { ...baseArgs, decisions: typedAnswer('R1-1') }, { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], resolveDecided: { 'R1-1': 'mitigate' }, resolveDecidedTwice: { 'R1-1': 'fix' }, commitIds: [['R1-1']] })
   check('filing: of two statements for one call the first is kept even when it is outside the three, so the round stops at resolve', (misstatedFirst.res || {}).status === 'error' && misstatedFirst.res.stage === 'resolve' && (misstatedFirst.res.error || '').startsWith('the resolve agent stated no disposition for R1-1') && Boolean(misstatedFirst.res.resumeFrom) && misstatedFirst.res.resumeFrom.label === 'resolve r1', [(misstatedFirst.res || {}).status, (misstatedFirst.res || {}).stage, (misstatedFirst.res || {}).error])
   // A call's decision that names a disposition itself decides, as an override's does (#103,
   // R1-11), so no statement is asked of it (#99): the round goes on without one, and the fix it
@@ -3902,19 +4001,19 @@ function samePrefix(name, first, second, n) {
   const stopsAtResolve = (r, error) => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === 'resolve r1' && !labels(r.calls).includes('plan approver r1')
   const stopDetail = (r) => [r.res.status, r.res.stage, r.res.error, r.res.resumeFrom, labels(r.calls).slice(-3)]
   const oneCall = { reviews: [[f('R1-1', 'correctness')]], ask: ['R1-1'], commitIds: [['R1-1']] }
-  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
+  const deferNoEntry = await go('filing: the resolve agent states a deferral and returns no deferred entry', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'defer' } })
   check('filing: a call stated as a deferral with no deferred entry stops at resolve, resumable there, before the plan approver', stopsAtResolve(deferNoEntry, 'the resolve agent stated defer for R1-1 with no deferred entry; a deferred item always carries a drafted issue'), stopDetail(deferNoEntry))
-  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
+  const fixNoFiles = await go('filing: the resolve agent states a fix and plans no task with files', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' } })
   check('filing: a call stated as a fix with no task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(fixNoFiles, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFiles))
   // The files are those of the finding's own task: another call's task with files, in the same
   // resolve, does not stand in for it.
-  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  const fixNoFilesBeside = await go('filing: the resolve agent states a fix with no task with files, beside another call\'s task', { ...baseArgs, decisions: typedAnswer('R1-1', 'R1-2') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')]], ask: ['R1-1', 'R1-2'], acceptedCalls: ['R1-1'], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
   check('filing: a call stated as a fix is held to its own task\'s files, whatever another call\'s task lists', stopsAtResolve(fixNoFilesBeside, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixNoFilesBeside))
   // A blank path is no file at the resolve-time check either (#114, R1-6): it reads the task's
   // files through the same cleanup as the list the round keeps.
-  const fixBlankFile = await go('filing: the resolve agent states a fix and plans a task whose only file is blank', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'fix' }, resolveFiles: { 'R1-1': [''] } })
+  const fixBlankFile = await go('filing: the resolve agent states a fix and plans a task whose only file is blank', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'fix' }, resolveFiles: { 'R1-1': [''] } })
   check('filing: a call stated as a fix whose task lists only a blank path stops at resolve, as one with no task with files does', stopsAtResolve(fixBlankFile, 'the resolve agent stated fix for R1-1 with no task with files; a fix names the files it changes'), stopDetail(fixBlankFile))
-  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, interrupt: 'autopilot' }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
+  const acceptWithFiles = await go('filing: the resolve agent states an accept and plans a task with files', { ...baseArgs, decisions: typedAnswer('R1-1') }, { ...oneCall, resolveDecided: { 'R1-1': 'accept' } })
   check('filing: a call stated as accepted beside a task with files stops at resolve, resumable there, before the plan approver', stopsAtResolve(acceptWithFiles, 'the resolve agent stated accept beside a task with files for R1-1 (app/x.php); an accepted finding changes nothing'), stopDetail(acceptWithFiles))
   // A decision that names its own disposition is held to the same three checks, by what it names
   // (#108, R1-5): until #108 only a defer override was, by its entry. A call whose decision names
@@ -3935,19 +4034,49 @@ function samePrefix(name, first, second, n) {
   // A call stated as a fix that a reshape then leaves to the person under a rule is not
   // demanded (#108, R1-8), as the clause the statement replaced had it: the finding is posted
   // as left to the person. Its neighbour, a call stated as a fix and not forced, is demanded
-  // (`strayFilledUnbuilt` above).
+  // (`strayFilledUnbuilt` above). Its reshape leaves its task with no files, as the hold after a
+  // reshape asks of a decided finding left to the person (#127, R4-4).
   const billingRule = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
-  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedLater = await go('filing: a call stated as a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'Change it', notes: 'Fix it now.', date: '2026-11-18' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
   const forcedReply = replyFor(forcedLater.calls, 'push and reply r1', 'R1-1')
   check('filing: a call stated as a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedLater.res.status === 'done' && !labels(forcedLater.calls).includes('repair r1'), [forcedLater.res.status, forcedLater.res.stage, forcedLater.res.error, labels(forcedLater.calls).slice(-6)])
   check('filing: that call is posted as left to the person under the rule', forcedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedReply)
   // The same holds for a call whose decision names its own fix (#108, R2-5): no statement is
   // asked of it, so it is demanded through its final disposition, and a reshape that leaves it
   // to the person under a rule after its resolve takes it out of the demand as well.
-  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [[], []] })
+  const forcedNamed = await go('filing: a call whose decision names a fix that a reshape leaves to the person under a rule, the fix left out', { ...baseArgs, askRules: billingRule, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, commitIds: [[], []] })
   const forcedNamedReply = replyFor(forcedNamed.calls, 'push and reply r1', 'R1-1')
   check('filing: a call whose decision names a fix that a reshape leaves to the person under a rule is not demanded, so the round finishes with no repair', forcedNamed.res.status === 'done' && !labels(forcedNamed.calls).includes('repair r1'), [forcedNamed.res.status, forcedNamed.res.stage, forcedNamed.res.error, labels(forcedNamed.calls).slice(-6)])
   check('filing: that named call is posted as left to the person under the rule', forcedNamedReply.startsWith('Redline round 1: left to @author under repository rule billing'), forcedNamedReply)
+  // The decision a reshape newly leaves to the person is given what a resolve gives a left one
+  // (#127, R5-3): the rule, and the drop of the fix it names, with the warning a typed fix for a
+  // left finding always had. Until R5-3 the reshape set the rule alone, so the plan approver's
+  // next pass and the implementer were shown a left decision with a fix.
+  const decisionsShown = (r, label) => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    const a = p.indexOf('Decisions made outside the shaper')
+    if (a < 0) {
+      return ''
+    }
+    const b = p.indexOf('\n\n', a)
+    return b < 0 ? p.slice(a) : p.slice(a, b)
+  }
+  const NAMED_FIX = 'round 1: R1-1 is left to the person under repository rule billing; the disposition "fix" is not applied'
+  check('filing: a named fix a reshape leaves to the person is shown after the reshape with the rule and no disposition, with one warning that the fix is not applied', decisionsShown(forcedNamed, 'plan approver r1').includes('"disposition": "fix"') && ['plan approver r1 #2', 'implement r1'].every((label) => decisionsShown(forcedNamed, label).includes('"rule": "billing"') && !decisionsShown(forcedNamed, label).includes('"disposition"')) && (forcedNamed.res.warnings || []).filter((w) => w === NAMED_FIX).length === 1, [decisionsShown(forcedNamed, 'plan approver r1'), decisionsShown(forcedNamed, 'plan approver r1 #2'), decisionsShown(forcedNamed, 'implement r1'), forcedNamed.res.warnings])
+  // The neighbour that must not change: an answer in the person's own words carries no
+  // disposition, so it is shown with the rule alone and nothing warns of a disposition dropped.
+  check('filing: a call answered in the person\'s own words that a reshape leaves to the person is shown with the rule and no disposition, and no warning drops one', decisionsShown(forcedLater, 'plan approver r1 #2').includes('"rule": "billing"') && !decisionsShown(forcedLater, 'plan approver r1 #2').includes('"disposition"') && !(forcedLater.res.warnings || []).some((w) => w.includes('is not applied')), [decisionsShown(forcedLater, 'plan approver r1 #2'), forcedLater.res.warnings])
+  // It is shown to the plan approver and the implementer as every finding left to the person is,
+  // as the shaper returned it, whatever its decision names (#126): an ask, where until #126 the
+  // pass after the reshape was shown the fix its decision names, for a finding the round
+  // demands nothing of.
+  const shownAfterReshape = (r, label) => {
+    const p = (pick(r.calls, label) || { prompt: '' }).prompt
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return (list.find((x) => x.id === 'R1-1') || {}).disposition
+  }
+  check('filing: a named fix a reshape leaves to the person under a rule is shown as the shaper returned it, an ask, to the pass after the reshape and to the implementer', shownAfterReshape(forcedNamed, 'plan approver r1 #2') === 'ask' && shownAfterReshape(forcedNamed, 'implement r1') === 'ask' && shownAfterReshape(forcedNamed, 'plan approver r1') === 'fix', [shownAfterReshape(forcedNamed, 'plan approver r1'), shownAfterReshape(forcedNamed, 'plan approver r1 #2'), shownAfterReshape(forcedNamed, 'implement r1')])
   // The resolve prompt of a run with a call asks for the statement and keeps the rule for when a
   // deferred entry is returned (#97, R2-15; #99), and the resolve agent's file asks as the prompt
   // does. A resolve with overrides and no call is asked for neither, so its prompt is the one it
@@ -4061,7 +4190,7 @@ function samePrefix(name, first, second, n) {
   // Every resolve of the round planned tasks (#97, R2-14): a reshape that raises a call runs a
   // second resolve for that call alone, and the first resolve's tasks still count, for the task a
   // stray entry stands beside and for the commits the gate demands.
-  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
+  const strayRaised = await go('filing: the resolve agent defers a call it planned as a fix, then a reshape raises a call', { ...baseArgs, decisions: typedAnswer('R1-1', 'R1-2') }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }], resolveDecided: { 'R1-1': 'fix' }, commitIds: [['R1-1', 'R1-2']] })
   check('filing: after a reshape\'s resolve, a stray entry beside the first resolve\'s fix files nothing, and the fix is posted as applied', strayRaised.res.status === 'done' && labels(strayRaised.calls).includes('resolve r1 #1') && !labels(strayRaised.calls).includes('file deferred r1') && (replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes(' Applied in ') && !(replyFor(strayRaised.calls, 'push and reply r1', 'R1-1') || '').includes('Deferred to'), [strayRaised.res.status, labels(strayRaised.calls), replyFor(strayRaised.calls, 'push and reply r1', 'R1-1')])
   const unbuilt = await go('filing: a reshape raises a call and the first resolve\'s task is not built', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-2'], []] })
   check('filing: after a reshape\'s resolve, the gate still demands the commit of the first resolve\'s task', unbuilt.res.status === 'error' && unbuilt.res.stage === 'check' && (unbuilt.res.error || '').includes('no commit names R1-1'), [unbuilt.res.status, unbuilt.res.stage, unbuilt.res.error])
@@ -4499,10 +4628,1107 @@ function samePrefix(name, first, second, n) {
   check('statements: the GitHub agent\'s defer operation names the end-of-run filing at Finish', read('agents', 'redline-github.md').includes('or, with deferred items raised at the end of the run, at Finish, before the replies those items waited for'), 'agents/redline-github.md, defer')
 }
 
+// ---------------------------------------------------------------------------
+// #105, what an option ends in: every option of a judgment call states its end (fix, defer or
+//     accept) and the call names the recommended option by its label, in the shaper's schema and
+//     in the workflow's own check of what the shaper returned. A decision that picks an option
+//     names it in `option`, and the workflow gives that decision the option's end as its own
+//     disposition: no statement is asked of the resolve agent for it, and the three record checks
+//     of a decision that names its disposition hold the plan to it. A decision with no option is
+//     the person's own words, stated by the resolve agent as before.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const one = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const h = (id, extra) => ({ id, file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: `comment ${id}`, description: `Please change ${id}.`, proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7, ...extra })
+  const humanFolder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
+  const humanArgs = (argExtra) => ({ ...baseArgs, firstRound: 3, ...(argExtra || {}), revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: 'One thing inline.', specFolder: humanFolder, findings: [h('H1-1')], commentIds: { 'H1-1': 900 }, posted: true } })
+  const humanOne = { reviews: [[]], ask: ['H1-1'], commitIds: [['H1-1']] }
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const reason = rules[0].reason
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const underRule = { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml' })], []], commitIds: [[]] }
+  // The disposition a prompt's list of dispositions shows for a finding: the plan approver's and
+  // the implementer's are the same JSON object, findings then deferred.
+  const shownAs = (r, label, id) => {
+    const p = promptOf(r, label)
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return (list.find((x) => x.id === id) || {}).disposition
+  }
+  const stopsAtShape = (r, error, label = 'shape r1') => r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const stopsAtResolve = (r, error, label = 'resolve r1') => r.res.status === 'error' && r.res.stage === 'resolve' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label && !labels(r.calls).some((l) => l.startsWith('plan approver'))
+  const stopDetail = (r) => [(r.res || {}).status, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-3), r.thrown && r.thrown.message]
+
+  // The schema, in each of the four the shaper can be given: a round's and a human pass's, each
+  // with and without the repository's rule reasons.
+  const callSchema = (r, label) => ((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).judgmentCalls || {}).items || {}
+  const optionSchema = (r, label) => ((callSchema(r, label).properties || {}).options || {}).items || {}
+  const statesEnds = (r, label) => (callSchema(r, label).required || []).includes('recommended') && ((callSchema(r, label).properties || {}).recommended || {}).type === 'string' && (optionSchema(r, label).required || []).join('|') === 'label|cost|effect|ends' && (((optionSchema(r, label).properties || {}).ends || {}).enum || []).join('|') === 'fix|defer|accept'
+  const stop = await go('ends: guided, a call stops for the person', baseArgs, one)
+  const stopRules = await go('ends: guided, a call stops for the person, in a repository with ask rules', ruleArgs, one)
+  const humanStop = await go('ends: a human pass, a call stops for the author', humanArgs(), humanOne)
+  const humanStopRules = await go('ends: a human pass, a call stops for the author, in a repository with ask rules', humanArgs({ askRules: rules }), humanOne)
+  const fourSchemas = [[stop, 'shape r1'], [stopRules, 'shape r1'], [humanStop, 'shape h1'], [humanStopRules, 'shape h1']]
+  check('ends: each of the four shaper schemas (a round\'s and a human pass\'s, with and without rule reasons) requires ends on every option, one of fix, defer and accept, and recommended on the call', fourSchemas.every(([r, label]) => statesEnds(r, label)), fourSchemas.map(([r, label]) => [optionSchema(r, label).required, callSchema(r, label).required]))
+  check('ends: the stop\'s result carries each option\'s end and the call\'s recommended option, for the person to be shown', stop.res.status === 'handoff' && JSON.stringify(stop.res.judgmentCalls[0].options.map((o) => [o.label, o.ends])) === '[["Keep it","fix"],["Change it","fix"]]' && stop.res.judgmentCalls[0].recommended === 'Keep it', stop.res.judgmentCalls)
+
+  // Every prompt that returns the shaper's JSON asks for the two fields: the shape, the human
+  // pass's shape, and the reshape of each, with and without a decided finding.
+  const OPTIONS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and, on the call itself, recommended (the label, as written, of the option you recommend)'
+  const bounced = await go('ends: a round with no call, its plan bounced once', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, commitIds: [['R1-1']] })
+  const bouncedDecided = await go('ends: a round whose call autopilot decided, its plan bounced once', { ...baseArgs, interrupt: 'autopilot' }, { ...one, planBounce: 1 })
+  const humanBounced = await go('ends: a human pass with no call, its plan bounced once', humanArgs(), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
+  const humanBouncedDecided = await go('ends: a human pass whose call autopilot decided, its plan bounced once', humanArgs({ interrupt: 'autopilot' }), { ...humanOne, planBounce: 1 })
+  const returns = [[stop, 'shape r1'], [humanStop, 'shape h1'], [bounced, 'reshape r1 #1'], [bouncedDecided, 'reshape r1 #1'], [humanBounced, 'reshape h1 #1'], [humanBouncedDecided, 'reshape h1 #1']]
+  check('ends: the shape prompt, the human pass\'s and the four reshape prompts each ask for ends on every option and for recommended', returns.every(([r, label]) => promptOf(r, label).includes(OPTIONS_ASK)) && promptOf(bouncedDecided, 'reshape r1 #1').includes(DECIDED_BLOCK) && !promptOf(bounced, 'reshape r1 #1').includes(DECIDED_BLOCK) && promptOf(humanBouncedDecided, 'reshape h1 #1').includes(DECIDED_BLOCK) && !promptOf(humanBounced, 'reshape h1 #1').includes(DECIDED_BLOCK), returns.map(([r, label]) => [label, promptOf(r, label).includes(OPTIONS_ASK), promptOf(r, label).slice(-500)]))
+
+  // The workflow's own check of the options, after the shape and after every reshape, in both
+  // passes: a label names one option, every option has a label and an end of the three, and
+  // recommended names one of them. Each stop is the workflow's check of what the shaper returned.
+  const twoKeeps = [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Keep it', cost: 'c', effect: 'e', ends: 'fix' }]
+  const REPEATED = (id) => `the shaper gave ${id} more than one option labelled "Keep it"; a decision names the option it picks by its label, so each label names one option`
+  const repeated = await go('ends: two options of one call share a label', baseArgs, { ...one, callOf: { 'R1-1': { options: twoKeeps } } })
+  check('ends: a call with two options under one label stops at shape, the workflow\'s own check, resumable at the shaper', stopsAtShape(repeated, REPEATED('R1-1')), stopDetail(repeated))
+  const NONE_RECOMMENDED = (id, named) => `the shaper recommended ${JSON.stringify(named)} for ${id}, which is the label of none of its options (Keep it, Change it); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label`
+  const noneRecommended = await go('ends: the recommended label names no option of the call', baseArgs, { ...one, callOf: { 'R1-1': { recommended: 'Keep' } } })
+  check('ends: a call whose recommended names none of its options stops at shape, the workflow\'s own check', stopsAtShape(noneRecommended, NONE_RECOMMENDED('R1-1', 'Keep')), stopDetail(noneRecommended))
+  const noRecommended = await go('ends: a call with no recommended at all', baseArgs, { ...one, callOf: { 'R1-1': { recommended: undefined } } })
+  check('ends: a call with no recommended stops the same way', stopsAtShape(noRecommended, NONE_RECOMMENDED('R1-1', '')), stopDetail(noRecommended))
+  const endless = await go('ends: an option with an end outside the three, and one with none and no label', baseArgs, { ...one, callOf: { 'R1-1': { options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'mitigate' }, { label: ' ', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }] } } })
+  check('ends: an option with no label, or with an end that is none of the three, stops at shape, the workflow\'s own check, as the second layer behind the schema', stopsAtShape(endless, 'the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in "mitigate", "" ends in null); every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept'), stopDetail(endless))
+  const humanNoneRecommended = await go('ends: a human pass, the recommended label names no option', humanArgs(), { ...humanOne, callOf: { 'H1-1': { recommended: 'Keep' } } })
+  check('ends: a human pass\'s call is held to the same check', stopsAtShape(humanNoneRecommended, NONE_RECOMMENDED('H1-1', 'Keep'), 'shape h1'), stopDetail(humanNoneRecommended))
+  // After a reshape the check reads the calls still pending or newly raised: a call the reshape
+  // raises stops at the reshape's own label, and one the round already decided is not held to
+  // options the reshape restates.
+  const raisedTwo = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const raisedRepeated = await go('ends: a reshape raises a call with two options under one label', { ...baseArgs, interrupt: 'autopilot' }, { ...raisedTwo, callAt: { 'reshape r1 #1': { 'R1-2': { options: twoKeeps } } } })
+  check('ends: a call a reshape raises is held to the check, and its stop names the reshape', stopsAtShape(raisedRepeated, REPEATED('R1-2'), 'reshape r1 #1'), stopDetail(raisedRepeated))
+  const decidedRestated = await go('ends: a reshape returns a decided call again with two options under one label', { ...baseArgs, interrupt: 'autopilot' }, { ...raisedTwo, callAt: { 'reshape r1 #1': { 'R1-1': { options: twoKeeps } } } })
+  check('ends: a call the round already decided is not held to the options a reshape restates', decidedRestated.res.status === 'done', stopDetail(decidedRestated))
+
+  // The one call the workflow writes, for a finding left to the person under a rule, states its
+  // options' ends and its recommended option like any other.
+  const forcedStop = await go('ends: a finding under a paths rule, guided', ruleArgs, underRule)
+  const forcedCall = ((forcedStop.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('ends: the call the workflow writes for a finding left to the person states each option\'s end and recommends the change by hand', JSON.stringify(forcedCall.options.map((o) => [o.label, o.ends])) === '[["Make the change by hand after the run","fix"],["Accept, no change","accept"]]' && forcedCall.recommended === 'Make the change by hand after the run', forcedCall)
+  const forcedDeclined = await go('ends: a finding under a paths rule that the shaper declined, guided', ruleArgs, { ...underRule, decline: ['R1-1'] })
+  const declinedCall = ((forcedDeclined.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('ends: for a finding the shaper would have declined, the call the workflow writes recommends no change', declinedCall.recommended === 'Accept, no change' && declinedCall.recommendation.startsWith('Accept, no change'), declinedCall)
+
+  // A pick. The decision names the option in `option`; the run's copy of it carries the option's
+  // end as its disposition, the resolve agent is asked for no statement (the scripted agent
+  // returns none here), and the finding is shown and built by that end.
+  const pickOf = (label, notes, id = 'R1-1') => ({ [id]: { choice: label, option: label, notes, date: '2026-11-24' } })
+  const NAMED_EXEMPT = ' A call whose decision carries `disposition` names its own and has no entry in decided.'
+  const PICK = ' A call whose decision carries `option` was answered by picking that option of the call, named by its label: plan that option as the shaper wrote it, and the `disposition` beside it is what the option ends in, which the workflow set from the option\'s `ends`.'
+  const picked = await go('ends: guided, the person picks Change it', { ...baseArgs, decisions: pickOf('Change it', 'Change it now.') }, { ...one, resolveUnstated: ['R1-1'] })
+  const pickedResolve = promptOf(picked, 'resolve r1')
+  check('ends: a picked option gives its decision the option\'s end as its disposition, and no statement is asked of the resolve agent', picked.res.status === 'done' && pickedResolve.includes('"option": "Change it"') && pickedResolve.includes('"disposition": "fix"') && replyFor(picked.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Change it now. Applied in 1bbbbbb (redline: R1-1 fix). · decided by: @author', [stopDetail(picked), pickedResolve.slice(-1200)])
+  check('ends: the resolve prompt says what a pick is, in the calls block, after the sentence that a named disposition has no entry in decided', pickedResolve.includes(NAMED_EXEMPT + PICK), pickedResolve.slice(-1500))
+  samePrefix('ends: a pick', stop.calls, picked.calls, 5)
+  // The case #105's comment names: the person picks Mitigate, which ends in defer, and the
+  // resolve agent plans a full fix with no deferred entry. Until this spec it ran on with fix
+  // stated, and nothing held the plan to the option the person chose.
+  const three = [{ label: 'Full fix', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Mitigate', cost: 'c', effect: 'e', ends: 'defer' }, { label: 'Accept', cost: 'c', effect: 'e', ends: 'accept' }]
+  const threeWay = { ...one, callOf: { 'R1-1': { options: three, recommended: 'Mitigate', recommendation: 'Mitigate; add a guard.' } } }
+  const entry = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  const NO_ENTRY = 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue'
+  const mitigateAsFix = await go('ends: the person picks Mitigate and the resolve agent plans a full fix with no entry', { ...baseArgs, decisions: pickOf('Mitigate', 'Mitigate it behind a guard.') }, threeWay)
+  check('ends: Mitigate picked and planned as a full fix with no deferred entry stops at resolve, before the plan approver', stopsAtResolve(mitigateAsFix, NO_ENTRY), stopDetail(mitigateAsFix))
+  const fixNoTask = await go('ends: the person picks Full fix and the resolve agent plans no task with files', { ...baseArgs, decisions: pickOf('Full fix', 'Fix it in full.') }, { ...threeWay, resolveFiles: { 'R1-1': [] } })
+  check('ends: an option that ends in a fix, planned with no task with files, stops at resolve', stopsAtResolve(fixNoTask, 'the resolve agent planned no task with files for R1-1, which its decision names as a fix; a fix names the files it changes'), stopDetail(fixNoTask))
+  const acceptWithTask = await go('ends: the person picks Accept and the resolve agent plans a task with files', { ...baseArgs, decisions: pickOf('Accept', 'Leave it as it is.') }, { ...threeWay, resolveFiles: { 'R1-1': ['app/x.php'] } })
+  check('ends: an option that ends in accept, planned beside a task with files, stops at resolve', stopsAtResolve(acceptWithTask, 'the resolve agent planned a task with files for R1-1 (app/x.php), which its decision names as accepted; an accepted finding changes nothing'), stopDetail(acceptWithTask))
+  // Their neighbours run on, each shown to the plan approver and the implementer by its end.
+  const mitigated = await go('ends: the person picks Mitigate, planned as a deferral with its entry', { ...baseArgs, decisions: pickOf('Mitigate', 'Mitigate it behind a guard.'), deferrals: goAhead('R1-1') }, { ...threeWay, resolveDeferred: [entry] })
+  check('ends: Mitigate picked and planned as a deferral is filed as the person\'s deferral, and shown as a defer', mitigated.res.status === 'done' && labels(mitigated.calls).includes('file deferred r1') && replyFor(mitigated.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Mitigate it behind a guard. Applied in 1bbbbbb (redline: R1-1 fix). Deferred to #301. · decided by: @author' && shownAs(mitigated, 'plan approver r1', 'R1-1') === 'defer' && shownAs(mitigated, 'implement r1', 'R1-1') === 'defer', [stopDetail(mitigated), replyFor(mitigated.calls, 'push and reply r1', 'R1-1'), shownAs(mitigated, 'plan approver r1', 'R1-1')])
+  const acceptedPick = await go('ends: the person picks Accept, planned with no task', { ...baseArgs, decisions: pickOf('Accept', 'Leave it as it is.') }, { ...threeWay, commitIds: [[]] })
+  check('ends: Accept picked is posted as no code change, demanded of no commit, and shown as an accept', acceptedPick.res.status === 'done' && replyFor(acceptedPick.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: Leave it as it is. No code change. · decided by: @author' && shownAs(acceptedPick, 'plan approver r1', 'R1-1') === 'accept' && shownAs(acceptedPick, 'implement r1', 'R1-1') === 'accept', [stopDetail(acceptedPick), replyFor(acceptedPick.calls, 'push and reply r1', 'R1-1'), shownAs(acceptedPick, 'plan approver r1', 'R1-1')])
+  const fullFix = await go('ends: the person picks Full fix, left unbuilt', { ...baseArgs, decisions: pickOf('Full fix', 'Fix it in full.') }, { ...threeWay, commitIds: [[], []] })
+  check('ends: an option that ends in a fix is demanded by the check: left unbuilt, the round stops there', fullFix.res.status === 'error' && fullFix.res.stage === 'check' && (fullFix.res.error || '').includes('no commit names R1-1') && shownAs(fullFix, 'plan approver r1', 'R1-1') === 'fix', stopDetail(fullFix))
+
+  // An answer in the person's own words names no option: its decision carries no disposition,
+  // the resolve agent states what it ends in, and its prompt says nothing of a pick.
+  const typed = { 'R1-1': { choice: 'Change it, with a log line', notes: 'Change it and log it.', date: '2026-11-24' } }
+  const typedRun = await go('ends: guided, an answer in the person\'s own words', { ...baseArgs, decisions: typed }, one)
+  const typedResolve = promptOf(typedRun, 'resolve r1')
+  check('ends: an answer with no option is stated by the resolve agent, as before: no disposition on its decision, and no word of a pick in its prompt', typedRun.res.status === 'done' && typedResolve !== '' && !typedResolve.includes('"option"') && !typedResolve.includes('"disposition": ') && !typedResolve.includes('carries `option`') && shownAs(typedRun, 'plan approver r1', 'R1-1') === 'ask', [stopDetail(typedRun), typedResolve.slice(-900)])
+  const typedUnstated = await go('ends: guided, an answer in the person\'s own words, no statement returned', { ...baseArgs, decisions: typed }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: an answer with no option still needs its statement', stopsAtResolve(typedUnstated, 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)'), stopDetail(typedUnstated))
+  // An option that names none of the call's options is the person's own words, with a warning.
+  const UNKNOWN = 'round 1: the decision for R1-1 names the option "Kep it", which is the label of none of its call\'s options (Keep it, Change it); it is read as an answer in the person\'s own words, and the resolve agent states what it ends in'
+  const unknown = await go('ends: a decision names an option its call does not have', { ...baseArgs, decisions: pickOf('Kep it', 'Keep it.') }, one)
+  const unknownResolve = promptOf(unknown, 'resolve r1')
+  check('ends: an option that names none of its call\'s options is read as the person\'s own words, with a warning, and the resolve agent states its end', unknown.res.status === 'done' && (unknown.res.warnings || []).includes(UNKNOWN) && unknownResolve !== '' && !unknownResolve.includes('"option"') && !unknownResolve.includes('"disposition": '), [stopDetail(unknown), unknown.res.warnings])
+  const unknownUnstated = await go('ends: a decision names an option its call does not have, no statement returned', { ...baseArgs, decisions: pickOf('Kep it', 'Keep it.') }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: such a decision still needs its statement', stopsAtResolve(unknownUnstated, 'the resolve agent stated no disposition for R1-1, a judgment call it applied; a call\'s decision is read from what it states (fix, defer or accept)'), stopDetail(unknownUnstated))
+  // A label is matched as written, apart from the blanks around it.
+  const padded = await go('ends: a decision names its option with blanks around the label', { ...baseArgs, decisions: pickOf(' Change it ', 'Change it now.') }, { ...one, resolveUnstated: ['R1-1'] })
+  check('ends: an option is matched by its label whatever blanks surround it', padded.res.status === 'done' && promptOf(padded, 'resolve r1').includes('"disposition": "fix"'), stopDetail(padded))
+
+  // What a decision may carry is checked at launch, before any agent runs.
+  const both = await go('ends: a decision gives an option and a disposition', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: 'Change it', notes: 'Change it now.', date: '2026-11-24', disposition: 'fix' } } }, one)
+  check('ends: a decision that gives both an option and a disposition is refused before any agent runs', Boolean(both.thrown) && /args\.decisions must not give both an option and a disposition/.test(both.thrown.message) && both.calls.length === 0, [both.thrown && both.thrown.message, both.calls.length])
+  const notText = await go('ends: a decision gives an option that is no string', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: 2, notes: 'Change it now.', date: '2026-11-24' } } }, one)
+  check('ends: an option that is not a string is refused before any agent runs', Boolean(notText.thrown) && /args\.decisions must give an option as a string/.test(notText.thrown.message) && notText.calls.length === 0, [notText.thrown && notText.thrown.message, notText.calls.length])
+  const emptyOption = await go('ends: an empty and a null option', { ...baseArgs, decisions: { 'R1-1': { choice: 'Change it', option: '', notes: 'Change it now.', date: '2026-11-24' }, 'R1-2': { choice: 'Change it', option: null, notes: 'Change it now.', date: '2026-11-24', disposition: 'fix' } } }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-1', 'R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  const emptyOptionResolve = promptOf(emptyOption, 'resolve r1')
+  check('ends: an empty and a null option each name none: the decision runs on without one, a named disposition beside it kept', !emptyOption.thrown && (emptyOption.res || {}).status === 'done' && emptyOptionResolve !== '' && !emptyOptionResolve.includes('"option"') && emptyOptionResolve.includes('"disposition": "fix"') && !(emptyOption.res.warnings || []).some((w) => w.includes('names the option')), [emptyOption.thrown && emptyOption.thrown.message, (emptyOption.res || {}).status, (emptyOption.res || {}).warnings])
+
+  // Autopilot takes the call's recommended option by its label, so its decision is a pick too.
+  const auto = await go('ends: autopilot takes the recommended option, Mitigate', { ...baseArgs, interrupt: 'autopilot' }, { ...threeWay, resolveDeferred: [entry] })
+  const autoResolve = promptOf(auto, 'resolve r1')
+  check('ends: autopilot\'s decision names the recommended option, takes its end, and keeps the recommendation as its choice and notes', auto.res.status === 'done' && autoResolve.includes('"option": "Mitigate"') && autoResolve.includes('"disposition": "defer"') && autoResolve.includes('"choice": "Mitigate; add a guard"') && autoResolve.includes('"notes": "Autopilot took the shaper\'s recommendation: Mitigate; add a guard."') && autoResolve.includes(NAMED_EXEMPT + PICK) && labels(auto.calls).includes('file deferred r1'), [stopDetail(auto), autoResolve.slice(-1500)])
+  const autoAsFix = await go('ends: autopilot takes Mitigate and the resolve agent plans a full fix with no entry', { ...baseArgs, interrupt: 'autopilot' }, threeWay)
+  check('ends: on autopilot too, Mitigate planned as a full fix with no deferred entry stops at resolve', stopsAtResolve(autoAsFix, NO_ENTRY), stopDetail(autoAsFix))
+  // Pin 1 of #99 on the dial it was first seen on: an entry the resolve agent returns beside a
+  // call autopilot picked to a fix is dropped, as one beside any decision that names a fix is,
+  // and nothing is filed. Until #105 the agent's own statement decided, and a statement of
+  // defer beside that entry filed an issue the recommended option never asked for.
+  const autoStray = await go('ends: autopilot takes an option that ends in a fix and the resolve agent returns a deferred entry', { ...baseArgs, interrupt: 'autopilot' }, { ...one, ends: { 'R1-1': 'fix' }, resolveDeferred: [entry] })
+  check('ends: an entry the resolve agent returns beside a pick that ends in a fix is dropped with a warning, nothing is filed, and the fix is posted', autoStray.res.status === 'done' && (autoStray.res.warnings || []).includes('round 1: the resolve agent listed R1-1 as deferred, a call whose decision names it as fix; the entry is dropped, since the decision stands') && !labels(autoStray.calls).includes('file deferred r1') && replyFor(autoStray.calls, 'push and reply r1', 'R1-1').includes(' Applied in ') && (autoStray.res.deferred || []).length === 0, [stopDetail(autoStray), autoStray.res.warnings, replyFor(autoStray.calls, 'push and reply r1', 'R1-1')])
+  const autoRaised = await go('ends: autopilot decides a call a reshape raised', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, reshapeAsk: ['R1-2'], commitIds: [['R1-1', 'R1-2']] })
+  check('ends: a call a reshape raises is picked the same way, in the resolve that reshape sets off', autoRaised.res.status === 'done' && promptOf(autoRaised, 'resolve r1 #1').includes('"option": "Keep it"') && promptOf(autoRaised, 'resolve r1 #1').includes('"disposition": "fix"'), [stopDetail(autoRaised), promptOf(autoRaised, 'resolve r1 #1').slice(-900)])
+
+  // A resolve with overrides and no call has no calls block, so nothing of this reaches it.
+  const overrideOnly = await go('ends: a plan-dial override and no call', { ...baseArgs, interrupt: 'plan', approvedPlans: [1, 2], decisions: { 'R1-1': { choice: 'accept', notes: 'Leave it as it is.', date: '2026-11-24', disposition: 'accept' } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [[]] })
+  const overrideResolve = promptOf(overrideOnly, 'resolve r1')
+  check('ends: a resolve with overrides and no call holds no calls block and no word of a pick', overrideResolve.includes('Disposition overrides, as JSON') && !overrideResolve.includes('Judgment calls as the shaper wrote them') && !overrideResolve.includes('`option`'), overrideResolve.slice(-900))
+
+  // A pick on a call left to the person under a rule: no end is kept on its decision and nothing
+  // warns, since no task writes anything whatever the answer, and the finding ends as every left
+  // finding does. The calls block's sentence about a pick is for a decision that carries the
+  // option's end, so this prompt holds none.
+  const leftPick = await go('ends: the person picks Accept, no change on a call left to them under a rule', { ...ruleArgs, decisions: pickOf('Accept, no change', 'The author leaves the config as it is.') }, underRule)
+  const leftResolve = promptOf(leftPick, 'resolve r1')
+  check('ends: a pick on a call left to the person keeps no disposition and warns of none, and the finding is posted as left', leftPick.res.status === 'done' && leftResolve.includes('"option": "Accept, no change"') && leftResolve.includes('"rule": "craft-config"') && !leftResolve.includes('"disposition": ') && !leftResolve.includes('carries `option`') && !(leftPick.res.warnings || []).some((w) => w.includes('is not applied') || w.includes('names the option')) && replyFor(leftPick.calls, 'push and reply r1', 'R1-1') === `Redline round 1: left to @author under repository rule craft-config (${reason}). The author leaves the config as it is. · decided by: @author`, [stopDetail(leftPick), leftPick.res.warnings, replyFor(leftPick.calls, 'push and reply r1', 'R1-1')])
+  // A disposition typed for it is still dropped with its warning, as before.
+  const leftTyped = await go('ends: the person types a fix for a call left to them under a rule', { ...ruleArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it.', date: '2026-11-24', disposition: 'fix' } } }, underRule)
+  check('ends: a disposition typed for a call left to the person is not applied, with the warning it always had', leftTyped.res.status === 'done' && (leftTyped.res.warnings || []).includes('round 1: R1-1 is left to the person under repository rule craft-config; the disposition "fix" is not applied'), [stopDetail(leftTyped), leftTyped.res.warnings])
+
+  // A human review pass: one schema, one dial and one path. An option may end in defer there,
+  // since choosing it is the author's decision, so the plan approver is told that a defer no
+  // decision names is the bounce, where it was told any defer is.
+  const humanThree = { ...humanOne, callOf: { 'H1-1': { options: three, recommended: 'Full fix', recommendation: 'Full fix.' } } }
+  const humanEntry = { id: 'H1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock H1-1', found: 'found H1-1', why: 'why H1-1' }
+  const humanPicked = await go('ends: a human pass, the author picks Mitigate', humanArgs({ decisions: pickOf('Mitigate', 'The author defers it behind a guard.', 'H1-1'), deferrals: goAhead('H1-1') }), { ...humanThree, resolveDeferred: [humanEntry] })
+  const humanApprover = promptOf(humanPicked, 'plan approver h1')
+  check('ends: a human pass\'s pick travels the same way, and is shown to its plan approver as the defer its decision names', humanPicked.res.status === 'done' && promptOf(humanPicked, 'resolve h1').includes('"disposition": "defer"') && shownAs(humanPicked, 'plan approver h1', 'H1-1') === 'defer', [stopDetail(humanPicked), shownAs(humanPicked, 'plan approver h1', 'H1-1')])
+  check('ends: a human pass\'s plan approver is told that a defer no decision names is a bounce, and no longer that any defer is', humanApprover.includes('and no finding is deferred by the shaper; a disposition of defer that no decision below names is a bounce.') && !humanApprover.includes('a disposition of defer here is a bounce'), humanApprover.slice(0, 1500))
+  samePrefix('ends: a human pass\'s pick', humanStop.calls, humanPicked.calls, 2)
+
+  // The statements a reader and an agent meet.
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const resolveAgent = read('agents', 'redline-resolve.md')
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  const skill = read('skills', 'redline', 'SKILL.md')
+  check('ends: the shaper\'s file says every option states what it ends in and the call names the recommended one, in rule 1, for a left call, for a human pass and in its return shape', shaperAgent.includes('Every option of a call states what choosing it ends in, in `ends`') && shaperAgent.includes('`recommended`, by its label as written') && shaperAgent.includes('which ends in `fix`, or accept it as it is, which ends in `accept`') && shaperAgent.includes('and one may end in `defer`: choosing it is the author\'s decision') && shaperAgent.includes('"options": [{"label": "Full fix", "cost": "...", "effect": "...", "ends": "fix"}, {"label": "Mitigate", "cost": "...", "effect": "...", "ends": "defer"}, {"label": "Accept", "cost": "...", "effect": "...", "ends": "accept"}]') && shaperAgent.includes('"recommended": "Accept"'), 'agents/redline-shaper.md')
+  check('ends: the resolve agent\'s file says a decision that carries option is a pick whose disposition the workflow set, planned as the option reads and stated nowhere', resolveAgent.includes('A decision that carries `option` picked that option of the call, named by its label') && resolveAgent.includes('return no entry in `decided` for it') && resolveAgent.includes('and so does a call whose decision carries `disposition`'), 'agents/redline-resolve.md')
+  check('ends: the plan approver\'s file says a picked option\'s end is the disposition the plan follows, and that a human pass\'s defer stands only when a decision names it', approverAgent.includes('A decision that carries `option` picked that option of the call, and its `disposition` is what the option ends in') && approverAgent.includes('a `defer` there stands only when a decision the prompt lists names it'), 'agents/redline-plan-approver.md')
+  check('ends: the skill shows each option with what it ends in, takes the recommended one from the field, and records a pick\'s option', skill.includes('what it ends in (`ends`:') && skill.includes('the recommended one (`recommended`, the label of one option)') && skill.includes('"option": "<the option\'s label, exactly as given>"') && skill.includes('You never write a `disposition` for a call the person answered by picking an option'), 'skills/redline/SKILL.md')
+  check('ends: the result tells a relaunching session that a pick carries option, and never beside a disposition', stop.res.relaunch.how.includes('"option": "<the label of the option picked>"') && stop.res.relaunch.how.includes('never beside "disposition"'), stop.res.relaunch.how)
+}
+
+// ---------------------------------------------------------------------------
+// #126, a rule call the person defers: an option of a call for a finding left to the person (a
+//     repository rule, or one of Redline's own files) may end in defer and carry a drafted issue.
+//     When the person picks it, or types a defer for the finding, Redline files the draft: the
+//     decision is the person's, no task writes anything, the reply still says the change is
+//     theirs under the rule and names the issue, and the thread is resolved once the draft is
+//     filed. The shaper's own deferral of such a finding is kept as that option where it was
+//     thrown away. Any other answer, and autopilot, leave the finding as before.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const bodyOf = (r) => (pick(r.calls, 'handoff comment') ? comment(r.calls, 'handoff comment') : '')
+  const shownAs = (r, label, id) => {
+    const p = promptOf(r, label)
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return (list.find((x) => x.id === id) || {}).disposition
+  }
+  const detail = (r) => [(r.res || {}).status, (r.res || {}).handoffKind, (r.res || {}).stage, (r.res || {}).error, labels(r.calls).slice(-8), (r.res || {}).warnings, r.thrown && r.thrown.message]
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const reason = rules[0].reason
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const folder = 'agent-os/specs/2026-10-20-1600-114-review-round-1'
+  const cfg = f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })
+  const BY_HAND = 'Make the change by hand after the run'
+  const ACCEPT = 'Accept, no change'
+  const DEFER = 'Defer to an issue'
+  const draft = { title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1', fullFix: 'a lock' }
+  const LEFT = `left to @author under repository rule craft-config`
+  const tracked = 'The author tracks the config change in an issue and makes it after the merge.'
+  const pickOf = (label, notes, id = 'R1-1') => ({ [id]: { choice: label, option: label, notes, date: '2026-11-24' } })
+  const typedDefer = (id = 'R1-1') => ({ [id]: { choice: 'defer', notes: tracked, date: '2026-11-24', disposition: 'defer' } })
+  const filedCalls = (r) => labels(r.calls).filter((l) => l.startsWith('file deferred'))
+
+  // The forcing point: the shaper deferred a finding a rule covers, with its drafted issue.
+  // Until this spec the entry was dropped there and the person was shown two options.
+  const deferredUnderRule = { reviews: [[cfg], []], defer: ['R1-1'], commitIds: [[]] }
+  const stop = await go('left: the shaper deferred a finding under a paths rule, guided', ruleArgs, deferredUnderRule)
+  const call = ((stop.res || {}).judgmentCalls || [])[0] || { options: [], forced: {} }
+  check('left: the call for a finding the shaper deferred under a rule keeps the drafted issue, as a third option that ends in defer and is the recommended one', stop.res.status === 'handoff' && JSON.stringify(call.options.map((o) => [o.label, o.ends])) === `[["${BY_HAND}","fix"],["${ACCEPT}","accept"],["${DEFER}","defer"]]` && JSON.stringify(call.options[2].draft) === JSON.stringify(draft) && call.recommended === DEFER && call.recommendation === 'Defer to an issue: Lock R1-1.' && call.forced.recommendation === 'Defer to an issue: Lock R1-1.', call)
+  check('left: no draft is raised at the stop for it: the draft is the option\'s, shown with the call', JSON.stringify(stop.res.draftsNeeded) === '[]' && JSON.stringify(stop.res.decisionsNeeded) === '["R1-1"]' && (stop.res.warnings || []).includes('round 1: the shaper sorted R1-1 as defer; repository rule craft-config makes it an ask for the person'), [stop.res.draftsNeeded, stop.res.decisionsNeeded, stop.res.warnings])
+  // A kept draft whose title ends in a period gives a recommendation that ends in one (#127,
+  // R3-7): until then the recommendation added its own and doubled it, in the call, in the
+  // record and in autopilot's Left to line.
+  const periodTitle = { ...deferredUnderRule, drafts: { 'R1-1': { title: 'Lock R1-1.' } } }
+  const periodStop = await go('left: the shaper deferred a finding under a paths rule, its draft\'s title ending in a period', ruleArgs, periodTitle)
+  const periodCall = ((periodStop.res || {}).judgmentCalls || [])[0] || { forced: {} }
+  check('left: a kept draft whose title ends in a period gives a call recommendation that ends in one period', periodCall.recommendation === 'Defer to an issue: Lock R1-1.' && (periodCall.forced || {}).recommendation === 'Defer to an issue: Lock R1-1.', periodCall)
+  const periodAuto = await go('left: the same, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, periodTitle)
+  const periodOpen = ((periodAuto.res.forced || []).find((x) => x.id === 'R1-1') || {}).open || ''
+  check('left: on autopilot its Left to entry ends in the title\'s one period', periodOpen.endsWith('Lock R1-1.') && !periodOpen.includes('..'), [detail(periodAuto), periodOpen])
+  // A shaper deferral whose draft a rule cannot keep is warned about, with what it lacks (#127,
+  // R4-2): until then the draft was dropped with the entry and the run said nothing of it.
+  const SHORT_DRAFT = (missing) => `round 1: the shaper deferred R1-1 with no complete drafted issue (missing ${missing}); repository rule craft-config leaves it to the person, and the draft is not kept as an option of its call, since only a complete one is`
+  for (const [name, scenario, missing] of [
+    ['a draft short of a field', { ...deferredUnderRule, drafts: { 'R1-1': { why: '   ' } } }, 'why'],
+    ['no draft at all', { ...deferredUnderRule, noDraft: ['R1-1'] }, 'title, found, why'],
+  ]) {
+    const shortRun = await go(`left: the shaper deferred a finding under a rule with ${name}`, ruleArgs, scenario)
+    const shortCall = ((shortRun.res || {}).judgmentCalls || [])[0] || { options: [] }
+    check(`left: the shaper deferred a finding under a rule with ${name}: its call offers the two options, and a warning says the draft is not kept and what it lacks`, shortRun.res.status === 'handoff' && JSON.stringify(shortCall.options.map((o) => [o.label, o.ends])) === `[["${BY_HAND}","fix"],["${ACCEPT}","accept"]]` && shortCall.recommended === BY_HAND && (shortRun.res.warnings || []).includes(SHORT_DRAFT(missing)), [detail(shortRun), shortCall])
+  }
+  check('left: a complete draft kept under a rule is warned about as no incomplete one', !(stop.res.warnings || []).some((w) => w.includes('with no complete drafted issue')), stop.res.warnings)
+  const undrafted = await go('left: the shaper deferred a finding under a paths rule with no drafted issue', ruleArgs, { ...deferredUnderRule, noDraft: ['R1-1'] })
+  const undraftedCall = ((undrafted.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('left: a deferral with no complete draft under a rule gets the two options, and the round does not stop for the draft', undrafted.res.status === 'handoff' && undraftedCall.options.map((o) => o.label).join('|') === `${BY_HAND}|${ACCEPT}` && undraftedCall.recommended === BY_HAND, [detail(undrafted), undraftedCall])
+
+  // The pick. The resolve agent is told how a deferred left finding is written, the draft is
+  // raised once more before it is filed, as every deferral chosen at a call is, and then filed.
+  const EXCEPTION = '- The exception to what is said above of a finding left to the person: a decision carrying `rule` and `disposition` "defer" is one the person deferred to an issue (#126). No task writes anything for it either: its plan task is "Left to the person: <id>" as above, with no files. But the finding is listed under Deferred in shape.md with its drafted issue, and returned in deferred with an empty mitigation and the draft as title, found, why and fullFix: the draft its call\'s option carries, copied as written, when one does, and one you write when the call offered none. The workflow files it, and the change stays the person\'s to make.'
+  const picked = await go('left: the person picks Defer to an issue', { ...ruleArgs, decisions: pickOf(DEFER, tracked) }, deferredUnderRule)
+  const pickedResolve = promptOf(picked, 'resolve r1')
+  const pickedDraft = ((picked.res || {}).drafts || [])[0] || {}
+  check('left: a picked defer option stops once more for its draft, after the resolve and before the plan approver', picked.res.status === 'handoff' && picked.res.handoffKind === 'decisions' && JSON.stringify(picked.res.draftsNeeded) === '["R1-1"]' && pickedDraft.title === 'Lock R1-1' && pickedDraft.ships === false && pickedDraft.canFix === false && JSON.stringify(pickedDraft.files) === '[]' && labels(picked.calls).includes('resolve r1') && !labels(picked.calls).includes('plan approver r1'), [detail(picked), pickedDraft])
+  check('left: the resolve prompt carries the rule, the option and the defer on the decision, and the bullet that says how a deferred left finding is written', pickedResolve.includes('"rule": "craft-config"') && pickedResolve.includes('"option": "Defer to an issue"') && pickedResolve.includes('"disposition": "defer"') && pickedResolve.includes(EXCEPTION) && pickedResolve.indexOf(EXCEPTION) > pickedResolve.indexOf('A decision carrying `rule` is on a finding a repository ask rule covers') && !pickedResolve.includes('carries `option` was answered by picking'), pickedResolve.slice(0, 3000))
+  const filed = await go('left: the person picks Defer to an issue and lets the draft go ahead', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  samePrefix('left: the draft stop of a deferred rule call', picked.calls, filed.calls, picked.calls.length)
+  const filedPrompt = promptOf(filed, 'file deferred r1')
+  check('left: the draft the option carried is filed, with no commit demanded and no task planned for the finding', filed.res.status === 'done' && filedCalls(filed).join('|') === 'file deferred r1' && filedPrompt.includes('# Lock R1-1') && filedPrompt.includes('found R1-1') && !labels(filed.calls).includes('repair r1') && (filed.res.commits || []).length === 0, [detail(filed), filedPrompt.slice(0, 900)])
+  const filedReply = `Redline round 1: ${LEFT} (${reason}). ${tracked} Deferred to #301. · decided by: @author`
+  check('left: the reply says the change is the person\'s under the rule and names the issue', replyFor(filed.calls, 'push and reply r1', 'R1-1') === filedReply, replyFor(filed.calls, 'push and reply r1', 'R1-1'))
+  const filedLine = `${LEFT}: ${tracked} Deferred to #301. · decided by: @author`
+  check('left: the handoff lists it under Deferred and under Left to, each with where its draft went, and counts it as left', bodyOf(filed).includes(`### Deferred (1)\n\n- **R1-1** title R1-1: ${filedLine}\n`) && bodyOf(filed).includes(`### Left to @author (repository rules)\n\n- **R1-1** title R1-1: rule craft-config (${reason}); ${filedLine}`) && bodyOf(filed).includes('- Round 1 (pr): 1 item: 1 left to @author;'), bodyOf(filed))
+  check('left: its thread is resolved once its draft is filed', promptOf(filed, 'resolve threads').includes('resolve-threads 114 100 200\n') && bodyOf(filed).includes('\n\nResolved 1 thread; 0 left open.\n'), [promptOf(filed, 'resolve threads').slice(0, 600), bodyOf(filed).slice(0, 500)])
+  check('left: the result lists it as deferred with where it went, as left to the person, and as overruled by nobody', JSON.stringify((filed.res.deferred || []).map((d) => [d.id, d.where, d.number, d.ships, d.mitigation])) === '[["R1-1","issue",301,false,""]]' && JSON.stringify((filed.res.forced || []).map((x) => [x.id, x.rule, x.outcome])) === JSON.stringify([['R1-1', 'craft-config', filedLine]]) && JSON.stringify((filed.res.decided || []).filter((d) => d.id === 'R1-1').map((d) => [d.kind, d.overruled, d.decidedBy])) === '[["left",false,"@author"]]', [filed.res.deferred, filed.res.forced, filed.res.decided])
+  check('left: the plan approver and the implementer are shown it as every left finding is, an ask, beside its drafted issue', shownAs(filed, 'plan approver r1', 'R1-1') === 'ask' && shownAs(filed, 'implement r1', 'R1-1') === 'ask' && promptOf(filed, 'plan approver r1').includes('"title": "Lock R1-1"') && promptOf(filed, 'plan approver r1').includes('"mitigation": ""'), [shownAs(filed, 'plan approver r1', 'R1-1'), shownAs(filed, 'implement r1', 'R1-1')])
+  const besideFix = await go('left: a deferred rule call beside a fix', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { reviews: [[cfg, f('R1-2', 'correctness')], []], defer: ['R1-1'], commitIds: [['R1-2']] })
+  check('left: the next review is shown it as left with where it went', besideFix.res.status === 'done' && promptOf(besideFix, 're-review r2').includes(`"outcome": "${filedLine}"`), [detail(besideFix), promptOf(besideFix, 're-review r2').slice(0, 2500)])
+
+  // Whose draft is filed: the option's, which the person was shown before deciding. One the
+  // resolve agent returns for the finding that differs is dropped with a warning; the same one
+  // returned again is no difference.
+  const DIFFERS = 'round 1: the resolve agent returned a drafted issue for R1-1 that differs from the one its call\'s option carries; the option\'s is filed, since the person was shown it before deciding'
+  const rewritten = await go('left: the resolve agent returns another draft for a picked defer option', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, resolveDeferred: [{ id: 'R1-1', mitigation: 'a guard', ...draft, title: 'Another title', found: 'found otherwise' }] })
+  check('left: a draft the resolve agent returns that differs from the picked option\'s is dropped with a warning, and the option\'s is filed with no mitigation', rewritten.res.status === 'done' && (rewritten.res.warnings || []).includes(DIFFERS) && promptOf(rewritten, 'file deferred r1').includes('# Lock R1-1') && !promptOf(rewritten, 'file deferred r1').includes('Another title') && JSON.stringify((rewritten.res.deferred || []).map((d) => [d.id, d.ships, d.mitigation])) === '[["R1-1",false,""]]', [detail(rewritten), rewritten.res.deferred])
+  const copied = await go('left: the resolve agent returns the option\'s draft as written', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draft }] })
+  check('left: the option\'s draft returned as written is no difference, and nothing warns', copied.res.status === 'done' && !(copied.res.warnings || []).some((w) => w.includes('differs from the one')) && replyFor(copied.calls, 'push and reply r1', 'R1-1') === filedReply, [detail(copied)])
+
+  // The other answers leave the finding as before: by hand, accept, and the person's own words,
+  // whatever they say. Nothing is filed, nothing warns, and the thread stays open.
+  for (const [name, decision, notes] of [
+    ['picks the change by hand', pickOf(BY_HAND, 'The author renames the field through the control panel after the merge.'), 'The author renames the field through the control panel after the merge.'],
+    ['picks no change', pickOf(ACCEPT, 'The author leaves the field as it is.'), 'The author leaves the field as it is.'],
+    ['answers in their own words that an issue should be filed', { 'R1-1': { choice: 'file the drafted issue and add the index by hand', notes: 'The author wants the drafted issue filed and adds the index by hand.', date: '2026-11-24' } }, 'The author wants the drafted issue filed and adds the index by hand.'],
+  ]) {
+    const r = await go(`left: the person ${name}`, { ...ruleArgs, decisions: decision }, deferredUnderRule)
+    check(`left: when the person ${name}, nothing is filed, the reply is the left finding's as before and its thread stays open`, r.res.status === 'done' && filedCalls(r).length === 0 && (r.res.deferred || []).length === 0 && replyFor(r.calls, 'push and reply r1', 'R1-1') === `Redline round 1: ${LEFT} (${reason}). ${notes} · decided by: @author` && !promptOf(r, 'resolve r1').includes('"disposition": ') && !promptOf(r, 'resolve r1').includes(EXCEPTION) && !bodyOf(r).includes('### Deferred') && bodyOf(r).includes('\n\nResolved 0 threads; 1 left open: R1-1 (repository rule craft-config).\n') && !(r.res.warnings || []).some((w) => w.includes('is not applied')), [detail(r), replyFor(r.calls, 'push and reply r1', 'R1-1')])
+  }
+
+  // A defer typed for the finding is the other named way to defer it (at a stop, or as a changed
+  // disposition on the plan dial): it is kept, where every other disposition typed for a left
+  // finding is still dropped with its warning. It takes the call's draft when exactly one option
+  // carries one; when none does, the resolve agent writes the draft, and a resolve that returns
+  // none stops the round.
+  const typedOne = await go('left: the person types a defer for a call whose one option carries a draft', { ...ruleArgs, decisions: typedDefer(), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: a typed defer on a finding left to the person is kept, and files the draft its call\'s one drafted option carries', typedOne.res.status === 'done' && filedCalls(typedOne).join('|') === 'file deferred r1' && promptOf(typedOne, 'file deferred r1').includes('# Lock R1-1') && replyFor(typedOne.calls, 'push and reply r1', 'R1-1') === filedReply && !(typedOne.res.warnings || []).some((w) => w.includes('is not applied')), [detail(typedOne), replyFor(typedOne.calls, 'push and reply r1', 'R1-1')])
+  const planTyped = await go('left: the person changes it to defer on the plan dial', { ...ruleArgs, interrupt: 'plan', approvedPlans: [1, 2], decisions: typedDefer(), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: a defer typed on the plan dial for a finding left to the person is kept and filed the same way', planTyped.res.status === 'done' && filedCalls(planTyped).join('|') === 'file deferred r1' && replyFor(planTyped.calls, 'push and reply r1', 'R1-1') === filedReply, [detail(planTyped), replyFor(planTyped.calls, 'push and reply r1', 'R1-1')])
+  const fixedUnderRule = { reviews: [[cfg], []], commitIds: [[]] }
+  const written = { id: 'R1-1', mitigation: '', title: 'Rename the field handle', found: 'found by the resolve agent', why: 'why R1-1', fullFix: 'rename it in the control panel' }
+  const typedNone = await go('left: the person types a defer for a call with no drafted option, and the resolve agent drafts the issue', { ...ruleArgs, decisions: typedDefer(), deferrals: goAhead('R1-1') }, { ...fixedUnderRule, resolveDeferred: [written] })
+  check('left: a typed defer on a call that offered no draft files the one the resolve agent wrote', typedNone.res.status === 'done' && promptOf(typedNone, 'file deferred r1').includes('# Rename the field handle') && replyFor(typedNone.calls, 'push and reply r1', 'R1-1') === filedReply, [detail(typedNone), replyFor(typedNone.calls, 'push and reply r1', 'R1-1')])
+  const typedBare = await go('left: the person types a defer for a call with no drafted option, and the resolve agent returns no entry', { ...ruleArgs, decisions: typedDefer() }, fixedUnderRule)
+  check('left: a typed defer the resolve agent returns no drafted issue for stops at resolve, the workflow\'s own check, resumable there', typedBare.res.status === 'error' && typedBare.res.stage === 'resolve' && typedBare.res.error === 'the resolve agent returned no deferred entry for R1-1, which its decision deferred; a deferred item always carries a drafted issue' && typedBare.res.ownCheck === true && (typedBare.res.resumeFrom || {}).label === 'resolve r1', detail(typedBare))
+  const typedShort = await go('left: the person types a defer for a call with no drafted option, and the resolve agent\'s draft is short', { ...ruleArgs, decisions: typedDefer() }, { ...fixedUnderRule, resolveDeferred: [{ ...written, found: '' }] })
+  check('left: a typed defer whose draft the resolve agent left short stops at resolve the same way', typedShort.res.status === 'error' && typedShort.res.stage === 'resolve' && (typedShort.res.error || '').startsWith('the resolve agent deferred R1-1 with no drafted issue') && typedShort.res.ownCheck === true, detail(typedShort))
+  const typedFix = await go('left: the person types a fix for it', { ...ruleArgs, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it.', date: '2026-11-24', disposition: 'fix' } } }, deferredUnderRule)
+  check('left: a fix typed for a finding left to the person is still not applied, with the warning it always had, and nothing is filed', typedFix.res.status === 'done' && (typedFix.res.warnings || []).includes('round 1: R1-1 is left to the person under repository rule craft-config; the disposition "fix" is not applied') && filedCalls(typedFix).length === 0 && !promptOf(typedFix, 'resolve r1').includes('"disposition": '), [detail(typedFix)])
+  // An entry the resolve agent returns for a left finding nobody deferred is still dropped, as
+  // before, with no warning.
+  const stray = await go('left: the resolve agent returns a deferred entry for a finding the person takes by hand', { ...ruleArgs, decisions: pickOf(BY_HAND, 'By hand.') }, { ...deferredUnderRule, resolveDeferred: [written] })
+  check('left: an entry returned for a left finding whose decision does not defer is dropped, and nothing is filed', stray.res.status === 'done' && filedCalls(stray).length === 0 && (stray.res.deferred || []).length === 0 && !promptOf(stray, 'plan approver r1').includes('Rename the field handle'), detail(stray))
+
+  // The draft's answer: dropped, nothing is filed, the reply says so after the decision, and the
+  // finding stays left, its thread open, overruled by nobody.
+  const dropNotes = 'The author will not track it after all.'
+  const dropAnswer = { 'R1-1': { action: 'drop', title: '', notes: dropNotes, date: '2026-11-24', draft: 1 } }
+  const droppedRun = await go('left: the person picks Defer to an issue and then drops the draft', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: dropAnswer }, deferredUnderRule)
+  check('left: a dropped draft files nothing, its reply gives the decision and then the drop, and the thread stays open', droppedRun.res.status === 'done' && filedCalls(droppedRun).length === 0 && replyFor(droppedRun.calls, 'push and reply r1', 'R1-1') === `Redline round 1: ${LEFT} (${reason}). ${tracked} ${dropNotes} No issue was opened. · decided by: @author` && !bodyOf(droppedRun).includes('### Deferred') && bodyOf(droppedRun).includes('\n\nResolved 0 threads; 1 left open: R1-1 (repository rule craft-config).\n') && JSON.stringify((droppedRun.res.decided || []).filter((d) => d.id === 'R1-1').map((d) => [d.kind, d.overruled])) === '[["left",false]]', [detail(droppedRun), replyFor(droppedRun.calls, 'push and reply r1', 'R1-1'), bodyOf(droppedRun).slice(0, 400)])
+
+  // Raised at the end of the run: the round holds the draft and its reply, the run stops once
+  // before Finish, and the answer completes the left finding's outcome there.
+  const heldRun = await go('left: a deferred rule call, drafts raised at the end of the run', { ...ruleArgs, deferAt: 'end', decisions: pickOf(DEFER, tracked) }, deferredUnderRule)
+  check('left: with drafts raised at the end, the deferred rule call\'s draft and reply wait for the end-of-run stop', heldRun.res.status === 'handoff' && heldRun.res.handoffKind === 'deferred' && JSON.stringify(heldRun.res.draftsNeeded) === '["R1-1"]' && filedCalls(heldRun).length === 0 && !replies(heldRun.calls, 'push and reply r1').some((r) => r.finding === 'R1-1'), detail(heldRun))
+  const heldFiled = await go('left: a deferred rule call, drafts raised at the end of the run, answered', { ...ruleArgs, deferAt: 'end', decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: answered at the end, the draft is filed in Finish, the late reply names the issue, and the thread is resolved', heldFiled.res.status === 'done' && filedCalls(heldFiled).join('|') === 'file deferred r1' && replyFor(heldFiled.calls, 'deferred replies r1', 'R1-1') === filedReply && bodyOf(heldFiled).includes(`### Deferred (1)\n\n- **R1-1** title R1-1: ${filedLine}\n`) && promptOf(heldFiled, 'resolve threads').includes('resolve-threads 114 100 250\n') && JSON.stringify((heldFiled.res.decided || []).filter((d) => d.id === 'R1-1').map((d) => [d.kind, d.overruled, d.outcome])) === JSON.stringify([['left', false, filedLine]]), [detail(heldFiled), replyFor(heldFiled.calls, 'deferred replies r1', 'R1-1'), heldFiled.res.decided])
+  const heldDropped = await go('left: a deferred rule call, its draft dropped at the end of the run', { ...ruleArgs, deferAt: 'end', decisions: pickOf(DEFER, tracked), deferrals: dropAnswer }, deferredUnderRule)
+  check('left: dropped at the end, the finding stays left, with the drop in its late reply, and is listed as overruled by nobody', heldDropped.res.status === 'done' && filedCalls(heldDropped).length === 0 && replyFor(heldDropped.calls, 'deferred replies r1', 'R1-1') === `Redline round 1: ${LEFT} (${reason}). ${tracked} ${dropNotes} No issue was opened. · decided by: @author` && JSON.stringify((heldDropped.res.decided || []).filter((d) => d.id === 'R1-1').map((d) => [d.kind, d.overruled])) === '[["left",false]]' && !bodyOf(heldDropped).includes('### Overruled by') && bodyOf(heldDropped).includes('1 left open: R1-1 (repository rule craft-config).'), [detail(heldDropped), replyFor(heldDropped.calls, 'deferred replies r1', 'R1-1'), heldDropped.res.decided])
+
+  // Where the draft goes is the run's setting: the spec folder, and every draft of a dry run.
+  const draftPath = `${folder}/redline/issue-R1-1.md`
+  const toSpec = await go('left: a deferred rule call, drafts to the spec folder', { ...ruleArgs, deferTo: 'spec', decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: with drafts to the spec folder the reply names the draft\'s path, and the thread is resolved all the same', toSpec.res.status === 'done' && replyFor(toSpec.calls, 'push and reply r1', 'R1-1') === `Redline round 1: ${LEFT} (${reason}). ${tracked} The issue draft is at \`${draftPath}\`. · decided by: @author` && promptOf(toSpec, 'resolve threads').includes('resolve-threads 114 100 200\n'), [detail(toSpec), replyFor(toSpec.calls, 'push and reply r1', 'R1-1')])
+  const dry = await go('left: a deferred rule call, a dry run', { ...ruleArgs, postToGitHub: false, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: a dry run writes the draft and opens nothing', dry.res.status === 'done' && promptOf(dry, 'file deferred r1').includes(`defer draft R1-1 /r/${draftPath}`) && JSON.stringify((dry.res.deferred || []).map((d) => [d.id, d.where])) === '[["R1-1","draft"]]', [detail(dry), promptOf(dry, 'file deferred r1').slice(0, 700)])
+
+  // Autopilot leaves a rule call and files nothing, whatever its recommended option ends in:
+  // its Left to line says what that option was.
+  const auto = await go('left: the shaper deferred a finding under a paths rule, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, deferredUnderRule)
+  check('left: on autopilot nothing is filed and nothing is asked, and the Left to line names the recommended option', auto.res.status === 'done' && filedCalls(auto).length === 0 && (auto.res.deferred || []).length === 0 && replyFor(auto.calls, 'push and reply r1', 'R1-1') === `Redline round 1: ${LEFT} (${reason}). Repository rule craft-config: ${reason}. No change made; @author makes it. · decided by: redline (autopilot)` && bodyOf(auto).includes(`- **R1-1** title R1-1: rule craft-config (${reason}); open: Defer to an issue: Lock R1-1; ${LEFT}`) && !bodyOf(auto).includes('### Deferred') && !promptOf(auto, 'resolve r1').includes('"disposition": ') && JSON.stringify((auto.res.forced || []).map((x) => x.open)) === '["open: Defer to an issue: Lock R1-1."]', [detail(auto), bodyOf(auto).slice(0, 900), auto.res.forced])
+
+  // A rule call the shaper wrote itself, and a call on one of Redline's own files: their options
+  // are the shaper's, and a defer option there carries the drafted issue.
+  const own = [{ label: 'Change it by hand', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Leave it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft }]
+  const shaperCall = { reviews: [[cfg], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule craft-config' }, callOf: { 'R1-1': { options: own, recommended: 'Track it', recommendation: 'Track it.' } }, commitIds: [[]] }
+  const shaperPicked = await go('left: a rule call the shaper wrote, its defer option picked', { ...ruleArgs, decisions: pickOf('Track it', tracked), deferrals: goAhead('R1-1') }, shaperCall)
+  check('left: a defer option of a rule call the shaper wrote is filed the same way', shaperPicked.res.status === 'done' && promptOf(shaperPicked, 'file deferred r1').includes('# Lock R1-1') && replyFor(shaperPicked.calls, 'push and reply r1', 'R1-1') === filedReply, [detail(shaperPicked), replyFor(shaperPicked.calls, 'push and reply r1', 'R1-1')])
+  const ownFile = f('R1-1', 'correctness', { file: '.claude/redline.json', line: 3 })
+  const ownCall = { reviews: [[ownFile], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'redline\'s own file' }, callOf: { 'R1-1': { options: own, recommended: 'Change it by hand', recommendation: 'Change it by hand.' } }, commitIds: [[]] }
+  const ownPicked = await go('left: a call on one of Redline\'s own files, its defer option picked', { ...baseArgs, decisions: pickOf('Track it', tracked), deferrals: goAhead('R1-1') }, ownCall)
+  const ownResolve = promptOf(ownPicked, 'resolve r1')
+  check('left: a finding on one of Redline\'s own files is deferred the same way: its reply keeps its opening and names the issue, and its thread is resolved', ownPicked.res.status === 'done' && replyFor(ownPicked.calls, 'push and reply r1', 'R1-1') === `Redline round 1: left to @author under the rule on Redline's own files (no Redline role may write them). ${tracked} Deferred to #301. · decided by: @author` && ownResolve.includes('"own": true') && ownResolve.includes(EXCEPTION) && promptOf(ownPicked, 'resolve threads').includes('resolve-threads 114 100 200\n') && bodyOf(ownPicked).includes('### Left to @author (Redline\'s own files)') && bodyOf(ownPicked).includes('### Deferred (1)'), [detail(ownPicked), replyFor(ownPicked.calls, 'push and reply r1', 'R1-1')])
+
+  // Where a draft is read: on an option that ends in defer of a call left to the person, and
+  // there it is complete. On any other option it is dropped with a warning.
+  const shortDraft = [{ ...own[0] }, { ...own[1] }, { ...own[2], draft: { title: 'Lock R1-1', fullFix: 'a lock' } }]
+  const noOptionDraft = await go('left: a rule call the shaper wrote, its defer option\'s draft short', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: shortDraft, recommended: 'Track it' } } })
+  check('left: a defer option of a call left to the person with no complete draft stops at shape, the workflow\'s own check', noOptionDraft.res.status === 'error' && noOptionDraft.res.stage === 'shape' && noOptionDraft.res.error === 'the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue ("Track it": draft missing found, why); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option' && noOptionDraft.res.ownCheck === true && (noOptionDraft.res.resumeFrom || {}).label === 'shape r1', detail(noOptionDraft))
+  const bareDefer = await go('left: a rule call the shaper wrote, its defer option with no draft at all', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [own[0], own[1], { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer' }], recommended: 'Track it' } } })
+  check('left: a defer option of a call left to the person with no draft at all stops the same way', bareDefer.res.status === 'error' && bareDefer.res.stage === 'shape' && (bareDefer.res.error || '').includes('("Track it": no draft)') && bareDefer.res.ownCheck === true, detail(bareDefer))
+  // Every fault of a call's options in one error (#127, R1-5): a repeated label and a
+  // recommended that names none of them are both named.
+  const twoOptionFaults = await go('left: a rule call the shaper wrote with a repeated label and a recommended that names none', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [own[0], own[1], { ...own[1] }], recommended: 'Nope' } } })
+  check('left: a call whose options have two faults stops at shape with one error that names both', twoOptionFaults.res.status === 'error' && twoOptionFaults.res.stage === 'shape' && twoOptionFaults.res.ownCheck === true && (twoOptionFaults.res.resumeFrom || {}).label === 'shape r1' && twoOptionFaults.res.error === 'the shaper gave R1-1 more than one option labelled "Leave it"; a decision names the option it picks by its label, so each label names one option; also, the shaper recommended "Nope" for R1-1, which is the label of none of its options (Change it by hand, Leave it, Leave it); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label', detail(twoOptionFaults))
+  const DROPPED_DRAFT = (label) => `round 1: the shaper gave R1-1's option ${JSON.stringify(label)} a drafted issue, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`
+  const wrongOption = await go('left: a rule call the shaper wrote, a draft on its by-hand option', ruleArgs, { ...shaperCall, callOf: { 'R1-1': { options: [{ ...own[0], draft }, own[1]], recommended: 'Change it by hand' } } })
+  check('left: a draft on an option of a left call that does not end in defer is dropped with a warning', wrongOption.res.status === 'handoff' && (wrongOption.res.warnings || []).includes(DROPPED_DRAFT('Change it by hand')) && !('draft' in wrongOption.res.judgmentCalls[0].options[0]), [detail(wrongOption), (wrongOption.res.judgmentCalls || [])[0]])
+  const ordinary = await go('left: an ordinary call whose defer option carries a draft', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], callOf: { 'R1-1': { options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft }] } }, commitIds: [['R1-1']] })
+  check('left: a draft on an option of an ordinary call is dropped with a warning: its deferral is drafted by the resolve agent after the decision, as before', ordinary.res.status === 'handoff' && (ordinary.res.warnings || []).includes(DROPPED_DRAFT('Track it')) && !('draft' in ordinary.res.judgmentCalls[0].options[1]), [detail(ordinary), (ordinary.res.judgmentCalls || [])[0]])
+  // A call the shaper wrote as an ordinary one, for a finding a paths rule turns out to cover
+  // (#127, R1-4): the forcing point relabels it, warns once, and it keeps the options the shaper
+  // wrote. A defer option with no draft at all is not held to one, and a pick of it has the
+  // resolve agent write the draft; a draft such an option does carry is held complete, since it
+  // is the one filed on a pick, and a call the shaper wrote as left (for one of Redline's own
+  // files, or a rule: `bareDefer` above) is held to its draft as before.
+  const relabelledCall = (why, mitigate = {}) => ({ reviews: [[cfg], []], ask: ['R1-1'], whyHuman: { 'R1-1': why }, callOf: { 'R1-1': { options: [{ label: 'Full fix', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Mitigate', cost: 'c', effect: 'e', ends: 'defer', ...mitigate }, { label: 'Accept', cost: 'c', effect: 'e', ends: 'accept' }], recommended: 'Full fix', recommendation: 'Full fix.' } }, commitIds: [[]] })
+  const RELABELLED = 'round 1: the shaper asked about R1-1 because of "outside the pull request"; repository rule craft-config leaves it to the person, and its call keeps the options the shaper wrote'
+  const UNDRAFTED = 'the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue'
+  const relabelled = await go('left: an ordinary call a paths rule turns out to cover, its Mitigate option undrafted', ruleArgs, relabelledCall('outside the pull request'))
+  const relabelledShown = ((relabelled.res || {}).judgmentCalls || [])[0] || { options: [] }
+  check('left: an ordinary call the forcing point relabels reaches the hand-off under the rule, with the options the shaper wrote and a warning that says so', relabelled.res.status === 'handoff' && relabelledShown.why_human === 'repository rule craft-config' && JSON.stringify(relabelledShown.options.map((o) => [o.label, o.ends])) === '[["Full fix","fix"],["Mitigate","defer"],["Accept","accept"]]' && !('draft' in relabelledShown.options[1]) && (relabelled.res.warnings || []).includes(RELABELLED), [detail(relabelled), relabelledShown])
+  const relabelledAuto = await go('left: an ordinary call a paths rule turns out to cover, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, relabelledCall('outside the pull request'))
+  check('left: on autopilot the relabelled call is left to the person under the rule, the run finishes, and nothing is filed', relabelledAuto.res.status === 'done' && relabelledAuto.res.stage !== 'shape' && (relabelledAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'craft-config') && filedCalls(relabelledAuto).length === 0 && (relabelledAuto.res.deferred || []).length === 0, [detail(relabelledAuto), relabelledAuto.res.forced])
+  const relabelledShort = await go('left: an ordinary call a paths rule turns out to cover, its Mitigate option\'s draft short', ruleArgs, relabelledCall('outside the pull request', { draft: { title: 'Lock R1-1' } }))
+  check('left: a draft a relabelled call\'s defer option does carry is held complete, and one short of a field stops at shape', relabelledShort.res.status === 'error' && relabelledShort.res.stage === 'shape' && relabelledShort.res.ownCheck === true && (relabelledShort.res.resumeFrom || {}).label === 'shape r1' && (relabelledShort.res.error || '').startsWith(UNDRAFTED) && (relabelledShort.res.error || '').includes('("Mitigate": draft missing found, why, fullFix)'), detail(relabelledShort))
+  const ownReason = await go('left: a call the shaper wrote for Redline\'s own file, which a paths rule covers, its Mitigate option undrafted', ruleArgs, relabelledCall('redline\'s own file'))
+  check('left: a call the shaper wrote as left for Redline\'s own file is not relabelled, and its undrafted defer option stops at shape', ownReason.res.status === 'error' && ownReason.res.stage === 'shape' && ownReason.res.ownCheck === true && (ownReason.res.resumeFrom || {}).label === 'shape r1' && (ownReason.res.error || '').startsWith(UNDRAFTED) && (ownReason.res.error || '').includes('("Mitigate": no draft)'), detail(ownReason))
+  const draftSchema = (r, label) => (((((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).judgmentCalls || {}).items || {}).properties || {}).options || {}).items || {}
+  check('left: the shaper\'s schema lets an option carry a draft, its four fields strings, and requires none of it', JSON.stringify(Object.keys(((draftSchema(stop, 'shape r1').properties || {}).draft || {}).properties || {})) === '["title","found","why","fullFix"]' && !(draftSchema(stop, 'shape r1').required || []).includes('draft'), draftSchema(stop, 'shape r1'))
+  // Every shape prompt asks for it, in the sentence that asks for the options' ends. A
+  // repository with no ask rules is told of Redline's own files alone, so no rule text reaches
+  // its prompts (section 12 pins that for every prompt of a run).
+  const DRAFT_ASK = ', an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one'
+  const LEFT_ASK = `on a call for a finding left to the person (one a repository ask rule covers, or one on a file of Redline's own)${DRAFT_ASK}`
+  const OWN_ASK = `on a call for a finding on a file of Redline's own, which is left to the person${DRAFT_ASK}`
+  const bounced = await go('left: a round in a repository with ask rules, its plan bounced once', ruleArgs, { reviews: [[f('R1-2', 'correctness')], []], planBounce: 1, commitIds: [['R1-2']] })
+  check('left: the shape prompt and the reshape prompt ask for the draft on a left call\'s defer option, naming the rules where the repository has any', promptOf(stop, 'shape r1').includes(LEFT_ASK) && promptOf(bounced, 'reshape r1 #1').includes(LEFT_ASK), [promptOf(stop, 'shape r1').slice(-500), promptOf(bounced, 'reshape r1 #1').slice(-500)])
+  check('left: in a repository with no ask rules the same ask names Redline\'s own files alone', promptOf(ownPicked, 'shape r1').includes(OWN_ASK) && !promptOf(ownPicked, 'shape r1').includes('ask rule'), promptOf(ownPicked, 'shape r1').slice(-500))
+
+  // A human review pass: the same, and its summary names the finding once.
+  const hf = { id: 'H1-1', file: 'config/project/project.yaml', line: 3, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Rename this handle.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 905, threadId: 905, reviewId: 7 }
+  const humanFolder = 'agent-os/specs/2026-10-20-1600-114-human-review-1'
+  const humanArgs = (extra) => ({ ...ruleArgs, firstRound: 3, ...extra, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: humanFolder, findings: [hf], commentIds: { 'H1-1': 905 }, posted: true } })
+  const humanCall = { reviews: [[]], ask: ['H1-1'], whyHuman: { 'H1-1': 'repository rule craft-config' }, callOf: { 'H1-1': { options: [own[0], own[1], { ...own[2], draft: { title: 'Lock H1-1', found: 'found H1-1', why: 'why H1-1', fullFix: 'a lock' } }], recommended: 'Change it by hand', recommendation: 'Change it by hand.' } }, commitIds: [[]] }
+  const humanPicked = await go('left: a human pass, the author defers a comment a rule covers', humanArgs({ decisions: pickOf('Track it', 'The author tracks the rename in an issue.', 'H1-1'), deferrals: goAhead('H1-1') }), humanCall)
+  check('left: in a human pass the deferred rule call is filed, and its reply keeps the pass\'s wording and names the issue', humanPicked.res.status === 'done' && replyFor(humanPicked.calls, 'push and reply h1', 'H1-1') === `Redline human review 1: left to the author under repository rule craft-config (${reason}). The author tracks the rename in an issue. Deferred to #301. · decided by: @author\n\n<!-- redline:answers 905 -->`, [detail(humanPicked), replyFor(humanPicked.calls, 'push and reply h1', 'H1-1')])
+  // A human pass never leaves a finding on one of Redline's own files to the person (#127, R1-2),
+  // so its options sentence names a rule call alone, and in a repository with no rules none.
+  const HUMAN_LEFT_ASK = `on a call for a finding a repository ask rule covers, which is left to the person${DRAFT_ASK}`
+  check('left: a human pass\'s shape prompt asks for the draft on a rule call\'s defer option, and names no file of Redline\'s own', promptOf(humanPicked, 'shape h1').includes(HUMAN_LEFT_ASK) && !promptOf(humanPicked, 'shape h1').includes('file of Redline\'s own'), promptOf(humanPicked, 'shape h1').slice(-500))
+  const humanNoRules = await go('left: a human pass in a repository with no ask rules, its plan bounced once', humanArgs({ askRules: [] }), { reviews: [[]], planBounce: 1, commitIds: [['H1-1']] })
+  check('left: in a repository with no ask rules a human pass\'s shape prompt and its reshape prompt carry no left-call clause', ['shape h1', 'reshape h1 #1'].every((label) => promptOf(humanNoRules, label) !== '' && !promptOf(humanNoRules, label).includes('file of Redline\'s own') && !promptOf(humanNoRules, label).includes('on a call for')), [detail(humanNoRules), promptOf(humanNoRules, 'shape h1').slice(-500), promptOf(humanNoRules, 'reshape h1 #1').slice(-500)])
+  const summary = pick(humanPicked.calls, 'summary comment') ? comment(humanPicked.calls, 'summary comment') : ''
+  check('left: the human pass\'s summary names the finding once, as left under the rule with where its draft went', summary === 'Redline human review 1 · review by @marcamos: nothing to fix; H1-1 left to @author under repository rule craft-config (H1-1 deferred to #301). No fix was committed, so no final nit pass.', summary)
+
+  // However it came to be left (table C, row 21): a call the person answered with a deferral,
+  // whose draft they let go ahead, that a reshape then puts under a rule. Until this spec the
+  // approved draft was not filed and nothing warned. A fix or an accept a reshape puts under a
+  // rule is as before (`forcedLater`, `forcedNamed` above).
+  const billing = [{ id: 'billing', when: { prose: 'the change alters what a customer is charged' }, reason: 'Billing changes are reviewed by finance' }]
+  const guard = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  // The reshape leaves the task with no files, as the hold after it asks of a decided finding left
+  // to the person (#127, R4-4).
+  const later = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, reshapeFiles: { 'R1-1': [] }, resolveDeferred: [guard], commitIds: [[], []] }
+  const namedLater = await go('left: a call whose decision names defer, its draft approved, left to the person under a rule by a reshape', { ...baseArgs, askRules: billing, decisions: typedDefer(), deferrals: goAhead('R1-1') }, later)
+  check('left: a deferral the person approved is filed when a reshape then leaves its finding to the person under a rule, and the reply says both', namedLater.res.status === 'done' && filedCalls(namedLater).join('|') === 'file deferred r1' && replyFor(namedLater.calls, 'push and reply r1', 'R1-1') === `Redline round 1: left to @author under repository rule billing (Billing changes are reviewed by finance). ${tracked} Deferred to #301. · decided by: @author`, [detail(namedLater), replyFor(namedLater.calls, 'push and reply r1', 'R1-1')])
+  const statedLater = await go('left: a call answered in the person\'s own words and stated as a deferral, left to the person under a rule by a reshape', { ...baseArgs, askRules: billing, decisions: { 'R1-1': { choice: 'mitigate it behind a guard', notes: tracked, date: '2026-11-24' } }, deferrals: goAhead('R1-1') }, later)
+  check('left: the same holds for a deferral the resolve agent stated', statedLater.res.status === 'done' && filedCalls(statedLater).join('|') === 'file deferred r1' && replyFor(statedLater.calls, 'push and reply r1', 'R1-1').endsWith(`${tracked} Deferred to #301. · decided by: @author`) && replyFor(statedLater.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing'), [detail(statedLater), replyFor(statedLater.calls, 'push and reply r1', 'R1-1')])
+
+  // The statements an agent and a reader meet.
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const resolveAgent = read('agents', 'redline-resolve.md')
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  const skill = read('skills', 'redline', 'SKILL.md')
+  check('left: the shaper\'s file says a left call may offer an option that ends in defer, carrying the drafted issue, for a rule and for Redline\'s own files', shaperAgent.includes('an option that ends in `defer` and carries its drafted issue in `draft`') && shaperAgent.includes('never `fix`, `decline` or `defer`') && shaperAgent.split('carries its drafted issue in `draft`').length === 3, 'agents/redline-shaper.md')
+  check('left: the resolve agent\'s file says how a left finding the person deferred is written and returned', resolveAgent.includes('The exception is a decision that also carries `disposition` `defer`') && resolveAgent.includes('returned in `deferred` with an empty `mitigation`'), 'agents/redline-resolve.md')
+  check('left: the plan approver\'s file says a left finding the person deferred has its drafted issue and still no task with files', approverAgent.includes('When that decision also carries `disposition` `defer`, the person deferred the finding to an issue'), 'agents/redline-plan-approver.md')
+  check('left: the skill shows a left call\'s defer option with its draft\'s title, records a typed defer for it, and says back that any other wording files nothing', skill.includes('shown with its draft\'s title') && skill.includes('`<id>: defer. <reason>` typed for such a finding is recorded with `"disposition": "defer"`') && skill.includes('nothing is filed for it') && skill.includes('its thread is resolved once the draft is filed'), 'skills/redline/SKILL.md')
+  check('left: the result tells a relaunching session how a finding left to the person is deferred', stop.res.relaunch.how.includes('A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it'), stop.res.relaunch.how)
+
+  // A typed defer for a left call is marked as a call's answer (#127, R3-4). A reshape after a
+  // bounced plan can newly leave a finding to the person and raise its call; a defer typed at
+  // that stop was read on the relaunch, whose first shape raised no call for it, as a plan-dial
+  // override, so a first resolve the launch never ran planned it before it was left. Marked, it
+  // enters only with the raised call, and the prompts before the stop replay.
+  const draftOf = (id) => ({ fullFix: 'a lock', title: `Lock ${id}`, found: `found ${id}`, why: `why ${id}` })
+  const markedDefer = { 'R1-1': { choice: 'defer', notes: 'The author defers R1-1 to an issue.', date: '2026-11-25', disposition: 'defer', call: true } }
+  const reshapeLeaves = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], planBounce: 1, reshapeAskRule: { 'R1-1': 'billing' }, commitIds: [['R1-2'], []] }
+  const reshapeStop = await go('left: a reshape leaves a finding to the person under a prose rule, guided', { ...baseArgs, askRules: billing }, reshapeLeaves)
+  check('left: a reshape that newly leaves a finding to the person stops at its raised call, with no resolve run', reshapeStop.res.status === 'handoff' && JSON.stringify(reshapeStop.res.decisionsNeeded) === '["R1-1"]' && !labels(reshapeStop.calls).some((l) => l.startsWith('resolve r1')), detail(reshapeStop))
+  const markedRun = await go('left: the reshape\'s left call answered with a marked typed defer, relaunched', { ...baseArgs, askRules: billing, decisions: markedDefer, deferrals: goAhead('R1-1') }, { ...reshapeLeaves, resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draftOf('R1-1') }] })
+  samePrefix('left: a reshape\'s left call answered with a marked typed defer', reshapeStop.calls, markedRun.calls, reshapeStop.calls.length)
+  const markedResolve = promptOf(markedRun, 'resolve r1 #1')
+  check('left: a marked typed defer at a reshape\'s stop is no override: no first resolve runs, and the resolve the raised call sets off applies it under the rule', !labels(markedRun.calls).includes('resolve r1') && markedResolve.includes('"R1-1": {') && markedResolve.includes('"rule": "billing"') && markedResolve.includes('"disposition": "defer"') && !markedRun.calls.some((c) => c.prompt.includes('"call": true')), [detail(markedRun), markedResolve.slice(0, 2000)])
+  const markedReply = replyFor(markedRun.calls, 'push and reply r1', 'R1-1')
+  check('left: the marked typed defer files the draft, and the reply says the change is the person\'s under the rule and names the issue', markedRun.res.status === 'done' && filedCalls(markedRun).join('|') === 'file deferred r1' && markedReply.startsWith('Redline round 1: left to @author under repository rule billing') && /Deferred to #\d+\. · decided by: @author$/.test(markedReply), [detail(markedRun), markedReply])
+  // The neighbour that must not change: the same answer with no mark is still read as a
+  // plan-dial override, and the round's first resolve applies it.
+  const { call: _mark, ...unmarkedDefer } = markedDefer['R1-1']
+  const unmarkedRun = await go('left: the reshape\'s left call answered with an unmarked typed defer, relaunched', { ...baseArgs, askRules: billing, decisions: { 'R1-1': unmarkedDefer }, deferrals: goAhead('R1-1') }, { ...reshapeLeaves, resolveDeferred: [{ id: 'R1-1', mitigation: '', ...draftOf('R1-1') }] })
+  const unmarkedResolve = promptOf(unmarkedRun, 'resolve r1')
+  check('left: an unmarked decision with a disposition is still a plan-dial override, applied by the round\'s first resolve', unmarkedResolve.includes('Disposition overrides, as JSON') && unmarkedResolve.indexOf('"R1-1": {', unmarkedResolve.indexOf('Disposition overrides, as JSON')) > 0, [detail(unmarkedRun), unmarkedResolve.slice(0, 1500)])
+  // A mark on a decision no shape of the round raised a call for is warned about and not
+  // applied: the finding is posted as the shaper sorted it.
+  const strayMark = await go('left: a marked decision on a finding no shape raised a call for', { ...baseArgs, decisions: markedDefer }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1'], []] })
+  check('left: a marked decision no shape of the round raised a call for is warned about and not applied, and the finding is posted as the shaper\'s fix', strayMark.res.status === 'done' && !labels(strayMark.calls).some((l) => l.startsWith('resolve r1')) && (strayMark.res.warnings || []).includes('round 1: the decision for R1-1 answers a judgment call, but no shape of round 1 raised one for it; it is not applied') && replyFor(strayMark.calls, 'push and reply r1', 'R1-1') === 'Redline round 1: fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline', [detail(strayMark), replyFor(strayMark.calls, 'push and reply r1', 'R1-1')])
+  // The mark is true or absent: any other value is refused before any agent runs.
+  for (const [value, name] of [['yes', 'a string'], [false, 'false']]) {
+    const badMark = await go(`left: a decision whose call mark is ${name}`, { ...baseArgs, decisions: { 'R1-1': { ...markedDefer['R1-1'], call: value } } }, { reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']] })
+    check(`left: a decision whose call mark is ${name} is refused before any agent runs`, Boolean(badMark.thrown) && badMark.thrown.message.includes('args.decisions must give call as true, the mark of an answer to a judgment call, when it gives one; got "R1-1": ') && badMark.calls.length === 0, [badMark.thrown && badMark.thrown.message, badMark.calls.length])
+  }
+  check('left: the skill records a typed defer for a left call with the mark of a call\'s answer, and the result tells a relaunching session so', skill.includes('"disposition": "defer", "call": true') && stop.res.relaunch.how.includes('recorded with "call": true beside it'), [stop.res.relaunch.how])
+
+  // A call asked under a repository rule holds its finding to that rule when the shaper did not
+  // tag the finding (#127, R3-6). Until then the rule was read from the tag alone, so such a call
+  // ran as an ordinary one: autopilot took its recommended fix, and a pick of a fix was built.
+  const UNTAGGED = (rule) => `round 1: the shaper asked about R1-1 because of repository rule ${rule} and did not tag the finding with it; it is left to the person under that rule`
+  const shownFiles = (r, label, id) => {
+    const p = promptOf(r, label)
+    const from = p.indexOf('{\n  "findings": [')
+    const list = from < 0 ? [] : JSON.parse(p.slice(from, p.indexOf('\n}\n', from) + 2)).findings
+    return JSON.stringify((list.find((x) => x.id === id) || {}).files)
+  }
+  const untagged = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule billing' }, commitIds: [[], []] }
+  const untaggedAuto = await go('left: a call asked under a prose rule with no tag on its finding, on autopilot', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, untagged)
+  check('left: on autopilot a call asked under a prose rule with no tag on its finding is left to the person under that rule, with a warning', untaggedAuto.res.status === 'done' && (untaggedAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing') && promptOf(untaggedAuto, 'resolve r1').includes('"rule": "billing"') && replyFor(untaggedAuto.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && (untaggedAuto.res.warnings || []).includes(UNTAGGED('billing')), [detail(untaggedAuto), untaggedAuto.res.forced, replyFor(untaggedAuto.calls, 'push and reply r1', 'R1-1')])
+  const untaggedPick = await go('left: a call asked under a prose rule with no tag on its finding, its fix picked', { ...baseArgs, askRules: billing, decisions: pickOf('Change it', 'The author changes it.') }, untagged)
+  check('left: a pick of such a call\'s option that ends in fix leaves it to the person, and the implementer is shown no task with files for it', untaggedPick.res.status === 'done' && replyFor(untaggedPick.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && shownAs(untaggedPick, 'implement r1', 'R1-1') === 'ask' && shownFiles(untaggedPick, 'implement r1', 'R1-1') === '[]' && !labels(untaggedPick.calls).includes('repair r1'), [detail(untaggedPick), shownAs(untaggedPick, 'implement r1', 'R1-1'), shownFiles(untaggedPick, 'implement r1', 'R1-1')])
+  // The neighbour: the same call with the tag is left as before, with no such warning.
+  const taggedAuto = await go('left: a call asked under a prose rule, its finding tagged, on autopilot', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, { ...untagged, askRule: { 'R1-1': 'billing' } })
+  check('left: a tagged finding under the same call is left as before, with no warning of a missing tag', taggedAuto.res.status === 'done' && (taggedAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing') && !(taggedAuto.res.warnings || []).some((w) => w.includes('did not tag the finding')), [detail(taggedAuto)])
+  // A paths rule the call names, on a finding outside the rule's paths, holds it the same way.
+  const pathsNamed = await go('left: a call asked under a paths rule, its finding outside the rule\'s paths, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, { ...untagged, whyHuman: { 'R1-1': 'repository rule craft-config' } })
+  check('left: a call asked under a paths rule whose finding lies outside its paths is held to that rule, with the same warning', pathsNamed.res.status === 'done' && (pathsNamed.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'craft-config') && (pathsNamed.res.warnings || []).includes(UNTAGGED('craft-config')), [detail(pathsNamed), pathsNamed.res.forced])
+  // A call asked under a declared rule holds its finding to that rule when the finding's tag
+  // names no declared rule (#127, R4-1): R3-6 read the call's reason only when the finding had no
+  // tag, so a tag such as a typo still ran the call as an ordinary one.
+  const TYPO = 'round 1: the shaper asked about R1-1 because of repository rule billing and tagged the finding with ask rule "billing-typo", which .claude/redline.json does not declare; it is left to the person under billing'
+  const typoTagged = { ...untagged, askRule: { 'R1-1': 'billing-typo' } }
+  const typoAuto = await go('left: a call asked under a prose rule, its finding tagged with a rule the repository does not declare, on autopilot', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, typoTagged)
+  check('left: on autopilot a call asked under a prose rule whose finding\'s tag names no declared rule is left to the person under the call\'s rule, with one warning that says both', typoAuto.res.status === 'done' && (typoAuto.res.forced || []).some((x) => x.id === 'R1-1' && x.rule === 'billing') && promptOf(typoAuto, 'resolve r1').includes('"rule": "billing"') && replyFor(typoAuto.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && (typoAuto.res.warnings || []).includes(TYPO) && !(typoAuto.res.warnings || []).some((w) => w.includes('did not tag the finding') || w.includes('does not declare; ignored')), [detail(typoAuto), typoAuto.res.forced, replyFor(typoAuto.calls, 'push and reply r1', 'R1-1')])
+  const typoPick = await go('left: a call asked under a prose rule, its finding tagged with a rule the repository does not declare, its fix picked', { ...baseArgs, askRules: billing, decisions: pickOf('Change it', 'The author changes it.') }, typoTagged)
+  check('left: a pick of such a call\'s option that ends in fix leaves it to the person, and the implementer is shown no task with files for it', typoPick.res.status === 'done' && replyFor(typoPick.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing') && shownAs(typoPick, 'implement r1', 'R1-1') === 'ask' && shownFiles(typoPick, 'implement r1', 'R1-1') === '[]' && !labels(typoPick.calls).includes('repair r1'), [detail(typoPick), shownAs(typoPick, 'implement r1', 'R1-1'), shownFiles(typoPick, 'implement r1', 'R1-1')])
+
+  // A left finding's entry carries no mitigation, and its task no files (#127, R3-10): "no task is
+  // planned and nothing is written under the rule" was the prompt's alone. A typed defer on a call
+  // with no option that ends in defer, and a pick of a relabelled call's undrafted Mitigate, keep
+  // the resolve agent's own entry, and until R3-10 its mitigation stood and was handed to the
+  // implementer, and a task with files for the finding was planned and built.
+  const CLEARED = (rule) => `round 1: the resolve agent gave R1-1, a finding left to the person under repository rule ${rule}, the mitigation "a guard"; it is cleared, since no task writes anything for it`
+  const LEFT_TASK = 'the resolve agent planned a task with files for R1-1 (app/x.php), a finding left to the person under repository rule craft-config; no task writes anything for it'
+  const guarded = { id: 'R1-1', mitigation: 'a guard', fullFix: 'a lock', title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1' }
+  const noDeferOption = { reviews: [[cfg], []], ask: ['R1-1'], ends: { 'R1-1': 'fix' }, resolveDeferred: [guarded], commitIds: [[]] }
+  const noDeferStop = await go('left: a relabelled call none of whose options ends in defer', ruleArgs, noDeferOption)
+  check('left: the setup: the relabelled call\'s two options both end in fix, so it offers no draft', noDeferStop.res.status === 'handoff' && JSON.stringify((((noDeferStop.res.judgmentCalls || [])[0] || {}).options || []).map((o) => [o.label, o.ends])) === '[["Keep it","fix"],["Change it","fix"]]', [detail(noDeferStop), (noDeferStop.res.judgmentCalls || [])[0]])
+  const markedTyped = { 'R1-1': { ...typedDefer()['R1-1'], call: true } }
+  const mitigatePick = { ...relabelledCall('outside the pull request'), resolveDeferred: [guarded] }
+  for (const [name, decisions, scenario] of [
+    ['a typed defer on a call with no option that ends in defer', markedTyped, noDeferOption],
+    ['a pick of a relabelled call\'s undrafted Mitigate', pickOf('Mitigate', tracked), mitigatePick],
+  ]) {
+    const cleared = await go(`left: ${name}, the resolve agent giving a mitigation`, { ...ruleArgs, decisions, deferrals: goAhead('R1-1') }, scenario)
+    check(`left: ${name}: the plan approver and the implementer are shown its entry with no mitigation, a warning says it was cleared, and its draft is filed`, cleared.res.status === 'done' && ['plan approver r1', 'implement r1'].every((label) => promptOf(cleared, label).includes('"mitigation": ""') && !promptOf(cleared, label).includes('"mitigation": "a guard"')) && (cleared.res.warnings || []).includes(CLEARED('craft-config')) && filedCalls(cleared).join('|') === 'file deferred r1', [detail(cleared), promptOf(cleared, 'implement r1').slice(0, 1500)])
+    const withFiles = await go(`left: ${name}, the resolve agent planning a task with files`, { ...ruleArgs, decisions, deferrals: goAhead('R1-1') }, { ...scenario, resolveFiles: { 'R1-1': ['app/x.php'] } })
+    check(`left: ${name}: a task with files for it stops at resolve, the workflow's own check, resumable there`, withFiles.res.status === 'error' && withFiles.res.stage === 'resolve' && withFiles.res.error === LEFT_TASK && withFiles.res.ownCheck === true && (withFiles.res.resumeFrom || {}).label === 'resolve r1', detail(withFiles))
+  }
+  const fullFixFiles = await go('left: a relabelled call\'s Full fix picked, the resolve agent planning a task with files', { ...ruleArgs, decisions: pickOf('Full fix', 'The author makes the full fix by hand.') }, { ...relabelledCall('outside the pull request'), resolveFiles: { 'R1-1': ['app/x.php'] } })
+  check('left: a task with files for a left finding nobody deferred stops at resolve the same way', fullFixFiles.res.status === 'error' && fullFixFiles.res.stage === 'resolve' && fullFixFiles.res.error === LEFT_TASK && fullFixFiles.res.ownCheck === true && (fullFixFiles.res.resumeFrom || {}).label === 'resolve r1', detail(fullFixFiles))
+  // A reshape that newly leaves a decided deferral keeps its earlier entry, and the entry's
+  // mitigation is cleared there: `namedLater` above, whose first resolve's entry carries one.
+  check('left: a decided deferral a reshape leaves to the person is shown with no mitigation after the reshape, with the warning', ['plan approver r1 #2', 'implement r1'].every((label) => promptOf(namedLater, label).includes('"mitigation": ""') && !promptOf(namedLater, label).includes('"mitigation": "a guard"')) && (namedLater.res.warnings || []).includes(CLEARED('billing')), [detail(namedLater), promptOf(namedLater, 'implement r1').slice(0, 1500)])
+  // A decided finding a reshape leaves to the person is held to no task with files at the hold
+  // after that reshape (#127, R4-4). R3-10's check holds a left finding's task at the resolve that
+  // applies it, but a decided call a reshape newly leaves sets off no resolve, so until R4-4 the
+  // task its first resolve planned stood, and it was built under the rule.
+  const KEPT_TASK = (rule, files) => `the reshape left R1-1, a finding decided by @author and left to the person under repository rule ${rule}, with a task with files (${files}); no task writes anything for a finding left to the person`
+  const keptStop = (r, label, message) => r.res.status === 'error' && r.res.stage === 'shape' && r.res.ownCheck === true && (r.res.resumeFrom || {}).label === label && r.res.error === message
+  const keptDefer = await go('left: a call whose decision names defer, left to the person by a reshape that keeps its task', { ...baseArgs, askRules: billing, decisions: typedDefer(), deferrals: goAhead('R1-1') }, { ...later, reshapeFiles: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1'], []] })
+  check('left: a decided deferral a reshape leaves to the person while keeping its task with files stops at that reshape, resumable there, and nothing is built', keptStop(keptDefer, 'reshape r1 #1', KEPT_TASK('billing', 'app/x.php')) && !labels(keptDefer.calls).includes('plan approver r1 #2') && !labels(keptDefer.calls).includes('implement r1'), detail(keptDefer))
+  const { resolveDeferred: _noEntry, ...laterNoEntry } = later
+  const keptFix = await go('left: a call whose decision names a fix, left to the person by a reshape that keeps its task', { ...baseArgs, askRules: billing, decisions: { 'R1-1': { choice: 'fix', notes: 'Fix it in full.', date: '2026-11-18', disposition: 'fix' } } }, { ...laterNoEntry, reshapeFiles: { 'R1-1': ['app/x.php'] }, commitIds: [['R1-1'], []] })
+  check('left: a decided fix a reshape leaves to the person while keeping its task with files stops the same way', keptStop(keptFix, 'reshape r1 #1', KEPT_TASK('billing', 'app/x.php')) && !labels(keptFix.calls).includes('plan approver r1 #2') && !labels(keptFix.calls).includes('implement r1'), detail(keptFix))
+  check('left: a decided finding a reshape leaves to the person with its task emptied runs on, and the plan approver after the reshape is shown its decision with the rule', namedLater.res.status === 'done' && promptOf(namedLater, 'plan approver r1 #2').includes('"rule": "billing"'), [detail(namedLater), promptOf(namedLater, 'plan approver r1 #2').slice(0, 2500)])
+  // A pick, or autopilot's take, that ends in fix or accept and that a reshape then leaves to the
+  // person is shown as a left decision (#127, R5-3): the rule and the option, and no disposition.
+  // Its end is dropped with no warning, as at a call, where a pick of a left call takes no end
+  // other than defer. Until R5-3 the reshape set the rule beside the pick's fix or accept.
+  const leftShown = (r, label) => {
+    const p = promptOf(r, label)
+    const a = p.indexOf('Decisions made outside the shaper')
+    if (a < 0) {
+      return ''
+    }
+    const b = p.indexOf('\n\n', a)
+    return b < 0 ? p.slice(a) : p.slice(a, b)
+  }
+  for (const [label, end, extra] of [['Change it', 'fix', {}], ['Keep it', 'accept', { acceptedCalls: ['R1-1'] }]]) {
+    const picked = await go(`left: a pick that ends in ${end}, left to the person by a reshape after its resolve`, { ...baseArgs, askRules: billing, decisions: pickOf(label, 'The author picks it.') }, { ...laterNoEntry, ...extra })
+    check(`left: a pick that ends in ${end}, left to the person by a reshape, is shown after the reshape with the rule and the option and no disposition, with no warning, and posted as left`, picked.res.status === 'done' && !labels(picked.calls).includes('repair r1') && leftShown(picked, 'plan approver r1').includes(`"disposition": "${end}"`) && ['plan approver r1 #2', 'implement r1'].every((l) => leftShown(picked, l).includes('"rule": "billing"') && leftShown(picked, l).includes(`"option": "${label}"`) && !leftShown(picked, l).includes('"disposition"')) && !(picked.res.warnings || []).some((w) => w.includes('is not applied')) && replyFor(picked.calls, 'push and reply r1', 'R1-1').startsWith('Redline round 1: left to @author under repository rule billing'), [detail(picked), leftShown(picked, 'plan approver r1'), leftShown(picked, 'plan approver r1 #2'), leftShown(picked, 'implement r1')])
+  }
+  const autoLeft = await go('left: autopilot\'s take of a recommended fix, left to the person by a reshape after its resolve', { ...baseArgs, askRules: billing, interrupt: 'autopilot' }, laterNoEntry)
+  check('left: autopilot\'s take of a fix a reshape leaves to the person is shown after the reshape with the rule and no disposition', autoLeft.res.status === 'done' && leftShown(autoLeft, 'plan approver r1 #2').includes('"rule": "billing"') && !leftShown(autoLeft, 'plan approver r1 #2').includes('"disposition"'), [detail(autoLeft), leftShown(autoLeft, 'plan approver r1 #2')])
+  // The neighbour that must not change: a named deferral a reshape leaves keeps its defer, which
+  // is the one end of a left finding the round acts on.
+  check('left: a named deferral a reshape leaves to the person is shown after the reshape with the rule and its defer', leftShown(namedLater, 'plan approver r1 #2').includes('"rule": "billing"') && leftShown(namedLater, 'plan approver r1 #2').includes('"disposition": "defer"'), leftShown(namedLater, 'plan approver r1 #2'))
+  // A decided finding's call is not shown again, so forceAskRules gives no warning about the call
+  // it builds or relabels for one (#127, R5-2): not that the reshape's draft is not kept as an
+  // option of it, and not that it keeps the options the shaper wrote. Its decision stands, and the
+  // draft its resolve wrote is the one filed. The warning that its sorting is made an ask stands.
+  const decidedShort = await go('left: a decided deferral a reshape leaves to the person, returned as a deferral with a short draft and its call kept', { ...baseArgs, askRules: billing, decisions: typedDefer(), deferrals: goAhead('R1-1') }, { ...later, reshapeDefer: ['R1-1'], reshapeDrafts: { 'R1-1': { title: '' } } })
+  check('left: a decided deferral a reshape leaves with a short draft gives no warning about its call, still warns that its sorting is made an ask, and files its resolve\'s draft', decidedShort.res.status === 'done' && !(decidedShort.res.warnings || []).some((w) => w.includes('with no complete drafted issue') || w.includes('its call keeps the options the shaper wrote')) && (decidedShort.res.warnings || []).includes('round 1: the shaper sorted R1-1 as defer; repository rule billing makes it an ask for the person') && promptOf(decidedShort, 'file deferred r1').includes('# Lock R1-1'), [detail(decidedShort), promptOf(decidedShort, 'file deferred r1').slice(0, 1500)])
+  const leftAgain = await go('left: a call left to the person at the first shape and deferred, whose task a later reshape gives files', { ...ruleArgs, decisions: pickOf(DEFER, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, planBounce: 2, reshapeFilesAt: { 'reshape r1 #2': { 'R1-1': ['app/x.php'] } } })
+  check('left: a decided finding left to the person before a reshape that gives it a task with files stops at that reshape', keptStop(leftAgain, 'reshape r1 #2', KEPT_TASK('craft-config', 'app/x.php')), detail(leftAgain))
+  check('left: the reshape is told a decided finding left to the person is left, with the rule\'s clause for it', promptOf(leftAgain, 'reshape r1 #1').includes(`${DECIDED_BLOCK}R1-1 (left to the person).`) && promptOf(leftAgain, 'reshape r1 #1').includes(LEFT_KEEPS_NONE), promptOf(leftAgain, 'reshape r1 #1').slice(-1800))
+
+  // An option that names none of a left call's options is the person's own words, and for a
+  // finding left to the person the warning says what follows (#127, R3-8): no statement is asked
+  // of the resolve agent for one, so the finding stays left and nothing is filed.
+  const unmatchedLeft = await go('left: a call left to the person answered with an option none of its options has', { ...ruleArgs, decisions: pickOf('Defer it now', tracked) }, deferredUnderRule)
+  check('left: an unmatched option on a left call is warned about as the person\'s own words that leave the finding left with nothing filed', unmatchedLeft.res.status === 'done' && filedCalls(unmatchedLeft).length === 0 && (unmatchedLeft.res.warnings || []).includes(`round 1: the decision for R1-1 names the option "Defer it now", which is the label of none of its call's options (${BY_HAND}, ${ACCEPT}, ${DEFER}); it is read as an answer in the person's own words: R1-1 stays left to the person, and nothing is filed`), detail(unmatchedLeft))
+
+  // A later resolve takes no entry for a left deferral an earlier resolve applied (#127, R3-9):
+  // the person picked the option's draft, and until R3-9 a resolve a reshape's raised call set
+  // off could return another entry for it that replaced that draft with no word.
+  const another = { id: 'R1-1', mitigation: '', fullFix: 'another lock', title: 'Another title', found: 'found again', why: 'why again' }
+  const laterResolve = await go('left: a deferred left call beside a call a reshape raises, every resolve returning another draft for it', { ...ruleArgs, decisions: { ...pickOf(DEFER, tracked), ...typedAnswer('R1-2') }, deferrals: goAhead('R1-1') }, { reviews: [[cfg, f('R1-2', 'correctness')], []], defer: ['R1-1'], planBounce: 1, reshapeAsk: ['R1-2'], resolveDeferred: [another], commitIds: [['R1-2'], []] })
+  check('left: a later resolve\'s entry for a left deferral an earlier resolve applied is dropped with a warning, and the option\'s draft is filed', laterResolve.res.status === 'done' && labels(laterResolve.calls).includes('resolve r1 #1') && promptOf(laterResolve, 'file deferred r1').includes('# Lock R1-1') && !promptOf(laterResolve, 'file deferred r1').includes('Another title') && (laterResolve.res.warnings || []).includes('round 1: the resolve agent returned a deferred entry for R1-1, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands'), [detail(laterResolve), promptOf(laterResolve, 'file deferred r1').slice(0, 800)])
+  // A typed defer on a left call that offers more than one drafted issue names none of them, so
+  // none is taken and the draft filed is the resolve agent's (#127, R4-3): the run says so, where
+  // until then the person, shown two drafts at the call, had a third filed with no word.
+  const SEVERAL = 'round 1: the decision for R1-1 is a defer typed for a call that offers 2 drafted issues (Track it, Track the class); none of them is taken, so the draft filed is one the resolve agent writes, shown before it is filed; a pick of one of those options files its draft'
+  const twoDrafts = [
+    { label: BY_HAND, cost: 'c', effect: 'e', ends: 'fix' },
+    { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft: { title: 'Track one', found: 'f1', why: 'w1', fullFix: 'x1' } },
+    { label: 'Track the class', cost: 'c', effect: 'e', ends: 'defer', draft: { title: 'Track all', found: 'f2', why: 'w2', fullFix: 'x2' } },
+  ]
+  const severalRun = await go('left: a defer typed for a left call that offers two drafted issues', { ...ruleArgs, decisions: markedTyped, deferrals: goAhead('R1-1') }, { reviews: [[cfg], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule craft-config' }, callOf: { 'R1-1': { options: twoDrafts, recommended: 'Track it', recommendation: 'Track it' } }, resolveDeferred: [{ id: 'R1-1', mitigation: '', fullFix: 'the agent lock', title: 'Agent title', found: 'found by the agent', why: 'why the agent' }], commitIds: [[]] })
+  const severalFiled = promptOf(severalRun, 'file deferred r1')
+  check('left: a defer typed for a left call with two drafted issues files the resolve agent\'s draft, with a warning that names the options', severalRun.res.status === 'done' && severalFiled.includes('# Agent title') && !severalFiled.includes('Track one') && !severalFiled.includes('Track all') && (severalRun.res.warnings || []).includes(SEVERAL), [detail(severalRun), severalFiled.slice(0, 900)])
+  const oneDraftTyped = await go('left: a defer typed for the shaper\'s deferral under a rule, its call carrying one drafted issue', { ...ruleArgs, decisions: markedTyped, deferrals: goAhead('R1-1') }, deferredUnderRule)
+  check('left: a defer typed for a left call with one drafted issue files that draft, with no such warning', oneDraftTyped.res.status === 'done' && promptOf(oneDraftTyped, 'file deferred r1').includes('# Lock R1-1') && !(oneDraftTyped.res.warnings || []).some((w) => w.includes('a defer typed for a call that offers')), [detail(oneDraftTyped), promptOf(oneDraftTyped, 'file deferred r1').slice(0, 900)])
+  check('left: the skill says a typed defer on a call with more than one drafted issue has the resolve agent write one', read('skills', 'redline', 'SKILL.md').includes('or more than one, one the resolve agent writes'), 'skills/redline/SKILL.md')
+  check('left: docs/running.md says a typed defer on a call with more than one drafted issue has the resolve agent write one, with a warning', read('docs', 'running.md').includes('and so does one on a call that offered more than one, with a warning'), 'docs/running.md')
+
+  // A commit of its own for a finding left to the person is warned about truly (#127, R3-11):
+  // until then a left deferral's was said to have no task planned with files, whatever the
+  // resolve agent planned, and implied a reply named the commit; a left finding nobody deferred
+  // had no warning at all. No reply or handoff names it, since a left outcome carries no commit.
+  const LEFT_COMMIT = 'round 1: R1-1 has a commit of its own (1bbbbbb), but it is left to the person under repository rule craft-config: no task writes anything for it, and its reply and the handoff name no commit'
+  for (const [name, label] of [['defers', DEFER], ['accepts', ACCEPT]]) {
+    const leftCommit = await go(`left: a finding left to the person with a commit of its own, which the person ${name}`, { ...ruleArgs, decisions: pickOf(label, tracked), deferrals: goAhead('R1-1') }, { ...deferredUnderRule, commitIds: [['R1-1'], []] })
+    check(`left: a commit of its own for a left finding the person ${name} is warned about as left under its rule, naming no reply`, leftCommit.res.status === 'done' && (leftCommit.res.warnings || []).includes(LEFT_COMMIT) && !(leftCommit.res.warnings || []).some((w) => w.includes('the resolve agent planned no task with files for it')), [detail(leftCommit)])
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #75, instance or class: before a finding is sorted as a fix, the shaper says where its cause
+//     lives and whether the fix is made there (one-place), is this instance plus a measured
+//     sweep of the class (sweep), or is this instance alone (instance), in `cause` on the fix.
+//     The verifier states when a finding is one class with an earlier finding that was fixed
+//     (`sameClassAs`); the workflow keeps a link only to a finding its record shows as fixed, and
+//     a fix under a link that stands may not say instance. Until this spec the shaper fixed
+//     each finding as reported, and #112 reached the round cap on a class fixed one instance a
+//     round.
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const detail = (r) => [(r.res || {}).status, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-6), (r.res || {}).warnings, r.thrown && r.thrown.message]
+  const stopsAtShape = (r, error, label) => r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const findingSchema = (r, label) => ((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}
+  // A scenario's findings are made afresh for every run: the workflow clears a link on the
+  // finding itself.
+  const one = (n, links) => f(`R${n}-1`, 'correctness', { title: `The normaliser misreads form ${n}`, ...(links ? { sameClassAs: links } : {}) })
+  const sweepCause = { where: 'app/x.php', outcome: 'sweep', why: 'Every form of a path goes through the one normaliser.', swept: [{ member: 'a doubled slash', found: 'holds' }, { member: 'a ./ segment', found: 'fixed' }, { member: 'a trailing /.', found: 'fixed' }] }
+  const onePlace = { where: 'app/x.php', outcome: 'one-place', why: 'The normaliser is the one place a path is read.' }
+
+  // The replay of #112: a class fixed one instance a round. Round 1 fixes the first instance;
+  // each later round's review finds the next one, and the verifier links it to what was fixed.
+  const replay = () => ({ reviews: [[one(1)], [one(2, ['R1-1'])], [one(3, ['R1-1', 'R2-1'])], [one(4, ['R1-1', 'R2-1', 'R3-1'])]], commitIds: [['R1-1'], ['R2-1'], ['R3-1']] })
+  const INSTANCE = (id, to) => `the shaper returned an instance fix for ${id}, which the verifier links to ${to}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`
+  const again = await go('class: the #112 replay, the shaper fixes the second instance as an instance', baseArgs, replay())
+  check('class: an instance fix for a finding linked to one already fixed stops at shape, the workflow\'s own check, where until this spec the run fixed an instance a round to the cap', stopsAtShape(again, INSTANCE('R2-1', 'R1-1'), 'shape r2') && !labels(again.calls).includes('plan approver r2'), detail(again))
+  check('class: round 1, with no link, was fixed as the shaper returned it, an instance', (again.res.rounds[0].dispositions || []).map((s) => `${s.id}:${s.cause.outcome}`).join() === 'R1-1:instance' && labels(again.calls).includes('push and reply r1'), again.res.rounds[0].dispositions)
+  const swept = await go('class: the #112 replay, the shaper sweeps the class at the second instance', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': sweepCause } })
+  check('class: a sweep under the link goes on, and the run ends with no further instance to find', swept.res.status === 'done' && swept.res.rounds.length === 3 && JSON.stringify(swept.res.rounds[1].dispositions[0].cause) === JSON.stringify(sweepCause), detail(swept))
+  const placed = await go('class: the #112 replay, the shaper fixes the cause in one place at the second instance', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': onePlace } })
+  check('class: a one-place fix under the link goes on too', placed.res.status === 'done' && placed.res.rounds.length === 3, detail(placed))
+
+  // What the shaper is shown for a link that stands: the finding, each earlier finding it is
+  // linked to, and the cause that finding's round recorded.
+  const LINKS = 'Findings of this round that the verifier links to an earlier finding that was fixed, as one class (sameClassAs), each with what the run\'s record holds of the earlier finding, as JSON:'
+  const LINK_RULE = 'A cause fixed once and found again is a class until shown otherwise. For each finding listed here the question of instance or class is answered: a fix for it closes the class, as one-place or as a sweep, and never says instance, and the workflow stops the round on one that does. When closing the class does not belong in this pull request, the finding is a defer or an ask, as your rules say.'
+  const shape2 = promptOf(swept, 'shape r2')
+  check('class: the shape prompt of a round with a link that stands names the earlier finding with the cause its round recorded, and says the fix may not be an instance', shape2.includes(LINKS) && shape2.includes(LINK_RULE) && shape2.includes('"sameClassAs": [\n      {\n        "id": "R1-1",\n        "round": 1,') && shape2.includes('"outcome": "instance",\n          "why": "the cause of R1-1 is this one line"'), shape2.slice(shape2.indexOf('Findings for this round'), shape2.indexOf('Findings for this round') + 1800))
+  check('class: the shape prompt of a round with no link holds no such block', !promptOf(swept, 'shape r1').includes('sameClassAs') && !promptOf(swept, 'shape r1').includes(LINK_RULE), promptOf(swept, 'shape r1').slice(-2500))
+  check('class: the result keeps the link on the finding and the cause on the disposition', JSON.stringify(swept.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]' && !('sameClassAs' in swept.res.rounds[0].findings[0]) && swept.res.rounds[0].dispositions[0].cause.outcome === 'instance', [swept.res.rounds[1].findings, swept.res.rounds[0].dispositions])
+  check('class: the plan approver and the implementer are shown the link on the finding and the cause on its fix', ['plan approver r2', 'implement r2'].every((label) => promptOf(swept, label).includes('"sameClassAs": [\n      "R1-1"\n    ]') && promptOf(swept, label).includes('"outcome": "sweep"') && promptOf(swept, label).includes('"member": "a ./ segment"')), promptOf(swept, 'plan approver r2').slice(0, 2500))
+
+  // A defer, an ask or a decline under a link is not held: only a fix answers the question.
+  const deferredClass = await go('class: the shaper defers the second instance under the link', { ...baseArgs, deferrals: goAhead('R2-1') }, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], ['R2-1']], defer: ['R2-1'] })
+  check('class: a finding under a link that the shaper defers is not held to a cause', deferredClass.res.status === 'done' && labels(deferredClass.calls).includes('file deferred r2'), detail(deferredClass))
+  const declinedClass = await go('class: the shaper declines the second instance under the link', baseArgs, { ...replay(), reviews: [[one(1)], [one(2, ['R1-1'])], []], commitIds: [['R1-1'], []], decline: ['R2-1'] })
+  check('class: nor is one it declines', declinedClass.res.status === 'done', detail(declinedClass))
+
+  // The ask and the schema key sit only in a review that is shown earlier findings, so the first
+  // review of a pull request with no earlier round is as it was.
+  const LINK_ASK = 'For each finding, state sameClassAs, a key of that finding itself and never beside findings, when its cause is one class with the cause of an earlier finding listed above that was fixed: a list of the ids of those earlier findings, and leave it out when there is none.'
+  const linksKey = (r, label) => Boolean((((((((pick(r.calls, label) || { opts: {} }).opts.schema || {}).properties || {}).findings || {}).items || {}).properties) || {}).sameClassAs)
+  const nitRound = await go('class: a round of nits and its final nit pass', baseArgs, { reviews: [[f('R1-1', 'nit')], []], commitIds: [['R1-1']] })
+  check('class: a review that is shown this run\'s earlier findings is asked for sameClassAs, in its prompt and in its schema, a final nit pass included', promptOf(swept, 're-review r2').includes(LINK_ASK) && linksKey(swept, 're-review r2') && promptOf(nitRound, 'final nit pass r2').includes(LINK_ASK) && linksKey(nitRound, 'final nit pass r2'), [promptOf(swept, 're-review r2').slice(-1500), labels(nitRound.calls)])
+  check('class: the first review of a pull request with no earlier round is asked nothing of it, in its prompt or its schema', !promptOf(swept, 'review r1').includes('sameClassAs') && !linksKey(swept, 'review r1') && pick(swept.calls, 'review r1').opts.schema.properties.findings.items.required.join() === 'id,file,line,side,category,severity,confidence,title,description,proposedFix,knownAs,carriedFrom', pick(swept.calls, 'review r1').opts.schema.properties.findings.items)
+  // A link to a finding an earlier run on the pull request fixed stands as well: the launch's
+  // prior-findings record shows it as fixed. That record holds no cause, so the shaper is shown
+  // the earlier finding by its place and its reply.
+  const earlierRun = { ...baseArgs, firstRound: 2, priorFindings: [prior('R1-1', 'fixed', { title: 'The normaliser misreads form 1', comment_id: 41, reply: { id: 51, body: 'fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline' } }), prior('R1-2', 'decided', { comment_id: 42, reply: { id: 52, body: 'The author changes it. Applied in 2bbbbbb. · decided by: @author' } })] }
+  const acrossRuns = await go('class: the first round of a later run links a finding to one an earlier run fixed, fixed as an instance', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']] })
+  check('class: a link to a finding an earlier run fixed stands, and an instance fix under it stops at shape', stopsAtShape(acrossRuns, INSTANCE('R2-1', 'R1-1'), 'shape r2'), detail(acrossRuns))
+  check('class: the first review of a run that is shown earlier rounds\' findings is asked for sameClassAs', promptOf(acrossRuns, 'review r2').includes(LINK_ASK) && linksKey(acrossRuns, 'review r2'), promptOf(acrossRuns, 'review r2').slice(-1500))
+  const acrossShape = promptOf(acrossRuns, 'shape r2')
+  check('class: for a finding an earlier run fixed the shaper is shown its place and its reply, since that record holds no cause', acrossShape.includes(LINKS) && acrossShape.includes('"reply": "fixed in 1bbbbbb (redline: R1-1 fix). · decided by: redline"') && !acrossShape.includes('"cause"'), acrossShape.slice(acrossShape.indexOf(LINKS), acrossShape.indexOf(LINKS) + 900))
+  const acrossBounced = await go('class: the same, swept, its plan bounced once', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']], causeOf: { 'R2-1': sweepCause }, planBounce: 1 })
+  check('class: the reshape prompt carries the same block, and a sweep goes on', acrossBounced.res.status === 'done' && promptOf(acrossBounced, 'reshape r2 #1').includes(LINKS) && promptOf(acrossBounced, 'reshape r2 #1').includes(LINK_RULE), [detail(acrossBounced), promptOf(acrossBounced, 'reshape r2 #1').slice(-2500)])
+  const acrossInstance = await go('class: the same, the reshape answers instance', earlierRun, { reviews: [[one(2, ['R1-1'])], []], commitIds: [['R2-1']], causeOf: { 'R2-1': sweepCause }, causeAt: { 'reshape r2 #1': { 'R2-1': { where: 'app/x.php', outcome: 'instance', why: 'w' } } }, planBounce: 1 })
+  check('class: a reshape that answers instance under a link stops at the reshape', stopsAtShape(acrossInstance, INSTANCE('R2-1', 'R1-1'), 'reshape r2 #1'), detail(acrossInstance))
+
+  // A link stands only to a finding the record shows as fixed. Every other id is cleared with a
+  // warning before the review is posted, and a finding with no link left carries no key, so
+  // its round's prompts are those of a round with no link.
+  const CLEARED = (round, id, to, why) => `round ${round}: the reviewer linked ${id} to ${to} as one class (sameClassAs), but ${why}; the link is cleared`
+  const mixed = () => ({ reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness'), f('R1-3', 'correctness'), f('R1-4', 'correctness')], [f('R2-1', 'correctness', { sameClassAs: ['R1-2', 'R1-3', 'R1-4', 'R2-2', 'R9-9', 'R1-2'] }), f('R2-2', 'correctness')], []], decline: ['R1-2'], ask: ['R1-3'], defer: ['R1-4'], commitIds: [['R1-1', 'R1-3', 'R1-4'], ['R2-1', 'R2-2']] })
+  const cleared = await go('class: links to a declined finding, a call\'s applied fix, a deferral, a finding of the same round and an unknown id', { ...baseArgs, interrupt: 'autopilot' }, mixed())
+  const clearedWarnings = cleared.res.warnings || []
+  check('class: a link to a declined finding, to a call\'s applied fix, to a deferral, to a finding of the same round and to an id that names nothing is each cleared with a warning', cleared.res.status === 'done' && [CLEARED(2, 'R2-1', 'R1-2', 'round 1 recorded R1-2 as declined, not as fixed'), CLEARED(2, 'R2-1', 'R1-3', 'round 1 recorded R1-3 as decided, not as fixed'), CLEARED(2, 'R2-1', 'R1-4', 'round 1 recorded R1-4 as deferred, not as fixed'), CLEARED(2, 'R2-1', 'R2-2', 'R2-2 is a finding of this round'), CLEARED(2, 'R2-1', 'R9-9', 'R9-9 names no finding Redline recorded on this pull request')].every((w) => clearedWarnings.includes(w)) && clearedWarnings.filter((w) => w.includes('the link is cleared')).length === 5, [detail(cleared), clearedWarnings])
+  check('class: a finding whose links are all cleared carries no key, is posted and shaped as any finding, and may be fixed as an instance', !promptOf(cleared, 'post r2').includes('sameClassAs') && !promptOf(cleared, 'shape r2').includes('sameClassAs') && !promptOf(cleared, 'shape r2').includes(LINK_RULE) && !('sameClassAs' in cleared.res.rounds[1].findings[0]), [promptOf(cleared, 'shape r2').slice(-2500)])
+  const partly = await go('class: links to a fixed finding and to a declined one', { ...baseArgs, interrupt: 'autopilot' }, { ...mixed(), reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], [f('R2-1', 'correctness', { sameClassAs: ['R1-2', 'R1-1'] })], []], ask: [], defer: [], commitIds: [['R1-1'], ['R2-1']], causeOf: { 'R2-1': onePlace } })
+  check('class: of two links the one to the fixed finding stands and the other is cleared', partly.res.status === 'done' && JSON.stringify(partly.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]' && (partly.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-2', 'round 1 recorded R1-2 as declined, not as fixed')), [detail(partly), partly.res.rounds[1].findings])
+  const priorOther = await go('class: a link to a finding an earlier run decided at a call', earlierRun, { reviews: [[one(2, ['R1-2'])], []], commitIds: [['R2-1']] })
+  check('class: a link to a finding an earlier run recorded as decided is cleared, whatever its reply says of a commit', priorOther.res.status === 'done' && (priorOther.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-2', 'an earlier run recorded R1-2 as decided, not as fixed')), detail(priorOther))
+  const unasked = await go('class: the first review of a pull request with no earlier round returns a link anyway', baseArgs, { reviews: [[f('R1-1', 'correctness', { sameClassAs: ['R0-1'] })], []], commitIds: [['R1-1']] })
+  check('class: a link returned by a review that was shown no earlier finding is cleared with a warning', unasked.res.status === 'done' && (unasked.res.warnings || []).includes(CLEARED(1, 'R1-1', 'R0-1', 'this review was shown no earlier finding')) && !promptOf(unasked, 'post r1').includes('sameClassAs'), detail(unasked))
+  // A review that was not asked for links clears every link it returns with that one reason,
+  // whatever place or form the link takes (#127, R5-1): whether a link was asked for is checked
+  // before any other reading of it. Until R5-1 a link beside findings was cleared as one the
+  // workflow does not read there, a link to a renamed id as ambiguous, and a link in a form the
+  // workflow cannot read as no list of ids, each implying a link elsewhere would have been kept.
+  const BESIDE_UNASKED = 'round 1: the reviewer returned sameClassAs beside findings, at the top of its result, but this review was shown no earlier finding; the link is cleared'
+  const FORM_UNASKED = (value) => `round 1: the reviewer stated sameClassAs for R1-1 as ${JSON.stringify(value)}, but this review was shown no earlier finding; the link is cleared`
+  const besideUnasked = await go('class: the first review of a pull request with no earlier round returns a link beside findings', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], reviewKeys: [{ sameClassAs: { 'R1-1': ['R0-1'] } }], commitIds: [['R1-1']] })
+  check('class: a link beside findings on a review that was shown no earlier finding is cleared with that reason', besideUnasked.res.status === 'done' && (besideUnasked.res.warnings || []).includes(BESIDE_UNASKED) && !(besideUnasked.res.warnings || []).some((w) => w.includes('where the workflow does not read it')) && !('sameClassAs' in besideUnasked.res.rounds[0].findings[0]), [detail(besideUnasked), besideUnasked.res.rounds[0].findings])
+  const renamedUnasked = await go('class: the first review of a pull request with no earlier round links a finding to an id it renamed', baseArgs, { reviews: [[f('R0-1', 'correctness'), f('R1-2', 'correctness', { sameClassAs: ['R0-1'] })], []], commitIds: [['R1-2', 'R1-3']] })
+  check('class: a link to an id a review that was shown no earlier finding renamed is cleared with that reason, never as ambiguous', renamedUnasked.res.status === 'done' && (renamedUnasked.res.warnings || []).includes(CLEARED(1, 'R1-2', 'R0-1', 'this review was shown no earlier finding')) && !(renamedUnasked.res.warnings || []).some((w) => w.includes('so the link is ambiguous')) && JSON.stringify(renamedUnasked.res.rounds[0].findings.map((x) => x.id)) === '["R1-3","R1-2"]', [detail(renamedUnasked), renamedUnasked.res.rounds[0].findings.map((x) => x.id)])
+  for (const value of ['R0-1', ['R0-1', 7]]) {
+    const formUnasked = await go(`class: the first review of a pull request with no earlier round states a link as ${JSON.stringify(value)}`, baseArgs, { reviews: [[f('R1-1', 'correctness', { sameClassAs: value })], []], commitIds: [['R1-1']] })
+    const linkWarnings = (formUnasked.res.warnings || []).filter((w) => w.includes('sameClassAs'))
+    check(`class: a link stated as ${JSON.stringify(value)} on a review that was shown no earlier finding is cleared with that reason, in one warning`, formUnasked.res.status === 'done' && JSON.stringify(linkWarnings) === JSON.stringify([FORM_UNASKED(value)]) && !linkWarnings.some((w) => w.includes('which is no list of finding ids') || w.includes('the entries that are no id are cleared')) && !('sameClassAs' in formUnasked.res.rounds[0].findings[0]), [detail(formUnasked), linkWarnings])
+  }
+  const emptyUnasked = await go('class: the first review of a pull request with no earlier round states an empty link', baseArgs, { reviews: [[f('R1-1', 'correctness', { sameClassAs: [] })], []], commitIds: [['R1-1']] })
+  check('class: an empty link on a review that was shown no earlier finding is dropped with no warning', emptyUnasked.res.status === 'done' && !(emptyUnasked.res.warnings || []).some((w) => w.includes('sameClassAs')) && !('sameClassAs' in emptyUnasked.res.rounds[0].findings[0]), [detail(emptyUnasked)])
+  // A revise-only pass reads its findings from an earlier run's file and holds no record of
+  // that run, so a link the file carries cannot be checked and is cleared, with a warning that
+  // says so: the earlier finding may well be recorded, only not in this pass (#127, R1-3).
+  const reviseOnly = await go('class: a revise-only pass over findings that carry a link', { ...baseArgs, revise: { round: 2, specFolder: 'agent-os/specs/2026-10-20-1600-114-review-round-2', findings: [one(2, ['R1-1'])], commentIds: {}, posted: true } }, { reviews: [], commitIds: [['R2-1']] })
+  check('class: a revise-only pass clears a link it has no record to check, with a warning, and shapes the finding as any other', reviseOnly.res.status === 'done' && (reviseOnly.res.warnings || []).includes(CLEARED(2, 'R2-1', 'R1-1', 'this revise-only pass holds no record of earlier rounds to check it against')) && !promptOf(reviseOnly, 'shape r2').includes('sameClassAs'), detail(reviseOnly))
+  // A human review pass's fix is in this run's record, so its final nit pass can link to it.
+  const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please change H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanArgs = { ...baseArgs, firstRound: 3, revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h], commentIds: { 'H1-1': 900 }, posted: true } }
+  const afterHuman = await go('class: a human pass\'s final nit pass links a finding to the pass\'s fix, fixed as an instance', humanArgs, { reviews: [[f('R3-1', 'correctness', { sameClassAs: ['H1-1'] })]], commitIds: [['H1-1'], ['R3-1']] })
+  check('class: a link from a final nit pass to a human review pass\'s fix stands', stopsAtShape(afterHuman, INSTANCE('R3-1', 'H1-1'), 'shape r3'), detail(afterHuman))
+
+  // The checks of the cause itself, each the workflow's own check of what the shaper returned.
+  const fresh = (causeOf, extra) => ({ reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], causeOf, ...(extra || {}) })
+  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`
+  const noCause = await go('class: a fix with no cause', baseArgs, fresh({ 'R1-1': null }))
+  check('class: a fix with no cause stops at shape, the workflow\'s own check', stopsAtShape(noCause, NO_CAUSE('R1-1', 'no cause'), 'shape r1'), detail(noCause))
+  const noWhy = await go('class: a fix whose cause has no why and an outcome outside the three', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'class', why: ' ' } }))
+  check('class: a cause with an outcome outside the three, or no why, stops the same way, naming what is missing', stopsAtShape(noWhy, NO_CAUSE('R1-1', 'cause.outcome "class", no cause.why'), 'shape r1'), detail(noWhy))
+  const OUTSIDE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; cause.where names the file or folder the cause lives in`
+  const outside = await go('class: a cause that lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'instance', why: 'w' } }))
+  check('class: a where outside the repository stops at shape', stopsAtShape(outside, OUTSIDE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outside))
+  // A one-place fix is told what its contract asks, one of the task's files, never a folder
+  // (#127, R1-6).
+  const OUTSIDE_ONE_PLACE = (id, where) => `the shaper said the cause of ${id} lives at ${JSON.stringify(where)}, which is no path inside the repository; a one-place fix's cause.where names one of the task's files, the one the cause lives in`
+  const outsideOnePlace = await go('class: a one-place fix whose cause lives outside the repository', baseArgs, fresh({ 'R1-1': { where: '../other/app/x.php', outcome: 'one-place', why: 'w' } }))
+  check('class: a one-place fix with a where outside the repository stops at shape, told where names one of the task\'s files', stopsAtShape(outsideOnePlace, OUTSIDE_ONE_PLACE('R1-1', '../other/app/x.php'), 'shape r1'), detail(outsideOnePlace))
+  const elsewhere = await go('class: a one-place fix whose cause lives in a file its task does not touch', baseArgs, fresh({ 'R1-1': { where: 'app/normalise.php', outcome: 'one-place', why: 'w' } }))
+  check('class: a one-place fix whose where is not among its task\'s files stops at shape', stopsAtShape(elsewhere, 'the shaper called the fix for R1-1 one-place, made where the cause lives, but its task\'s files (app/x.php) do not include app/normalise.php; a one-place fix changes the place the cause lives in', 'shape r1'), detail(elsewhere))
+  const folded = await go('class: a one-place fix whose where is its file written another way', baseArgs, fresh({ 'R1-1': { where: './app//x.php', outcome: 'one-place', why: 'w' } }))
+  check('class: where is read as every path is, so one file written another way is that file', folded.res.status === 'done', detail(folded))
+  const NO_SWEEP = (id, got) => `the shaper called the fix for ${id} a sweep and returned no usable list of what the sweep covered (${got}); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed`
+  const unswept = await go('class: a sweep with no swept list', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w' } }))
+  check('class: a sweep with no swept list stops at shape', stopsAtShape(unswept, NO_SWEEP('R1-1', 'no cause.swept list'), 'shape r1'), detail(unswept))
+  const emptySweep = await go('class: a sweep whose swept list is empty', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [] } }))
+  check('class: a sweep whose swept list is empty stops the same way', stopsAtShape(emptySweep, NO_SWEEP('R1-1', 'no cause.swept list'), 'shape r1'), detail(emptySweep))
+  const openMember = await go('class: a sweep with a member that is neither holds nor fixed', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [{ member: 'a doubled slash', found: 'fixed' }, { member: 'a trailing /.', found: 'exposed' }, { member: ' ', found: 'holds' }] } }))
+  check('class: a swept entry with no member, or found as anything but holds or fixed, stops the same way: a member left exposed is no sweep', stopsAtShape(openMember, NO_SWEEP('R1-1', '"a trailing /." found "exposed", an entry with no member'), 'shape r1'), detail(openMember))
+  // The list one level out (the follow-up of #127): the shaper of #127's round 2 returned swept on
+  // the finding, beside cause, twice, the second time with the stop's words in its prompt, which
+  // named no place. The list is read in cause and nowhere else, and the stop says where it found it.
+  const ON_FINDING = 'no cause.swept list; the finding carries swept beside cause, where the workflow does not read it'
+  const SWEPT = [{ member: 'skills/redline/SKILL.md:213', found: 'fixed' }, { member: 'docs/running.md:134', found: 'holds' }]
+  const bareSweep = { where: 'app/x.php', outcome: 'sweep', why: 'The sentence is written in more than one place.' }
+  const beside = await go('class: a sweep whose swept list is on the finding, beside cause', baseArgs, fresh({ 'R1-1': bareSweep }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('class: a swept list returned on the finding, beside cause, stops at shape, and the stop names cause.swept and where the list was found', stopsAtShape(beside, NO_SWEEP('R1-1', ON_FINDING), 'shape r1') && !labels(beside.calls).includes('plan approver r1'), detail(beside))
+  const besideReshaped = await go('class: a reshape returns the sweep with its swept list on the finding', baseArgs, fresh({ 'R1-1': { ...bareSweep, swept: SWEPT } }, { planBounce: 1, causeAt: { 'reshape r1 #1': { 'R1-1': bareSweep } }, findingKeysAt: { 'reshape r1 #1': { 'R1-1': { swept: SWEPT } } } }))
+  check('class: the same from a reshape stops the same way, and the stop names the reshape', stopsAtShape(besideReshaped, NO_SWEEP('R1-1', ON_FINDING), 'reshape r1 #1'), detail(besideReshaped))
+  const flatMember = await go('class: a sweep whose cause carries member and found, with no list', baseArgs, fresh({ 'R1-1': { ...bareSweep, member: 'docs/running.md:134', found: 'holds' } }))
+  check('class: member and found on cause itself, with no list, stop the same way, told that each member is an entry of cause.swept', stopsAtShape(flatMember, NO_SWEEP('R1-1', 'no cause.swept list; cause carries member and found itself, not in a list: each member is one entry of cause.swept'), 'shape r1'), detail(flatMember))
+  const nested = await go('class: the same sweep with its list inside cause', baseArgs, fresh({ 'R1-1': { ...bareSweep, swept: SWEPT } }))
+  check('class: the same list inside cause goes on, and the round records it there', nested.res.status === 'done' && JSON.stringify(nested.res.rounds[0].dispositions[0].cause.swept) === JSON.stringify(SWEPT) && !('swept' in nested.res.rounds[0].dispositions[0]), detail(nested))
+  const instanceAlone = await go('class: an instance fix under no link', baseArgs, fresh({ 'R1-1': { where: 'app/x.php', outcome: 'instance', why: 'The cause is this one call.' } }))
+  check('class: an instance fix under no link is the shaper\'s to state, and the plan approver\'s to judge', instanceAlone.res.status === 'done' && promptOf(instanceAlone, 'plan approver r1').includes('"why": "The cause is this one call."'), detail(instanceAlone))
+  // Every fault in one error (#127, R1-5): a reshape is told to correct what the error names, so
+  // a fault the error leaves out is one more relaunch.
+  const twoFaults = await go('class: two fixes, one with no cause and one a sweep with no swept list', baseArgs, { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], commitIds: [['R1-1', 'R1-2']], causeOf: { 'R1-1': null, 'R1-2': { where: 'app/x.php', outcome: 'sweep', why: 'w' } } })
+  check('class: two fixes with faulty causes stop at shape with one error that names both', stopsAtShape(twoFaults, `${NO_CAUSE('R1-1', 'no cause')}; also, ${NO_SWEEP('R1-2', 'no cause.swept list')}`, 'shape r1'), detail(twoFaults))
+
+  // Who is held: a fix of a Redline round the shaper sorted itself. A finding the person or
+  // autopilot decided is not, after a reshape, and a human review pass has no cause at all.
+  const decidedReshaped = await go('class: a reshape returns a decided call as a fix with no cause', { ...baseArgs, interrupt: 'autopilot' }, { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], planBounce: 1, reshapeFix: ['R1-1'], causeAt: { 'reshape r1 #1': { 'R1-1': null } }, commitIds: [['R1-1']] })
+  check('class: a finding the person or autopilot decided is not held to a cause when a reshape returns it as a fix', decidedReshaped.res.status === 'done', detail(decidedReshaped))
+  const reshapedBare = await go('class: a reshape returns the shaper\'s own fix with no cause', baseArgs, { reviews: [[f('R1-1', 'correctness')], []], planBounce: 1, causeAt: { 'reshape r1 #1': { 'R1-1': null } }, commitIds: [['R1-1']] })
+  check('class: the shaper\'s own fix is held after a reshape, and the stop names the reshape', stopsAtShape(reshapedBare, NO_CAUSE('R1-1', 'no cause'), 'reshape r1 #1'), detail(reshapedBare))
+  const underRule = await go('class: a fix with no cause on a finding a paths rule leaves to the person', { ...baseArgs, askRules: [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }] }, { reviews: [[f('R1-1', 'correctness', { file: 'config/project/project.yaml' })], []], causeOf: { 'R1-1': null }, commitIds: [[]] })
+  check('class: a finding a rule leaves to the person is an ask by the time the cause is read, so it is not held', underRule.res.status === 'handoff', detail(underRule))
+  const humanRun = await go('class: a human review pass', humanArgs, { reviews: [[]], commitIds: [['H1-1']] })
+  const causeSchema = (findingSchema(again, 'shape r1').properties || {}).cause || {}
+  check('class: a Redline round\'s shaper schema lets a finding carry cause, with its outcome one of the three and its swept entries found as holds or fixed', JSON.stringify(causeSchema.required) === '["where","outcome","why"]' && (((causeSchema.properties || {}).outcome || {}).enum || []).join('|') === 'one-place|sweep|instance' && ((((((causeSchema.properties || {}).swept || {}).items || {}).properties || {}).found || {}).enum || []).join('|') === 'holds|fixed' && !(findingSchema(again, 'shape r1').required || []).includes('cause'), causeSchema)
+  check('class: a human review pass\'s schema has no cause, its prompt asks for none, and its fix is held to none', humanRun.res.status === 'done' && !('cause' in (findingSchema(humanRun, 'shape h1').properties || {})) && !promptOf(humanRun, 'shape h1').includes('cause') && !('cause' in humanRun.res.rounds[0].dispositions[0]), [detail(humanRun), Object.keys(findingSchema(humanRun, 'shape h1').properties || {})])
+
+  // Every prompt that returns a Redline round's shape asks for the cause.
+  const CAUSE_ASK = 'for a fix also cause, an object on the finding that says where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class; instance: the cause is not a class) and why (one sentence), and for a sweep also swept, inside cause beside where, outcome and why and never on the finding itself: a list of every member the sweep measured, each entry as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it'
+  check('class: the shape prompt and the reshape prompt of a Redline round ask for the cause of every fix', promptOf(again, 'shape r1').includes(CAUSE_ASK) && promptOf(acrossBounced, 'reshape r2 #1').includes(CAUSE_ASK) && promptOf(decidedReshaped, 'reshape r1 #1').includes(CAUSE_ASK), [promptOf(again, 'shape r1').slice(-1800)])
+
+  // The statements an agent and a reader meet.
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const approverAgent = read('agents', 'redline-plan-approver.md')
+  check('class: the shaper\'s file has the step, its three outcomes, what each found value means, and what a member that is neither makes of the finding', shaperAgent.includes('**Instance or class.**') && shaperAgent.includes('`one-place`, the fix is made where the cause lives') && shaperAgent.includes('`holds` when you measured it and the code as it stands already handles it') && shaperAgent.includes('`fixed` when you measured it exposed and this task\'s change closes it') && shaperAgent.includes('fits neither value, and then the outcome is not a sweep') && shaperAgent.includes('never `instance`') && shaperAgent.includes('"cause": {"where": "app/Http/Requests/StoreOrderRequest.php", "outcome": "one-place"'), 'agents/redline-shaper.md')
+  check('class: the shaper\'s file says where a sweep\'s list sits, in the step, in what the workflow stops on and in what it returns', shaperAgent.includes('returned inside `cause`, as `cause.swept`, never on the finding beside it') && shaperAgent.includes('a `sweep` with no usable list in `cause.swept`') && shaperAgent.includes('inside `cause` beside them and never on the finding itself') && !shaperAgent.includes('returned as `swept`') && !shaperAgent.includes('no usable `swept`'), 'agents/redline-shaper.md')
+  check('class: the plan approver\'s file says an instance whose own plan admits the same is needed elsewhere is a bounce, and so is a sweep with no table or one traced and not run', approverAgent.includes('**Instance or class.**') && approverAgent.includes('admits that another input, caller or entry will need the same change is a bounce') && approverAgent.includes('traced through the code and not run'), 'agents/redline-plan-approver.md')
+  check('class: the reviewer\'s file says when a finding is one class with an earlier one, as its prompt does', reviewerAgent.includes('**One class with an earlier finding.**') && reviewerAgent.includes('`sameClassAs`') && reviewerAgent.includes('"sameClassAs": []') === false && reviewerAgent.includes('keeps only a link to a finding its record shows as fixed'), 'agents/redline-reviewer.md')
+  check('class: the skill names a fix\'s cause in the plan dial\'s list, and docs/running.md has the step and the link', read('skills', 'redline', 'SKILL.md').includes('for a fix its `cause`') && read('skills', 'redline', 'SKILL.md').includes('inside it, in `swept`') && read('docs', 'running.md').includes('**Instance or class.**') && read('docs', 'running.md').includes('in `cause.swept`') && read('docs', 'running.md').includes('`sameClassAs`'), 'skills/redline/SKILL.md, docs/running.md')
+
+  // A link that names an id the review renamed (#127, R3-5). A round-2 reviewer that numbers its
+  // findings with round 1's prefix and links the second to the first: the rename makes them R2-1
+  // and R2-2, and the old id R1-1 then named round 1's fixed finding, so the link stood with no
+  // word and the shaper was shown an unrelated earlier finding. The id may mean either, so the
+  // link is cleared with a warning.
+  const renamedLink = await go('class: a round-2 review returns R1-1 and R1-2, the second linked to the first', baseArgs, { reviews: [[f('R1-1', 'correctness')], [f('R1-1', 'correctness'), f('R1-2', 'correctness', { sameClassAs: ['R1-1'] })], []], commitIds: [['R1-1'], ['R2-1', 'R2-2'], []] })
+  const renamedR22 = (((renamedLink.res || {}).rounds || [])[1] || { findings: [] }).findings.find((x) => x.id === 'R2-2') || {}
+  check('class: a link that names an id the review renamed is cleared with a warning that says the link is ambiguous', ((renamedLink.res || {}).warnings || []).includes('round 2: the reviewer linked R2-2 to R1-1 as one class (sameClassAs), but this review renamed a finding it returned as R1-1 to R2-1, so the link is ambiguous; the link is cleared'), detail(renamedLink))
+  check('class: the shape prompt is shown no link for it, and the posted findings carry none', promptOf(renamedLink, 'shape r2') !== '' && !promptOf(renamedLink, 'shape r2').includes('Findings of this round that the verifier links to an earlier finding') && promptOf(renamedLink, 'post r2') !== '' && !promptOf(renamedLink, 'post r2').includes('"sameClassAs"') && !('sameClassAs' in renamedR22), [detail(renamedLink), renamedR22])
+}
+
+// ---------------------------------------------------------------------------
+// Key places (the follow-up of #127): every key #127 added that sits inside another object or
+//     beside one is read in one place. Found one level out and absent from its place, it stops
+//     the round at the agent that returned it, and the stop names the key by its full path and
+//     says where it was found; found out of place beside a copy in its place, it is a stray,
+//     dropped with a warning. A class link out of place or in a form the workflow cannot read
+//     is cleared with a warning, as every link it cannot keep is, and a decision whose choice
+//     is an option's label and that names no option says so. One case a row of the spec's
+//     table, each beside the neighbour that must not change.
+// ---------------------------------------------------------------------------
+{
+  const promptOf = (r, label) => (pick(r.calls, label) || { prompt: '' }).prompt
+  const detail = (r) => [(r.res || {}).status, (r.res || {}).handoffKind, (r.res || {}).stage, (r.res || {}).error, (r.res || {}).ownCheck, (r.res || {}).resumeFrom, labels(r.calls).slice(-5), (r.res || {}).warnings, r.thrown && r.thrown.message]
+  const stopsAtShape = (r, error, label = 'shape r1') => Boolean(r.res) && r.res.status === 'error' && r.res.stage === 'shape' && r.res.error === error && r.res.ownCheck === true && Boolean(r.res.resumeFrom) && r.res.resumeFrom.label === label
+  const warned = (r, text) => ((r.res || {}).warnings || []).includes(text)
+  const fresh = (causeOf, extra) => ({ reviews: [[f('R1-1', 'correctness')], []], commitIds: [['R1-1']], causeOf, ...(extra || {}) })
+  const SWEPT = [{ member: 'a doubled slash', found: 'holds' }, { member: 'a ./ segment', found: 'fixed' }]
+  const instance = { where: 'app/x.php', outcome: 'instance', why: 'The cause is this one call.' }
+  const onePlace = { where: 'app/x.php', outcome: 'one-place', why: 'The normaliser is the one place a path is read.' }
+  const sweep = { where: 'app/x.php', outcome: 'sweep', why: 'Every form of a path goes through the one normaliser.', swept: SWEPT }
+  const NO_CAUSE = (id, got) => `the shaper returned the fix for ${id} with no cause it can be read from (${got}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`
+
+  // Rows 1 to 4: cause and its three parts.
+  const topCause = await go('places: cause beside findings, keyed by id', baseArgs, fresh({ 'R1-1': null }, { shapeKeys: { cause: { 'R1-1': instance } } }))
+  check('places: a cause returned beside findings, and on no fix, stops at shape, told it is read on the finding', stopsAtShape(topCause, NO_CAUSE('R1-1', 'no cause; the result carries cause beside findings, where the workflow does not read it: it is read on the finding')), detail(topCause))
+  const strayTop = await go('places: cause beside findings as well as on the fix', baseArgs, fresh({ 'R1-1': instance }, { shapeKeys: { cause: { 'R1-1': instance } } }))
+  check('places: a cause beside findings as well as on every fix is a stray: dropped with a warning, and the round goes on', strayTop.res.status === 'done' && warned(strayTop, 'round 1: the shaper returned cause beside findings as well as on each fix; the workflow reads the finding\'s, and the copy beside findings is dropped'), detail(strayTop))
+  const flatWhere = await go('places: where on the finding, beside cause', baseArgs, fresh({ 'R1-1': { outcome: 'instance', why: 'w' } }, { findingKeys: { 'R1-1': { where: 'app/x.php' } } }))
+  check('places: a part of cause returned on the finding stops at shape, named by its path and by where it was found', stopsAtShape(flatWhere, NO_CAUSE('R1-1', 'no cause.where; the finding itself carries where, where the workflow does not read it: it is read inside cause')), detail(flatWhere))
+  const flatAll = await go('places: where, outcome and why on the finding, no cause', baseArgs, fresh({ 'R1-1': null }, { findingKeys: { 'R1-1': { where: 'app/x.php', outcome: 'instance', why: 'w' } } }))
+  check('places: every part on the finding and no cause stops the same way, naming them all', stopsAtShape(flatAll, NO_CAUSE('R1-1', 'no cause; the finding itself carries where, outcome and why, where the workflow does not read them: they are read inside cause')), detail(flatAll))
+  const partsMissing = await go('places: a cause with no where and an outcome outside the three, nothing out of place', baseArgs, fresh({ 'R1-1': { outcome: 'class', why: 'w' } }))
+  check('places: a part missing everywhere is named by its path, with no word of another place', stopsAtShape(partsMissing, NO_CAUSE('R1-1', 'no cause.where, cause.outcome "class"')), detail(partsMissing))
+  const strayWhy = await go('places: why on the finding as well as inside cause', baseArgs, fresh({ 'R1-1': instance }, { findingKeys: { 'R1-1': { why: 'said again' } } }))
+  check('places: a part on the finding as well as inside cause is a stray: dropped with a warning, shown to no later agent, and the round goes on', strayWhy.res.status === 'done' && warned(strayWhy, 'round 1: the shaper returned why for R1-1 on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped') && !promptOf(strayWhy, 'plan approver r1').includes('said again') && !('why' in strayWhy.res.rounds[0].dispositions[0]) && strayWhy.res.rounds[0].dispositions[0].cause.why === instance.why, detail(strayWhy))
+
+  // Rows 5 to 7: a sweep's list and its entries. (The list on the finding of a sweep, and one
+  // member's keys on cause with no list, are the class section's cases.)
+  const NOT_A_SWEEP = (id, what) => `the shaper returned ${what} for the fix for ${id}, which it did not call a sweep; a sweep's list is read in cause.swept, a list inside cause, and a fix that is no sweep carries none`
+  const strayList = await go('places: a sweep with its list inside cause and on the finding too', baseArgs, fresh({ 'R1-1': sweep }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding as well as inside cause is a stray: dropped with a warning, and the round records the one in cause', strayList.res.status === 'done' && warned(strayList, 'round 1: the shaper returned swept for R1-1 on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped') && !('swept' in strayList.res.rounds[0].dispositions[0]) && strayList.res.rounds[0].dispositions[0].cause.swept.length === 2, detail(strayList))
+  const emptyInPlace = await go('places: a sweep with an empty list inside cause and its list on the finding', baseArgs, fresh({ 'R1-1': { ...sweep, swept: [] } }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding beside an empty one inside cause is no stray: the sweep stops, told where its list was found', stopsAtShape(emptyInPlace, 'the shaper called the fix for R1-1 a sweep and returned no usable list of what the sweep covered (no cause.swept list; the finding carries swept beside cause, where the workflow does not read it); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed'), detail(emptyInPlace))
+  const listNoSweep = await go('places: a one-place fix with a swept list on the finding', baseArgs, fresh({ 'R1-1': onePlace }, { findingKeys: { 'R1-1': { swept: SWEPT } } }))
+  check('places: a list on the finding of a fix that is no sweep, and in no cause, stops at shape', stopsAtShape(listNoSweep, NOT_A_SWEEP('R1-1', 'swept on the finding, beside cause')), detail(listNoSweep))
+  const listInPlace = await go('places: a one-place fix with a swept list inside cause', baseArgs, fresh({ 'R1-1': { ...onePlace, swept: SWEPT } }))
+  check('places: a list inside the cause of a fix that is no sweep is in its place, and goes on as it did', listInPlace.res.status === 'done' && (listInPlace.res.warnings || []).every((w) => !w.includes('swept')), detail(listInPlace))
+  const strayMember = await go('places: a sweep with its list, and member and found on cause too', baseArgs, fresh({ 'R1-1': { ...sweep, member: 'a doubled slash', found: 'holds' } }))
+  check('places: member and found on cause beside a usable list are strays: dropped with a warning', strayMember.res.status === 'done' && warned(strayMember, 'round 1: the shaper returned member and found for R1-1 on cause itself as well as in cause.swept; the workflow reads the list, and the copy on cause is dropped') && !('member' in strayMember.res.rounds[0].dispositions[0].cause) && !('found' in strayMember.res.rounds[0].dispositions[0].cause), detail(strayMember))
+  const memberNoSweep = await go('places: a one-place fix whose cause carries member and found', baseArgs, fresh({ 'R1-1': { ...onePlace, member: 'a doubled slash', found: 'holds' } }))
+  check('places: member and found on the cause of a fix that is no sweep, with no list, stop at shape', stopsAtShape(memberNoSweep, NOT_A_SWEEP('R1-1', 'member and found on cause itself')), detail(memberNoSweep))
+
+  // Rows 8 and 11: an option's end and the call's recommended option.
+  const askOne = { reviews: [[f('R1-1', 'correctness')], []], ask: ['R1-1'], commitIds: [['R1-1']] }
+  const bare = [{ label: 'Keep it', cost: 'c', effect: 'e' }, { label: 'Change it', cost: 'c', effect: 'e' }]
+  const shown = (r) => (((r.res || {}).judgmentCalls || [])[0]) || { options: [] }
+  const ENDS_TAIL = 'every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept'
+  const endsOnCall = await go('places: ends on the call, beside options, as a map by label', baseArgs, { ...askOne, callOf: { 'R1-1': { options: bare, ends: { 'Keep it': 'fix', 'Change it': 'fix' } } } })
+  check('places: ends returned on the call, and on no option, stops at shape, told each option states its own', stopsAtShape(endsOnCall, `the shaper gave R1-1 an option with no label or with no end the workflow knows ("Keep it" ends in null, "Change it" ends in null; the call carries ends beside options, where the workflow does not read it); ${ENDS_TAIL}`), detail(endsOnCall))
+  const strayEnds = await go('places: ends on every option and on the call too', baseArgs, { ...askOne, callOf: { 'R1-1': { ends: { 'Keep it': 'fix' } } } })
+  check('places: ends on the call as well as on every option is a stray: dropped with a warning, and the call the person is shown carries none', strayEnds.res.status === 'handoff' && warned(strayEnds, 'round 1: the shaper gave R1-1 ends beside its options as well as on each option; the workflow reads the option\'s, and the copy on the call is dropped') && !('ends' in shown(strayEnds)) && shown(strayEnds).options.every((o) => o.ends === 'fix'), detail(strayEnds))
+  const REC_TAIL = 'recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label'
+  const recOnFinding = await go('places: recommended on the finding, not on the call', baseArgs, { ...askOne, callOf: { 'R1-1': { recommended: undefined } }, findingKeys: { 'R1-1': { recommended: 'Keep it' } } })
+  check('places: recommended returned on the finding, and not on the call, stops at shape, told it is a key of the call', stopsAtShape(recOnFinding, `the shaper recommended "" for R1-1, which is the label of none of its options (Keep it, Change it; its finding carries recommended, where the workflow does not read it); ${REC_TAIL}`), detail(recOnFinding))
+  const recOnOption = await go('places: recommended as a flag inside an option', baseArgs, { ...askOne, callOf: { 'R1-1': { recommended: undefined, options: [{ label: 'Keep it', cost: 'c', effect: 'e', ends: 'fix', recommended: true }, { label: 'Change it', cost: 'c', effect: 'e', ends: 'fix' }] } } })
+  check('places: recommended returned inside an option stops the same way, naming the option', stopsAtShape(recOnOption, `the shaper recommended "" for R1-1, which is the label of none of its options (Keep it, Change it; its option "Keep it" carries recommended itself, where the workflow does not read it); ${REC_TAIL}`), detail(recOnOption))
+  const strayRec = await go('places: recommended on the call and on the finding too', baseArgs, { ...askOne, findingKeys: { 'R1-1': { recommended: 'Change it' } } })
+  check('places: recommended on the finding as well as on the call is a stray: dropped with a warning, and the call\'s stands', strayRec.res.status === 'handoff' && warned(strayRec, 'round 1: the shaper returned recommended for R1-1 on its finding as well as on its call; the workflow reads the call\'s, and the copy on the finding is dropped') && shown(strayRec).recommended === 'Keep it', detail(strayRec))
+
+  // Rows 9 and 10: an option's draft and its fields.
+  const rules = [{ id: 'craft-config', when: { paths: ['config/project/**'] }, reason: 'Craft project config is applied through the control panel' }]
+  const ruleArgs = { ...baseArgs, askRules: rules }
+  const cfg = () => f('R1-1', 'correctness', { file: 'config/project/project.yaml', line: 3 })
+  const draft = { title: 'Lock R1-1', found: 'found R1-1', why: 'why R1-1', fullFix: 'a lock' }
+  const own = (track) => [{ label: 'Change it by hand', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Leave it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', ...track }]
+  const leftCall = (track, callKeys) => ({ reviews: [[cfg()], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'repository rule craft-config' }, callOf: { 'R1-1': { options: own(track), recommended: 'Track it', recommendation: 'Track it.', ...(callKeys || {}) } }, commitIds: [[]] })
+  const UNDRAFTED = (got) => `the shaper gave R1-1, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${got}); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option`
+  const draftOnCall = await go('places: a rule call, draft on the call beside options', ruleArgs, leftCall({}, { draft }))
+  check('places: a draft returned on a left call, and on no option, stops at shape, told it is an object on the option', stopsAtShape(draftOnCall, UNDRAFTED('"Track it": no draft; the call carries draft beside options, where the workflow does not read it')), detail(draftOnCall))
+  const draftFlat = await go('places: a rule call, the draft\'s fields flat on its defer option', ruleArgs, leftCall(draft))
+  check('places: a draft\'s fields returned on the option itself stop the same way, told they sit inside draft', stopsAtShape(draftFlat, UNDRAFTED('"Track it": no draft; the option "Track it" carries title, found, why and fullFix itself, not inside draft')), detail(draftFlat))
+  const draftBoth = await go('places: a rule call, draft on its defer option and on the call too', ruleArgs, leftCall({ draft }, { draft: { ...draft, title: 'Another' } }))
+  check('places: a draft on the call as well as on the option is a stray: dropped with a warning, and the person is shown the option\'s', draftBoth.res.status === 'handoff' && warned(draftBoth, 'round 1: the shaper gave R1-1 a drafted issue beside its options as well as on its option that ends in defer; the workflow reads the option\'s, and the copy on the call is dropped') && !('draft' in shown(draftBoth)) && shown(draftBoth).options[2].draft.title === 'Lock R1-1', detail(draftBoth))
+  const three = (mitigate) => [{ label: 'Full fix', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Mitigate', cost: 'c', effect: 'e', ends: 'defer', ...(mitigate || {}) }, { label: 'Accept', cost: 'c', effect: 'e', ends: 'accept' }]
+  const relabelled = (callKeys) => ({ reviews: [[cfg()], []], ask: ['R1-1'], whyHuman: { 'R1-1': 'outside the pull request' }, callOf: { 'R1-1': { options: three(), recommended: 'Full fix', recommendation: 'Full fix.', ...(callKeys || {}) } }, commitIds: [[]] })
+  const relabelledDraft = await go('places: an ordinary call a paths rule turns out to cover, draft on the call', ruleArgs, relabelled({ draft }))
+  check('places: a draft on the call of a relabelled call stops at shape, where until this spec it was lost and the person shown none', stopsAtShape(relabelledDraft, UNDRAFTED('"Mitigate": no draft; the call carries draft beside options, where the workflow does not read it')), detail(relabelledDraft))
+  const relabelledBare = await go('places: the same call with no draft anywhere', ruleArgs, relabelled())
+  check('places: a relabelled call with no draft anywhere is still not held to one', relabelledBare.res.status === 'handoff' && !('draft' in shown(relabelledBare).options[1]), detail(relabelledBare))
+  const DROPPED_ON_CALL = 'round 1: the shaper gave R1-1 a drafted issue beside its options, on the call itself, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped'
+  const ordinaryDraft = await go('places: an ordinary call, draft on the call', baseArgs, { ...askOne, callOf: { 'R1-1': { options: three(), recommended: 'Mitigate', draft } } })
+  check('places: a draft on the call of an ordinary call is dropped with a warning, as one on its option is, and the call the person is shown carries none', ordinaryDraft.res.status === 'handoff' && warned(ordinaryDraft, DROPPED_ON_CALL) && !('draft' in shown(ordinaryDraft)), detail(ordinaryDraft))
+
+  // Row 12: a decision's option, which the session writes.
+  const threeWay = { ...askOne, callOf: { 'R1-1': { options: three(), recommended: 'Mitigate', recommendation: 'Mitigate; add a guard.' } }, acceptedCalls: ['R1-1'], commitIds: [[]] }
+  const NO_OPTION = (label, rest) => `round 1: the decision for R1-1 gives ${JSON.stringify(label)}, the label of ${rest}`
+  const ORDINARY = 'one of its call\'s options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words, and the resolve agent states what it ends in'
+  const labelOnly = await go('places: a decision whose choice is an option\'s label, with no option', { ...baseArgs, decisions: { 'R1-1': { choice: ' Accept ', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  check('places: a choice that is an option\'s label with no option is read as the person\'s own words, with a warning that says so, and carries no disposition', labelOnly.res.status === 'done' && warned(labelOnly, NO_OPTION('Accept', ORDINARY)) && !/"R1-1": \{[^}]*"disposition"/.test(promptOf(labelOnly, 'resolve r1')), detail(labelOnly))
+  const named = await go('places: the same decision with its option named', { ...baseArgs, decisions: { 'R1-1': { choice: 'Accept', option: 'Accept', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  const ownWords = await go('places: an answer in the person\'s own words that holds a label', { ...baseArgs, decisions: { 'R1-1': { choice: 'Accept it for now', notes: 'Leave it as it is for now.', date: '2026-11-25' } } }, threeWay)
+  check('places: a pick that names its option, and an answer that merely holds a label, warn of nothing', [named, ownWords].every((r) => r.res.status === 'done' && (r.res.warnings || []).every((w) => !w.includes('names no option'))) && /"R1-1": \{[^}]*"disposition": "accept"/.test(promptOf(named, 'resolve r1')), [detail(named), detail(ownWords)])
+  const leftLabel = await go('places: a rule call, its defer option\'s label as the choice, with no option', { ...ruleArgs, decisions: { 'R1-1': { choice: 'Track it', notes: 'Track it.', date: '2026-11-25' } }, deferrals: goAhead('R1-1') }, leftCall({ draft }))
+  check('places: on a finding left to the person, the label of its option that ends in defer with no option files nothing, and the warning says so', leftLabel.res.status === 'done' && !labels(leftLabel.calls).some((l) => l.startsWith('file deferred')) && warned(leftLabel, NO_OPTION('Track it', 'its call\'s option that ends in defer, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words: R1-1 stays left to the person, and nothing is filed')), detail(leftLabel))
+  const leftOther = await go('places: a rule call, another option\'s label as the choice, with no option', { ...ruleArgs, decisions: { 'R1-1': { choice: 'Leave it', notes: 'Leave it.', date: '2026-11-25' } } }, leftCall({ draft }))
+  check('places: on a finding left to the person, any other option\'s label warns too, and says the finding stays left as it would with the pick', leftOther.res.status === 'done' && warned(leftOther, NO_OPTION('Leave it', 'one of its call\'s options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person\'s own words: R1-1 stays left to the person, as it would with the pick')), detail(leftOther))
+  const notAnObject = await go('places: an entry of decisions that is no object', { ...baseArgs, decisions: { option: 'Accept', 'R1-1': { choice: 'Accept', notes: 'Leave it as it is.', date: '2026-11-25' } } }, threeWay)
+  check('places: an entry of args.decisions that is no object, a key written beside the entries, is refused before any agent runs', Boolean(notAnObject.thrown) && /args\.decisions must map each finding id to an object/.test(notAnObject.thrown.message) && notAnObject.thrown.message.includes('"option": "Accept"') && notAnObject.calls.length === 0, [notAnObject.thrown && notAnObject.thrown.message, notAnObject.calls.length])
+
+  // Row 13: the reviewer's class link.
+  const one = (n, links) => f(`R${n}-1`, 'correctness', { title: `The normaliser misreads form ${n}`, ...(links !== undefined ? { sameClassAs: links } : {}) })
+  const twoRounds = (links, extra) => ({ reviews: [[one(1)], [one(2, links)], []], commitIds: [['R1-1'], ['R2-1']], ...(extra || {}) })
+  const BESIDE = 'round 2: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it'
+  const linkBeside = await go('places: sameClassAs beside findings, keyed by id', baseArgs, twoRounds(undefined, { reviewKeys: [null, { sameClassAs: { 'R2-1': ['R1-1'] } }] }))
+  check('places: a link returned beside findings is cleared with a warning that names its place, and the round goes on with no link', linkBeside.res.status === 'done' && warned(linkBeside, BESIDE) && !promptOf(linkBeside, 'shape r2').includes('sameClassAs') && !('sameClassAs' in linkBeside.res.rounds[1].findings[0]), detail(linkBeside))
+  const UNREADABLE = (value, rest) => `round 2: the reviewer stated sameClassAs for R2-1 as ${JSON.stringify(value)}, which is no list of finding ids; ${rest}`
+  const linkString = await go('places: sameClassAs on its finding as one id, a string', baseArgs, twoRounds('R1-1'))
+  const linkObjects = await go('places: sameClassAs on its finding as a list of objects', baseArgs, twoRounds([{ id: 'R1-1' }]))
+  check('places: a link that is no list of ids is cleared with a warning, a string and a list of objects alike', linkString.res.status === 'done' && warned(linkString, UNREADABLE('R1-1', 'the link is cleared')) && linkObjects.res.status === 'done' && warned(linkObjects, UNREADABLE([{ id: 'R1-1' }], 'the link is cleared')) && !('sameClassAs' in linkObjects.res.rounds[1].findings[0]), [detail(linkString), detail(linkObjects)])
+  const linkMixed = await go('places: sameClassAs as a list of one id and one number', baseArgs, twoRounds(['R1-1', 7], { causeOf: { 'R2-1': sweep } }))
+  check('places: of a list that holds an id and an entry that is none, the id stands and the other is cleared with a warning', linkMixed.res.status === 'done' && warned(linkMixed, UNREADABLE(['R1-1', 7], 'the entries that are no id are cleared')) && JSON.stringify(linkMixed.res.rounds[1].findings[0].sameClassAs) === '["R1-1"]', detail(linkMixed))
+  const linkNone = await go('places: sameClassAs as an empty list', baseArgs, twoRounds([]))
+  check('places: an empty list states no link and warns of nothing', linkNone.res.status === 'done' && (linkNone.res.warnings || []).every((w) => !w.includes('sameClassAs')), detail(linkNone))
+
+  // The asks and the reviewer's file say the place.
+  check('places: every shape prompt asks for recommended on the call itself, and a review that is shown earlier findings for sameClassAs as a key of the finding, as the reviewer\'s file does', promptOf(endsOnCall, 'shape r1').includes('and, on the call itself, recommended (the label, as written, of the option you recommend)') && promptOf(linkNone, 're-review r2').includes('a key of that finding itself and never beside findings') && reviewerAgent.includes('a key of that finding itself and never beside `findings`'), promptOf(linkNone, 're-review r2').slice(-1500))
+
+  // The first layer (the follow-up of #127): the schemas of the agents that return these keys
+  // refuse a key they do not name, so one written a level out is refused in the agent's own
+  // run, with its path and its name, and nobody relaunches. A probe with one real agent
+  // measured it: a result with swept on the finding was refused with the words pinned below,
+  // and the corrected one was accepted. The harness runs no schema, so these checks read each
+  // schema object and run the table's misplaced results through schemaFaults.
+  const schemaOf = (r, label) => (pick(r.calls, label) || { opts: {} }).opts.schema || {}
+  const h = { id: 'H1-1', file: 'app/x.php', line: 1, side: 'RIGHT', category: 'human', severity: 'medium', confidence: 'confirmed', title: 'comment H1-1', description: 'Please change H1-1.', proposedFix: '', needsDecision: false, knownAs: '', source: '@marcamos', commentId: 900, threadId: 900, reviewId: 7 }
+  const humanArgs = (extra) => ({ ...baseArgs, firstRound: 3, ...(extra || {}), revise: { kind: 'human', n: 1, reviewer: 'marcamos', reviewIds: [7], body: '', specFolder: 'agent-os/specs/2026-10-20-1600-114-human-review-1', findings: [h], commentIds: { 'H1-1': 900 }, posted: true } })
+  const humanRun = await go('places: a human review pass', humanArgs(), { reviews: [[]], commitIds: [['H1-1']] })
+  const humanRules = await go('places: a human review pass in a repository with ask rules', humanArgs({ askRules: rules }), { reviews: [[]], commitIds: [['H1-1']] })
+  const bounced = await go('places: a round whose plan bounced once', baseArgs, fresh({ 'R1-1': instance }, { planBounce: 1 }))
+  const shaperSchemas = [[endsOnCall, 'shape r1'], [draftOnCall, 'shape r1'], [bounced, 'reshape r1 #1'], [humanRun, 'shape h1'], [humanRules, 'shape h1']].map(([r, label]) => [`${r === humanRules || r === draftOnCall ? 'with rules, ' : ''}${label}`, schemaOf(r, label)])
+  const closedObjects = (schema) => {
+    const finding = ((schema.properties || {}).findings || {}).items || {}
+    const cause = (finding.properties || {}).cause
+    const call = ((schema.properties || {}).judgmentCalls || {}).items || {}
+    const option = ((call.properties || {}).options || {}).items || {}
+    return { result: schema, finding, ...(cause ? { cause, 'a swept entry': ((cause.properties || {}).swept || {}).items || {} } : {}), call, option, draft: (option.properties || {}).draft || {} }
+  }
+  const open = shaperSchemas.flatMap(([name, schema]) => Object.entries(closedObjects(schema)).filter(([, object]) => object.additionalProperties !== false).map(([where]) => `${name}: ${where}`))
+  check('places: every shaper schema, a round\'s and a human pass\'s, with and without ask rules, at the shape and at a reshape, refuses unknown keys on the result, a finding, cause, a swept entry, a call, an option and its draft', shaperSchemas.every(([, schema]) => schema.type === 'object') && open.length === 0 && 'cause' in closedObjects(shaperSchemas[0][1]) && !('cause' in closedObjects(shaperSchemas[3][1])), open)
+  const linkSchema = schemaOf(linkNone, 're-review r2')
+  const firstSchema = schemaOf(linkNone, 'review r1')
+  check('places: a review that is asked for links refuses unknown keys on its result and on a finding, and the first review of a pull request with no earlier round keeps the schema it had, so it still replays', linkSchema.additionalProperties === false && linkSchema.properties.findings.items.additionalProperties === false && 'sameClassAs' in linkSchema.properties.findings.items.properties && !JSON.stringify(firstSchema).includes('additionalProperties') && firstSchema.type === 'object', [linkSchema.additionalProperties, Object.keys(firstSchema)])
+  check('places: a deferred entry and the resolve agent\'s result stay open, as the plan left them', !JSON.stringify(shaperSchemas[0][1].properties.deferred).includes('additionalProperties') && !JSON.stringify(schemaOf(named, 'resolve r1')).includes('additionalProperties') && schemaOf(named, 'resolve r1').type === 'object', Object.keys(schemaOf(named, 'resolve r1')))
+
+  // The table's misplaced results, held to the schemas.
+  const roundSchema = schemaOf(draftOnCall, 'shape r1')
+  const good = () => ({
+    specFolder: 'agent-os/specs/x',
+    findings: [{ id: 'R1-1', disposition: 'fix', decidedBy: 'redline', recommendation: 'r', files: ['app/x.php'], cause: { where: 'app/x.php', outcome: 'sweep', why: 'w', swept: [{ member: 'm', found: 'holds' }] } }, { id: 'R1-2', disposition: 'ask', decidedBy: 'pending', recommendation: 'Track it.', files: [], askRule: 'craft-config' }],
+    deferred: [],
+    judgmentCalls: [{ id: 'R1-2', title: 't', story: 's', why_human: 'repository rule craft-config', options: [{ label: 'Change it by hand', cost: 'c', effect: 'e', ends: 'fix' }, { label: 'Leave it', cost: 'c', effect: 'e', ends: 'accept' }, { label: 'Track it', cost: 'c', effect: 'e', ends: 'defer', draft: { ...draft } }], recommended: 'Track it', recommendation: 'Track it.', dependsOn: [] }],
+  })
+  const moved = (edit) => { const value = good(); edit(value); return schemaFaults(roundSchema, value) }
+  const REFUSED = (at, key) => `${at}: must NOT have additional properties ('${key}' is not allowed)`
+  check('places: a shaper result with every key in its place passes the schema', schemaFaults(roundSchema, good()).length === 0, schemaFaults(roundSchema, good()))
+  check('places: swept on the finding is refused with the words the real tool gave the probe', JSON.stringify(moved((v) => { v.findings[0].swept = v.findings[0].cause.swept; delete v.findings[0].cause.swept })) === JSON.stringify([REFUSED('/findings/0', 'swept')]) && REFUSED('/findings/0', 'swept') === '/findings/0: must NOT have additional properties (\'swept\' is not allowed)', moved((v) => { v.findings[0].swept = v.findings[0].cause.swept; delete v.findings[0].cause.swept }))
+  const misplaced = [
+    ['cause beside findings', (v) => { v.cause = { 'R1-1': v.findings[0].cause }; delete v.findings[0].cause }, REFUSED('root', 'cause')],
+    ['where on the finding', (v) => { v.findings[0].where = v.findings[0].cause.where; delete v.findings[0].cause.where }, REFUSED('/findings/0', 'where')],
+    ['outcome on the finding', (v) => { v.findings[0].outcome = 'sweep' }, REFUSED('/findings/0', 'outcome')],
+    ['why on the finding', (v) => { v.findings[0].why = 'w' }, REFUSED('/findings/0', 'why')],
+    ['member on cause', (v) => { v.findings[0].cause.member = 'm' }, REFUSED('/findings/0/cause', 'member')],
+    ['found on cause', (v) => { v.findings[0].cause.found = 'holds' }, REFUSED('/findings/0/cause', 'found')],
+    ['ends on the call', (v) => { v.judgmentCalls[0].ends = { 'Leave it': 'accept' } }, REFUSED('/judgmentCalls/0', 'ends')],
+    ['draft on the call', (v) => { v.judgmentCalls[0].draft = v.judgmentCalls[0].options[2].draft; delete v.judgmentCalls[0].options[2].draft }, REFUSED('/judgmentCalls/0', 'draft')],
+    ['a draft\'s title on the option', (v) => { v.judgmentCalls[0].options[2].title = 'Lock R1-2' }, REFUSED('/judgmentCalls/0/options/2', 'title')],
+    ['a key the draft does not hold', (v) => { v.judgmentCalls[0].options[2].draft.mitigation = '' }, REFUSED('/judgmentCalls/0/options/2/draft', 'mitigation')],
+    ['recommended on the finding', (v) => { v.findings[1].recommended = 'Track it' }, REFUSED('/findings/1', 'recommended')],
+    ['recommended inside an option', (v) => { v.judgmentCalls[0].options[2].recommended = true }, REFUSED('/judgmentCalls/0/options/2', 'recommended')],
+    ['sameClassAs from the shaper', (v) => { v.findings[0].sameClassAs = ['R0-1'] }, REFUSED('/findings/0', 'sameClassAs')],
+  ]
+  const passedSchema = misplaced.filter(([, edit, fault]) => !moved(edit).includes(fault)).map(([name, edit]) => `${name}: ${JSON.stringify(moved(edit))}`)
+  check('places: every other key of the table returned a level out by the shaper is refused by its schema, at the place it was put, by name', passedSchema.length === 0, passedSchema)
+  const review = (extra, findingExtra) => ({ round: 2, reviewed: 'fix-diff', findings: [{ ...f('R2-1', 'correctness'), ...(findingExtra || {}) }], resolved: [], summary: 'S', ...(extra || {}) })
+  check('places: a review with its link on the finding passes the schema, and one with the link beside findings, or as one id and no list, is refused', schemaFaults(linkSchema, review({}, { sameClassAs: ['R1-1'] })).length === 0 && schemaFaults(linkSchema, review({ sameClassAs: { 'R2-1': ['R1-1'] } })).includes(REFUSED('root', 'sameClassAs')) && schemaFaults(linkSchema, review({}, { sameClassAs: 'R1-1' })).length === 1 && schemaFaults(firstSchema, review({ sameClassAs: { 'R2-1': ['R1-1'] } })).length === 0, [schemaFaults(linkSchema, review({}, { sameClassAs: ['R1-1'] })), schemaFaults(linkSchema, review({ sameClassAs: {} })), schemaFaults(linkSchema, review({}, { sameClassAs: 'R1-1' }))])
+  // No example an agent is shown holds a key its schema refuses.
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const exampleOf = (text, key) => {
+    const from = text.indexOf(key)
+    const open = text.lastIndexOf('```json', from)
+    const fence = text.slice(text.lastIndexOf('\n', open) + 1, open)
+    return JSON.parse(text.slice(text.indexOf('\n', open) + 1, text.indexOf(`\n${fence}\`\`\``, from)))
+  }
+  const unnamed = (schema, value) => schemaFaults(schema, value).filter((fault) => fault.includes('must NOT have additional properties'))
+  const refusedExamples = [['the template', unnamed(roundSchema, exampleOf(read('templates', 'shape-spec-unattended.md'), '"specFolder"'))], ['this repository\'s section', unnamed(roundSchema, exampleOf(read('.claude', 'commands', 'agent-os', 'shape-spec.md'), '"specFolder"'))], ['the shaper\'s file', unnamed(roundSchema, exampleOf(read('agents', 'redline-shaper.md'), '"specFolder"'))], ['the reviewer\'s file', unnamed(linkSchema, exampleOf(reviewerAgent, '"reviewed"'))]].filter(([, faults]) => faults.length)
+  check('places: no return example an agent is shown, in the template, this repository\'s section, the shaper\'s file or the reviewer\'s, holds a key its schema refuses', refusedExamples.length === 0, refusedExamples)
+  check('places: the shaper\'s file and the reviewer\'s say a key the schema does not name is refused when they return', read('agents', 'redline-shaper.md').includes('refuses a key it does not name') && reviewerAgent.includes('refuses a key it does not name'), 'agents/redline-shaper.md, agents/redline-reviewer.md')
+  // What each schema refuses an unnamed key on is named (#127, R3-2): a deferred entry is open, so
+  // "refuses any key it does not name" was false of it, and a shaper that nested a deferred
+  // entry's draft under draft, as an option's is, met a stop that named no place.
+  check('places: the shaper\'s file says a deferred entry is open, and the reviewer\'s names the objects its schema refuses an unnamed key on', read('agents', 'redline-shaper.md').includes('a deferred entry is open') && reviewerAgent.includes('refuses a key it does not name on the result and on a finding'), 'agents/redline-shaper.md, agents/redline-reviewer.md')
+  const nestedDraft = await go('places: the shaper nests a deferred entry\'s draft under draft', baseArgs, { reviews: [[f('R1-1', 'correctness')]], defer: ['R1-1'], shapeKeys: { deferred: [{ id: 'R1-1', mitigation: '', fullFix: 'a lock', draft: { title: 'Lock R1-1', found: 'found', why: 'why' } }] }, commitIds: [[]] })
+  check('places: a deferred entry whose draft is nested under draft stops at shape with a message that says where its fields were found', stopsAtShape(nestedDraft, 'the shaper deferred R1-1 with no drafted issue (missing title, found, why); a deferred item always carries one; this entry carries a draft object, which is not read on a deferred entry: the entry holds title, found, why and fullFix itself, beside mitigation'), [nestedDraft.res && nestedDraft.res.status, nestedDraft.res && nestedDraft.res.error])
+}
+
+// ---------------------------------------------------------------------------
+// Template v6 (#105, #75, #126): the unattended section, in the template and in this repository's
+//     own copy, says what the shaper's file and the workflow's prompts say. Point 10's example
+//     shows `files` on every finding, as the shaper's file always did (#105), and the three
+//     rules the cases above pin in the agent files are pinned here in the section too.
+//     Template v7 (the follow-up of #127): a sweep's list is stated inside cause, an example
+//     shows one, and the example's call recommends what its recommendation says (#127, R2-2).
+// ---------------------------------------------------------------------------
+{
+  const read = (...parts) => fs.readFileSync(path.join(here, '..', ...parts), 'utf8')
+  const template = read('templates', 'shape-spec-unattended.md')
+  const section = read('.claude', 'commands', 'agent-os', 'shape-spec.md')
+  const shaperAgent = read('agents', 'redline-shaper.md')
+  const both = (phrase) => template.includes(phrase) && section.includes(phrase)
+  const missing = (phrases) => phrases.filter((phrase) => !both(phrase))
+  // The return example: the first fenced JSON block that holds a specFolder, parsed.
+  const exampleOf = (text) => {
+    const from = text.indexOf('"specFolder"')
+    const open = text.lastIndexOf('```json', from)
+    const fence = text.slice(text.lastIndexOf('\n', open) + 1, open)
+    return JSON.parse(text.slice(text.indexOf('\n', open) + 1, text.indexOf(`\n${fence}\`\`\``, from)))
+  }
+  const examples = { template: exampleOf(template), section: exampleOf(section), 'the shaper\'s file': exampleOf(shaperAgent) }
+  const lacking = (test) => Object.entries(examples).filter(([, example]) => !test(example)).map(([name]) => name)
+  check('template: the marker is v7, in the template and in this repository\'s section', both('<!-- redline-unattended: v7 -->'), [template.match(/redline-unattended: v\d+/), section.match(/redline-unattended: v\d+/)])
+  check('template: point 10\'s example lists files on every finding, in the template, the section and the shaper\'s file (#105)', lacking((example) => example.findings.length > 0 && example.findings.every((finding) => Array.isArray(finding.files))).length === 0, lacking((example) => example.findings.every((finding) => Array.isArray(finding.files))))
+  check('template: the example\'s fix carries its cause, every option of its call what it ends in, and the call a recommended option that is one of them', lacking((example) => example.findings.filter((finding) => finding.disposition === 'fix').every((finding) => finding.cause && ['one-place', 'sweep', 'instance'].includes(finding.cause.outcome) && finding.files.includes(finding.cause.where)) && example.judgmentCalls.every((call) => call.options.every((option) => ['fix', 'defer', 'accept'].includes(option.ends)) && call.options.some((option) => option.label === call.recommended))).length === 0, examples.template.judgmentCalls)
+  check('template: the sentence under the example names files on every finding, the cause of a fix, and what a call\'s options carry', missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']).length === 0, missing(['Every finding also carries `files`, the paths its task creates or changes, an empty list when it has no task', 'A `fix` also carries `cause` (point 5)', 'Each option of a call carries `ends` (`fix`, `defer` or `accept`), and the call carries `recommended`', 'on a call for a finding left to the person (point 4), also carries `draft`, and no other option does']))
+  // v7: the keys an example shows are shown in their place. A sweep's list is inside cause in
+  // every example and on no finding; a call recommends what its recommendation says, an option
+  // that ends in accept for no change and no files (#127, R2-2); every ask has its call; and the
+  // shaper's file shows a drafted option on its rule finding's call, on that option alone.
+  const sweepShown = (example) => example.findings.some((finding) => finding.cause && finding.cause.outcome === 'sweep' && Array.isArray(finding.cause.swept) && finding.cause.swept.length > 1 && finding.cause.swept.every((entry) => typeof entry.member === 'string' && ['holds', 'fixed'].includes(entry.found))) && example.findings.every((finding) => !('swept' in finding))
+  check('template: an example fix is a sweep with its list inside cause, and no finding carries swept, in the template, the section and the shaper\'s file', lacking(sweepShown).length === 0, lacking(sweepShown))
+  const callsAgree = (example) => example.findings.filter((finding) => finding.disposition === 'ask').every((finding) => example.judgmentCalls.filter((call) => call.id === finding.id).length === 1) && example.judgmentCalls.every((call) => {
+    const finding = example.findings.find((x) => x.id === call.id) || { files: ['?'] }
+    const recommended = call.options.find((option) => option.label === call.recommended) || {}
+    return finding.recommendation === call.recommendation && (recommended.ends !== 'accept' || (finding.files.length === 0 && call.recommendation === 'Accept, no change.'))
+  })
+  check('template: every ask of an example has its call, and a call that recommends an option ending in accept recommends no change and lists no files (#127, R2-2)', lacking(callsAgree).length === 0 && !template.includes('Accept; add a comment') && !section.includes('Accept; add a comment') && !shaperAgent.includes('Accept; add a comment'), lacking(callsAgree))
+  const draftShown = examples['the shaper\'s file'].judgmentCalls.filter((call) => /^repository rule /.test(call.why_human))
+  check('template: the shaper\'s file shows the call of its rule finding with a drafted issue on the option that ends in defer, and on no other option', draftShown.length === 1 && draftShown[0].options.some((option) => option.ends === 'defer' && option.draft && ['title', 'found', 'why', 'fullFix'].every((key) => typeof option.draft[key] === 'string' && option.draft[key] !== '')) && examples['the shaper\'s file'].judgmentCalls.every((call) => !('draft' in call) && call.options.every((option) => option.ends === 'defer' || !('draft' in option))), draftShown)
+  const nestedList = ['returned inside `cause`, as `cause.swept`, never on the finding beside it', 'inside `cause` beside them and never on the finding itself']
+  check('template: point 5 and the sentence under the example say a sweep\'s list sits inside cause, as the shaper\'s file does', missing(nestedList).length === 0 && nestedList.every((phrase) => shaperAgent.includes(phrase)) && !template.includes('returned as `swept`') && !section.includes('returned as `swept`'), missing(nestedList))
+  const ends = ['Every option of a call states what choosing it ends in, in `ends`', 'The call names the option you recommend in `recommended`, by its label as written', 'the pending entry lists each option with its end']
+  check('template: point 3 says every option states what it ends in and the call names the recommended one (#105)', missing(ends).length === 0 && shaperAgent.includes(ends[0]), missing(ends))
+  const left = ['make the change by hand after the run, which ends in `fix`, or accept it as it is, which ends in `accept`', 'an option that ends in `defer` and carries its drafted issue in `draft`', 'Redline then files that draft, plans no task and writes nothing under the rule', 'A `draft` is read on that option alone']
+  check('template: point 4 says a call for a finding left to the person may offer an option that ends in defer, with its drafted issue (#126)', missing(left).length === 0 && shaperAgent.includes(left[1]), missing(left))
+  const klass = ['**Instance or class.**', '`one-place`, the fix is made where the cause lives', '`holds` when you measured it and the code as it stands already handles it', '`fixed` when you measured it exposed and this task\'s change closes it', 'fits neither value, and then the outcome is not a sweep', 'A finding may also carry `sameClassAs`', 'so its fix is `one-place` or `sweep`, never `instance`']
+  check('template: point 5 has the step between investigating and sorting, its three outcomes, what each found value means and what a link asks (#75)', missing(klass).length === 0 && klass.slice(0, 5).every((phrase) => shaperAgent.includes(phrase)), missing(klass))
+  check('template: the section stays numbered as it was, so the fill-ins and a repository\'s own points keep their places', ['1. **Plan mode.**', '5. **Investigate before you sort.**', '10. **What you return.**'].every((point) => both(point)) && template.includes('11. **The PR description.**') && section.includes('11. **The guard and the hook.**') && !/^12\. /m.test(template.slice(template.indexOf('## Unattended mode (Redline)'))), 'templates/shape-spec-unattended.md')
+}
+
 check('no prompt of any scenario holds a For the person section or asks for a forThePerson list', forThePerson.length === 0, forThePerson.slice(0, 5))
 check('no shaper prompt of any scenario names decided findings unless the plan approver before it was shown a decision', strayDecidedBlock.length === 0, strayDecidedBlock.slice(0, 5))
 check('no reshape prompt that names decided findings asks an ask for its recommended paths in a clause that covers them too', doubleFilesAsk.length === 0, doubleFilesAsk.slice(0, 5))
-check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the seventeen sites\' stops, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
+check('every error result of every scenario says in ownCheck whether its stop was the workflow\'s own check of what an agent returned: true for the stops of the sites listed, false for every other', ownWrong.length === 0, [ownWrong.length, ownWrong.slice(0, 5)])
 check('no reshape prompt of any scenario tells the shaper to rewrite the spec folder from scratch', rewrittenReshape.length === 0, rewrittenReshape.slice(0, 5))
 check('no prompt of a run that passes no resume entry holds the resume line or one of its clauses', strayResumeWords.length === 0, strayResumeWords.slice(0, 5))
 check('each stop that is the workflow\'s own check is reached by a scenario, resumable and with ownCheck true', OWN_CHECKS.every((k) => k.seen > 0), OWN_CHECKS.filter((k) => k.seen === 0).map((k) => String(k.re)))

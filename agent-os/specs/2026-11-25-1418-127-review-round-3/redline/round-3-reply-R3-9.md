@@ -1,0 +1,1 @@
+Redline round 3: fixed in f51f4a6 (redline: R3-9 keep the first entry of a left deferral when a later resolve returns another (#105)). · decided by: redline

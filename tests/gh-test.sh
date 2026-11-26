@@ -36,7 +36,10 @@
 # issue comment, a decided reply that only mentions a decline, and a rule's tail and reply naming the
 # person by login and by the no-login fallback. PR 19 is the #95 fixture: one round whose replies
 # open "deferred to #<n>" and "deferred; the issue draft is at", beside a dropped draft's reply and
-# a deferral the person chose, which open with the decision. The shim is the
+# a deferral the person chose, which open with the decision. PR 22 is the #126 fixture: one round
+# whose three findings were left to the person and deferred by them, so each reply keeps its
+# opening and ends with where the drafted issue went: under a repository rule to an issue and to
+# a draft file, and under the rule on Redline's own files. The shim is the
 # one place a `gh api graphql` call is read rather than refused: a query serves the pages, a
 # mutation appends its thread id and its text to $PAGES/resolved.log, which the cases read to pin
 # which threads were resolved and that the mutation is the script's fixed string. It also answers
@@ -132,7 +135,7 @@ leftover_gh() {
 # The two pages of PR 7's files: generated filler around the special files, 150 in all.
 jq -n '[range(100) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}]' > "$WORK/pages/files-7-page1.json"
 jq -n --slurpfile special "$FIX/files-7-special.json" '[range(100; 144) | {filename: "app/Gen\(.).php", status: "modified", previous_filename: null, patch: "@@ -1,2 +1,2 @@\n-old \(.)\n+new \(.)\n keep"}] + $special[0]' > "$WORK/pages/files-7-page2.json"
-cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$FIX/reviews-18.json" "$FIX/comments-18.json" "$FIX/issue-comments-18.json" "$FIX/reviews-19.json" "$FIX/comments-19.json" "$FIX/issue-comments-19.json" "$WORK/pages/"
+cp "$FIX/reviews-7.json" "$FIX/reviews-8.json" "$FIX/reviews-10.json" "$FIX/comments-10.json" "$FIX/issue-comments-10.json" "$FIX/reviews-11.json" "$FIX/comments-11.json" "$FIX/issue-comments-11.json" "$FIX/reviews-12.json" "$FIX/comments-12.json" "$FIX/issue-comments-12.json" "$FIX/threads-13-page1.json" "$FIX/threads-13-page2.json" "$FIX/reviews-14.json" "$FIX/comments-14.json" "$FIX/issue-comments-14.json" "$FIX/reviews-15.json" "$FIX/comments-15.json" "$FIX/issue-comments-15.json" "$FIX/reviews-16.json" "$FIX/comments-16.json" "$FIX/issue-comments-16.json" "$FIX/reviews-17.json" "$FIX/comments-17.json" "$FIX/issue-comments-17.json" "$FIX/reviews-18.json" "$FIX/comments-18.json" "$FIX/issue-comments-18.json" "$FIX/reviews-19.json" "$FIX/comments-19.json" "$FIX/issue-comments-19.json" "$FIX/reviews-22.json" "$FIX/comments-22.json" "$FIX/issue-comments-22.json" "$WORK/pages/"
 # PR 8 has no inline comment and one plain issue comment; the fake gh's user is the author.
 echo '[]' > "$WORK/pages/comments-8.json"
 echo '[{"id": 1, "user": {"login": "marcamos"}, "body": "Looks fine."}]' > "$WORK/pages/issue-comments-8.json"
@@ -433,6 +436,9 @@ case "$endpoint" in
     "repos/{owner}/{repo}/pulls/19/reviews") pages=("$PAGES/reviews-19.json") ;;
     "repos/{owner}/{repo}/pulls/19/comments") pages=("$PAGES/comments-19.json") ;;
     "repos/{owner}/{repo}/issues/19/comments") pages=("$PAGES/issue-comments-19.json") ;;
+    "repos/{owner}/{repo}/pulls/22/reviews") pages=("$PAGES/reviews-22.json") ;;
+    "repos/{owner}/{repo}/pulls/22/comments") pages=("$PAGES/comments-22.json") ;;
+    "repos/{owner}/{repo}/issues/22/comments") pages=("$PAGES/issue-comments-22.json") ;;
     "repos/{owner}/{repo}/pulls/20/files") pages=("$PAGES/files-20-page1.json") ;;
     "repos/{owner}/{repo}/pulls/20") pages=("$PAGES/pull-20.json") ;;
     "repos/{owner}/{repo}/pulls/20/comments") pages=("$PAGES/comments-20.json") ;;
@@ -883,6 +889,16 @@ is "#95 forms: a reply that opens deferred to #<n> is deferred" "$(jq -c '.[0] |
 is "#95 forms: a reply that opens deferred; the issue draft is at is deferred" "$(jq -c '.[1] | [.id, .disposition]' <<<"$pf19")" '["R1-2","deferred"]'
 is "#95 forms: a dropped draft's reply, which opens with the person's decision, is decided" "$(jq -c '.[2] | [.id, .disposition]' <<<"$pf19")" '["R1-3","decided"]'
 is "#95 forms: a deferral the person chose, whose reply ends Deferred to #<n>, is decided" "$(jq -c '.[3] | [.id, .disposition]' <<<"$pf19")" '["R1-4","decided"]'
+# The #126 replies (PR 22): a finding left to the person that they deferred keeps the opening of a
+# left finding's reply and ends with where its drafted issue went. The script reads a reply by its
+# opening, so nothing in it changed: under a repository rule the reply still reads as left, with an
+# issue's number or a draft's path at its end, and on Redline's own files as decided, as before.
+pf22="$(gh prior-findings 22)"; code=$?
+is "#126 forms: prior-findings exits 0" "$code" "0"
+is "#126 forms: a left reply under a repository rule that ends Deferred to #<n> is still left, its rule tail off the title" "$(jq -c '.[0] | [.id, .disposition, .title, .reply.id]' <<<"$pf22")" '["R1-1","left","Field handle renamed in project config",2211]'
+is "#126 forms: the reply is read back whole, the issue's number at its end" "$(jq -r '.[0].reply.body' <<<"$pf22")" "left to @author under repository rule craft-config (Craft project config is applied through the control panel). The author tracks the rename in an issue and makes it after the merge. Deferred to #843. · decided by: @author"
+is "#126 forms: a left reply under the rule on Redline's own files that ends Deferred to #<n> is decided, as such a reply always was" "$(jq -c '.[1] | [.id, .disposition, .reply.id]' <<<"$pf22")" '["R1-2","decided",2212]'
+is "#126 forms: a left reply under a repository rule that ends with a draft's path is still left" "$(jq -c '.[2] | [.id, .disposition, .title]' <<<"$pf22")" '["R1-3","left","Section handle renamed in project config"]'
 
 echo "# human-review and last-human-review"
 hr="$(gh human-review 10 @marcamos)"; code=$?

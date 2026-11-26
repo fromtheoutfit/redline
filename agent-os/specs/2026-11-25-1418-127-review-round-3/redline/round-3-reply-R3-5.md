@@ -1,0 +1,1 @@
+Redline round 3: fixed in 4824c91 (redline: R3-5 clear a class link that names an id the review renamed (#105)). · decided by: redline

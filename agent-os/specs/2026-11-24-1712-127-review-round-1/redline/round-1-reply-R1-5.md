@@ -1,0 +1,1 @@
+Redline round 1: deferred to #128. Mitigated in cd69669 (redline: R1-5 name every fault of checkCauses and checkOptions in one error (#105)). · decided by: redline

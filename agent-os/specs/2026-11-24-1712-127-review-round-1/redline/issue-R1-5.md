@@ -1,0 +1,9 @@
+# Name every failure in one error in the shaper's older result checks
+
+Three of the checks `vetShape` in `workflows/redline-loop.js` runs on the shaper's result throw at the first failing finding or call: `checkCalls` (a judgment call returned for a finding not sorted as ask), `checkWhy` (a call asked for a reason outside the round's cases) and `checkDrafts` (a deferral with no complete drafted issue). Each is a stop the shaper corrects on a resume, and a reshape is told to "correct what the error names", so a result with two such faults is told of one, corrects it and stops again on the next, one relaunch per fault. `agent-os/standards/workflow/replay.md` asks that such a stop name every failure of its check in one error. `checkDeclineReasons`, the unsorted check and the ask-with-no-call half of `checkCalls` already list every id, and pull request #127 brought its two new checks, `checkCauses` and `checkOptions`, in line. `vetShape` also runs the checks one after another, so a result that fails two different checks still stops once per check.
+
+- **Where:** `workflows/redline-loop.js:3631`
+- **Why it is not fixed in #127:** The three checks predate pull request #127, which set out to add the option ends, the cause of a fix and the deferral of a left finding; closing them here would change stops that pull request did not touch.
+- **Proposed fix:** Have `checkCalls`, `checkWhy` and `checkDrafts` each collect every failing finding or call and throw one `checkError` naming them all, as `checkDeclineReasons` does, keeping the text of a single failure byte-identical; consider having `vetShape` gather the faults of every check after `forceAskRules` into one error so a result that fails two checks stops once; add a loop case per check with two failures that names both.
+
+Deferred from pull request #127 by Redline (round 1, finding R1-5).

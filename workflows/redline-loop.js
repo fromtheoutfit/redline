@@ -235,6 +235,15 @@ const AUTOPILOT = 'redline (autopilot)'
 // the check demands, an issue with or without a mitigation, or no change.
 const CALL_ENDS = ['fix', 'defer', 'accept']
 const decisions = A.decisions && typeof A.decisions === 'object' && !Array.isArray(A.decisions) ? { ...A.decisions } : {}
+// Every entry is one finding's decision, an object (the follow-up of #127). A key of a decision
+// written one level out, beside the entries ("option": "Accept" next to "R1-1": {...}), is an
+// entry that is none: until then it was skipped by every reader, so a pick lost its option with
+// no word. It is refused here, before any agent runs, as a decision's other faults are.
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+    fail(`args.decisions must map each finding id to an object, that finding's decision ({"choice", "notes", "date"}, with "option" or "disposition" inside it when it carries one); got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
 // A decision that names its own disposition names one of the three (#108, R2-6): the skill
 // records only fix, defer or accept, and every reader of the field matches those exact values,
 // so any other would be neither checked at resolve nor demanded at the check. Until #99 a
@@ -252,6 +261,46 @@ for (const [id, entry] of Object.entries(decisions)) {
   } else if (entry && typeof entry === 'object' && entry.disposition !== undefined && !CALL_ENDS.includes(entry.disposition)) {
     fail(`args.decisions must give a disposition of ${CALL_ENDS.join(' | ')} when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
   }
+}
+// A decision that picks one of its call's options names it in `option`, by the option's label
+// (#105): the skill records it for a pick in the question, and for a label typed as written.
+// The round that applies the decision gives it the option's end as its disposition (resolveWith),
+// so a pick never carries one of its own: the two together would be two sources for one fact,
+// and they are refused here, before any agent runs. An empty string or a null names no option,
+// as for a disposition above, and is dropped from the run's copy; any other value that is not a
+// string is refused. A decision with no option is an answer in the person's own words.
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || entry.option === undefined) {
+    continue
+  }
+  if (entry.option === null || entry.option === '') {
+    const { option: _dropped, ...rest } = entry
+    decisions[id] = rest
+  } else if (typeof entry.option !== 'string') {
+    fail(`args.decisions must give an option as a string, the label of the option picked, when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  } else if (entry.disposition !== undefined) {
+    fail(`args.decisions must not give both an option and a disposition: a pick takes its disposition from the option it names, and a typed disposition names no option; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+}
+// A decision marked as an answer to a judgment call carries "call": true (#127, R3-4). The typed
+// defer for a finding left to the person is the one answer to a call that carries a disposition
+// (#126), and a decision answering a call a reshape raised enters only with that call
+// (agent-os/standards/workflow/replay.md, line 6), never as a plan-dial override: until R3-4 a
+// defer typed at a reshape's stop was read on the relaunch, whose first shape raised no call for
+// it, as an override, and a first resolve the launch never ran planned it. The mark is true or
+// absent, and any other value is refused here, before any agent runs. A marked id is kept in
+// callAnswers and the key is dropped from the run's copy, so no prompt shows it.
+const callAnswers = new Set()
+for (const [id, entry] of Object.entries(decisions)) {
+  if (!entry || typeof entry !== 'object' || entry.call === undefined) {
+    continue
+  }
+  if (entry.call !== true) {
+    fail(`args.decisions must give call as true, the mark of an answer to a judgment call, when it gives one; got ${JSON.stringify(id)}: ${JSON.stringify(entry)}`)
+  }
+  const { call: _mark, ...rest } = entry
+  decisions[id] = rest
+  callAnswers.add(id)
 }
 // plan dial: the passes whose disposition list the person approved (relaunch carries them all):
 // a Redline round by its number, a human review pass as h<n> (passOf's planKey), so a pass and
@@ -406,6 +455,11 @@ const declinedUnder = (nitPass) => `declined: outside ${scopeName(nitPass)} (cor
 // The outcomes that settle a finding's thread once its reply is posted: Finish resolves it. A
 // decline is one since #93; a dropped, left or not-changed finding stays open for the person.
 const SETTLED_KINDS = ['fixed', 'deferred', 'declined', 'decided']
+// A finding left to the person settles its thread in one case (#126): the person deferred it and
+// its drafted issue was filed, as an issue or as a draft file, so the thread's open question is
+// tracked. Left to be changed by hand, accepted, left by autopilot, or with its draft dropped, it
+// stays open, as before.
+const settles = (record, id, kind) => SETTLED_KINDS.includes(kind) || (kind === 'left' && Boolean((record.filed || {})[id]))
 // A finding on one of Redline's own files (#94, R8-4): the why_human its call gives, and the reason
 // its forced entry records. forceAskRules records it as it records a finding a repository ask rule
 // covers, so it is left to the person on every dial: on autopilot it is never decided, its line
@@ -659,10 +713,10 @@ function stageError(stage, message, extra, label) {
 // corrects what it returned, and nothing needs fixing by hand first. The error result says so in
 // ownCheck, which the skill reads for its report and carries, through the run marker, into the
 // resume entry, where resumeLine reads it. So the fact is stated once, where the stop is raised,
-// and no reader goes by how an error is worded. Seventeen sites raise one: the resolve's eight
+// and no reader goes by how an error is worded. Three groups of sites raise one: the resolve's
 // checks of the result it returned, the hold of a decided finding to its task after a reshape,
-// and the shaper's eight checks of its result. The spec check is not one: a missing file can be
-// a Write that was refused, which a person does fix.
+// and the checks of the shaper's result (vetShape's, after the spec check). The spec check is
+// not one: a missing file can be a Write that was refused, which a person does fix.
 function checkError(stage, message, extra, label) {
   return Object.assign(stageError(stage, message, extra, label), { ownCheck: true })
 }
@@ -843,18 +897,30 @@ const COVERAGE_SCHEMA = {
   properties: { index: int, outcome: { type: 'string', enum: COVERAGE_OUTCOMES }, ref: str },
 }
 
-const REVIEW_SCHEMA = {
+// A review's schema, built for the call (#75): `links` adds sameClassAs to a finding, the ids of
+// earlier findings the verifier judges to be one class with it. Only a review whose prompt lists
+// earlier findings is asked for it (showsEarlier), in its prompt and in its schema, so the first
+// review of a pull request with no earlier round is the call it was before #75 and replays.
+// A review that is asked for links also refuses a key its schema does not name, on the result
+// and on a finding (the follow-up of #127): a link written beside findings is then refused in
+// the reviewer's own run, with its path and its name, where the workflow could only warn and
+// clear it. The first review of a pull request with no earlier round keeps the schema it had,
+// for the same reason it keeps its prompt.
+const reviewSchema = (links) => ({
   type: 'object',
+  ...(links ? { additionalProperties: false } : {}),
   required: ['round', 'reviewed', 'findings', 'resolved', 'summary'],
   properties: {
     round: int,
     reviewed: { type: 'string', enum: ['pr', 'fix-diff', 'final-nit-pass'] },
-    findings: { type: 'array', items: FINDING_SCHEMA },
+    findings: { type: 'array', items: links ? { ...FINDING_SCHEMA, additionalProperties: false, properties: { ...FINDING_SCHEMA.properties, sameClassAs: strings } } : FINDING_SCHEMA },
     resolved: { type: 'array', items: { type: 'object', required: ['id', 'why'], properties: { id: str, why: str } } },
     summary: str,
     coverage: { type: 'array', items: COVERAGE_SCHEMA },
   },
-}
+})
+const REVIEW_SCHEMA = reviewSchema(false)
+const REVIEW_SCHEMA_LINKS = reviewSchema(true)
 
 const POST_SCHEMA = {
   type: 'object',
@@ -921,10 +987,20 @@ const SPEC_STATUS_SCHEMA = {
 // ROUND_WHY (#93) and a human review pass's HUMAN_WHY, each with the rule reasons, so a value from
 // the other pass is refused by the shaper's structured output inside its own run, and checkWhy
 // stays the second layer (#94, R1-5, R1-12, R1-13).
+// Every option states what choosing it ends in (#105), `ends`, one of the three a call's decision
+// can end in, and the call names the option the shaper recommends by its label, `recommended`;
+// `recommendation` stays the sentence a person reads. The person is shown each option's end
+// before deciding, and a decision that picks an option takes that end as its disposition
+// (resolveWith), so the end is stated before the decision and never read from a label or from
+// prose. Both are required in both passes' schemas, and checkOptions is the second layer.
+// A call, an option and a draft each refuse a key the schema does not name (the follow-up of
+// #127; see shapeSchema), so ends or draft written on the call, or recommended on an option, is
+// refused in the shaper's own run.
 function judgmentCallSchema(reasons) {
   return {
     type: 'object',
-    required: ['id', 'title', 'story', 'why_human', 'options', 'recommendation', 'dependsOn'],
+    additionalProperties: false,
+    required: ['id', 'title', 'story', 'why_human', 'options', 'recommended', 'recommendation', 'dependsOn'],
     properties: {
       id: str,
       title: str,
@@ -932,8 +1008,13 @@ function judgmentCallSchema(reasons) {
       why_human: { type: 'string', enum: reasons.concat(askRules.map((rule) => `repository rule ${rule.id}`)) },
       options: {
         type: 'array',
-        items: { type: 'object', required: ['label', 'cost', 'effect'], properties: { label: str, cost: str, effect: str } },
+        // `draft` (#126) is the drafted issue of an option that ends in defer, on a call for a
+        // finding left to the person: Redline files it when the person picks that option. Its
+        // fields are checked by the workflow (checkOptions), not required here, as a deferred
+        // entry's are; on any other option it is dropped.
+        items: { type: 'object', additionalProperties: false, required: ['label', 'cost', 'effect', 'ends'], properties: { label: str, cost: str, effect: str, ends: { type: 'string', enum: CALL_ENDS }, draft: { type: 'object', additionalProperties: false, properties: { title: str, found: str, why: str, fullFix: str } } } },
       },
+      recommended: str,
       recommendation: str,
       dependsOn: strings,
     },
@@ -991,9 +1072,36 @@ function firstPerId(list) {
 // The shaper's schema, one per pass (#94, R1-5, R1-12): only its judgment calls' why_human enum
 // and its disposition enum differ, so a Redline round's shaper is refused a human pass's reason in
 // its own run, and the other way about.
-function shapeSchema(reasons, dispositions) {
+// A Redline round's finding may carry `cause` (#75): for a fix, where its cause lives, what the
+// fix makes of it and why, and for a sweep what the sweep covered. It is not required here,
+// since only a fix has one; checkCauses holds every fix of the shaper's own to it. A human
+// review pass has no such step, so its schema has no such key (`cause` false).
+const CAUSE_OUTCOMES = ['one-place', 'sweep', 'instance']
+const SWEPT_FOUND = ['holds', 'fixed']
+// The shaper's result refuses a key its schema does not name (the follow-up of #127), on the
+// result, a finding, cause, an entry of swept, a call, an option and its draft: a key written a
+// level out (swept on the finding, beside cause, as #127's round 2 returned it twice) is then
+// refused in the shaper's own run and corrected there, and nobody relaunches. A probe with one
+// real agent measured it: such a result was refused with "/findings/0: must NOT have additional
+// properties ('swept' is not allowed)". A schema that only names a key inside cause accepts the
+// same key beside it, which is how both real returns got through. The workflow's own checks
+// stay as the second layer, for a result the schema did not hold. A deferred entry keeps the
+// schema it shares with the resolve agent's.
+const CAUSE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['where', 'outcome', 'why'],
+  properties: {
+    where: str,
+    outcome: { type: 'string', enum: CAUSE_OUTCOMES },
+    why: str,
+    swept: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['member', 'found'], properties: { member: str, found: { type: 'string', enum: SWEPT_FOUND } } } },
+  },
+}
+function shapeSchema(reasons, dispositions, cause) {
   return {
     type: 'object',
+    additionalProperties: false,
     required: ['specFolder', 'findings', 'deferred', 'judgmentCalls'],
     properties: {
       specFolder: str,
@@ -1001,6 +1109,7 @@ function shapeSchema(reasons, dispositions) {
         type: 'array',
         items: {
           type: 'object',
+          additionalProperties: false,
           // `files` is required (#100): the round reads whether a deferral planned a mitigation from
           // it, so an empty list has to mean no task, never a list the shaper was not asked for.
           required: ['id', 'disposition', 'decidedBy', 'recommendation', 'files'],
@@ -1030,6 +1139,7 @@ function shapeSchema(reasons, dispositions) {
             // plannedFiles reads the paths of a deferral (#100).
             files: strings,
             askRule: str,
+            ...(cause ? { cause: CAUSE_SCHEMA } : {}),
           },
         },
       },
@@ -1054,7 +1164,30 @@ const FILES_ASK = 'files (the paths its task creates or changes, an empty list w
 // forceAskRules matches against the paths rules (#114, R2-4). It is used only beside the block,
 // so a reshape prompt with no block keeps FILES_ASK, byte for byte.
 const FILES_ASK_DECIDED = 'files (the paths its task creates or changes, an empty list when it has no task; for an ask not named above as decided, the paths its recommended change would touch; for a finding named above as decided, the paths of its task as plan.md holds it)'
-const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask']), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none']) }
+// How every shape prompt asks for what a call's options end in and for the recommended option
+// (#105): a field the record is read from is required in its schema and asked for in every
+// prompt that returns it, so the answer does not depend on the agent file the session loaded.
+// The second half (#126) is the draft of a left call's defer option. It sits here, in the
+// sentence every shape prompt ends with, and not in the ask-rules block: that block is shared
+// with the reviewer's and the plan approver's prompts, which this ask does not concern, and a
+// finding on one of Redline's own files is left to the person in a repository with no rules.
+// A repository with no rules is told of Redline's own files alone, so no rule text reaches its
+// prompts (#49). A human pass never leaves a finding on one of Redline's own files to the person
+// (forceAskRules records one only when !pass.human), so its sentence names a rule call alone,
+// and in a repository with no rules carries no left-call clause at all (#127, R1-2).
+const LEFT_CALL = askRules.length ? 'a finding left to the person (one a repository ask rule covers, or one on a file of Redline\'s own)' : 'a finding on a file of Redline\'s own, which is left to the person'
+const ENDS_ASK = 'ends on every option (what choosing it ends in: fix, a change in this pull request that leaves nothing to track elsewhere; defer, an issue, with or without a mitigation now; accept, no change) and, on the call itself, recommended (the label, as written, of the option you recommend)'
+const LEFT_DRAFT_ASK = ', an option that ends in defer also carries draft, its drafted issue as title, found, why and fullFix, and no other option carries one'
+const OPTIONS_ASK = `${ENDS_ASK}; on a call for ${LEFT_CALL}${LEFT_DRAFT_ASK}`
+const HUMAN_OPTIONS_ASK = askRules.length ? `${ENDS_ASK}; on a call for a finding a repository ask rule covers, which is left to the person${LEFT_DRAFT_ASK}` : ENDS_ASK
+// How a Redline round's shape prompts ask for the cause of a fix (#75), with what each value
+// means, since the record is read from it: the outcomes, and what a sweep's entries say.
+// It says where each key sits (the follow-up of #127): cause is an object on the finding, and a
+// sweep's list is inside it. Until then the ask said "with swept listing every member", the
+// template and the shaper's file said "and for a sweep also swept", and the shaper of #127's
+// round 2 returned the list on the finding, beside cause, twice.
+const CAUSE_ASK = 'for a fix also cause, an object on the finding that says where its cause lives and what the fix makes of it: where (a path in the repository), outcome (one-place: the fix is made where the cause lives, so where is one of its files; sweep: the fix is this instance and a sweep of the class; instance: the cause is not a class) and why (one sentence), and for a sweep also swept, inside cause beside where, outcome and why and never on the finding itself: a list of every member the sweep measured, each entry as member and found, holds when the code as it stands already handles it and fixed when it was exposed and this task\'s change closes it'
+const SHAPE_SCHEMAS = { round: shapeSchema(ROUND_WHY, ['fix', 'decline', 'defer', 'ask'], true), human: shapeSchema(HUMAN_WHY, ['fix', 'ask', 'none'], false) }
 
 const RESOLVE_SCHEMA = {
   type: 'object',
@@ -1069,10 +1202,12 @@ const RESOLVE_SCHEMA = {
     // What each judgment call's decision ends in (#99), one entry per call the resolve was asked
     // to state. The workflow reads a call's disposition from here, never from its deferred entry
     // or its task. An override and a call whose decision names its own disposition (#108, R1-2)
-    // name theirs, and a call left to the person under a rule has none to read, so none of them
-    // has an entry. The list is required, so an empty one means no call needed a statement. A
-    // result recorded before #99 holds no list, and can replay only for a resolve with no call,
-    // whose prompt did not change; resolveWith reads an absent list as empty.
+    // name theirs, a call answered by picking an option included, whose decision carries the
+    // option's end (#105); a call left to the person under a rule has none to read. So none of
+    // them has an entry, and since #105 the list holds the calls answered in the person's own
+    // words and no others. The list is required, so an empty one means no call needed a
+    // statement. A result recorded before #99 holds no list, and can replay only for a resolve
+    // with no call, whose prompt did not change; resolveWith reads an absent list as empty.
     decided: {
       type: 'array',
       items: { type: 'object', required: ['id', 'disposition'], properties: { id: str, disposition: { type: 'string', enum: CALL_ENDS } } },
@@ -1562,11 +1697,16 @@ function withOwner(decision) {
   return { ...decision, decidedBy: decision.decidedBy === AUTOPILOT ? AUTOPILOT : personLabel }
 }
 
-// autopilot: the shaper's recommendation becomes the decision, attributed to the autopilot.
+// autopilot: the shaper's recommendation becomes the decision, attributed to the autopilot. It
+// is a pick of the option the call names in `recommended` (#105), so it carries that label as
+// its option and takes the option's end like a person's pick (resolveWith); the choice and the
+// notes stay the recommendation's sentence, which is what is recorded and posted. Until #105
+// the resolve agent matched that sentence to an option and stated what it ended in.
 function autopilotDecision(call) {
   const recommendation = (call.recommendation || '').trim().replace(/\.$/, '')
   return {
     choice: recommendation,
+    option: call.recommended,
     notes: `Autopilot took the shaper's recommendation: ${recommendation}.`,
     date: launchDate,
     decidedBy: AUTOPILOT,
@@ -1736,7 +1876,10 @@ function replyBody(pass, outcome) {
       // "declined: " back as the disposition, so a later run never raises the finding again.
       return `${pass.title}: declined: ${outcome.reason}${owner}`
     case 'left':
-      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under ${leftUnder(outcome)} (${outcome.reason}). ${outcome.notes}${owner}`
+      // A left finding the person deferred closes with where its drafted issue went (#126). The
+      // reply still opens "left to ... under", so redline-gh.sh prior-findings reads it back as
+      // left under a repository rule, and as decided on Redline's own files, as before.
+      return `${pass.title}: left to ${pass.human ? 'the author' : personLabel} under ${leftUnder(outcome)} (${outcome.reason}). ${outcome.notes}${draftClose(outcome)}${owner}`
     case 'dropped':
       return `${pass.title}: not acted on in this run. ${outcome.reason}${owner}`
     case 'none':
@@ -1760,6 +1903,12 @@ Operation: gather (round ${round}). Run \`${GH} pr ${pr}\` once and return its f
 // `candidates` is the coverage pass's list on a round that ran one (#79), null otherwise: with
 // null the prompt carries no candidates block and none of its rules, so `coverage off` is the
 // reviewer alone under the same contract (#93): facts only, no accounting.
+// Whether a review's prompt lists earlier findings (#75): this run's, with their outcomes (the
+// history block), or the ones Redline's earlier rounds on the pull request handled (the handled
+// block, whose test this repeats). Such a review is asked for sameClassAs, in its prompt and in
+// its schema, and no other is.
+const showsEarlier = (reviewed, history, candidates) => history.length > 0 || Boolean(trackedList.length && (reviewed === 'pr' || Array.isArray(candidates)))
+const LINK_ASK = 'For each finding, state sameClassAs, a key of that finding itself and never beside findings, when its cause is one class with the cause of an earlier finding listed above that was fixed: a list of the ids of those earlier findings, and leave it out when there is none. One class is one cause that takes one kind of fix, met again in another place or through another input: a second form of path a normaliser misreads after the first was fixed, a second caller that needs the guard a fix gave the first. It is a fact you state with care, as outsideDiff is, never because two findings sit in one file or read alike. The run checks each id against its record and keeps only a link to a finding recorded as fixed; a finding that keeps one is shaped as a class, so its fix may not be one more instance.'
 function reviewPrompt(round, reviewed, range, facts, history, source, candidates) {
   const noFixDiff = reviewed === 'fix-diff' && range.empty === true
   const diff = reviewed === 'pr'
@@ -1834,6 +1983,11 @@ function reviewPrompt(round, reviewed, range, facts, history, source, candidates
   // is, right after the sentence on what a correctness finding buys, which this qualifies.
   if (reviewed === 'fix-diff' && !noFixDiff) {
     lines.push('', `For each finding, state inFixDiff: true when its cause is in the fix diff named above, in code round ${round - 1}'s fixes added or changed, and false when it is in the pull request's own code or anywhere else. It is a fact you state with care, as outsideDiff is, and the run checks it against the files round ${round - 1}'s plan named: a low-severity correctness finding whose cause is in those fixes is fixed like a nit and buys no further round, so never set it because a finding is small.`)
+  }
+  // One class with an earlier finding (#75): only a review that is shown earlier findings is
+  // asked, after the facts it states of a finding's place, so every other review reads as it did.
+  if (showsEarlier(reviewed, history, candidates)) {
+    lines.push('', LINK_ASK)
   }
   lines.push('', FACTS_ONLY, '', `Return only the JSON your instructions specify, with round ${round} and reviewed "${reviewed}".`)
   return lines.join('\n')
@@ -2126,6 +2280,35 @@ ${step2}
 Return only the JSON your instructions specify, with operation "post-review" and files listing the paths you wrote.`
 }
 
+// A finding the verifier links to an earlier one that was fixed, as one class (#75), with what
+// the run's record holds of each earlier finding: its place, and the cause its round recorded,
+// when this run fixed it; its place and its reply when an earlier run did, since that run's
+// record is the pull request's threads, which hold no cause. Only links the record honoured
+// reach here (honourLinks), so every id names a finding recorded as fixed.
+function earlierFinding(id) {
+  const record = rounds.find((r) => r.findings.some((x) => x.id === id))
+  if (record) {
+    const f = record.findings.find((x) => x.id === id)
+    const s = (record.dispositions || []).find((x) => x.id === id)
+    return { id, round: record.round, title: f.title, file: f.file, line: f.line, ...(s && s.cause ? { cause: s.cause } : {}) }
+  }
+  const p = priorById[id]
+  return p ? { id, round: p.round, title: p.title, file: p.file, line: p.line, reply: p.reply ? p.reply.body : '' } : { id }
+}
+// The block a shape prompt and a reshape prompt carry for the links that stand (#75): the whole
+// of what a link asks of the shaper, in the prompt of the round it concerns and in no other, so
+// a round with no link keeps the prompt it would have had. It ends with the rule checkCauses
+// holds a fix to.
+const LINK_RULE = 'A cause fixed once and found again is a class until shown otherwise. For each finding listed here the question of instance or class is answered: a fix for it closes the class, as one-place or as a sweep, and never says instance, and the workflow stops the round on one that does. When closing the class does not belong in this pull request, the finding is a defer or an ask, as your rules say.'
+const linked = (f) => (Array.isArray(f.sameClassAs) ? f.sameClassAs : [])
+function linksBlock(inScope) {
+  const withLinks = inScope.filter((f) => linked(f).length)
+  if (!withLinks.length) {
+    return ''
+  }
+  return `\nFindings of this round that the verifier links to an earlier finding that was fixed, as one class (sameClassAs), each with what the run's record holds of the earlier finding, as JSON:\n${json(withLinks.map((f) => ({ id: f.id, sameClassAs: linked(f).map(earlierFinding) })))}\n\n${LINK_RULE}\n`
+}
+
 function shapePrompt(round, specFolder, reviewed, inScope, prBody) {
   const nitNote = reviewed === 'nits'
     ? '\nThis round has no correctness findings: it is the final nit round, and the plan covers the nits only.\n'
@@ -2151,10 +2334,10 @@ ${description}
 
 Findings for this round, as JSON:
 ${json(inScope)}
-
+${linksBlock(inScope)}
 Sort each finding into fix, decline, defer or ask per the unattended-mode section and your rules. Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${ASK_CASES} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path; a declined finding has no task, and neither has a deferred one that ships no mitigation. A deferred finding is worth doing and not in this pull request, and it always carries a drafted issue that stands on its own. ${DRAFT_FORM} Every decided entry under Decisions in shape.md (a fix, a decline, a defer, an unattended answer) ends with the line \`Decided by: redline\`; a pending entry has no such line until the person or the autopilot decides it. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn and with why_human naming its case).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition, decidedBy "redline" for fix, decline and defer or "pending" for ask, recommendation in one sentence: the change planned for a fix, the decision for a decline, the mitigation for a defer or that nothing ships now, the option you recommend for an ask; ${FILES_ASK}; ${CAUSE_ASK}; for a decline also reason, the sentence a teammate reads in the thread; for a finding the verifier could not confirm also secondLook), deferred (one entry per defer finding: its mitigation, an empty string when nothing ships now, and its drafted issue as title, found, why and fullFix), judgmentCalls (one entry per ask finding, in the order the person should answer them, each with dependsOn, with why_human naming its case, and with ${OPTIONS_ASK}).`
 }
 
 // A pass over a teammate's review (#36): the findings are their comments, a clear instruction is
@@ -2193,12 +2376,12 @@ What differs from a Redline round:
 
 Investigate first: open the files named, their callers and tests, and the standards and specs you cite. ${NEVER_DECIDE} A question the PR description, the original spec or the code's own docblock already answers is answered from that evidence and recorded under Unattended answers, never escalated. Every task names every file it creates or changes, by path. Write plan.md, shape.md, standards.md and references.md into the spec folder with Write. Do not edit any source file and never run a git write or gh.
 
-Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn).`
+Return only the JSON object your instructions specify: specFolder, findings (for every finding above: id, disposition fix, ask or none, decidedBy "reviewer" for fix, "pending" for ask or "redline" for none, and recommendation in one sentence: the change planned for a fix, the option you recommend for an ask, why nothing is asked for a none; and ${FILES_ASK}), deferred (always empty), judgmentCalls (one entry per ask finding, in the order the author should answer them, each with dependsOn and with ${HUMAN_OPTIONS_ASK}).`
 }
 
 // `decided` is the findings the person or autopilot decided whose task the round reads from its
 // own list (#106), each as {id, end}: end is what its decision ends in (endsIn in revise(): fix,
-// defer or accept). The block that names them says what `files` means for each: every shape
+// defer or accept), or left for one a repository rule leaves to the person (#127, R4-4). The block that names them says what `files` means for each: every shape
 // prompt asks, for an ask, for the paths of the recommended change, which is the wrong list for
 // a call the person answered, and after a reshape the workflow takes a decided finding's task
 // from this list. It names each with its end, which the hold after the reshape reads, so the
@@ -2209,12 +2392,19 @@ Return only the JSON object your instructions specify: specFolder, findings (for
 // task names it: a merged task listed for two decided fixes passed it (#114, R2-6). The whole
 // ask sits in the block, and the block is in the prompt only when the round has such a finding,
 // so a reshape of any other round keeps the prompt it had before #106.
+// The rule's clause for a decided finding left to the person (#127, R4-4), stated once: the block
+// below and the shaper's rule 10 carry it word for word.
+const LEFT_KEEPS_NONE = 'and one left to the person keeps none: its task is "Left to the person: <id>" with no files'
 function reshapePrompt(pass, specFolder, inScope, adjustments, attempt, decided) {
   // How the block names each end, in the words of the rule after the list (#114, R1-3). An end
   // the round has not read is named by the id alone.
-  const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted' }
+  // A decided finding left to the person is named as left (#127, R4-4), with the rule's clause
+  // for it, so the hold after the reshape reads its task too; a block that names none reads as
+  // it did before.
+  const endWord = { fix: 'fix', defer: 'deferred', accept: 'accepted', left: 'left to the person' }
+  const leftClause = decided.some((d) => d.end === 'left') ? `, ${LEFT_KEEPS_NONE}` : ''
   const decidedBlock = decided.length
-    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none. A decided fix keeps a task of its own, one that names it; a task counts only for the finding it names, so never list one task's files for two findings.`
+    ? `\n\nFindings the person or the autopilot decided: ${decided.map((d) => (endWord[d.end] ? `${d.id} (${endWord[d.end]})` : d.id)).join(', ')}. Each is named with what its decision ends in. For each of these, files is the paths of its task as plan.md holds it when you are done, an empty list when it has no task, whatever disposition you return for it: after a reshape the workflow reads a decided finding's task from this list. A finding decided as a fix keeps a task with files, and one decided as accepted keeps none${leftClause}. A decided fix keeps a task of its own, one that names it; a task counts only for the finding it names, so never list one task's files for two findings.`
     : ''
   return `This is a Redline run; follow shape-spec in unattended mode.
 
@@ -2227,10 +2417,10 @@ ${json(adjustments)}
 
 The round's findings, as JSON:
 ${json(inScope)}
-
+${linksBlock(inScope)}
 Apply each adjustment, or record in shape.md why it cannot be applied. Every task still names its files by path. ${pass.human ? 'Decisions already recorded as decided in shape.md stay as they are.' : 'Decisions already recorded as decided in shape.md stay as they are, except one of your own (Decided by: redline) that an adjustment names, which you decide again; a decision the person made, or the autopilot applied, stays as it is.'} ${pass.human ? `${NEVER_DECIDE} An adjustment that would need a new decision becomes a judgment call, never a quiet change.` : `${ASK_CASES} An adjustment that would need a decision in one of those cases becomes a judgment call, never a quiet change.`}${pass.human ? '' : ` ${DRAFT_FORM}`}${decidedBlock}
 
-Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : ', reason for a decline, and secondLook for a finding the verifier could not confirm'}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn).`
+Return only the JSON object your instructions specify for the whole round (every finding above with id, disposition, decidedBy, recommendation and ${decided.length ? FILES_ASK_DECIDED : FILES_ASK}${pass.human ? '' : `, ${CAUSE_ASK}, reason for a decline, and secondLook for a finding the verifier could not confirm`}; the deferred list${pass.human ? '' : ', each entry with its mitigation (an empty string when nothing ships now) and its drafted issue as title, found, why and fullFix'}; and every judgment call still pending or newly raised, in asking order with dependsOn, each with ${pass.human ? HUMAN_OPTIONS_ASK : OPTIONS_ASK}).`
 }
 
 function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
@@ -2246,6 +2436,17 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
   // statement is asked of it (#99, its spec's decision 17), and the sentence that says so is in
   // the prompt only when a call carries one, as for a rule (#108, R1-2).
   const anyNamed = Object.values(callDecisions).some((d) => d && d.disposition)
+  // A call the person or autopilot answered by picking an option carries the option's label and
+  // the end the workflow gave it (#105). The sentence that says what that means is in the prompt
+  // only when a call carries both, after the one for a named disposition, which a pick always
+  // is, so a prompt with no pick reads as it did before #105.
+  // A finding left to the person follows its own bullets, a deferral of it included (#126), so
+  // the sentence is for a pick no rule covers.
+  const anyPicked = Object.values(callDecisions).some((d) => d && d.option && d.disposition && !d.rule)
+  // A left finding the person deferred (#126): the one decision carrying `rule` that also
+  // carries a disposition, since resolveWith keeps no other on one. Its bullet is in the prompt
+  // only then, after the bullets it is the exception to.
+  const anyLeftDeferred = Object.values(callDecisions).some((d) => d && d.rule && d.disposition === 'defer')
   const lines = [
     RUN_LINE,
     '',
@@ -2261,6 +2462,9 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
     ...(anyOwn
       ? [`- A decision carrying \`own\` is on a finding on one of Redline's own files, which no Redline role may write, left to the person the same way (#94, R8-4): whatever its choice, no task writes anything. Its plan task becomes "Left to the person: <id> (Redline's own files)" with no files, or "Accepted, no change: <id>" when the choice is to accept; its Decisions entry records the choice and the notes with its owner; and the finding is not listed under Deferred in shape.md, which holds only what carries a drafted issue: the person makes this change.`]
       : []),
+    ...(anyLeftDeferred
+      ? ['- The exception to what is said above of a finding left to the person: a decision carrying `rule` and `disposition` "defer" is one the person deferred to an issue (#126). No task writes anything for it either: its plan task is "Left to the person: <id>" as above, with no files. But the finding is listed under Deferred in shape.md with its drafted issue, and returned in deferred with an empty mitigation and the draft as title, found, why and fullFix: the draft its call\'s option carries, copied as written, when one does, and one you write when the call offered none. The workflow files it, and the change stays the person\'s to make.']
+      : []),
   ]
   if (calls.length) {
     lines.push(
@@ -2274,7 +2478,7 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
       // The whole ask for `decided` (#99) sits here, in the calls block, and nowhere else in the
       // prompt: the answer then does not depend on the agent file the session loaded, and a
       // resolve with overrides and no call keeps the prompt it had before #99, so it replays.
-      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (a task of its own, its finding set to the call's id, names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}`,
+      `State in decided what each call's decision ends in, one entry per call above as {"id", "disposition"}: fix when it plans a change in this pull request and leaves nothing to track elsewhere, whatever its size (a task of its own, its finding set to the call's id, names its files, and the check demands its commit; a choice that keeps the behaviour and still ships something, a code comment say, is a fix); defer when it leaves work to an issue, with or without a mitigation now (a "mitigate" choice, or the person's own words saying to defer it: its deferred entry with the mitigation and the drafted issue, and a task only when a mitigation ships); accept when nothing changes (its task is "Accepted, no change: <id>", with no files). The workflow reads a call's disposition from decided, never from its deferred entry or its task, and checks it against both before anything is built or posted: defer with no drafted entry, fix with no task with files, or accept beside a task with files stops the run, and a deferred entry beside fix or accept is dropped. So return a deferred entry for a call only when its decision defers the finding (#97, R2-15; #99).${anyRule ? ' A call whose decision carries `rule` is left to the person and has no entry in decided.' : ''}${anyNamed ? ' A call whose decision carries `disposition` names its own and has no entry in decided.' : ''}${anyPicked ? ' A call whose decision carries `option` was answered by picking that option of the call, named by its label: plan that option as the shaper wrote it, and the `disposition` beside it is what the option ends in, which the workflow set from the option\'s `ends`.' : ''}`,
     )
   }
   if (overrides.length) {
@@ -2296,8 +2500,12 @@ function resolvePrompt(pass, specFolder, calls, roundDecisions, overrides) {
 }
 
 function planPrompt(pass, specFolder, inScope, shaped, roundDecisions, adjustment, earlierPaths) {
+  // A human pass's shaper defers nothing, but its author can: an option of a call may end in
+  // defer (#105), and a decision that names a deferral is shown below by that disposition. So
+  // the bounce is a defer no decision names. Until #105 the sentence called every defer one,
+  // beside a list that could show a deferral the author had typed at the plan dial.
   const humanNote = pass.human
-    ? `\nThis is a pass over ${pass.reviewer}'s review (#36): every finding is one of their comments, a fix is decided by them (decidedBy "reviewer"), a none finding asks for nothing and has no task, and no finding is deferred by the shaper; a disposition of defer here is a bounce.\n`
+    ? `\nThis is a pass over ${pass.reviewer}'s review (#36): every finding is one of their comments, a fix is decided by them (decidedBy "reviewer"), a none finding asks for nothing and has no task, and no finding is deferred by the shaper; a disposition of defer that no decision below names is a bounce.\n`
     : ''
   return `${RUN_LINE}
 
@@ -2794,7 +3002,7 @@ function result(status, extra) {
       range: record.range,
       // What would confirm an unconfirmed finding rides with it, so the skill's review-only summary
       // can say it (#94, R7-3); compactFinding stays as history() uses it in the reviewer's prompt.
-      findings: record.findings.map((f) => ({ ...compactFinding(f), ...(f.confidence === 'unconfirmed' ? { wouldConfirm: f.wouldConfirm || 'not stated' } : {}) })),
+      findings: record.findings.map((f) => ({ ...compactFinding(f), ...(f.confidence === 'unconfirmed' ? { wouldConfirm: f.wouldConfirm || 'not stated' } : {}), ...(linked(f).length ? { sameClassAs: linked(f).slice() } : {}) })),
       // What the correctness-only scope declined in this round (#93). Those items stay in findings,
       // as the round's record keeps them, and are listed here apart so the skill's summaries can
       // name them (#94, R3-8).
@@ -2841,7 +3049,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it, recorded with "call": true beside it, since it answers a call; any other disposition typed for one is not applied, and any other answer leaves it to the person with nothing filed. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
     },
     ...extra,
   }
@@ -2868,6 +3076,92 @@ async function gather(round) {
   return facts
 }
 
+// One class with an earlier finding (#75). The verifier states the link, sameClassAs, and the
+// workflow keeps an id only where its record can show the earlier finding was fixed: a finding
+// of an earlier round of this run whose outcome is `fixed`, or one of an earlier run on the pull
+// request that the launch's prior-findings record gives the disposition `fixed`. A fix made at a
+// call or as a deferral's mitigation is recorded as decided or deferred, so it is no link; no
+// reply text is read to find one. Every other id is cleared with a warning, here, before the
+// review is posted, and a finding left with no link carries no key at all, so its round's
+// prompts and its findings file are those of a round with no link. A review that was shown no
+// earlier finding was not asked, and whatever it returned is cleared the same way.
+function linkFault(id) {
+  const record = rounds.find((r) => r.findings.some((x) => x.id === id))
+  if (record) {
+    const kind = (record.outcomeKinds || {})[id]
+    return kind === 'fixed' ? '' : `${passOf(record).name} recorded ${id} ${kind ? `as ${kind}` : 'with no outcome'}, not as fixed`
+  }
+  const p = priorById[id]
+  if (p) {
+    return p.disposition === 'fixed' ? '' : `an earlier run recorded ${id} as ${p.disposition}, not as fixed`
+  }
+  return `${id} names no finding Redline recorded on this pull request`
+}
+// A review that was not asked for links clears every link it returns, with that one reason
+// (#127, R5-1). Whether a link was asked for is checked once, before any other reading of a link,
+// so the reason a cleared link gives is the real one on this review: a link beside findings, one
+// that names an id the review renamed, one in a form the workflow cannot read and a well-formed
+// list are each cleared because no link was asked for. Until R5-1 the readers beside `findings`,
+// of a renamed id and of a link's form ran first and gave their own reasons, each implying that
+// a link elsewhere or in another form would have been kept. An empty list states no link and
+// warns of nothing.
+function clearUnasked(round, out) {
+  const why = 'this review was shown no earlier finding'
+  if (out.sameClassAs !== undefined) {
+    warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, but ${why}; the link is cleared`)
+    delete out.sameClassAs
+  }
+  for (const f of out.findings) {
+    if (f.sameClassAs === undefined) {
+      continue
+    }
+    if (Array.isArray(f.sameClassAs) && f.sameClassAs.length === 0) {
+      // An empty list: no link, and nothing to say.
+    } else if (Array.isArray(f.sameClassAs) && f.sameClassAs.every((id) => typeof id === 'string' && id.trim() !== '')) {
+      for (const id of unique(f.sameClassAs.map((x) => x.trim()))) {
+        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
+      }
+    } else {
+      warnings.push(`round ${round}: the reviewer stated sameClassAs for ${f.id} as ${JSON.stringify(f.sameClassAs)}, but ${why}; the link is cleared`)
+    }
+    delete f.sameClassAs
+  }
+}
+// A pass that holds no record of earlier rounds (`noRecord`, the revise-only pass) cannot check a
+// link to one, so it is cleared with that reason, never with one that says the earlier finding
+// was not recorded (#127, R1-3). A review that was not asked for links never reaches it: it is
+// cleared before, by clearUnasked (#127, R5-1).
+function honourLinks(round, findings, noRecord = false) {
+  for (const f of findings) {
+    if (f.sameClassAs === undefined) {
+      continue
+    }
+    const named = unique((Array.isArray(f.sameClassAs) ? f.sameClassAs : []).map((id) => (typeof id === 'string' ? id.trim() : '')).filter((id) => id !== ''))
+    // A link in a form the workflow cannot read (one id as a string, a list of objects) names
+    // nothing, and until the follow-up of #127 it was cleared with no word, so the round fixed
+    // one more instance and nothing said why. The review's schema refuses such a form in the
+    // reviewer's own run; this is the second layer. An empty list states no link and warns of
+    // nothing.
+    if (!Array.isArray(f.sameClassAs) || f.sameClassAs.some((id) => typeof id !== 'string' || id.trim() === '')) {
+      warnings.push(`round ${round}: the reviewer stated sameClassAs for ${f.id} as ${JSON.stringify(f.sameClassAs)}, which is no list of finding ids; ${named.length ? 'the entries that are no id are cleared' : 'the link is cleared'}`)
+    }
+    const stands = []
+    for (const id of named) {
+      const why = findings.some((x) => x.id === id) ? `${id} is a finding of this round` : noRecord ? 'this revise-only pass holds no record of earlier rounds to check it against' : linkFault(id)
+      if (why) {
+        warnings.push(`round ${round}: the reviewer linked ${f.id} to ${id} as one class (sameClassAs), but ${why}; the link is cleared`)
+      } else {
+        stands.push(id)
+      }
+    }
+    if (stands.length) {
+      f.sameClassAs = stands
+    } else {
+      delete f.sameClassAs
+    }
+  }
+}
+
 async function review(round, reviewed, range, facts, source) {
   // What is reviewed, not the round number, picks the model and the label: a human review pass's
   // final nit pass carries the run's first round number and is still a nit pass (#36).
@@ -2892,12 +3186,14 @@ async function review(round, reviewed, range, facts, source) {
     }
     candidates = parsed.candidates
   }
-  const out = await run('review', reviewPrompt(round, reviewed, range, facts, history(), source, candidates), {
+  const earlier = history()
+  const linksAsked = showsEarlier(reviewed, earlier, candidates)
+  const out = await run('review', reviewPrompt(round, reviewed, range, facts, earlier, source, candidates), {
     agentType: 'redline:redline-reviewer',
     ...modelOpts(key),
     label: `${reviewed === 'pr' ? 'review' : reviewed === 'final-nit-pass' ? 'final nit pass' : 're-review'} r${round}`,
     phase: reviewed === 'pr' ? 'Review' : 'Re-review',
-    schema: REVIEW_SCHEMA,
+    schema: linksAsked ? REVIEW_SCHEMA_LINKS : REVIEW_SCHEMA,
   })
   // IDs are the script's to trust: renumber anything that does not carry this round's prefix.
   // Each rename is recorded, old id to new, so the coverage refs naming it follow (#80, R2-3); the
@@ -2944,6 +3240,49 @@ async function review(round, reviewed, range, facts, source) {
       f.askRule = ''
     }
   })
+  // The links (#75), read after the ids are the round's own, so a link to a finding of this
+  // same round is seen as one. A review that was not asked for links is cleared first, of every
+  // link in any place or form, with that one reason, and none of the readers below runs on it
+  // (#127, R5-1).
+  if (!linksAsked) {
+    clearUnasked(round, out)
+  } else {
+    // A link is a key of its finding. One returned beside findings, at the top of the result, is
+    // read by nothing, and until the follow-up of #127 nothing said so: the shaper was shown no
+    // link and the round fixed an instance. It is cleared with a warning that names the place,
+    // as honourLinks clears every link it cannot keep; the key has one reading, so it is never
+    // taken from here.
+    if (out.sameClassAs !== undefined) {
+      warnings.push(`round ${round}: the reviewer returned sameClassAs beside findings, at the top of its result, where the workflow does not read it; a link is a key of its finding (findings[].sameClassAs), so no link is kept from it`)
+      delete out.sameClassAs
+    }
+    // A link that names an id this review renamed is cleared, never trusted or mapped (#127,
+    // R3-5): the old id may name the sibling the reviewer numbered with an earlier round's prefix
+    // or the earlier finding that has that id, so it is ambiguous. Until R3-5 it was looked up
+    // among earlier rounds and stood with no word when one recorded that id as fixed. A list left
+    // empty is deleted, as honourLinks deletes one; a link in another form is left to honourLinks,
+    // which warns of it.
+    for (const f of out.findings) {
+      if (!Array.isArray(f.sameClassAs)) {
+        continue
+      }
+      const kept = []
+      for (const id of f.sameClassAs) {
+        const old = typeof id === 'string' ? id.trim() : id
+        if (typeof old === 'string' && renamed.has(old)) {
+          warnings.push(`round ${round}: the reviewer linked ${f.id} to ${old} as one class (sameClassAs), but this review renamed a finding it returned as ${old} to ${renamed.get(old)}, so the link is ambiguous; the link is cleared`)
+        } else {
+          kept.push(id)
+        }
+      }
+      if (kept.length) {
+        f.sameClassAs = kept
+      } else {
+        delete f.sameClassAs
+      }
+    }
+    honourLinks(round, out.findings)
+  }
   out.resolved = Array.isArray(out.resolved) ? out.resolved : []
   // The coverage accounting (#79). Without a coverage pass there is nothing to account for, so an
   // accounting the reviewer wrote anyway is cleared.
@@ -3171,7 +3510,10 @@ function outcomesFor(pass, inScope, shaped, deferred, roundDecisions, commits, f
     const left = (forced || {})[f.id]
     if (left) {
       // A finding a repository ask rule covers (#49): the person's, whatever was decided about it.
-      outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel }
+      // When the person deferred it (#126), its entry is among the round's deferrals, and the
+      // outcome says what became of the drafted issue, as a deferral the person chose at any
+      // call does: filed, dropped with their reason, or held for the end of the run.
+      outcomes[f.id] = { kind: 'left', rule: left.rule, ...(left.own ? { own: true } : {}), reason: left.reason, notes: decision ? decisionSentence(decision, pass.human) : `No change made; ${pass.human ? 'the person' : personLabel} makes it.`, commits: [], decidedBy: decision ? decision.decidedBy || personLabel : personLabel, filed: (deferredItem && filed[f.id]) || null, dropped: Boolean(deferredItem && dropped[f.id]), dropNotes: ((deferredItem && dropped[f.id] && dropped[f.id].notes) || '').trim(), held: Boolean(deferredItem) && held.has(f.id) }
     } else if (decision) {
       // A deferral the person chose is their decision, and says where its drafted issue went, or
       // that they dropped it, with the drop's own reason (#97, R4-3), or that it waits for the end
@@ -3230,7 +3572,7 @@ function describeOutcome(outcome, human) {
     case 'declined':
       return `declined: ${outcome.reason}${owner}`
     case 'left':
-      return `left to ${human ? 'the author' : personLabel} under ${leftUnder(outcome)}: ${outcome.notes}${owner}`
+      return `left to ${human ? 'the author' : personLabel} under ${leftUnder(outcome)}: ${outcome.notes}${draftClose(outcome)}${owner}`
     case 'dropped':
       return `not acted on in this run: ${outcome.reason}${owner}`
     case 'none':
@@ -3358,6 +3700,204 @@ function checkWhy(pass, shaped, known, shaperLabel) {
   }
 }
 
+// What the round reads off a call's options (#105): each option's label and what it ends in, and
+// the option the call recommends. The label is read without the blanks around it, here and where
+// a decision names its option (optionOf), so the two can never disagree about a match.
+const optionLabel = (option) => (option && typeof option.label === 'string' ? option.label.trim() : '')
+const optionOf = (call, label) => (Array.isArray(call.options) ? call.options : []).find((option) => optionLabel(option) === String(label).trim()) || null
+// Every option of a call still open has a label of its own and an end of the three, and the call
+// recommends one of them by its label (#105). A decision names the option it picks by the label
+// and takes the option's end as its disposition, and autopilot takes `recommended`, so a shared
+// label, a missing end or a recommendation that names nothing would leave the round nothing to
+// read: each stops here, the workflow's own check of what the shaper returned. The schema refuses
+// a missing or an unknown end in the shaper's own run, and this is the second layer, as checkWhy
+// is for a call's reason. Both passes; it runs after forceAskRules, so the one call the workflow
+// writes is held to it too. `known` is checkCalls's: a call the round already decided is not
+// held to the options a reshape restates, since its decision took its end when it was applied.
+// Where an option's draft is read (#126): on an option that ends in defer, of a call for a
+// finding left to the person (record.forced, which forceAskRules has just set). There it is the
+// issue Redline files when the person picks the option, shown with the call before they decide,
+// so one short of a field stops the round as a deferral without its draft does (checkDrafts). On
+// any other option it is dropped with a warning: an ordinary call's deferral is drafted by the
+// resolve agent after the decision, with its mitigation, as before. A call forceAskRules
+// relabelled from a reason that does not mark a left call (neither redline's own file nor a
+// repository rule, the two LEFT_CALL tells the shaper to draft for) was written as an ordinary
+// call, so a defer option of it that carries no draft is not held to one, and a pick of it has the
+// resolve agent write the draft, as a typed defer on a call that offered no draft does; a draft
+// such an option does carry is the one filed on a pick, so it is held complete like any left
+// call's, and a call the shaper wrote as left is held to its draft as before (#127, R1-4).
+// It names every fault of every call in one error, since a reshape is told to correct what the
+// error names and each fault it leaves out is one more relaunch (workflow/replay, #127, R1-5).
+function checkOptions(pass, record, shaped, known, shaperLabel) {
+  const decided = (id) => known.some((c) => c.id === id)
+  const faults = []
+  for (const call of shaped.judgmentCalls.filter((c) => !decided(c.id))) {
+    const options = Array.isArray(call.options) ? call.options : []
+    const endless = options.filter((option) => optionLabel(option) === '' || !CALL_ENDS.includes(option.ends))
+    if (endless.length) {
+      faults.push(`the shaper gave ${call.id} an option with no label or with no end the workflow knows (${endless.map((option) => `${JSON.stringify(optionLabel(option))} ends in ${JSON.stringify(option && option.ends !== undefined ? option.ends : null)}`).join(', ')}${call.ends !== undefined ? '; the call carries ends beside options, where the workflow does not read it' : ''}); every option of a judgment call carries a label and its own ends (judgmentCalls[].options[].ends), what choosing it ends in: fix, defer or accept`)
+    } else if (call.ends !== undefined) {
+      warnings.push(`${pass.name}: the shaper gave ${call.id} ends beside its options as well as on each option; the workflow reads the option's, and the copy on the call is dropped`)
+      delete call.ends
+    }
+    const names = options.map(optionLabel)
+    const repeated = unique(names.filter((name, i) => names.indexOf(name) !== i))
+    if (repeated.length) {
+      faults.push(`the shaper gave ${call.id} more than one option labelled ${repeated.map((name) => JSON.stringify(name)).join(', ')}; a decision names the option it picks by its label, so each label names one option`)
+    }
+    const recommended = typeof call.recommended === 'string' ? call.recommended.trim() : ''
+    // recommended one level out: on the call's finding, or inside an option as a flag.
+    const finding = shaped.findings.find((x) => x.id === call.id)
+    const flagged = options.filter((option) => option && option.recommended !== undefined)
+    const strayRecommended = [finding && finding.recommended !== undefined ? 'its finding carries recommended' : '', ...flagged.map((option) => `its option ${JSON.stringify(optionLabel(option))} carries recommended itself`)].filter(Boolean)
+    if (!names.includes(recommended)) {
+      faults.push(`the shaper recommended ${JSON.stringify(recommended)} for ${call.id}, which is the label of none of its options (${names.join(', ')}${strayRecommended.map((where) => `; ${where}, where the workflow does not read it`).join('')}); recommended is a key of the call (judgmentCalls[].recommended) and names the option the shaper recommends by its label`)
+    } else {
+      if (finding && finding.recommended !== undefined) {
+        warnings.push(`${pass.name}: the shaper returned recommended for ${call.id} on its finding as well as on its call; the workflow reads the call's, and the copy on the finding is dropped`)
+        delete finding.recommended
+      }
+      for (const option of flagged) {
+        warnings.push(`${pass.name}: the shaper returned recommended for ${call.id} on its option ${JSON.stringify(optionLabel(option))} as well as on its call; the workflow reads the call's, and the copy on the option is dropped`)
+        delete option.recommended
+      }
+    }
+    const left = Boolean((record.forced || {})[call.id])
+    const relabelled = left && Boolean(record.forced[call.id].relabelled)
+    // A draft one level out (the follow-up of #127): on the call, beside options, or as its
+    // four fields on the option itself. On a left call it is a draft the shaper wrote and the
+    // workflow would not read, so the option is held to its draft, a relabelled call's
+    // included: until then that call's draft was lost with no word and the person was shown
+    // none. Beside a complete draft in its place the call's copy is a stray, dropped with a
+    // warning. On any other call no draft is read anywhere, so the call's copy is dropped with
+    // the warning one on its option gets.
+    const flatDraft = (option) => DRAFT_FIELDS.filter((key) => option[key] !== undefined)
+    const undrafted = left ? options.filter((option) => option && option.ends === 'defer' && (!relabelled || option.draft !== undefined || call.draft !== undefined || flatDraft(option).length) && draftMissing(option.draft).length) : []
+    if (undrafted.length) {
+      const elsewhere = (call.draft !== undefined ? ['the call carries draft beside options, where the workflow does not read it'] : []).concat(undrafted.filter((option) => flatDraft(option).length).map((option) => `the option ${JSON.stringify(optionLabel(option))} carries ${andList(flatDraft(option))} itself, not inside draft`))
+      faults.push(`the shaper gave ${call.id}, a call for a finding left to the person, an option that ends in defer with no complete drafted issue (${undrafted.map((option) => `${JSON.stringify(optionLabel(option))}: ${option.draft === undefined ? 'no draft' : `draft missing ${draftMissing(option.draft).join(', ')}`}`).concat(elsewhere).join('; ')}); the drafted issue is an object on that option, draft (judgmentCalls[].options[].draft), holding title, found, why and fullFix: the person is shown it before deciding, and Redline files it when they pick the option`)
+    } else if (call.draft !== undefined) {
+      warnings.push(left && options.some((option) => option && option.ends === 'defer' && option.draft !== undefined)
+        ? `${pass.name}: the shaper gave ${call.id} a drafted issue beside its options as well as on its option that ends in defer; the workflow reads the option's, and the copy on the call is dropped`
+        : `${pass.name}: the shaper gave ${call.id} a drafted issue beside its options, on the call itself, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`)
+      delete call.draft
+    }
+    for (const option of options) {
+      if (option && option.draft !== undefined && !(left && option.ends === 'defer')) {
+        warnings.push(`${pass.name}: the shaper gave ${call.id}'s option ${JSON.stringify(optionLabel(option))} a drafted issue, which is read only on an option that ends in defer of a call for a finding left to the person; the draft is dropped`)
+        delete option.draft
+      }
+    }
+  }
+  if (faults.length) {
+    throw checkError('shape', faults.join('; also, '), {}, shaperLabel)
+  }
+}
+
+// Instance or class (#75): every fix the shaper sorted itself, in a Redline round, says where
+// its cause lives and what the fix makes of it, and the workflow reads four things it can check.
+// The cause is there and whole: a path, one of the three outcomes, a reason. The path is inside
+// the repository, read as every path is (repoPath). A one-place fix changes the place it names:
+// `where` is among the files of the finding's task. A sweep says what it covered: `swept` lists
+// at least one member, each measured as holds or fixed, the two values that mean closed once the
+// task lands, so a member left exposed is no sweep. And a finding the verifier links to an
+// earlier one that was fixed (a link honourLinks kept) is never fixed as one more instance,
+// whatever an earlier round decided. Each is the workflow's own check of what the shaper
+// returned. Whether the cause is where the shaper says, whether an instance is truly one, and
+// whether a sweep was measured by running and is complete are the plan approver's to judge.
+// It runs after forceAskRules and the path cleanup: a finding a rule leaves to the person is an
+// ask by then, and the files are in one form. On a reshape it skips the round's decided
+// findings, as checkDrafts does: their fix is the resolve agent's plan of the person's decision,
+// which is asked no cause. A human review pass has no such step. It names every fault of every
+// fix in one error, since a reshape is told to correct what the error names and each fault it
+// leaves out is one more relaunch (workflow/replay, #127, R1-5).
+function checkCauses(pass, shaped, inScope, shaperLabel, decided = []) {
+  if (pass.human) {
+    return
+  }
+  const text = (value) => (typeof value === 'string' ? value.trim() : '')
+  const faults = []
+  // Each key is read in one place (the follow-up of #127): cause on the finding, its parts and
+  // a sweep's list inside it, a member's keys inside an entry of the list. One found a level
+  // out and absent from its place is named in the stop with where it was found, since a
+  // reshape corrects what the error names and a message that named no place stopped #127's
+  // round 2 twice. One found a level out beside a copy in its place is a stray: it is dropped
+  // with a warning, so no later agent is shown it.
+  const held = shaped.findings.filter((x) => x.disposition === 'fix' && !decided.includes(x.id))
+  const PARTS = ['where', 'outcome', 'why']
+  const them = (keys) => (keys.length === 1 ? ['it', 'it is'] : ['them', 'they are'])
+  for (const s of held) {
+    const cause = s.cause && typeof s.cause === 'object' && !Array.isArray(s.cause) ? s.cause : null
+    const absent = !cause
+      ? PARTS
+      : [text(cause.where) === '' && 'where', !CAUSE_OUTCOMES.includes(cause.outcome) && 'outcome', text(cause.why) === '' && 'why'].filter(Boolean)
+    const missing = !cause
+      ? ['no cause']
+      : absent.map((key) => (key === 'outcome' && cause.outcome !== undefined ? `cause.outcome ${JSON.stringify(cause.outcome)}` : `no cause.${key}`))
+    if (missing.length) {
+      const onFinding = absent.filter((key) => s[key] !== undefined)
+      const elsewhere = (onFinding.length ? `; the finding itself carries ${andList(onFinding)}, where the workflow does not read ${them(onFinding)[0]}: ${them(onFinding)[1]} read inside cause` : '')
+        + (!cause && shaped.cause !== undefined ? '; the result carries cause beside findings, where the workflow does not read it: it is read on the finding' : '')
+      faults.push(`the shaper returned the fix for ${s.id} with no cause it can be read from (${missing.join(', ')}${elsewhere}); a fix carries cause, an object on the finding that holds where its cause lives (cause.where, a path in the repository), what the fix makes of it (cause.outcome: one-place, sweep or instance) and why (cause.why, one sentence)`)
+      continue
+    }
+    // A list is in its place when cause.swept holds at least one entry; an empty one there
+    // beside a list on the finding is the list out of place, not a stray copy of it.
+    const listed = Array.isArray(cause.swept) && cause.swept.length > 0
+    const strayParts = PARTS.concat(listed ? ['swept'] : []).filter((key) => s[key] !== undefined)
+    if (strayParts.length) {
+      warnings.push(`${pass.name}: the shaper returned ${andList(strayParts)} for ${s.id} on the finding as well as inside cause; the workflow reads cause, and the copy on the finding is dropped`)
+      strayParts.forEach((key) => delete s[key])
+    }
+    const where = repoPath(cause.where)
+    const files = Array.isArray(s.files) ? s.files : []
+    if (where.outside || where.path === '') {
+      // Worded by outcome (#127, R1-6): a one-place fix's where is one of its task's files.
+      faults.push(`the shaper said the cause of ${s.id} lives at ${JSON.stringify(cause.where)}, which is no path inside the repository; ${cause.outcome === 'one-place' ? "a one-place fix's cause.where names one of the task's files, the one the cause lives in" : 'cause.where names the file or folder the cause lives in'}`)
+    } else if (cause.outcome === 'one-place' && !files.includes(where.path)) {
+      faults.push(`the shaper called the fix for ${s.id} one-place, made where the cause lives, but its task's files (${files.join(', ') || 'none'}) do not include ${where.path}; a one-place fix changes the place the cause lives in`)
+    }
+    if (cause.outcome === 'sweep') {
+      const swept = Array.isArray(cause.swept) ? cause.swept : []
+      // A list that is not in its place is named with where it was found (the follow-up of
+      // #127): on the finding, beside cause, as the shaper of #127's round 2 returned it, or as
+      // one member's keys on cause itself. The list is read in cause.swept and nowhere else.
+      const flat = ['member', 'found'].filter((key) => cause[key] !== undefined)
+      const elsewhere = s.swept !== undefined
+        ? '; the finding carries swept beside cause, where the workflow does not read it'
+        : flat.length ? `; cause carries ${andList(flat)} itself, not in a list: each member is one entry of cause.swept` : ''
+      const unusable = swept.length === 0
+        ? [`no cause.swept list${elsewhere}`]
+        : swept.filter((entry) => !entry || text(entry.member) === '' || !SWEPT_FOUND.includes(entry.found)).map((entry) => (entry && text(entry.member) !== '' ? `${JSON.stringify(text(entry.member))} found ${JSON.stringify(entry.found === undefined ? null : entry.found)}` : 'an entry with no member'))
+      if (unusable.length) {
+        faults.push(`the shaper called the fix for ${s.id} a sweep and returned no usable list of what the sweep covered (${unusable.join(', ')}); a sweep lists every member it measured in cause.swept, a list inside cause beside where, outcome and why, each entry as member and found, holds or fixed`)
+      } else if (flat.length) {
+        warnings.push(`${pass.name}: the shaper returned ${andList(flat)} for ${s.id} on cause itself as well as in cause.swept; the workflow reads the list, and the copy on cause is dropped`)
+        flat.forEach((key) => delete cause[key])
+      }
+    } else {
+      // A fix that is no sweep carries no list. One inside its cause is in its place and is
+      // kept as returned; one a level out is in no place the workflow reads.
+      const out = [s.swept !== undefined && !listed ? 'swept on the finding, beside cause' : '', !listed && ['member', 'found'].some((key) => cause[key] !== undefined) ? `${andList(['member', 'found'].filter((key) => cause[key] !== undefined))} on cause itself` : ''].filter(Boolean)
+      if (out.length) {
+        faults.push(`the shaper returned ${out.join(' and ')} for the fix for ${s.id}, which it did not call a sweep; a sweep's list is read in cause.swept, a list inside cause, and a fix that is no sweep carries none`)
+      }
+    }
+    const links = linked(inScope.find((f) => f.id === s.id) || {})
+    if (cause.outcome === 'instance' && links.length) {
+      faults.push(`the shaper returned an instance fix for ${s.id}, which the verifier links to ${andList(links)}, fixed earlier, as one class; a cause fixed once and found again is a class until shown otherwise, so its fix closes the class (one-place, or a sweep) or the finding is deferred or asked about`)
+    }
+  }
+  if (faults.length) {
+    throw checkError('shape', faults.join('; also, '), {}, shaperLabel)
+  }
+  // A cause beside findings as well as on every fix that needs one is a stray.
+  if (shaped.cause !== undefined) {
+    warnings.push(`${pass.name}: the shaper returned cause beside findings as well as on each fix; the workflow reads the finding's, and the copy beside findings is dropped`)
+    delete shaped.cause
+  }
+}
+
 // A decline carries the reason a teammate reads in the thread (#93). Runs after forceAskRules, as
 // checkWhy does, so a decline a repository rule turns into an ask, which needs no reason, never
 // stops the round (#94, R1-13, R5-6); it runs after the `spec status` call, so it names the
@@ -3394,9 +3934,15 @@ const FOLLOW_UP = /\bfollow[- ]?up\b(?!\s+spec)|\b(?:another|a separate|a new|a 
 // whatever the reshape lists, so a restatement is not held to a draft of its own (#97, R3-4).
 function checkDrafts(shaped, shaperLabel, decided = []) {
   for (const f of shaped.findings.filter((s) => s.disposition === 'defer' && !decided.includes(s.id))) {
-    const missing = draftMissing(shaped.deferred.find((d) => d.id === f.id))
+    const entry = shaped.deferred.find((d) => d.id === f.id)
+    const missing = draftMissing(entry)
     if (missing.length) {
-      throw checkError('shape', `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one`, {}, shaperLabel)
+      // A deferred entry is open (DEFERRED_SCHEMA), so a draft nested under `draft`, as an
+      // option's is, passes the schema and is read by nothing; the stop says where the fields
+      // were found (#127, R3-2), and with no such object it reads as it always did.
+      const nested = entry && entry.draft && typeof entry.draft === 'object' && !Array.isArray(entry.draft)
+      const message = `the shaper deferred ${f.id} with no drafted issue (missing ${missing.join(', ')}); a deferred item always carries one${nested ? '; this entry carries a draft object, which is not read on a deferred entry: the entry holds title, found, why and fullFix itself, beside mitigation' : ''}`
+      throw checkError('shape', message, {}, shaperLabel)
     }
   }
 }
@@ -3439,15 +3985,34 @@ async function checkSpec(pass, specFolder, shaperLabel, suffix) {
 
 // The forcing point (#49): after shaping, whatever fix, decline, defer or ask the shaper returned, a finding
 // a repository ask rule covers is an ask to the person. A paths rule is matched on the finding's file
-// and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag. The
-// finding becomes ask and pending, loses any deferred entry, gets a judgment call when the shaper
+// and on the files the shaper's task would touch; a prose rule is the shaper's own askRule tag or,
+// with no tag, the rule its call names (#127, R3-6). The
+// finding becomes ask and pending, loses its deferred entry, gets a judgment call when the shaper
 // gave none, and is recorded under record.forced for the replies, the handoff and the thread sweep.
+// The drafted issue of an entry it loses is kept when it is complete (#126), as the option of
+// that call that ends in defer, so the person can still send the item to an issue.
 // A human pass's none, a comment that asks for nothing, is left as it is: there is no change to
 // leave to the person (#52, R1-4). Deterministic from args and the shaper's JSON, so a relaunch
 // replays it. The numeric limits of #25 force here too, when they come. A finding on one of
 // Redline's own files, a Redline round's ask whose call gives `redline's own file`, is recorded the
 // same way, marked `own` (#94, R8-4).
-function forceAskRules(record, pass, inScope, shaped) {
+// `decided` is the round's decided ids on a reshape, [] on the shape, as checkDrafts reads them. A
+// decided finding's call is not shown again, so the two warnings about the call (a draft not kept
+// as its option, the options it keeps) are not given for one (#127, R5-2): its decision stands
+// whatever the reshape lists. The warnings that hold for a decided finding (its sorting made an
+// ask, the rule its call names, a tag that names none) are given as before.
+const BY_HAND = 'Make the change by hand after the run'
+const ACCEPT_AS_IS = 'Accept, no change'
+const DEFER_TO_ISSUE = 'Defer to an issue'
+// The findings the last forceAskRules left to the person only through the files the shaper lists
+// for them: not their own file, not a declared tag, not their call's `repository rule <id>`. A
+// rule found only through the listed files goes when they go, so the hold after a reshape words
+// such a finding's stop apart, naming the two ways out (#127, R4-4). Read only by the hold right
+// after the same vetShape, and never written to the record, so the record, the prompts and every
+// replayed result are unchanged.
+const leftByTask = new Set()
+function forceAskRules(record, pass, inScope, shaped, decided = []) {
+  leftByTask.clear()
   record.forced = record.forced || {}
   for (const f of inScope) {
     const s = shaped.findings.find((x) => x.id === f.id)
@@ -3461,7 +4026,28 @@ function forceAskRules(record, pass, inScope, shaped) {
     }
     const files = Array.isArray(s.files) ? s.files : []
     const tagged = typeof s.askRule === 'string' && s.askRule.trim() !== '' ? s.askRule.trim() : ''
-    const rule = ruleForPaths([f.file || ''].concat(files)) || (tagged && ruleById[tagged]) || null
+    let rule = ruleForPaths([f.file || ''].concat(files)) || (tagged && ruleById[tagged]) || null
+    // An ask whose call the shaper wrote under `repository rule <id>`, for a declared rule, with
+    // no tag on its finding is held to that rule (#127, R3-6): the call's reason is the shaper's
+    // judgment as much as the tag is, and until R3-6 such a call ran as an ordinary one, so
+    // autopilot took its recommended fix and a pick of a fix was built. The lookup reads the
+    // reason before it is rewritten below, and a call under it keeps relabelled false, as a
+    // tagged one does. R3-6 gated the lookup on the tag being absent, where the question is
+    // whether any input named a declared rule, so a tag that names no declared rule (a typo)
+    // still ran the call as an ordinary one (#127, R4-1): the lookup runs whenever no rule was
+    // found, tagged or not, and the warning says which input named nothing.
+    if (!rule && s.disposition === 'ask') {
+      const askedCall = shaped.judgmentCalls.find((c) => c.id === f.id)
+      const named = askedCall && typeof askedCall.why_human === 'string' && askedCall.why_human.startsWith('repository rule ') ? askedCall.why_human.slice('repository rule '.length).trim() : ''
+      if (named && ruleById[named]) {
+        rule = ruleById[named]
+        warnings.push(
+          tagged
+            ? `${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and tagged the finding with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; it is left to the person under ${rule.id}`
+            : `${pass.name}: the shaper asked about ${f.id} because of repository rule ${rule.id} and did not tag the finding with it; it is left to the person under that rule`,
+        )
+      }
+    }
     if (!rule) {
       if (tagged) {
         warnings.push(`${pass.name}: the shaper tagged ${f.id} with ask rule ${JSON.stringify(tagged)}, which .claude/redline.json does not declare; ignored`)
@@ -3487,27 +4073,63 @@ function forceAskRules(record, pass, inScope, shaped) {
     const wasDecline = s.disposition === 'decline'
     const declineReason = wasDecline ? (s.reason || '').trim().replace(/\.$/, '') : ''
     const wouldDecline = wasDecline ? `Redline would have declined it${declineReason ? `: ${declineReason}` : ''}.` : ''
+    // What the shaper deferred with its drafted issue is still worth tracking under the rule
+    // (#126): the draft is kept, as the call's option that ends in defer, where until #126 it
+    // was thrown away with the entry and the person was offered the change by hand or nothing.
+    // Only a complete draft is kept: one short of a field would stop the round below for an
+    // option the shaper never wrote. Its mitigation is not: no task writes under the rule. A
+    // draft that cannot be kept is warned about with what it lacks (#127, R4-2), where until then
+    // it was dropped with no word; an absent entry lacks every field.
+    const shaperEntry = s.disposition === 'defer' ? shaped.deferred.find((d) => d.id === f.id) : null
+    const kept = shaperEntry && draftMissing(shaperEntry).length === 0 ? Object.fromEntries(DRAFT_FIELDS.map((key) => [key, shaperEntry[key]])) : null
+    if (s.disposition === 'defer' && !kept && !decided.includes(f.id)) {
+      warnings.push(`${pass.name}: the shaper deferred ${f.id} with no complete drafted issue (missing ${draftMissing(shaperEntry).join(', ')}); repository rule ${rule.id} leaves it to the person, and the draft is not kept as an option of its call, since only a complete one is`)
+    }
     s.disposition = 'ask'
     s.decidedBy = 'pending'
+    // Whether the rule came only from the files the shaper lists (#127, R4-4), read before the
+    // call's reason is rewritten below: no rule on the finding's own file, no declared tag, and
+    // no call that names a declared rule, read as the lookup above reads it, for any ask.
+    const listedCall = shaped.judgmentCalls.find((c) => c.id === f.id)
+    const callRule = listedCall && typeof listedCall.why_human === 'string' && listedCall.why_human.startsWith('repository rule ') ? listedCall.why_human.slice('repository rule '.length).trim() : ''
+    if (!ruleForPaths([f.file || '']) && !(tagged && ruleById[tagged]) && !(callRule && ruleById[callRule])) {
+      leftByTask.add(f.id)
+    }
     s.askRule = rule.id
     shaped.deferred = shaped.deferred.filter((d) => d.id !== f.id)
     const why = `repository rule ${rule.id}`
     let call = shaped.judgmentCalls.find((c) => c.id === f.id)
+    let relabelled = false
     if (!call) {
       call = {
         id: f.id,
         title: f.title,
         story: `Repository rule ${rule.id}: ${rule.reason}. ${(f.description || '').trim()}`,
         why_human: why,
+        // Each option states its end, and the call names the recommended one, as the shaper's
+        // own calls do (#105): the change by hand ends in a fix, the person's and outside the
+        // run, and accepting ends in no change. No task writes anything for either (resolveWith).
         options: [
-          { label: 'Make the change by hand after the run', cost: 'The change, made outside Redline', effect: wouldDecline || (recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.') },
-          { label: 'Accept, no change', cost: 'None', effect: 'The finding stands as reported.' },
+          { label: BY_HAND, cost: 'The change, made outside Redline', effect: wouldDecline || (recommendation ? `What Redline would have done: ${recommendation}.` : 'The finding is settled by the person.'), ends: 'fix' },
+          { label: ACCEPT_AS_IS, cost: 'None', effect: 'The finding stands as reported.', ends: 'accept' },
+          ...(kept ? [{ label: DEFER_TO_ISSUE, cost: 'None in this pull request', effect: `Redline files the drafted issue, "${draftTitle(kept.title)}"; the change stays to be made outside the run.`, ends: 'defer', draft: kept }] : []),
         ],
-        recommendation: wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
+        recommended: kept ? DEFER_TO_ISSUE : wasDecline ? ACCEPT_AS_IS : BY_HAND,
+        // A title that ends in a period keeps one, as the sibling sentences strip theirs (#127, R3-7).
+        recommendation: kept ? `${DEFER_TO_ISSUE}: ${draftTitle(kept.title).replace(/\.$/, '')}.` : wasDecline ? `Accept, no change${declineReason ? `: ${declineReason}` : ''}.` : recommendation ? `By hand: ${recommendation}.` : 'Make the change by hand after the run.',
         dependsOn: [],
       }
       shaped.judgmentCalls.push(call)
     } else {
+      // A call the shaper wrote as an ordinary one, for a reason that does not mark a left call
+      // (neither Redline's own file nor any repository rule, the two LEFT_CALL tells it to draft
+      // for), is relabelled (#127, R1-4): it keeps the options the shaper wrote, so checkOptions
+      // does not hold a defer option of it that carries no draft to one, and the run says so once.
+      const old = call.why_human
+      relabelled = old !== OWN_FILE && !(typeof old === 'string' && old.startsWith('repository rule '))
+      if (relabelled && !decided.includes(f.id)) {
+        warnings.push(`${pass.name}: the shaper asked about ${f.id} because of ${JSON.stringify(old)}; repository rule ${rule.id} leaves it to the person, and its call keeps the options the shaper wrote`)
+      }
       call.why_human = why
     }
     // A decline the rule overrides is recorded with what Redline would have done, for the
@@ -3516,7 +4138,7 @@ function forceAskRules(record, pass, inScope, shaped) {
     // with no call, and an entry rebuilt from that would drop what Redline would have declined
     // (#94, R7-7).
     if (!(decisions[f.id] && record.forced[f.id])) {
-      record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}) }
+      record.forced[f.id] = { rule: rule.id, reason: rule.reason, recommendation: call.recommendation, ...(wouldDecline ? { declined: wouldDecline } : {}), ...(relabelled ? { relabelled: true } : {}) }
     }
   }
 }
@@ -3706,14 +4328,14 @@ async function settleHeld() {
       const answer = deferrals[id]
       const outcome = answer.action !== 'drop'
         ? { ...d.outcome, held: false, filed: filed[id] }
-        : d.outcome.kind === 'decided' ? { ...d.outcome, held: false, dropped: true, dropNotes: (answer.notes || '').trim() } : droppedOutcome(answer, d.outcome.commits)
+        : d.outcome.kind === 'decided' || d.outcome.kind === 'left' ? { ...d.outcome, held: false, dropped: true, dropNotes: (answer.notes || '').trim() } : droppedOutcome(answer, d.outcome.commits)
       outcomes[id] = outcome
       const text = describeOutcome(outcome, pass.human)
       record.outcomes[id] = text
       record.outcomeKinds[id] = outcome.kind
       const entry = decidedAll.find((x) => x.id === id && x.round === record.round)
       if (entry) {
-        Object.assign(entry, { outcome: text, decidedBy: outcome.decidedBy, choice: outcome.choice || '', notes: outcome.notes || '', kind: outcome.kind, overruled: entry.overruled || Boolean(outcome.draftDropped || outcome.dropped) })
+        Object.assign(entry, { outcome: text, decidedBy: outcome.decidedBy, choice: outcome.choice || '', notes: outcome.notes || '', kind: outcome.kind, overruled: entry.overruled || (outcome.kind === 'decided' && Boolean(outcome.draftDropped || outcome.dropped)) })
       }
       if (outcome.filed) {
         deferredAll.push(deferredEntry(pass, record, toFile.find((x) => x.item.id === id), filed[id], outcome))
@@ -3817,9 +4439,9 @@ async function checker(flag, snapshot, octane, label, prefix) {
 
 // The checks on the shaper's output, after the shape and after each reshape, in one order (#94,
 // R8-5): the spec folder it reports, the folder itself (the spec check), a disposition for every
-// finding (the reshape prompt asks for every finding, as the shape prompt does), then the eight
-// checks, forceAskRules among them, each finding's files read one way (#114, R4-4), and the
-// round's dispositions. The spec check runs before the checks of the result (#120, R1-3): its
+// finding (the reshape prompt asks for every finding, as the shape prompt does), then the checks
+// of the result, forceAskRules among them, each finding's files read one way (#114, R4-4), and
+// the round's dispositions. The spec check runs before the checks of the result (#120, R1-3): its
 // stop carries no ownCheck, since a file can be missing because a Write was refused, which a
 // person fixes, so an attempt that both left a file out and returned a result a check refuses
 // stops there and the skill says to fix the cause first. Until R1-3 the result checks ran first,
@@ -3851,7 +4473,7 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkDispositions(pass, shaped, label)
   checkSecondLook(pass, shaped, inScope)
   checkCalls(shaped, known, label)
-  forceAskRules(record, pass, inScope, shaped)
+  forceAskRules(record, pass, inScope, shaped, decided)
   // Each finding's files are read through the one path function here, where the shape is taken
   // in, so every reader after this point sees one form: the shaper's own list for its deferral
   // (shaperFiles), the list shown for a finding nobody decided (effectiveDispositions), a stop's
@@ -3867,6 +4489,8 @@ async function vetShape(pass, record, inScope, shaped, known, label, suffix, dec
   checkDeclineReasons(pass, shaped, label)
   checkDrafts(shaped, label, decided)
   checkWhy(pass, shaped, known, label)
+  checkOptions(pass, record, shaped, known, label)
+  checkCauses(pass, shaped, inScope, label, decided)
   record.dispositions = shaped.findings
 }
 
@@ -3921,9 +4545,10 @@ async function revise(record, inScope, reviewedKind) {
   const openDrafts = (drafts) => (raisesDrafts ? drafts.filter((d) => !draftAnswered(d.item.id, d.version)) : [])
   // What the shaper deferred. A disposition the person changed at a stop replaces the draft that
   // stop showed, so that one is not asked about here: the round's resolve applies the change, and
-  // a deferral it drafts is raised after it.
+  // a deferral it drafts is raised after it. A decision marked as a call's answer changed no
+  // disposition (#127, R3-4): it is applied with its call, whichever stop raised it.
   const shaperDrafts = draftsOf(shaped.deferred.filter((d) => shaped.findings.some((s) => s.id === d.id && s.disposition === 'defer')), shaperFiles)
-    .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition))
+    .filter((d) => !(decisions[d.item.id] && decisions[d.item.id].disposition && !callAnswers.has(d.item.id)))
   if (interrupt === 'plan' && !approvedPlans.includes(pass.planKey)) {
     const pendingCalls = shaped.judgmentCalls.filter((call) => !decisions[call.id])
     return { handoff: true, kind: 'plan', pending: pendingCalls, calls: shaped.judgmentCalls, shaped, drafts: openDrafts(shaperDrafts) }
@@ -3959,8 +4584,10 @@ async function revise(record, inScope, reviewedKind) {
   }
 
   // A decision on a finding that was not a judgment call is a disposition override from the plan
-  // dial: the person changed fix/defer/ask to fix, defer or accept after seeing the list.
-  const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !known.some((call) => call.id === f.id))
+  // dial: the person changed fix/defer/ask to fix, defer or accept after seeing the list. A
+  // decision marked as a call's answer is no override, whichever call it answers (#127, R3-4): a
+  // call a reshape raised is not among the first shape's, and its answer enters with it.
+  const overridesFor = (known) => inScope.filter((f) => decisions[f.id] && decisions[f.id].disposition && !callAnswers.has(f.id) && !known.some((call) => call.id === f.id))
   let overrides = overridesFor(calls)
   // Whether a decided finding is a disposition override, read from the round's own overrides as
   // they entered (#114, R2-5), never from `calls`: a reshape that returns a call for an override's
@@ -3999,6 +4626,50 @@ async function revise(record, inScope, reviewedKind) {
   // The hold after each reshape reads it, and the reshape prompt names it beside each decided
   // finding, so the reshape is told which task the hold expects (#114, R1-3).
   const endsIn = (id) => roundDecisions[id].disposition || stated[id]
+  // A finding left to the person whose decision ends in a deferral (#126), however it came to be
+  // left: a call for it that the person deferred, by a pick or a typed defer, or a call they
+  // had answered with a deferral, named or stated, before a reshape put its finding under a
+  // rule. It is the one end of a left finding the round acts on: its drafted issue is raised,
+  // filed and posted like any deferral's, and still nothing is planned, built or demanded for it.
+  const leftDeferred = (id) => Boolean(record.forced[id]) && Boolean(roundDecisions[id]) && endsIn(id) === 'defer'
+  // The one place a decision is given what a left finding's decision carries (#49; #126; #127,
+  // R5-3): a fix or an accept it ends in is dropped, since it changes nothing Redline does, and a
+  // defer is kept; then the rule, and the mark of Redline's own files. A dropped end is warned
+  // about only when the decision names it in its own disposition: a pick's end is dropped with no
+  // warning, since a pick of a left call never takes an end other than defer at a resolve, so a
+  // pick that ended in fix or accept was one made before its finding was left. resolveWith calls
+  // it for every decision it applies to a left finding, and the approve loop for a decided one a
+  // reshape newly leaves. Until R5-3 the reshape loop set the rule and the mark alone, so a pick
+  // or a named fix kept its disposition beside the rule.
+  const leaveDecision = (id, decision) => {
+    const forced = record.forced[id]
+    if (decision.disposition && decision.disposition !== 'defer') {
+      if (decision.option === undefined) {
+        warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
+      }
+      delete decision.disposition
+    }
+    decision.rule = forced.rule
+    if (forced.own) {
+      decision.own = true
+    }
+  }
+  // A left finding's deferred entry carries no mitigation (#127, R3-10), as docs/running.md, "Left
+  // to you", says: "no task is planned and nothing is written under the rule". Until R3-10 that
+  // was the resolve prompt's alone, so the agent's own entry, kept when the call offered no draft
+  // to take, reached the plan approver and the implementer with its mitigation. A mitigation
+  // cleared here is warned about. It is applied wherever deferred takes entries: the end of each
+  // resolve, and the rebuild after each reshape, which can newly leave a decided deferral.
+  const leftEntry = (d) => {
+    const forced = record.forced[d.id]
+    if (!forced) {
+      return d
+    }
+    if (typeof d.mitigation === 'string' && d.mitigation.trim() !== '') {
+      warnings.push(`${pass.name}: the resolve agent gave ${d.id}, a finding left to the person under ${leftUnder(forced)}, the mitigation ${JSON.stringify(d.mitigation)}; it is cleared, since no task writes anything for it`)
+    }
+    return { ...d, mitigation: '' }
+  }
   const resolveWith = async (newCalls, newOverrides, suffix) => {
     // The ids this resolve applies: its calls and its overrides.
     const applied = newCalls.map((call) => call.id).concat(newOverrides.map((f) => f.id))
@@ -4008,15 +4679,53 @@ async function revise(record, inScope, reviewedKind) {
       // disposition on it (fix, defer) is not applied, and the rule travels with the decision so
       // the resolve agent writes it as left to the person (#49).
       const forced = record.forced[id]
+      // A decision that names an option of its call picked it (#105): the person's pick as the
+      // skill recorded it, or autopilot's take of the recommended one. The run's copy of the
+      // decision takes the option's end as its disposition, the path a decision that names its
+      // own already travels: no statement is asked of the resolve agent for it (asked, below),
+      // and the three checks of a named disposition hold this resolve's tasks and entries to
+      // it. So what a pick ends in was stated by the shaper before anyone decided, and never
+      // by the agent that applies it. The copy alone carries it: args.decisions is never
+      // written, and intake refuses a pick that names a disposition of its own. An option that
+      // names none of its call's options is the person's own words after all: it is dropped
+      // from the copy with a warning, and the resolve agent states what the decision ends in.
+      // On a finding left to the person no end is kept, as none is for a disposition typed for
+      // one: no task writes anything whatever the answer, and the option rides along for the
+      // record. The warning says what is true there (#127, R3-8): no statement is asked of the
+      // resolve agent for a left finding, so it stays left, and nothing is filed.
+      const call = newCalls.find((c) => c.id === id)
+      if (call && decision.option !== undefined) {
+        const option = optionOf(call, decision.option)
+        if (!option) {
+          warnings.push(`${pass.name}: the decision for ${id} names the option ${JSON.stringify(decision.option)}, which is the label of none of its call's options (${(Array.isArray(call.options) ? call.options : []).map(optionLabel).join(', ')}); it is read as an answer in the person's own words${forced ? `: ${id} stays left to the person, and nothing is filed` : ', and the resolve agent states what it ends in'}`)
+          delete decision.option
+        } else if (!forced || option.ends === 'defer') {
+          decision.disposition = option.ends
+        }
+      } else if (call && decision.disposition === undefined && decision.decidedBy !== AUTOPILOT && typeof decision.choice === 'string' && optionOf(call, decision.choice)) {
+        // A choice that is the label of one of the call's options, with no option (the
+        // follow-up of #127): the session left the key off, or wrote it a level out. The key
+        // has one reading, so the choice is never taken as a pick: the decision is the
+        // person's own words, as it was read until then, and now a warning says so. On a
+        // finding left to the person the warning says what is true there: no statement is
+        // asked of the resolve agent for one, the option that ends in defer is the one whose
+        // pick would have filed its draft, and any other leaves the finding as its pick would.
+        const option = optionOf(call, decision.choice)
+        if (!forced) {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of one of its call's options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words, and the resolve agent states what it ends in`)
+        } else if (option.ends === 'defer') {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of its call's option that ends in defer, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words: ${id} stays left to the person, and nothing is filed`)
+        } else {
+          warnings.push(`${pass.name}: the decision for ${id} gives ${JSON.stringify(optionLabel(option))}, the label of one of its call's options, as its choice and names no option; a pick is named in option, so it is read as an answer in the person's own words: ${id} stays left to the person, as it would with the pick`)
+        }
+      }
+      // Of what a left finding's decision ends in, one thing is kept: that it is a deferral
+      // (#126), by a pick of an option that ends in defer or by a defer typed for the finding.
+      // The person may defer what is theirs to change, and Redline then files the drafted
+      // issue; a fix or an accept changes nothing Redline does, so a typed one is dropped with
+      // its warning, as before, and a picked one was never set.
       if (forced) {
-        if (decision.disposition) {
-          warnings.push(`${pass.name}: ${id} is left to the person under ${leftUnder(forced)}; the disposition ${JSON.stringify(decision.disposition)} is not applied`)
-          delete decision.disposition
-        }
-        decision.rule = forced.rule
-        if (forced.own) {
-          decision.own = true
-        }
+        leaveDecision(id, decision)
       }
       roundDecisions[id] = decision
     }
@@ -4064,7 +4773,44 @@ async function revise(record, inScope, reviewedKind) {
     // The resolve agent's entry for a decision it planned replaces an earlier one for the same id,
     // in place, so a deferral the person restated with their own mitigation is the one planned and
     // posted (#94, R5-9). A finding a repository ask rule covers keeps none (#49).
-    const once = firstPerId(out.deferred.filter((item) => !record.forced[item.id]))
+    // A left finding the person deferred keeps its entry too (#126). Its draft is the one the
+    // person was shown: the picked option's, or, for a defer typed for the finding, the draft of
+    // the call's one option that carries one. That draft is the entry, with no mitigation, since
+    // no task writes anything for a left finding, and an entry the resolve agent returns for it
+    // that differs is dropped with a warning. Only when the call offered no draft to take does
+    // the agent's own entry stand, held to its fields below like any deferral's. An entry for a
+    // left finding nobody deferred is dropped without one, as before (#109), and one for a left
+    // deferral an earlier resolve applied is dropped with one (#127, R3-9). A typed defer names
+    // none of several drafted options, so none is taken and the agent's own draft is filed, and
+    // the run says so (#127, R4-3), where until then the person, shown those drafts at the call,
+    // had a third filed with no word.
+    const optionDraft = {}
+    for (const id of applied.filter((x) => record.forced[x] && roundDecisions[x].disposition === 'defer')) {
+      const call = newCalls.find((c) => c.id === id)
+      const options = call && Array.isArray(call.options) ? call.options : []
+      const drafted = options.filter((option) => option && option.draft)
+      const picked = call && roundDecisions[id].option !== undefined ? optionOf(call, roundDecisions[id].option) : null
+      const source = picked || (roundDecisions[id].option === undefined && drafted.length === 1 ? drafted[0] : null)
+      if (!picked && roundDecisions[id].option === undefined && drafted.length > 1) {
+        warnings.push(`${pass.name}: the decision for ${id} is a defer typed for a call that offers ${drafted.length} drafted issues (${drafted.map(optionLabel).join(', ')}); none of them is taken, so the draft filed is one the resolve agent writes, shown before it is filed; a pick of one of those options files its draft`)
+      }
+      if (source && source.draft) {
+        optionDraft[id] = { id, mitigation: '', ...Object.fromEntries(DRAFT_FIELDS.map((key) => [key, source.draft[key]])) }
+      }
+    }
+    // A left deferral's entry is taken only from the resolve that applies it (#127, R3-9): one a
+    // later resolve of the round returns for it, a resolve a reshape's raised call set off, is
+    // dropped with a warning, so the earlier entry, the option's draft the person was shown
+    // included, stands. Until R3-9 it replaced that draft with no word.
+    const returned = out.deferred.filter((item) => !record.forced[item.id] || (leftDeferred(item.id) && applied.includes(item.id)))
+    for (const id of unique(out.deferred.filter((item) => leftDeferred(item.id) && !applied.includes(item.id)).map((item) => item.id))) {
+      warnings.push(`${pass.name}: the resolve agent returned a deferred entry for ${id}, a finding left to the person that an earlier resolve of the round applied; the earlier entry stands`)
+    }
+    const rewritten = unique(returned.filter((item) => optionDraft[item.id] && DRAFT_FIELDS.some((key) => String(item[key] === undefined ? '' : item[key]).trim() !== String(optionDraft[item.id][key]).trim())).map((item) => item.id))
+    for (const id of rewritten) {
+      warnings.push(`${pass.name}: the resolve agent returned a drafted issue for ${id} that differs from the one its call's option carries; the option's is filed, since the person was shown it before deciding`)
+    }
+    const once = firstPerId(returned.map((item) => optionDraft[item.id] || item).concat(Object.values(optionDraft).filter((entry) => !returned.some((item) => item.id === entry.id))))
     if (once.repeated.length) {
       warnings.push(`${pass.name}: the resolve agent listed ${once.repeated.join(', ')} as deferred more than once; the first entry is kept`)
     }
@@ -4108,7 +4854,7 @@ async function revise(record, inScope, reviewedKind) {
     // one, is checked by what it names, as a stated call is by its statement (#108, R1-5); a
     // finding left to the person under a rule names none (its disposition was deleted above).
     // Until #108 only a defer override was checked, by its entry.
-    const named = applied.filter((id) => !record.forced[id] && roundDecisions[id].disposition)
+    const named = applied.filter((id) => roundDecisions[id].disposition && (!record.forced[id] || roundDecisions[id].disposition === 'defer'))
     const namedAs = (disposition) => named.filter((id) => roundDecisions[id].disposition === disposition)
     const whose = (id) => (isCall(id) ? 'its decision' : 'a disposition override')
     // A deferral the person chose comes back with its entry (#97, R2-13): one the resolve agent
@@ -4130,6 +4876,13 @@ async function revise(record, inScope, reviewedKind) {
     // cannot take one out of plan.md, and the implementer builds the plan as written. An entry
     // short of a draft field stopped above, and an entry beside a fix or an accept was dropped.
     const taskFiles = (id) => taskFilesOf(out.tasks, id)
+    // No task writes anything for a finding left to the person, deferred or not (#127, R3-10):
+    // a task with files for one this resolve applies stops here, where a resume reruns the agent,
+    // before a plan approver could pass it and the build write under the rule.
+    const leftTasked = applied.filter((id) => record.forced[id] && taskFiles(id).length > 0)
+    if (leftTasked.length) {
+      throw checkError('resolve', `the resolve agent planned a task with files for ${leftTasked.map((id) => `${id} (${taskFiles(id).join(', ')}), a finding left to the person under ${leftUnder(record.forced[id])}`).join('; ')}; no task writes anything for it`)
+    }
     const statedAs = (disposition) => asked.filter((call) => stated[call.id] === disposition).map((call) => call.id)
     const undeferred = statedAs('defer').filter((id) => !fresh.some((item) => item.id === id))
     if (undeferred.length) {
@@ -4171,7 +4924,7 @@ async function revise(record, inScope, reviewedKind) {
     for (const id of applied.filter((x) => !(x in decidedFiles))) {
       decidedFiles[id] = taskFiles(id)
     }
-    deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id)))
+    deferred = deferred.map((d) => fresh.find((item) => item.id === d.id) || d).concat(fresh.filter((item) => !deferred.some((d) => d.id === item.id))).map(leftEntry)
     return out
   }
   // Dispositions after the overrides: what the plan approver and the implementer are shown, what
@@ -4180,11 +4933,15 @@ async function revise(record, inScope, reviewedKind) {
   // workflow reads, never the shaper's list for the finding's old disposition (#103, R1-2, R2-11).
   // Until #106 only one shown as a deferral did, and a decided fix was shown the shaper's list
   // from before the decision: a decline overruled to a fix was shown no files beside its task.
-  // Every other finding keeps the shaper's, one left to the person under a rule included. Its
-  // first call comes after plannedFiles is declared.
+  // Every other finding keeps the shaper's, one left to the person under a rule included: it is
+  // shown as the shaper returned it, an ask, whatever its decision names, a deferral the person
+  // chose for it too (#126), whose drafted issue stands beside it in the deferred list. A call
+  // answered by picking an option is shown by the option's end, which its decision carries
+  // (#105); one answered in the person's own words is still shown as the shaper sorted it, or
+  // as a reshape re-sorted it (#115). Its first call comes after plannedFiles is declared.
   const effectiveDispositions = () => shaped.findings.map((f) => {
     const decision = roundDecisions[f.id]
-    const shown = decision && decision.disposition ? { ...f, disposition: decision.disposition } : f
+    const shown = decision && decision.disposition && !record.forced[f.id] ? { ...f, disposition: decision.disposition } : f
     return tracked(f.id) ? { ...shown, files: plannedFiles(f.id) } : shown
   })
   // The files of the task the round planned for a finding, none when it planned no task (#100).
@@ -4207,10 +4964,13 @@ async function revise(record, inScope, reviewedKind) {
   // a stray filled entry was filed as the person's deferral, and a deferral in empty words
   // beside a planned task was demanded as a fix. A reshape's disposition or entry never makes a
   // decided finding one (#94, R8-6). A decline or a fix beside a leftover entry is none (#94,
-  // R4-9), and neither is a finding left to the person under a rule, which has no entry at all.
+  // R4-9). A finding left to the person under a rule is one only when its decision ends in a
+  // deferral (leftDeferred, #126): until #126 it never was, so a rule call the person answered
+  // "defer it" filed nothing, and a deferral the person had approved was silently not filed
+  // once a reshape put its finding under a rule.
   const isDeferral = (d) => {
     if (record.forced[d.id]) {
-      return false
+      return leftDeferred(d.id)
     }
     const decision = roundDecisions[d.id]
     if (decision) {
@@ -4280,10 +5040,24 @@ async function revise(record, inScope, reviewedKind) {
       throw stageError('approve', `the plan approver did not approve the ${pass.name} plan after ${maxPlanAdjustments} adjustments`, { adjustments: plan.adjustments, notes: plan.notes, ...(reshaped.length ? { reshaped } : {}) }, `plan approver ${pass.tag}${suffix}`)
     }
     log(`${pass.name}: plan bounced (${plan.adjustments.length} adjustments); reshaping`)
-    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, inScope.map((f) => f.id).filter(tracked).map((id) => ({ id, end: endsIn(id) }))), {
+    // Every decided finding is named to the reshape (#127, R4-4), one left to the person as left,
+    // so the hold below reads its task too; a tracked one is named as before. Until R4-4 a left
+    // one was not named, so the files a reshape listed for it were an ask's recommended paths,
+    // and no check read the task its first resolve had planned.
+    const named = inScope.map((f) => f.id).filter((id) => roundDecisions[id])
+    const leftBefore = new Set(Object.keys(record.forced))
+    shaped = await run('shape', reshapePrompt(pass, specFolder, inScope, plan.adjustments, adjustment + 1, named.map((id) => ({ id, end: record.forced[id] ? 'left' : endsIn(id) }))), {
       agentType: 'redline:redline-shaper', ...modelOpts('revise'), label: `reshape ${pass.tag} #${adjustment + 1}`, phase: 'Shape', schema: pass.human ? SHAPE_SCHEMAS.human : SHAPE_SCHEMAS.round,
     })
     await vetShape(pass, record, inScope, shaped, calls, `reshape ${pass.tag} #${adjustment + 1}`, ` #${adjustment + 1}`, Object.keys(roundDecisions))
+    // A decision this reshape newly left to the person is given everything resolveWith gives a
+    // left one, through the same helper (#127, R4-4; R5-3): the rule, and the drop of a fix or an
+    // accept it ended in. No resolve applies such a decision again, so the plan approver's next
+    // pass and the implementer would otherwise be shown it without the rule (R4-4), or with the
+    // rule beside a fix (R5-3).
+    for (const id of named.filter((x) => record.forced[x] && !leftBefore.has(x))) {
+      leaveDecision(id, roundDecisions[id])
+    }
     // A decided finding's task is the reshape's to correct after a bounce, so its list follows
     // the reshape (#106): the files the reshape returns for it, which its prompt asks for as the
     // task plan.md now holds. Until #106 the list stayed as the resolve planned it, so the plan
@@ -4327,9 +5101,26 @@ async function revise(record, inScope, reviewedKind) {
     // one kind the message reads as it did.
     const taskless = heldIds.filter((id) => endsIn(id) === 'fix' && decidedFiles[id].length === 0)
     const tasked = heldIds.filter((id) => endsIn(id) === 'accept' && decidedFiles[id].length > 0)
+    // A decided finding left to the person is held to no task with files here too (#127, R4-4).
+    // The resolve that applies a left call rewrites its task (R3-10's check), but a decided call a
+    // reshape newly leaves sets off no resolve, and until R4-4 one left before was not named to a
+    // reshape at all, so the task its first resolve planned stood and was built under the rule.
+    // One left only through the files this reshape lists is worded apart: removing those files
+    // alone takes it out from under the rule, and a resumed reshape shown its decision would then
+    // stop here again as a fix with no task, so the message names the change that keeps the
+    // decision and the return that leaves it to the person.
+    const listedFiles = (id) => {
+      const listed = shaped.findings.find((s) => s.id === id)
+      return cleanPaths(listed && Array.isArray(listed.files) ? listed.files : [])
+    }
+    const leftTasked = named.filter((id) => record.forced[id] && listedFiles(id).length > 0)
+    const byTask = leftTasked.filter((id) => leftByTask.has(id) && !leftBefore.has(id))
+    const keptTask = leftTasked.filter((id) => !byTask.includes(id))
     const left = [
       taskless.length ? `${taskless.map((id) => `${id}, which ${saidBy(id)} as a fix`).join('; ')}, with no task with files; a fix names the files it changes` : '',
       tasked.length ? `${tasked.map((id) => `${id}, which ${saidBy(id)} as accepted, with a task with files (${decidedFiles[id].join(', ')})`).join('; ')}; an accepted finding changes nothing` : '',
+      keptTask.length ? `${keptTask.map((id) => `${id}, a finding decided by ${roundDecisions[id].decidedBy} and left to the person under ${leftUnder(record.forced[id])}, with a task with files (${listedFiles(id).join(', ')})`).join('; ')}; no task writes anything for a finding left to the person` : '',
+      ...byTask.map((id) => `${id}, a finding decided by ${roundDecisions[id].decidedBy}, under repository rule ${record.forced[id].rule} only through the files of its task (${listedFiles(id).join(', ')}); to keep the decision, move the change off the rule's paths, and to leave it to the person, return it as an ask with no files whose call names repository rule ${record.forced[id].rule}, since removing its files alone takes it out from under the rule`),
     ].filter(Boolean)
     if (left.length) {
       throw checkError('shape', `the reshape left ${left.join('; and ')}`, {}, `reshape ${pass.tag} #${adjustment + 1}`)
@@ -4353,7 +5144,7 @@ async function revise(record, inScope, reviewedKind) {
       warnings.push(`${pass.name}: the reshape listed ${restated.join(', ')} as deferred, a finding the person or autopilot decided; the reshape's entry is dropped, since the decision stands`)
     }
     const reshaped = shaped.deferred.filter((d) => !roundDecisions[d.id])
-    deferred = reshaped.concat(deferred.filter((item) => !reshaped.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id))
+    deferred = reshaped.concat(deferred.filter((item) => !reshaped.some((d) => d.id === item.id) && stillDeferred(item.id))).filter((d) => !awayFromDefer(d.id)).map(leftEntry)
     const openRaised = raised.filter((call) => !decisions[call.id])
     const stopForRaised = settle(openRaised)
     const redrafted = draftStop()
@@ -4374,6 +5165,12 @@ async function revise(record, inScope, reviewedKind) {
       }
     }
     phase('Approve')
+  }
+  // A decision marked as a call's answer whose finding no shape or reshape of the round raised a
+  // call for answers nothing here (#127, R3-4). It is warned about, not a stop: the decision is
+  // the person's, and a round whose shapes replay raises the same calls.
+  for (const f of inScope.filter((x) => callAnswers.has(x.id) && !calls.some((call) => call.id === x.id))) {
+    warnings.push(`${pass.name}: the decision for ${f.id} answers a judgment call, but no shape of ${pass.name} raised one for it; it is not applied`)
   }
   const finalDispositions = effectiveDispositions()
 
@@ -4539,7 +5336,10 @@ async function revise(record, inScope, reviewedKind) {
   // filed all the same, and the warning names the files, since a commit that carries it under
   // another subject is not counted either.
   const landed = (id) => roundCommits.some((c) => ownCommit(c, id))
-  for (const d of roundDeferrals) {
+  const ownShas = (id) => andList(roundCommits.filter((c) => ownCommit(c, id)).map((c) => short(c.sha)))
+  // A finding left to the person is warned about on its own below (#127, R3-11): its plan is no
+  // task with files, by rule, so neither warning here says anything true of it.
+  for (const d of roundDeferrals.filter((x) => !record.forced[x.item.id])) {
     const files = plannedFiles(d.item.id)
     if (files.length && !landed(d.item.id)) {
       warnings.push(`${pass.name}: ${d.item.id} planned a mitigation in ${files.join(', ')} and no commit of its own landed; posted as shipping nothing`)
@@ -4548,10 +5348,17 @@ async function revise(record, inScope, reviewedKind) {
       // record, so it counts, and the warning says whose list was empty: a reshape's, when one
       // changed a decided finding's task and left it with none (#106), since the resolve agent
       // may well have planned one.
-      const shas = andList(roundCommits.filter((c) => ownCommit(c, d.item.id)).map((c) => short(c.sha)))
+      const shas = ownShas(d.item.id)
       const emptyBy = reshapedTasks[d.item.id] ? 'the reshape left its task with no files; posted with its decision' : roundDecisions[d.item.id] ? 'the resolve agent planned no task with files for it; posted with its decision' : 'the shaper listed no files for its task; posted as its mitigation'
       warnings.push(`${pass.name}: ${d.item.id} has a commit of its own (${shas}) and ${emptyBy}`)
     }
+  }
+  // A commit of its own for a finding left to the person, deferred or not (#127, R3-11): no task
+  // writes anything for one, and a left outcome carries no commit, so no reply or handoff names
+  // it. Until R3-11 a left deferral's was said to have no task planned with files, whatever the
+  // resolve agent planned, and a left finding nobody deferred had no warning at all.
+  for (const f of inScope.filter((x) => record.forced[x.id] && landed(x.id))) {
+    warnings.push(`${pass.name}: ${f.id} has a commit of its own (${ownShas(f.id)}), but it is left to the person under ${leftUnder(record.forced[f.id])}: no task writes anything for it, and its reply and the handoff name no commit`)
   }
   for (const d of toFile) {
     deferredAll.push(deferredEntry(pass, record, d, filed[d.item.id], outcomes[d.item.id]))
@@ -4795,7 +5602,8 @@ function handoffComment(ending, prBody, threads) {
 // handoff and the cap-hit comment carry the same section; with nothing deferred it is absent.
 // The line is the item's outcome as its round recorded it, so a deferral the person chose reads
 // as their decision and ends with where it went. A finding left to the person under a rule is
-// not here: it has no drafted issue.
+// here only when the person deferred it (#126), listed under Left to as well: any other has no
+// drafted issue.
 function deferredSection() {
   return deferredAll.length ? ['', `### Deferred (${deferredAll.length})`, '', ...deferredAll.map((d) => `- **${d.id}** ${postedText(d.title)}: ${d.outcome}`)] : []
 }
@@ -4840,7 +5648,8 @@ function humanSummary(record, nitPass, threads) {
   // What the pass deferred is read off what was filed, never off the outcome kind (#95): in a
   // human review pass a deferral is the author's decision, so no finding has the kind. Each part
   // reads as the replies and the handoff say where an item went (deferredTo; #97, R3-7).
-  const filed = record.findings.map((f) => f.id).filter((id) => (record.filed || {})[id])
+  // A finding left to the author that they deferred is named once, with the left findings below.
+  const filed = record.findings.map((f) => f.id).filter((id) => (record.filed || {})[id] && kinds[id] !== 'left')
   if (filed.length) {
     parts.push(andList(filed.map((id) => `${id} ${deferredTo(record.filed[id])}`)))
   }
@@ -4851,7 +5660,8 @@ function humanSummary(record, nitPass, threads) {
   const left = ids('left')
   if (left.length) {
     const ruleIds = unique(left.map((id) => (record.forced[id] || {}).rule || ''))
-    parts.push(`${andList(left)} left to ${personLabel} under repository rule${ruleIds.length === 1 ? '' : 's'} ${andList(ruleIds)}`)
+    const leftFiled = left.filter((id) => (record.filed || {})[id])
+    parts.push(`${andList(left)} left to ${personLabel} under repository rule${ruleIds.length === 1 ? '' : 's'} ${andList(ruleIds)}${leftFiled.length ? ` (${andList(leftFiled.map((id) => `${id} ${deferredTo(record.filed[id])}`))})` : ''}`)
   }
   const rest = ids('not-changed')
   if (rest.length) {
@@ -4962,9 +5772,10 @@ async function finish(kind, record, compose) {
 }
 
 // The threads Redline opened in this run, each settled or not (#39). A finding with an inline
-// comment is a candidate; a body finding has no thread. Settled means fixed, deferred, declined or decided (SETTLED_KINDS)
-// and a reply posted, so Redline's comment and its reply are both in the list; the rest stay open
-// with a reason.
+// comment is a candidate; a body finding has no thread. Settled means fixed, deferred, declined
+// or decided (SETTLED_KINDS), or left to the person with its drafted issue filed (settles, #126),
+// and a reply posted, so Redline's comment and its reply are both in the list; the rest stay
+// open with a reason.
 // A human review pass's record holds the teammate's threads, which are never candidates.
 function threadCandidates() {
   const out = []
@@ -4981,7 +5792,7 @@ function threadCandidates() {
         continue
       }
       const kind = kinds[f.id] || ''
-      const settled = SETTLED_KINDS.includes(kind) && replyIds[f.id] > 0
+      const settled = settles(record, f.id, kind) && replyIds[f.id] > 0
       const reason = settled ? '' : dropped.has(f.id) ? `dropped by ${personLabel}` : kind === 'left' ? leftUnder((record.forced || {})[f.id] || {}) : kind === 'not-changed' ? 'not changed' : !kind ? 'not settled' : 'no reply posted'
       out.push({ id: f.id, round: record.round, commentId, replyId: replyIds[f.id] || 0, settled, reason })
     }
@@ -5000,7 +5811,7 @@ function threadCandidates() {
       }
       const carrier = record.findings.find((f) => f.id === newId)
       const kind = kinds[newId] || ''
-      const settled = SETTLED_KINDS.includes(kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
+      const settled = settles(record, newId, kind) && replyIds[priorId] > 0 && (replyIds[newId] > 0 || !record.commentIds[newId])
       // The scope declined the carried finding, so its earlier thread gets no reply and stays
       // open, and a later run without the scope sees it fresh (#94, R1-19).
       const scopeDeclined = (record.scoped || []).some((s) => s.id === newId)
@@ -5312,6 +6123,11 @@ try {
       commentIds: A.revise.commentIds && typeof A.revise.commentIds === 'object' ? A.revise.commentIds : {},
       reviewPosted: A.revise.posted === true,
     }
+    // A link a findings file carries (#75) was kept by the run that wrote the file, against a
+    // record this pass does not hold: a revise-only pass is given no earlier findings. So it is
+    // cleared with a warning that says this pass holds no record of earlier rounds to check it
+    // against, since the earlier finding may well be recorded, only not here (#127, R1-3).
+    honourLinks(round, record.findings, true)
     rounds.push(record)
     const inScope = record.findings.filter((f) => !f.knownAs)
     const kind = inScope.some((f) => f.category === 'correctness') ? 'correctness' : 'nits'

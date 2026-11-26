@@ -1,0 +1,153 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "b696aee8fd3ac581b1fb244e905754c254b5267e",
+    "to": "20a760372362e85dd39a998443ffacfe49bb7460"
+  },
+  "summary": "Round 3's fixes hold where they were aimed. The call mark keeps a typed defer at a reshape's stop from being read as an override, renamed class links are cleared, and the left-finding warnings now say what is true. The recheck of the fix diff found nothing else they broke. The findings sit at the edges of two of those fixes and of the #126 path. R3-6's rule lookup skips a finding with an undeclared tag (R4-1), and R3-10's check misses a decided deferral that a reshape newly leaves to the person (R4-4). Two smaller gaps let a drafted deferral be dropped or replaced without notice (R4-2, R4-3). The repository has no scheduled or queued work for these files to overlap.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "workflows/redline-loop.js",
+      "line": 3979,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A call asked under a declared rule is still run as an ordinary call when its finding carries an undeclared askRule tag",
+      "description": "R3-6's fix reads the rule from the call's reason only when the finding has no tag: `if (!rule && !tagged && s.disposition === 'ask')` (3979). Take a finding the shaper tags with a rule the repository does not declare (a typo such as `billing-typo`) and whose call gives `why_human: \"repository rule billing\"` for a declared prose rule `billing`. At 3972 `ruleById['billing-typo']` is undefined and no paths rule matches, so `rule` is null. 3979 is skipped because `tagged` is set. At 3987-3990 the tag is dropped with the 'does not declare; ignored' warning and the loop moves on, so `record.forced` is never set. `checkWhy` (3652) then accepts the call, since `repository rule billing` names a declared rule. The call runs as an ordinary one. On autopilot the recommended option is picked, and `resolveWith` gives the decision that option's end (4603-4604, `!forced`), so a recommended fix is planned, built and pushed. On guided a pick of an option that ends in fix is built the same way. This is the outcome R3-6 was fixed to stop, reached through a second input: a tag that names no declared rule, where R3-6 covered a missing tag. Traced through the code; node is not available to this role, so the loop-harness run the coverage pass reports was not repeated. Under a paths rule the guard would still refuse the write. Under a prose rule, which no guard enforces, the change is made. docs/contract.md's new clause names only the no-tag case. Conditions: the shaper writes a tag that names no declared rule beside a call that names a declared one.",
+      "proposedFix": "Read the call's reason whenever no rule was found, tagged or not: `if (!rule && s.disposition === 'ask')`, keeping the undeclared-tag warning. Add a loop case beside the R3-6 cases: askRules [billing (prose)], autopilot, `ask: ['R1-1']`, `whyHuman: { 'R1-1': 'repository rule billing' }`, `askRule: { 'R1-1': 'billing-typo' }`. Expect `forced` to hold R1-1 under billing and the reply to start with `left to @author under repository rule billing`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R3-6"
+      ]
+    },
+    {
+      "id": "R4-2",
+      "file": "workflows/redline-loop.js",
+      "line": 4018,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A shaper deferral with an incomplete draft that a rule forces loses its draft with no warning",
+      "description": "In `forceAskRules`, a deferral the shaper drafted is kept as the call's `Defer to an issue` option only when `draftMissing(shaperEntry)` is empty (4017-4018). When a field is missing, `kept` is null. The entry is still removed (4022) and the disposition becomes `ask` (4019), and the call is built with only `Make the change by hand after the run` and `Accept, no change` (4035-4039). `vetShape` runs `forceAskRules` (4399) before `checkDrafts` (4413), and by then the finding is no longer a `defer`, so `checkDrafts`, which stops the round for any other deferral with an incomplete draft, never sees it. The only warning is the generic one at 4003 ('the shaper sorted R1-1 as defer; repository rule ... makes it an ask'), which says nothing about a drafted issue being dropped. The PR description says 'When the shaper had deferred the finding, the workflow keeps its draft as that option, `Defer to an issue`, and recommends it.' For a draft short of a field the workflow does neither, with no word. The comment at 4015-4016 says only a complete draft is kept, by design, so that no stop is raised for an option the shaper never wrote; what is missing is any notice. The person can still type `<id>: defer`, and the resolve agent then writes a draft. Traced through the code; node is not available to this role, so the coverage pass's harness run was not repeated. The line was added by this pull request for #126, not by round 3's fixes. Conditions: the shaper defers a finding a rule covers and leaves a draft field blank (for example `why: '   '`).",
+      "proposedFix": "When `shaperEntry` exists but `draftMissing(shaperEntry)` is not empty, either warn and name the missing fields, so the run says a drafted deferral was dropped, or throw the same `checkError('shape', ...)` that `checkDrafts` throws, so the reshape or resume completes the draft. Add a loop case: a paths rule, `defer: ['R1-1']` on config/project/project.yaml, and `drafts: { 'R1-1': { why: '   ' } }`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "workflows/redline-loop.js",
+      "line": 4698,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A typed defer on a left call with two drafted defer options takes neither draft, with no warning",
+      "description": "In `resolveWith`, the draft for a left deferral comes from the picked option or, for a typed defer, from the call's single drafted option: `drafted.length === 1 ? drafted[0] : null` (4698). `checkOptions` (3687-3749) does not limit a left call to one option that ends in defer with a draft, so a call can offer two (for example `Track it` and `Track the class`). When the person types `R1-1: defer. <reason>`, `source` is null and `optionDraft` gets no entry. The resolve agent's own entry is then kept (`returned`, 4707) and filed, and the `rewritten` warning (4711-4714) only compares against `optionDraft`, so it says nothing. The person was shown two drafts at the call, and a third, written by the agent, is the one filed. SKILL.md (line 213) and docs/running.md ('Left to you') describe only the one-draft and no-draft cases. The impact is limited: the agent's draft goes through the round's draft stop, or the end-of-run stop, before it is filed (`draftStop`, `raisesDrafts` 4443), so the person sees it and can drop it. Traced through the code. The line was added by this pull request for #126, not by round 3's fixes.",
+      "proposedFix": "When a typed defer meets a left call with more than one drafted option, either refuse it at the stop and ask for a pick, or warn and name the options. Then document the case beside the one-draft sentence in SKILL.md and docs/running.md.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "workflows/redline-loop.js",
+      "line": 5018,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A decided deferral that a reshape newly leaves to the person keeps its first resolve's task with files, and it is built",
+      "description": "R3-10 was fixed, but still reproduces here, through the reshape path its shape.md placed in scope ('A reshape that newly forces a decided deferral keeps its earlier entry'). Sequence: a call answered with a typed defer, on an ordinary call that offered no draft, is applied by the first resolve while the finding is not yet forced. The resolve plans its mitigation task with files (for example app/x.php), and `decidedFiles` takes that list (4826-4828). The plan bounces. The reshape tags the finding with a prose rule, and `forceAskRules` sets `record.forced` (4063-4065). From that point every check skips the task. `tracked` is false for a forced id (4540), so neither the reshape's list update (4960) nor the hold after the reshape (4984-4998) reads it. The R3-10 check `leftTasked` (4784) runs only over the ids a resolve applies, and no resolve reapplies this one, since its call is already in `calls` and is not raised (5001). `leftEntry` at the rebuild (5018) clears only the entry's mitigation, with a warning that says 'no task writes anything for it', which is false here. The plan approver's copy of the decision carries no `rule`, because `rule` is set only inside `resolveWith` (4633). The approver is shown the finding as an ask with its askRule, but no workflow check holds the plan to no task. If it approves, the implementer builds the mitigation under the prose rule and the commit is pushed. The R3-11 warning then fires ('has a commit of its own ... but it is left to the person'), and the reply names no commit. A decided fix that a reshape newly forces keeps its task the same way. That part predates round 3's fixes (the #108 `forcedLater`/`forcedNamed` path). #119 tracks applying paths rules to the task a resolve plans for a decided finding. It does not cover a prose rule that a reshape applies after the task was planned. Traced through the code; node is not available to this role, so the coverage pass's harness run (namedLater with `commitIds: [['R1-1'], []]`) was not repeated. Under a paths rule the guard would refuse the write.",
+      "proposedFix": "After each reshape, hold every decided id that this reshape newly put in `record.forced` to no task with files (`decidedFiles[id]` non-empty, or the files the reshape lists for it), with a `checkError('shape', ...)` that the resume can replan, as `leftTasked` does at resolve. Also set `rule` (and `own`) on `roundDecisions[id]` for such an id, so the plan approver and the implementer are told it is left. Add a loop case from `namedLater` with `commitIds: [['R1-1'], []]` that expects a stop at shape and no `redline: R1-1` commit.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R3-10"
+      ]
+    }
+  ],
+  "coverage": {
+    "head": "20a760372362e85dd39a998443ffacfe49bb7460",
+    "candidates": 4,
+    "counts": {
+      "verified": 4,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R4-1"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R4-4"
+      },
+      {
+        "index": 3,
+        "outcome": "verified",
+        "ref": "R4-2"
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R4-3"
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "workflows/redline-loop.js",
+        "line": 3979,
+        "summary": "A judgment call the shaper writes under a declared repository rule is still run as an ordinary call when the finding also carries an askRule tag the repository does not declare (a typo such as `billing-typo`). The R3-6 lookup in forceAskRules only runs when `!tagged`. With an undeclared tag, `rule` stays null, the tag is dropped with an 'ignored' warning, the call's reason is never read, and checkWhy accepts `repository rule billing` as a valid reason. This change makes it worse: a pick or autopilot now takes the option's `ends` directly, where before the resolve agent read the call. Fix: run the call-reason lookup whenever no rule was found, tagged or not, so the condition is `!rule && s.disposition === 'ask'` (keep the undeclared-tag warning). Add a loop case for an undeclared tag beside a call under a declared rule.",
+        "failure_scenario": "Reproduced in the loop harness. askRules=[billing (prose)], interrupt autopilot, shaper returns R1-1 as an ask with why_human 'repository rule billing' and askRule 'billing-typo'. Result: status done, forced [], warnings only 'tagged ... \"billing-typo\" ... ignored', and the reply reads 'Autopilot took the shaper's recommendation: Keep it. Applied in 1bbbbbb'. So Redline built and pushed a change that a prose ask rule (one no guard enforces) says only a person may make. On guided, picking an option that ends in fix is built the same way."
+      },
+      {
+        "index": 2,
+        "file": "workflows/redline-loop.js",
+        "line": 4984,
+        "summary": "A decided deferral (or a decided fix) whose task the first resolve planned keeps that task with its files after a reshape newly puts the finding under a rule, and the implementer builds it. Four things miss it: the hold after a reshape only checks `tracked` ids, which leave out forced ones; leftTasked only checks ids the current resolve applies; leftEntry only blanks the entry's mitigation; and the plan approver's copy of the decision carries no `rule`, so it is not told the finding is left. Meanwhile the new leftDeferred comment and the leftEntry warning say 'no task writes anything for it', while the posted reply names no commit. R3-10 in round 3's shape.md says its fix closes every path, and R3-4's comment already noted 'the first resolve's mitigation task ... can stand'. #119 covers only the resolve-time paths-rule case. Fix: when a reshape newly forces a decided id, hold it to no task with files, the same way as leftTasked (a checkError at the reshape, which the resume can replan), and add `rule` to roundDecisions[id] so the plan approver and implementer are told.",
+        "failure_scenario": "Reproduced in the loop harness. askRules=[billing (prose)]. R1-1 is a call answered with a typed defer, and the resolve plans the mitigation task on app/x.php. The plan bounces, and the reshape tags R1-1 'billing'. Result: status done; commit 'redline: R1-1 fix' lands and is pushed. The plan approver r1 #2 is shown the R1-1 decision with no `rule`. Warnings say 'the mitigation \"a guard\" ... is cleared, since no task writes anything for it' and then 'R1-1 has a commit of its own (1bbbbbb), but it is left to the person'. The reply reads 'left to @author under repository rule billing ... Deferred to #301.' with no commit named."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 4018,
+        "summary": "When the shaper defers a finding that a paths rule then forces, but its drafted issue is missing a field, the draft is thrown away without a word. forceAskRules keeps it as the 'Defer to an issue' option only when draftMissing is empty. The entry is then deleted and the disposition becomes ask, so checkDrafts no longer sees it, and the only warning is 'sorted R1-1 as defer; ... makes it an ask'. The person is offered only 'by hand' or 'accept', with nothing saying a deferral was drafted and lost. Fix: when shaperEntry exists but is incomplete, warn with the missing fields, or stop the round like checkDrafts does so the reshape or resume completes the draft.",
+        "failure_scenario": "Reproduced in the loop harness. A paths rule covers config/project/**. The shaper defers R1-1 (on config/project/project.yaml) with `why: '   '`. The stop's call offers [Make the change by hand after the run (fix), Accept, no change (accept)] and no defer option. The warnings say nothing about the draft. A complete draft would have produced the 'Defer to an issue' option."
+      },
+      {
+        "index": 4,
+        "file": "workflows/redline-loop.js",
+        "line": 4698,
+        "summary": "A typed defer (`<id>: defer`, call: true) on a left call that offers two or more drafted options that end in defer takes neither of the drafts the person was shown. `source` is only set when `drafted.length === 1`, so the resolve agent's own entry is filed and nothing warns that it differs from the drafts on the call. The skill and the resolve prompt only describe the one-draft and no-draft cases. Fix: when several drafted defer options exist, refuse the typed defer at intake or at resolve and ask for a pick, or at least warn and name the options, and document the case in SKILL.md.",
+        "failure_scenario": "A left call has 'Track it' and 'Track the class', both ending in defer and each with its own draft. The person types `R1-1: defer. reason`. optionDraft is empty, so the resolve agent writes a third draft, which is filed as the person's deferral. Neither shown draft is used and no warning is given."
+      }
+    ]
+  }
+}
