@@ -4020,9 +4020,14 @@ function forceAskRules(record, pass, inScope, shaped) {
     // (#126): the draft is kept, as the call's option that ends in defer, where until #126 it
     // was thrown away with the entry and the person was offered the change by hand or nothing.
     // Only a complete draft is kept: one short of a field would stop the round below for an
-    // option the shaper never wrote. Its mitigation is not: no task writes under the rule.
+    // option the shaper never wrote. Its mitigation is not: no task writes under the rule. A
+    // draft that cannot be kept is warned about with what it lacks (#127, R4-2), where until then
+    // it was dropped with no word; an absent entry lacks every field.
     const shaperEntry = s.disposition === 'defer' ? shaped.deferred.find((d) => d.id === f.id) : null
     const kept = shaperEntry && draftMissing(shaperEntry).length === 0 ? Object.fromEntries(DRAFT_FIELDS.map((key) => [key, shaperEntry[key]])) : null
+    if (s.disposition === 'defer' && !kept) {
+      warnings.push(`${pass.name}: the shaper deferred ${f.id} with no complete drafted issue (missing ${draftMissing(shaperEntry).join(', ')}); repository rule ${rule.id} leaves it to the person, and the draft is not kept as an option of its call, since only a complete one is`)
+    }
     s.disposition = 'ask'
     s.decidedBy = 'pending'
     s.askRule = rule.id

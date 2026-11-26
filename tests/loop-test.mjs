@@ -4848,6 +4848,18 @@ function samePrefix(name, first, second, n) {
   const periodAuto = await go('left: the same, on autopilot', { ...ruleArgs, interrupt: 'autopilot' }, periodTitle)
   const periodOpen = ((periodAuto.res.forced || []).find((x) => x.id === 'R1-1') || {}).open || ''
   check('left: on autopilot its Left to entry ends in the title\'s one period', periodOpen.endsWith('Lock R1-1.') && !periodOpen.includes('..'), [detail(periodAuto), periodOpen])
+  // A shaper deferral whose draft a rule cannot keep is warned about, with what it lacks (#127,
+  // R4-2): until then the draft was dropped with the entry and the run said nothing of it.
+  const SHORT_DRAFT = (missing) => `round 1: the shaper deferred R1-1 with no complete drafted issue (missing ${missing}); repository rule craft-config leaves it to the person, and the draft is not kept as an option of its call, since only a complete one is`
+  for (const [name, scenario, missing] of [
+    ['a draft short of a field', { ...deferredUnderRule, drafts: { 'R1-1': { why: '   ' } } }, 'why'],
+    ['no draft at all', { ...deferredUnderRule, noDraft: ['R1-1'] }, 'title, found, why'],
+  ]) {
+    const shortRun = await go(`left: the shaper deferred a finding under a rule with ${name}`, ruleArgs, scenario)
+    const shortCall = ((shortRun.res || {}).judgmentCalls || [])[0] || { options: [] }
+    check(`left: the shaper deferred a finding under a rule with ${name}: its call offers the two options, and a warning says the draft is not kept and what it lacks`, shortRun.res.status === 'handoff' && JSON.stringify(shortCall.options.map((o) => [o.label, o.ends])) === `[["${BY_HAND}","fix"],["${ACCEPT}","accept"]]` && shortCall.recommended === BY_HAND && (shortRun.res.warnings || []).includes(SHORT_DRAFT(missing)), [detail(shortRun), shortCall])
+  }
+  check('left: a complete draft kept under a rule is warned about as no incomplete one', !(stop.res.warnings || []).some((w) => w.includes('with no complete drafted issue')), stop.res.warnings)
   const undrafted = await go('left: the shaper deferred a finding under a paths rule with no drafted issue', ruleArgs, { ...deferredUnderRule, noDraft: ['R1-1'] })
   const undraftedCall = ((undrafted.res || {}).judgmentCalls || [])[0] || { options: [] }
   check('left: a deferral with no complete draft under a rule gets the two options, and the round does not stop for the draft', undrafted.res.status === 'handoff' && undraftedCall.options.map((o) => o.label).join('|') === `${BY_HAND}|${ACCEPT}` && undraftedCall.recommended === BY_HAND, [detail(undrafted), undraftedCall])
