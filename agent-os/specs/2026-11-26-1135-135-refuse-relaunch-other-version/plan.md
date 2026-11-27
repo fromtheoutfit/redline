@@ -186,3 +186,90 @@ At each boundary: the file list, one line on which harness went red then green, 
 - The 63-row table reruns as built.
 - The update command is checked live on a throwaway plugin.
 - Nothing is staged or committed by me.
+
+## As built
+
+Built in five commits, each made by the person at a slice boundary:
+
+- `b32c624` the spec folder (Task 1);
+- `b2d81dd` the version in three places, `args.launch` and the workflow's refusal (Tasks 2 to 4);
+- `f5a888b` `run check`'s `version` reason, `run drift` on every repository and the skill's relaunch and resume text (Tasks 5 and 6);
+- `a99b03f` the launch warning (Task 7);
+- `be26543` the docs (Task 8).
+
+### Harnesses, red then green
+
+- **setup-test:**
+  - the three-way version case failed with only the manifests bumped;
+  - the `version` and `workflow` fields failed before the script printed them;
+  - 9 launch-warning cases failed first, plus a later one for a root that only another repository's install uses;
+  - it ends at 547 passed.
+- **loop-test:**
+  - section 17a had 15 checks failing before the refusal existed, and one more before the `relaunch.how` sentence;
+  - it ends at 2067 passed.
+- **prefs-test:**
+  - 19 cases failed first;
+  - the neighbours passed throughout (an installed release at the same version goes by name, another session comes first, the plugin's own repository as before);
+  - it ends at 197 passed.
+- **The prompt sweep:** HEAD's test and workflow against the built ones, every agent call dumped:
+  - 833 runs in both, 13,865 calls compared (label, agent type, prompt and options), 0 differ;
+  - the 14 runs found only after are section 17a's.
+- **The table as built:** 77 rows (`m9-table-built.tsv`, counted from the output). The 63 site-by-case rows are in `shape.md` with an "As built" column, and the 14 version cases are in a table of their own. Each case gives one answer at all 7 sites.
+- **The update command, run live** on a throwaway plugin (Claude Code 2.1.332):
+  - user behind: updated from 0.0.1 to 0.0.2, run from outside the project;
+  - project behind: updated from 0.0.2 to 0.0.3;
+  - two projects holding a project install, the command run from outside both: it picked the other project, said "already at the latest version" and left the one behind unchanged; run from that project's root, it updated;
+  - local behind: updated, from 0.0.2 to 0.0.3;
+  - cleanup: the three config files are identical to their backups, and the probe's cache directory is removed.
+
+### Deviations from the plan
+
+1. **Task 4: the version check runs first, before every other args check, not in the `try`.** So args an older skill built, which may lack a field this build requires, get the version line rather than a throw about the field. `result()` reads constants declared later, so the refusal builds its error result itself: stage `relaunch`, `resumeFrom` null, `ownCheck` false, and no rounds, commits or spec folders.
+2. **Tasks 3 to 5: the blob id is `git -C <repoRoot> hash-object --no-filters` on both sides.** Setup and drift then hash the same way wherever the file sits.
+3. **Task 4: `args.launch.workflow` takes a 40- or a 64-hex id,** for a repository that uses SHA-256 object ids.
+4. **Task 4: the result's `relaunch.how` names the launch rule,** pinned by a loop-test check.
+5. **Task 5: no "overwritten pin" refusal.**
+   - Measurement m6-inplace-edit shows a live session keeps running the workflow it loaded after the file on disk changes. So in a session that loads Redline in place, a fresh launch after a commit edited the workflow runs the older copy, while `args.launch.workflow` records the edited file.
+   - The planned check (the pin's blob against `args.launch.workflow`) would refuse that consistent run. The planned comparison of the live file with the launch blob would also answer `name`, and after a reopen the name runs the edited file.
+   - So a pin is compared with the live file, as #81 did, and the blob only when there is no pin (a fallback launch, which read the file from disk). A prefs case pins it.
+6. **Task 5: `run check` and `run drift` require `--plugin`** (exit 2 without it, or when its manifest holds no version). The version is read from it, and the skill always passes it.
+7. **Task 5: `run drift` needs the marker on every repository** (exit 2 without one). So a `run save` that exits 2 now stops the relaunch (SKILL.md, section 7). It exits 2 only when the harness's record layout changes.
+8. **Task 5: how a marker with no `args.launch` names its version.** It is read from `args.pluginRoot`'s manifest only when that root is an installed release (under `plugins/cache/`, a version directory an update leaves in place). Otherwise the line says "a Redline build before 0.5.1", since a checkout's manifest may have moved on since the launch: this repository's stale PR 71 marker would otherwise read as started under 0.5.1.
+9. **Task 6: the skill's error section says what a refused fresh launch means.** A fresh launch the workflow refuses for its version happens only in a session that loads Redline in place after a commit changed the version, and the section says to reopen the session.
+10. **Task 6, a consequence recorded in the docs:** on the plugin's own repository, a round whose commits change `plugin.json`'s version ends the run at its next relaunch, as a version change.
+11. **Task 7: the installs are a top-level `installs` key,** and `REDLINE_CLAUDE` overrides the CLI for tests, as the template overrides do.
+12. **Task 7: "the one running" is found among the installs this repository sees,** not among all installs. Run against this machine's real list, a root used only by another repository's install produced a line marking none of this repository's installs as this session's.
+13. **Task 8: `skills/setup/SKILL.md` and `docs/setup.md` changed too.** Their Verify step expected `version` to exit 0, and it exits 1 when the installs differ, which no setup step changes. They now say to say that line and go on.
+14. **Task 8: one claim narrowed.** A live session keeping an agent file edited in a checkout was not measured (the in-place probe edited only the workflow), and README and running.md say so.
+15. **Task 9: the gate's step 11 text.** It named only the two manifests, while the setup test checks three places. Changing it moves the gate stamp, so it went to the person with the standards retrospective as edit 9. It was applied, with `scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh` in the same commit.
+
+### Docs (gate step 10)
+
+- **`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`** (`b2d81dd`): no reader-facing change beyond the version. CONTRIBUTING.md "Releases" names the third place the version lives (`be26543`).
+- **`workflows/redline-loop.js`** (`b2d81dd`, `f5a888b`):
+  - docs/running.md "Hand-off and relaunch", for the startup refusal and what a relaunch runs;
+  - CONTRIBUTING.md "Releases", for `REDLINE_VERSION`;
+  - both in `be26543`.
+- **`scripts/redline-setup.sh`** (`b2d81dd`, `f5a888b`, `a99b03f`), all in `be26543`:
+  - docs/scripts.md, the `redline-setup.sh` header block, regenerated verbatim;
+  - docs/running.md "Precheck";
+  - docs/upgrading.md "A stopped run across a version change (#135)";
+  - docs/setup.md "13. Verify".
+- **`scripts/redline-prefs.sh`** (`f5a888b`), all in `be26543`:
+  - docs/scripts.md, the `redline-prefs.sh` header block, regenerated verbatim;
+  - docs/running.md "Hand-off and relaunch", "Saved launch settings" and "Run markers and resume".
+- **`skills/redline/SKILL.md`** (`b2d81dd`, `f5a888b`, `a99b03f`), all in `be26543`:
+  - docs/running.md "Precheck", "Hand-off and relaunch" and "Run markers and resume";
+  - README.md "Known limits".
+- **`skills/setup/SKILL.md`** (`be26543`): docs/setup.md "13. Verify" (`be26543`).
+- **New exit codes and reasons,** all in `be26543`:
+  - `run check` and `run drift` exit 2 without `--plugin`, and `run drift` exits 2 without a marker on any repository: docs/scripts.md, the prefs header;
+  - `run check`'s `version` reason: docs/running.md "Run markers and resume";
+  - `version <repoRoot>` exits 1 on the installs line: docs/scripts.md, docs/setup.md and docs/upgrading.md.
+- **New environment variable `REDLINE_CLAUDE`** (tests only): the setup header in docs/scripts.md (`be26543`).
+- **No new config key, subcommand or allow rule.**
+
+### Standards retrospective (gate step 12)
+
+Nine edits were drafted in `shape.md`, "Standards retrospective": `workflow/replay.md` (line 23 rewritten, and a new line for the version), `workflow/agents.md` (line 45), `process/release.md` (lines 5, 6 and 11, and a new line for the installs), `testing/tests.md` (a new line for the stub CLI), `scripts/bash-conventions.md` (line 48), and the gate's step 11. @michaelfromtheoutfit applied all nine. They are in their own commit, with the gate's re-stamp in `.claude/redline/checks.sh`.
+
