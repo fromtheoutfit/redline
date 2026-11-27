@@ -536,4 +536,80 @@ Steps 10, 11, 12 and 13 stay as written:
 
 ## As built
 
-(Written by the implementer in the last commit.)
+Built by the implementer. Every gate run and every mutation below ran under jq 1.8.2 (`jq --version` before the first red run), the jq on this machine's PATH. jq 1.7.1, CI's, was not run here.
+
+### Commits
+
+| Task | Finding | Commit |
+|---|---|---|
+| 1 | spec folder | `a5be716` |
+| 2 | R1-2 | `2bf2678` |
+| 3 | R1-3 | `fc3d7aa` |
+| 4 | R1-4 | `9d64705` |
+| 5 | R1-6 | `247ba99` |
+| 6 | R1-7 (the mitigation) | `23a4460` |
+| 7 | R1-8 | `30524ea` |
+| 8, step 12 | standards retrospective | `752840e` |
+| 8, step 13 | As built | this commit |
+
+### Red and green, read off the gate's summary lines
+
+The gate runs were slow enough to share, as "Running the plan" allows: the red runs of Tasks 2, 4 and 7 were seen in one run, and Task 3's red run and green run each carried one of Task 4's mutations, which only the setup harness reads. Each task was still committed with only its own cases.
+
+- **Red run 1 (Tasks 2, 4 and 7):**
+  - loop `2064 checks passed, 4 failed`: Task 7's three re-pinned checks and its new one.
+  - prefs `202 passed, 3 failed`: case (a)'s two checks and case (d)'s line. Case (d)'s exit 2 held already, as planned. Cases (b), (c) and (e) held before.
+  - setup `547 passed, 8 failed`: all four cases, two checks each. Under jq 1.8 only: cases (2) and (3), four checks, which by jq's NEWS hold before the change under jq 1.7. Under both versions: case (1), since `split` refuses a non-string under both, and case (4), measured here and by NEWS the same under 1.7.
+- **Green run 1 (Tasks 2, 4 and 7):** loop `2068 checks passed, 0 failed`, prefs `205 passed, 0 failed`, setup `555 passed, 0 failed`.
+- **Red run 2 (Task 3):** prefs `211 passed, 8 failed`: cases (iii), (iv), (v) and (vi), two checks each. Cases (i), (ii) and (vii), and the existing check at 427, held before.
+- **Green run 2 (Task 3):** prefs `219 passed, 0 failed`.
+- **Tasks 5 and 6** change only text no harness reads. The final run below stays green.
+- **Final run, the committed tree:** every check exits 0. loop `2068 checks passed, 0 failed`, prefs `219 passed, 0 failed`, setup `555 passed, 0 failed`; `git.unexpected_files` and `git.uncommitted` empty.
+
+### Mutations, each run once, all under jq 1.8.2
+
+Each mutation was undone afterwards, and the script was compared byte for byte with a copy saved before it (`cmp`).
+
+- **Run A** (prefs `203 passed, 2 failed`, setup `554 passed, 1 failed`):
+  - Task 2, searching `CLAUDE_CONFIG_DIR` alone: case (b) red, and case (d)'s line, which then names one pattern.
+  - Task 4, `num` without `tostring`, the fallback kept: case (1) red on its `expect_json`, its exit 0 held.
+  - Task 4, the early check put back to `jq -e 'type == "array"'`, the caller's whole-stream check kept: case (4) still passed.
+- **Run B** (prefs `203 passed, 2 failed`, setup `552 passed, 3 failed`):
+  - Task 2, both directories searched and their matches joined: case (e) red on both checks (`2 run records match`).
+  - Task 4, the visible filter without `tostring`, the fallback and the caller's check kept: case (2) exit 0 and red on its `expect_json`.
+  - Task 4, the early check and the caller's check both put back to `jq -e 'type == "array"'`: case (4) exits 2, both its checks red.
+- **With red run 2** (setup `554 passed, 1 failed`): Task 4, the visible filter without `tostring` and the fallback dropped, the caller's check kept. Case (2) exit 0 and red on its `expect_json`.
+- **With green run 2** (setup `553 passed, 2 failed`): Task 4, as above, the caller's check dropped too. Case (2) exits 2.
+- **Run D** (prefs `215 passed, 4 failed`): Task 3, refusing whenever the two directories differ. Cases (i) and (ii) red, two checks each.
+
+### Existing checks that followed a task
+
+Task 7's three loop checks in section 17a, `launch: the refusal names both versions ...` (2747), `launch: its line says ...` (2753) and `launch: a fresh launch whose skill is another version is refused too, before any agent` (2763). Each pins the line Task 7 changes, so its expected text and name follow the new line in the same commit. No other existing check went red.
+
+### shellcheck
+
+Tasks 2 to 4 change `.sh` files. shellcheck is not on the implementer's allowlist, so it was left to CI's shellcheck job on the push.
+
+### Docs (gate step 10)
+
+- `scripts/redline-prefs.sh`, Task 2: `docs/scripts.md`, the header block, and `docs/running.md`, "Run markers and resume", in `2bf2678`.
+- `skills/redline/SKILL.md`, Task 2: `docs/running.md`, "Run markers and resume", in `2bf2678`.
+- `scripts/redline-prefs.sh`, Task 3: `docs/scripts.md`, the header block, and `docs/running.md`, "Hand-off and relaunch", in `fc3d7aa`.
+- `skills/redline/SKILL.md`, Task 3: `docs/running.md`, "Hand-off and relaunch", in `fc3d7aa`.
+- `scripts/redline-setup.sh`, Task 4: `docs/scripts.md`, the `redline-setup.sh` header block, in `9d64705`.
+- `skills/redline/SKILL.md`, Task 5: no reader-facing change, as the task says, in `247ba99`.
+- `skills/redline/SKILL.md`, Task 6: `docs/running.md`, "Hand-off and relaunch", and `docs/upgrading.md`, "A stopped run across a version change (#135)", in `23a4460`.
+- `workflows/redline-loop.js`, Task 7: no reader-facing change, as the task says, in `30524ea`.
+
+### Version (gate step 11)
+
+`0.5.1`, unchanged in `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` and `REDLINE_VERSION`.
+
+### Deviations
+
+Each is also recorded under "Deviations as built" in `shape.md`, Decisions.
+
+1. **Task 2's commit subject.** The planned subject names `CLAUDE_CONFIG_DIR` and `~/.claude`. The guard refuses both in a commit message, since its attribution check matches the name and strips only `.claude/` and `CLAUDE.md`. So the subject says "the session's config directory" and `~/.claude/`: `redline: R1-2 find the run record under the session's config directory as well as ~/.claude/, and copy the one run save found (#135)`.
+2. **Task 2, `skills/redline/SKILL.md`, "Save the run record".** The plan's `<config>` text stated as fact that the harness keeps the record under `CLAUDE_CONFIG_DIR`, which was not measured. The plan approver noted this, and process/docs-gate line 18 asks for "expected" wording. So the text reads `` (`<config>` is `~/.claude`, or, as expected but not measured, the directory `CLAUDE_CONFIG_DIR` names when the session sets it) ``.
+3. **Task 2, `docs/running.md`, "Run markers and resume".** The clause on where the script looks is placed after the parenthetical that lists what the marker holds, not straight after "from the harness's own record of the run". In the planned place the list would have read as the contents of `~/.claude`.
+4. **Task 6.** Each of the three sentences ends `(#137, R1-7)`, since a deferral's mitigation names its finding.

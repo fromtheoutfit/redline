@@ -253,6 +253,19 @@ Decided by: redline
 
 Proposed below, under "Standards retrospective (proposed)". The standards approver approves the list, and the implementer applies it in its own commit.
 
+Applied as approved, items 1 to 4, in `752840e`.
+
+### Deviations as built
+
+Recorded by the implementer. None changes a disposition or what a task's cases pin. `plan.md`, "As built", has the detail.
+
+1. **Task 2's commit subject** says "the session's config directory" and `~/.claude/`. The guard refuses `CLAUDE_CONFIG_DIR` and a bare `~/.claude` in a commit message as an attribution marker.
+2. **Task 2's "Save the run record"** says the `CLAUDE_CONFIG_DIR` location of the record is expected, not measured. This follows the plan approver's note and process/docs-gate line 18.
+3. **Task 2's `docs/running.md` clause** comes after the parenthetical list of what the marker holds, so that list still reads as the marker's.
+4. **Task 6's three sentences** each end `(#137, R1-7)`, naming the finding the mitigation is for.
+
+Decided by: redline
+
 ## Declined
 
 - **R1-1.** The pull request makes this behaviour deliberate: its spec's `plan.md` "As built" deviation 10 and the description's "Behaviour that changes on purpose" say that on the plugin's own repository a round that changes the version in `plugin.json` ends the run at its next relaunch, and `docs/running.md` "Hand-off and relaunch" already says so.
