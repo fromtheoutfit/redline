@@ -278,16 +278,15 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       self is true when the repository is --plugin's directory. First the version: when the
 #       marker's args.launch records another version than --plugin's manifest, or none, launch is
 #       refuse and line is run check's version line. Then the copy (#137, R1-3): when
-#       args.pluginRoot is another directory than --plugin (a checkout and a release, or two
-#       checkouts, at one version), launch is refuse when the two copies' agent files differ
-#       (#137, R2-1: an agent file is a *.md file under agents/ whose path has no part that
-#       starts with a dot, so a .DS_Store or an editor's backup there is none; the two lists are
-#       compared by path, then each pair by its bytes, and a copy with no agents/ has none) or
-#       args.pluginRoot is no longer a directory, since the launch's script would run under
-#       another build's agents; line names both copies, and run check refuses the same copy as
-#       its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then the script:
-#       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
-#       can change while it reviews any repository, and the pin is the script path in the
+#       args.pluginRoot is another directory than --plugin by real path (a checkout and a release,
+#       or two checkouts, at one version, or a launch copy that is gone), launch is refuse,
+#       whatever their agent files hold (#137, R3-2): a relaunch keeps args.pluginRoot, every
+#       agent's prompt names that copy's scripts, and the guard the session's copy registers runs
+#       only its own copy's, so the rest of the run would stop at its first script call, under
+#       another build's agents besides; line names both copies, and run check refuses the same
+#       copy as its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then
+#       the script: the live file is --plugin's workflows/redline-loop.js, since a checkout loaded
+#       in place can change while it reviews any repository, and the pin is the script path in the
 #       marker's record: the copy the
 #       harness persisted when the run was launched by name, which holds what the launch ran (in a
 #       live session, the copy it loaded, even after the file on disk changed). launch is name
@@ -296,9 +295,10 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       itself (a launch by the scriptPath fallback leaves no pin), name while the live file's git
 #       blob id is args.launch.workflow and refuse when it is not; line then names the file and
 #       says to finish with a fresh run. agents, on the plugin's own repository only (empty
-#       anywhere else), lists every agent file (by the same rule) that differs from the launch
-#       commit (args.startSha), uncommitted and untracked ones included; the run goes on, and
-#       line is the sentence the skill says. drift is what the skill
+#       anywhere else), lists every agent file (#137, R2-1: a *.md file under agents/ whose path
+#       has no part that starts with a dot, so a .DS_Store or an editor's backup there is none)
+#       that differs from the launch commit (args.startSha), uncommitted and untracked ones
+#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
 #       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
 #       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
 #       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]

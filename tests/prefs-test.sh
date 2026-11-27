@@ -454,10 +454,10 @@ pushd "$REC" >/dev/null
 runj "drift: a relative --plugin is read from the caller's directory, the blob of its workflow too (#137, R2-2)" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin plugin
 runx "drift: a relative --plugin whose workflow is as launched exits 0" 0 drift "$REPO" 7 --plugin plugin
 popd >/dev/null
-# The same release from another install directory: the record's path is the first install's file.
+# The same release from another install directory, in a marker with no args.pluginRoot, which skips the copy check (a real launch always records one, #137, R3-2): the record's path is the first install's file.
 cp -R "$PLUG" "$REC/plugin2"
 runj "drift: the same version from another install directory goes by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin2"
-# Another copy at the same version (#137, R1-3): its agents are another build's unless they equal the launch copy's.
+# Another copy at the same version (#137, R1-3): refused by its real path, whatever its agent files hold, since a relaunch keeps args.pluginRoot and the session's guard refuses that copy's scripts (#137, R3-2).
 mkdir -p "$PLUG/agents"
 printf 'shaper v1\n' > "$PLUG/agents/redline-shaper.md"
 cp -R "$PLUG" "$REC/plugin3"
@@ -466,12 +466,12 @@ printf 'launch script\n' > "$CPIN"
 printf '%s\n' '{"runId":"wf_26","scriptPath":"'"$CPIN"'","args":{'"$L"'"pr":7,"pluginRoot":"'"$PLUG"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-copy.json"
 run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1
 # cline <launch copy> <session copy>: the refusal's line
-cline() { printf '%s' "The run on #7 started from the Redline 1.2.3 copy at $1, and this session loads Redline 1.2.3 from $2, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER"; }
-runj "drift: another copy at the same version, its workflow and agents as the launch copy's: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin3"
-runx "drift: another copy whose files agree exits 0" 0 drift "$REPO" 7 --plugin "$REC/plugin3"
+cline() { printf '%s' "The run on #7 started from the Redline 1.2.3 copy at $1, and this session loads Redline 1.2.3 from $2, another copy: the rest of the run would call the scripts of the copy it started from, which this session's guard refuses, and run under this copy's agents. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER"; }
+runj "drift: another copy at the same version, its workflow and agents as the launch copy's, is refused, naming both copies (#137, R3-2)" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose files agree exits 1 (#137, R3-2)" 1 drift "$REPO" 7 --plugin "$REC/plugin3"
 printf 'checkout script\n' > "$REC/plugin3/workflows/redline-loop.js"
-runj "drift: another copy, its workflow edited, its agents as the launch copy's: from the pin" "$DRIFT" "false|scriptPath|$CPIN||{\"workflow\":\"workflows/redline-loop.js\",\"pinned\":true,\"agents\":[]}|" drift "$REPO" 7 --plugin "$REC/plugin3"
-runx "drift: another copy whose agents agree, from the pin, exits 0" 0 drift "$REPO" 7 --plugin "$REC/plugin3"
+runj "drift: another copy, its workflow edited, its agents as the launch copy's, is refused before the pin is read" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose agents agree, its workflow edited, exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin3"
 printf 'shaper v2\n' > "$REC/plugin3/agents/redline-shaper.md"
 runj "drift: another copy, its workflow and an agent edited, is refused, naming both copies" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
 runx "drift: another copy whose agents differ exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin3"
@@ -483,24 +483,29 @@ rm -r "$REC/plugin4/agents"
 printf 'shaper v1\n' > "$REC/plugin3/agents/redline-shaper.md"
 runj "drift: another copy with no agents/ beside a launch copy with one is refused" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin4")" drift "$REPO" 7 --plugin "$REC/plugin4"
 runx "drift: another copy with no agents/ exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin4"
-# Only agent files count (#137, R2-1): a *.md file under agents/ whose path has no part that starts with a dot.
-printf 'finder\n' > "$REC/plugin3/agents/.DS_Store"
-printf 'shaper v0\n' > "$REC/plugin3/agents/redline-shaper.md~"
-printf 'notes\n' > "$PLUG/agents/notes.txt"
-runj "drift: files under agents/ that are no agent files, in either copy, are not compared: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin3"
-runx "drift: another copy whose agent files agree beside such files exits 0" 0 drift "$REPO" 7 --plugin "$REC/plugin3"
-printf 'apple double\n' > "$REC/plugin3/agents/._redline-shaper.md"
-mkdir -p "$REC/plugin3/agents/.trash"
-printf 'shaper v0\n' > "$REC/plugin3/agents/.trash/redline-shaper.md"
-runj "drift: a *.md file under a part that starts with a dot is no agent file: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin3"
-printf 'new role\n' > "$REC/plugin3/agents/redline-new.md"
-runj "drift: an agent file only in the session's copy is still refused" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
-rm "$REC/plugin3/agents/redline-new.md"
-mkdir -p "$REC/plugin3/agents/extra"
-printf 'extra role\n' > "$REC/plugin3/agents/extra/redline-extra.md"
-runj "drift: an agent file in a subdirectory of agents/ counts, so one only in the session's copy is refused" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
-rm -r "$REC/plugin3/agents/extra"
-rm -rf "$REC/plugin3/agents/.DS_Store" "$REC/plugin3/agents/redline-shaper.md~" "$REC/plugin3/agents/._redline-shaper.md" "$REC/plugin3/agents/.trash" "$PLUG/agents/notes.txt"
+# Refused by the real path, whatever the agent files hold (#137, R3-2): two copies whose agents/ are links (#137, R3-1), and a launch by the scriptPath fallback from a copy edited since (#137, R3-3), are refused as any other copy is.
+cp -R "$PLUG" "$REC/plugin5"
+rm -r "$REC/plugin5/agents"
+mkdir -p "$REC/agents5"
+printf 'shaper v1\n' > "$REC/agents5/redline-shaper.md"
+ln -s "$REC/agents5" "$REC/plugin5/agents"
+cp -R "$PLUG" "$REC/plugin6"
+rm -r "$REC/plugin6/agents"
+mkdir -p "$REC/agents6"
+printf 'shaper v2\n' > "$REC/agents6/redline-shaper.md"
+ln -s "$REC/agents6" "$REC/plugin6/agents"
+printf '%s\n' '{"runId":"wf_29","scriptPath":"'"$CPIN"'","args":{'"$L"'"pr":7,"pluginRoot":"'"$REC"'/plugin5"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-linked.json"
+run save "$REPO" 7 --run-id wf_29 --record "$REC/pinned-linked.json" >/dev/null 2>&1
+runj "drift: two copies whose agents/ are links to agent files that differ are refused (#137, R3-1)" "$DRIFT" "false|refuse|||null|$(cline "$REC/plugin5" "$REC/plugin6")" drift "$REPO" 7 --plugin "$REC/plugin6"
+printf '%s\n' '{"runId":"wf_30","scriptPath":"'"$PLUG"'/workflows/redline-loop.js","args":{'"$L"'"pr":7,"pluginRoot":"'"$PLUG"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/fallback-copy.json"
+run save "$REPO" 7 --run-id wf_30 --record "$REC/fallback-copy.json" >/dev/null 2>&1
+printf 'edited launch copy\n' > "$PLUG/workflows/redline-loop.js"
+runj "drift: a fallback launch from a copy edited since, from another copy at the version, is refused for the copy before the record's file is read (#137, R3-3)" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
+runj "drift: the same launch from its own copy has no pin, and its edited file is refused" '[.launch, (.drift.pinned|tostring)] | join("|")' "refuse|false" drift "$REPO" 7 --plugin "$PLUG"
+printf 'launch script\n' > "$PLUG/workflows/redline-loop.js"
+ln -s "$PLUG" "$REC/plug-link"
+run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1
+runj "drift: the launch copy reached through a link is the same copy: by name (#137, R3-2)" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plug-link"
 printf '%s\n' '{"runId":"wf_27","scriptPath":"'"$CPIN"'","args":{'"$L"'"pr":7,"pluginRoot":"'"$REC"'/gone"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-gone.json"
 run save "$REPO" 7 --run-id wf_27 --record "$REC/pinned-gone.json" >/dev/null 2>&1
 runj "drift: a launch copy that is gone cannot be compared, so the relaunch is refused, naming it" "$DRIFT" "false|refuse|||null|$(cline "$REC/gone" "$PLUG")" drift "$REPO" 7 --plugin "$PLUG"
@@ -521,10 +526,9 @@ run save "$REPO" 7 --run-id wf_28 --record "$REC/copy-old.json" >/dev/null 2>&1
 runj "check: another version comes before another copy" '.reason' "version" check "$REPO" 7 --plugin "$REC/plugin3"
 runj "drift: another version comes before another copy" '.line | startswith("The run on #7 started under Redline 1.2.2")' "true" drift "$REPO" 7 --plugin "$REC/plugin3"
 printf 'shaper v1\n' > "$REC/plugin3/agents/redline-shaper.md"
-printf 'finder\n' > "$REC/plugin3/agents/.DS_Store"
 run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1
-runj "check: another copy whose agent files agree beside a .DS_Store is not refused (#137, R2-1)" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$REC/plugin3"
-rm "$REC/plugin3/agents/.DS_Store"
+runj "check: another copy whose agent files agree is refused too, by its path (#137, R3-2)" "$CHECK" "false|copy|$(cline "$PLUG" "$REC/plugin3")" check "$REPO" 7 --plugin "$REC/plugin3"
+runj "check: the launch copy reached through a link is not refused for its copy (#137, R3-2)" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$REC/plug-link"
 run save "$REPO" 7 --run-id wf_27 --record "$REC/pinned-gone.json" >/dev/null 2>&1
 runj "check: a launch copy that is gone is refused, naming it" "$CHECK" "false|copy|$(cline "$REC/gone" "$PLUG")" check "$REPO" 7 --plugin "$PLUG"
 run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1

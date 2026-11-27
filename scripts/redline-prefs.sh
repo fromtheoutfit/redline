@@ -81,16 +81,15 @@
 #       self is true when the repository is --plugin's directory. First the version: when the
 #       marker's args.launch records another version than --plugin's manifest, or none, launch is
 #       refuse and line is run check's version line. Then the copy (#137, R1-3): when
-#       args.pluginRoot is another directory than --plugin (a checkout and a release, or two
-#       checkouts, at one version), launch is refuse when the two copies' agent files differ
-#       (#137, R2-1: an agent file is a *.md file under agents/ whose path has no part that
-#       starts with a dot, so a .DS_Store or an editor's backup there is none; the two lists are
-#       compared by path, then each pair by its bytes, and a copy with no agents/ has none) or
-#       args.pluginRoot is no longer a directory, since the launch's script would run under
-#       another build's agents; line names both copies, and run check refuses the same copy as
-#       its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then the script:
-#       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
-#       can change while it reviews any repository, and the pin is the script path in the
+#       args.pluginRoot is another directory than --plugin by real path (a checkout and a release,
+#       or two checkouts, at one version, or a launch copy that is gone), launch is refuse,
+#       whatever their agent files hold (#137, R3-2): a relaunch keeps args.pluginRoot, every
+#       agent's prompt names that copy's scripts, and the guard the session's copy registers runs
+#       only its own copy's, so the rest of the run would stop at its first script call, under
+#       another build's agents besides; line names both copies, and run check refuses the same
+#       copy as its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then
+#       the script: the live file is --plugin's workflows/redline-loop.js, since a checkout loaded
+#       in place can change while it reviews any repository, and the pin is the script path in the
 #       marker's record: the copy the
 #       harness persisted when the run was launched by name, which holds what the launch ran (in a
 #       live session, the copy it loaded, even after the file on disk changed). launch is name
@@ -99,9 +98,10 @@
 #       itself (a launch by the scriptPath fallback leaves no pin), name while the live file's git
 #       blob id is args.launch.workflow and refuse when it is not; line then names the file and
 #       says to finish with a fresh run. agents, on the plugin's own repository only (empty
-#       anywhere else), lists every agent file (by the same rule) that differs from the launch
-#       commit (args.startSha), uncommitted and untracked ones included; the run goes on, and
-#       line is the sentence the skill says. drift is what the skill
+#       anywhere else), lists every agent file (#137, R2-1: a *.md file under agents/ whose path
+#       has no part that starts with a dot, so a .DS_Store or an editor's backup there is none)
+#       that differs from the launch commit (args.startSha), uncommitted and untracked ones
+#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
 #       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
 #       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
 #       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
@@ -137,10 +137,10 @@ run_usage() {
 
 realdir() { (cd "$1" 2>/dev/null && pwd -P); }
 
-# The agent files of a copy (#137, R2-1): a *.md file under agents/ whose path has no part that
-# starts with a dot. The roles are the Markdown files under agents/, and a .DS_Store, an editor's
-# backup, an AppleDouble ._ file or a scratch note there is no role. A *.md file in a subdirectory
-# counts, as the comparison it replaces counted it.
+# The agent files run drift lists on the plugin's own repository (#81; #137, R2-1): a *.md file
+# under agents/ whose path has no part that starts with a dot. The roles are the Markdown files
+# under agents/, and a .DS_Store, an editor's backup, an AppleDouble ._ file or a scratch note
+# there is no role. A *.md file in a subdirectory counts.
 # agent_paths: the paths on stdin, one a line, that are agent files.
 agent_paths() {
     local p
@@ -148,13 +148,6 @@ agent_paths() {
         case "/$p" in */.*) continue ;; esac
         case "$p" in *.md) printf '%s\n' "$p" ;; esac
     done
-    return 0
-}
-# agent_list <copy>: the copy's agent files as paths from its root (agents/...), sorted; nothing
-# when it has no agents/.
-agent_list() {
-    [[ -d "$1/agents" ]] || return 0
-    (cd "$1" 2>/dev/null && { find agents -type f 2>/dev/null || true; } | agent_paths | LC_ALL=C sort) || true
     return 0
 }
 
@@ -226,15 +219,15 @@ if [[ "$cmd" == "run" ]]; then
         echo "The run on #$pr started under $launched, and this session loads Redline $now: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
     }
     # The copy a run launched from against the copy this session loaded (#137, R1-3), shared by check
-    # and drift, as version_line is (#137, R2-3): prints the refusal line when they differ, nothing
-    # when they agree, and always returns 0. A checkout and a release at one version are two builds,
-    # and a relaunch under the session's copy would run the launch's script, or the name, under that
-    # copy's agents, which mix with the replayed steps' (the #135 spec's m4-agents-pin-reopen). So
-    # when the session loads another copy than the one the run launched from, their agent files must
-    # agree (agent_list, #137, R2-1): a copy with no agents/ has none, and a launch copy that is gone
-    # cannot be compared. A marker with no args.pluginRoot prints nothing.
+    # and drift, as version_line is (#137, R2-3): prints the refusal line when they are two directories
+    # by real path, nothing when they are one, and always returns 0. A relaunch keeps args, and
+    # args.pluginRoot names the copy whose scripts every agent's prompt calls (redline-gh.sh,
+    # redline-background.sh), while the guard the session's copy registers runs only its own copy's:
+    # so another copy is refused whatever its agent files hold, and so is a launch copy that is gone
+    # (#137, R3-2). A checkout and a release at one version are two copies, and their agents would mix
+    # besides (the #135 spec's m4-agents-pin-reopen). A marker with no args.pluginRoot prints nothing.
     copy_line() {
-        local lroot lreal lagents pagents f differ now folders
+        local lroot lreal now folders
         lroot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")"
         [[ -n "$lroot" ]] || return 0
         lreal=""
@@ -242,24 +235,9 @@ if [[ "$cmd" == "run" ]]; then
             lreal="$(realdir "$lroot")" || lreal=""
         fi
         [[ "$lreal" != "$(realdir "$plugin")" ]] || return 0
-        differ=false
-        if [[ -z "$lreal" ]]; then
-            differ=true
-        else
-            lagents="$(agent_list "$lroot")"
-            pagents="$(agent_list "$plugin")"
-            if [[ "$lagents" != "$pagents" ]]; then
-                differ=true
-            elif [[ -n "$lagents" ]]; then
-                while IFS= read -r f; do
-                    cmp -s "$lroot/$f" "$plugin/$f" || { differ=true; break; }
-                done <<<"$lagents"
-            fi
-        fi
-        [[ "$differ" == true ]] || return 0
         now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json")"
         folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
-        echo "The run on #$pr started from the Redline $now copy at $lroot, and this session loads Redline $now from $plugin, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
+        echo "The run on #$pr started from the Redline $now copy at $lroot, and this session loads Redline $now from $plugin, another copy: the rest of the run would call the scripts of the copy it started from, which this session's guard refuses, and run under this copy's agents. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
         return 0
     }
     if [[ "$sub" == "check" || "$sub" == "drift" ]]; then
@@ -376,6 +354,8 @@ if [[ "$cmd" == "run" ]]; then
         # so nothing was persisted). The pin holds what the launch ran, which in a live session is the
         # copy it loaded even after the file on disk changed, so a pin is compared with the live file;
         # with no pin, the launch read the file from disk, whose blob args.launch recorded.
+        # copy_line has already refused any session copy other than args.pluginRoot's, so a fallback
+        # launch's recorded file, args.pluginRoot's own, is the live file here (#137, R3-3).
         live="$plugin/$wf"
         mrecord="$(jq -r '.record // ""' <<<"$entry")"
         recorded=""
