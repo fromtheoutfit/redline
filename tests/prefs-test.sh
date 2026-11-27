@@ -449,6 +449,11 @@ runj "drift: another repository, a launch that ran the changed file itself, is r
 runx "drift: refused on another repository exits 1" 1 drift "$REPO" 7 --plugin "$PLUG"
 printf 'launch script\n' > "$PLUG/workflows/redline-loop.js"
 runj "drift: another repository, a launch that ran the file itself, as launched: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$PLUG"
+# A relative --plugin is read from the caller's directory, its workflow's blob included (#137, R2-2).
+pushd "$REC" >/dev/null
+runj "drift: a relative --plugin is read from the caller's directory, the blob of its workflow too (#137, R2-2)" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin plugin
+runx "drift: a relative --plugin whose workflow is as launched exits 0" 0 drift "$REPO" 7 --plugin plugin
+popd >/dev/null
 # The same release from another install directory: the record's path is the first install's file.
 cp -R "$PLUG" "$REC/plugin2"
 runj "drift: the same version from another install directory goes by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin2"

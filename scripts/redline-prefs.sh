@@ -225,6 +225,11 @@ if [[ "$cmd" == "run" ]]; then
     }
     if [[ "$sub" == "check" || "$sub" == "drift" ]]; then
         [[ -n "$plugin" && -d "$plugin" ]] || { echo "redline-prefs: run $sub needs --plugin <the root of the Redline copy this session loaded>" >&2; exit 2; }
+        # A path the script receives is made absolute once (bash-conventions), so every read of --plugin
+        # (its manifest, its agent files, its workflow file and that file's blob, hashed under git -C
+        # <repoRoot>) reads one directory (#137, R2-2). An absolute path is kept as passed, so a line
+        # that names the copy names it as the skill passed it.
+        case "$plugin" in /*) ;; *) plugin="$PWD/$plugin" ;; esac
     fi
 
     if [[ "$sub" == "clear" ]]; then
