@@ -379,3 +379,90 @@ Steps 10, 11, 12 and 13 stay as written:
     - that shellcheck was left to CI.
   - Any deviation is recorded under Decisions in `shape.md`.
   - Its files: `agent-os/specs/2026-11-27-0922-137-review-round-3/plan.md`, `agent-os/specs/2026-11-27-0922-137-review-round-3/shape.md`.
+
+---
+
+## As built
+
+Built by the implementer, one task at a time. Tasks 2 and 3 each had their cases added, seen red on a gate run, then the change made, seen green on a gate run, and committed with only its own cases. Task 4's two pins hold before its change, as planned, so its one gate run is green, and they were seen red under M2. Seven gate runs in all: a red and a green run for each of Tasks 2 and 3, Task 4's run, one mutation run (M1 and M2 together), and the run on the committed tree; one more confirmed the tree after this commit.
+
+### Commits
+
+| Task | Finding | Commit |
+|---|---|---|
+| 1 | spec folder | `c8f2b76` |
+| 2 | R3-2 | `6182bdb` |
+| 3 | R3-4 | `3dff066` |
+| 4 | R3-6 | `ca2b0b5` |
+| 5, step 12 | standards retrospective | `9b37247` |
+| 5, step 13 | As built | this commit |
+
+R3-1, R3-3 and R3-5 are declined, with no commit. R3-1's and R3-3's cases are in Task 2's commit, as its class.
+
+### Red and green, read off the gate's summary lines
+
+The gate prints a harness's output only for a check that fails, and only its tail, so a green run shows prefs exiting 0 and no summary line. Each task's new checks are read passing on the next run that prints prefs' output.
+
+- **Task 2, red run:** prefs `222 passed, 13 failed`. The thirteen the plan names: the four flipped checks (470, 471, 473, 474), case (a), case (b)'s first check, the new `run check` refusal, and the six checks whose expected line `cline` builds (476, 479, 484, 506, 512, 529). Case (b)'s neighbour, case (c) and the `run check` link case held before, as planned.
+- **Task 2, green run:** every check exits 0. On Task 3's red run, which holds Task 2's commit, all eight of Task 2's new checks read `ok`.
+- **Task 3, red run:** prefs `235 passed, 4 failed`: the four new checks, each listing `agents/redline-reviewer.md` alone, as the plan foresaw.
+- **Task 3, green run:** every check exits 0. On the mutation run, prefs counts 239 checks, Task 3's four among the 237 that pass.
+- **Task 4's run:** every check exits 0, its two new checks included (pins that held before).
+- **Run on the committed tree (`9b37247`):** `done: PASS`, every check exits 0, and `git.unexpected_files` and `git.uncommitted` are empty.
+
+### Mutations, one run on the tree at `ca2b0b5`
+
+Each was made with Edit, and undone by copying back a copy saved before it. `cmp` against that copy and `git diff --quiet` on each file confirmed the restore.
+
+- **M1**, in `copy_line`, `[[ "$lroot" != "$plugin" ]] || return 0` for the `realdir` comparison: prefs `237 passed, 2 failed`. The tail the gate kept names `check: the launch copy reached through a link is not refused for its copy (#137, R3-2)`. The other failure fell outside that tail. It can only be case (c), the one other check whose two spellings name one real path: every other marker with `args.pluginRoot` is read either from the spelling it records or from another directory.
+- **M2**, in `version_installs`, ` and .scope == "user"` after `mine` in `running: mine` and in `(if mine then`, with the label's jq escape left as it was: setup `555 passed, 2 failed`, both new checks.
+
+### Pins that held before the change
+
+- Task 2: case (b)'s neighbour (`the same launch from its own copy has no pin`), which holds before and after, as planned. Case (c) and the `run check` link case were seen red under M1.
+- Task 4: both new checks, seen red under M2.
+
+### Existing checks Task 2 changed or removed
+
+- **Changed:**
+  - the four checks at 470, 471, 473 and 474, now refused and exiting 1;
+  - `cline`'s text, which changes the expected line of 476, 479, 484, 506, 512 and 529;
+  - the comments at 457 and 460.
+- **Removed:**
+  - the R2-1 copy block's five checks (486-503) with its fixtures and cleanup;
+  - the `run check` case at 526 with its two `.DS_Store` lines.
+- **Unchanged:** the #81 list's R2-1 case.
+- **Count:** prefs holds 235 checks after Task 2, as before it, and 239 after Task 3. No other existing check went red outside the mutation run.
+
+### Small additions beside the plan
+
+- The #81 list's new comment wraps onto two lines.
+- **Re-wrapping the header's `run drift` entry:**
+  - the copy paragraph's re-wrap runs on through `marker's record: the copy the`, so `Then the script:` stays where the paragraph breaks;
+  - the `agents` sentence's re-wrap (Task 3) runs on to the end of the entry's paragraph, leaving `(#91, R1-1).` on a line of its own.
+  - `docs/scripts.md` takes the same lines.
+- **Standards edit 1:** the approved insertion alone is applied to `workflow/agents.md` line 45. The line's earlier clauses on the R1-3 comparison and R2-1's shared rule stay as written, read as superseded by the inserted clause's "so the agent-file comparison is gone", one of the two readings the approver's note allows (`shape.md`, Deviations as built).
+
+### shellcheck
+
+Tasks 2 to 4 change `.sh` files. shellcheck is not on the implementer's allowlist, so it was left to CI's shellcheck job on the push.
+
+### Docs (gate step 10)
+
+- `scripts/redline-prefs.sh`, Task 2: `docs/scripts.md`, the `redline-prefs.sh` header block, and `docs/running.md`, "Hand-off and relaunch" and "Run markers and resume", in `6182bdb`.
+- `skills/redline/SKILL.md`, Task 2: `docs/running.md`, the same sections, in `6182bdb`.
+- `scripts/redline-prefs.sh`, Task 3: `docs/scripts.md`, the header block, in `3dff066`. `docs/running.md`: no reader-facing change, as the plan says.
+- `scripts/redline-setup.sh`, Task 4: no reader-facing change (`ca2b0b5`). Only the function's docblock changed.
+- `docs/scripts.md`'s `redline-prefs.sh` block was diffed against the script's header after Tasks 2 and 3, and matches it.
+
+### Proof greps
+
+Every count the plan's Proof sections name was read as planned:
+- Task 2: `agent_list` 0; `cannot be compared with it` 0 and 0; `mix two builds` 0; `whatever their agent files hold` 1 and 1; `R3-2` in the skill 2; `R1-3, R3-2` 1 and `R2-3, R3-2` 1 in `docs/running.md`.
+- Task 3: `read -r -d` 1; `diff -z --name-only` 1; `ls-files -z --others` 1; `R3-4` in `docs/scripts.md` 1.
+- Task 4: `R3-6` 1 in the script and 4 in the test.
+
+### Version and standards
+
+- **Version:** `0.5.1`, unchanged.
+- **Standards retrospective:** the three approved edits, in `9b37247`. No finding's fix ran through them, so the commit names none.

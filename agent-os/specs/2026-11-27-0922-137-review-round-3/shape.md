@@ -152,6 +152,14 @@ Proposed below, under "Standards retrospective (proposed)". The standards approv
 
 Decided by: redline
 
+### Deviations as built
+
+1. **Green counts.** The plan asks for each task's green count off the gate's summary lines. The gate prints a harness's output only for a check that fails, so a green run shows prefs exiting 0 and no summary line. So each task's new checks were read passing on the next run that prints prefs' output: Task 2's on Task 3's red run, Task 3's on the mutation run. Task 4's two pins pass on its own run and the run on the committed tree, which exit 0.
+2. **When the mutations ran.** M1 and M2 ran together, in one gate run after Task 4's commit, rather than M1 right after Task 2's green run. They are in different harnesses (prefs and setup), so each one's failures are its own. M1's change was made in `copy_line` as Task 3 left it, which Task 3 did not touch. The gate keeps only the tail of a failing harness's output, so of M1's two failures only the `run check` link case is named there. The other is case (c), by elimination (`plan.md`, As built).
+3. **Standards edit 1.** The approver's note left a choice for `workflow/agents.md` line 45: read its earlier clauses on the R1-3 comparison as superseded by the inserted clause, or trim them to match. The approved insertion alone was applied, and those clauses stay as written. The inserted clause says "the agent-file comparison is gone and the rule for an agent file above holds for the #81 list alone", and trimming would have meant text the approver did not approve.
+
+Decided by: redline
+
 ## Declined
 
 - **R3-1.** R3-2's fix in this round refuses a relaunch or a resume from any copy other than the one the run launched from, by real path and whatever its `agents/` holds, and removes `agent_list`, the one reader that listed a copy's `agents/` with find, so a link there no longer decides anything; R3-2's cases pin two copies whose `agents/` are links to differing agent files as refused.
