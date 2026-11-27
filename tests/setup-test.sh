@@ -998,8 +998,9 @@ cpout="$("$CP/scripts/redline-setup.sh" version "$VR" 2>/dev/null)"
 echo "# version <repoRoot>: the installs this repository sees, and the launch warning (#135)"
 # A session runs the install listed first among the ones it sees (user, and project or local for its
 # directory), and an install or update elsewhere reorders the list, so a session that reloads can
-# switch versions mid-run. claude plugin list --json lists every install; the one this session runs is
-# the one whose installPath is this script's root.
+# switch versions mid-run. claude plugin list --json lists every install; the ones whose installPath
+# is this script's root run this session's files, and installs at one version share one cache
+# folder, so there can be more than one (#137, R3-6).
 PP="$(cd "$PLUGIN" && pwd -P)"; VRP="$(cd "$VR" && pwd -P)"; VRL="$(cd "$VR" && pwd)"
 # installs <file> <scope:version:path>...: a list as the CLI prints one; path is self (this script's
 # root), root (the fixture root, for a project or local install) or any other path.
@@ -1091,6 +1092,14 @@ cat "$WORK/i-one.json" "$WORK/i-one.json" > "$WORK/i-twolists.json"
 export STUB_LIST="$WORK/i-twolists.json"
 expect_exit "installs: an output of two lists is no list: exit 0" 0 version "$VR"
 expect_json "installs: two lists: none listed" '.installs | length' "0" version "$VR"
+# Installs at one version share the plugin cache's version folder, so each whose installPath is this
+# script's root runs this session's files, and each is marked so (#137, R3-6).
+jq -cn --arg pp "$PP" --arg root "$VRP" '[{id: "redline@m", scope: "user", version: "0.5.1", enabled: true, installPath: $pp}, {id: "redline@m", scope: "project", version: "0.5.1", enabled: true, installPath: $pp, projectPath: $root}, {id: "redline@m", scope: "local", version: "0.4.3", enabled: true, installPath: "/c/redline/0.4.3", projectPath: $root}]' > "$WORK/i-shared.json"
+export STUB_LIST="$WORK/i-shared.json"
+expect_json "installs: two installs sharing this session's folder are each marked running (#137, R3-6)" "$INSTALLS" "user:0.5.1:true,project:0.5.1:true,local:0.4.3:false" version "$VR"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.5.1 (this session's), local 0.4.3$LINE_TAIL Update the older one: claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: both are labelled this session's, and only the older one is updated (#137, R3-6)" || bad "installs: both are labelled this session's, and only the older one is updated (#137, R3-6)" "$err"
 unset STUB_LIST
 # The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.
 SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; SRP="$(cd "$SR" && pwd)"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"

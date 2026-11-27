@@ -1494,9 +1494,12 @@ version_plugin() {
 # project or local whose projectPath is <repoRoot>), from claude plugin list --json (#135). A session
 # runs the one listed first, and an install or update in another process reorders the list, so a
 # session that reloads or reopens can switch versions mid-run, and the run then stops at its next
-# relaunch. Prints them as [{scope, version, running}], running true for the install whose
-# installPath is this script's root, the copy the session loaded, and only installs of that one's id.
-# A root that no seen install uses is no install this session runs, so nothing is listed.
+# relaunch. Prints them as [{scope, version, running}], running true for each install whose
+# installPath is this script's root, the copy the session loaded, and only installs of their id.
+# The plugin cache keeps one folder per version, so installs at one version share it: each of them
+# runs this session's files, whichever the session took as listed first, so each is marked and is
+# labelled this session's in the line (#137, R3-6). A root that no seen install uses is no install
+# this session runs, so nothing is listed.
 # Returns 1 with one stderr line when their versions differ: each install, and the update command for
 # each one behind the newest, a project or local one run from <repoRoot>, since from elsewhere the CLI
 # can pick another repository's install (measured on Claude Code 2.1.332). Prints [] and returns 0
