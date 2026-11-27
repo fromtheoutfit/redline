@@ -121,14 +121,22 @@
 #       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
 #       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
 #       records as args.launch (#135).
+#       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
+#       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
+#       whose installPath is this script's root, as {scope, version, running}; [] when no seen
+#       install is this script's root (a checkout loaded in place) or the CLI is missing, fails or
+#       prints no list. When their versions differ, the stderr line names each and gives the update
+#       command for each one behind the newest (claude plugin update <id> --scope <scope>, run from
+#       <repoRoot> for a project or local one), then a restart or /reload-plugins.
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
-#       version, workflow}} (inPlace null unless self), one stderr line per
-#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
+#       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
+#       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
 #       settings.json is not JSON or has a byte-order mark, or
 #       <repoRoot>/.claude-plugin/plugin.json is not JSON.
 #
-# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, and REDLINE_UNATTENDED_TEMPLATE
-# templates/shape-spec-unattended.md, whose history/ directory sits beside it (tests).
+# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, REDLINE_UNATTENDED_TEMPLATE
+# templates/shape-spec-unattended.md, whose history/ directory sits beside it, and REDLINE_CLAUDE the
+# claude CLI that version <repoRoot> reads the installs from (tests).
 #
 # checks.json: {"repo": "<phrase after 'Redline gate for'>", "gateFile": ".claude/commands/agent-os/shape-spec.md",
 #   "selfHosted": false, "alwaysAllowed": ["openapi.json"],
@@ -158,6 +166,7 @@ RETIRED_TEMPLATE="$PLUGIN_ROOT/templates/settings.retired.json"
 CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="${REDLINE_UNATTENDED_TEMPLATE:-$PLUGIN_ROOT/templates/shape-spec-unattended.md}"
 UNATTENDED_HISTORY="$(dirname "$UNATTENDED_TEMPLATE")/history"
+CLAUDE_BIN="${REDLINE_CLAUDE:-claude}"
 
 usage() {
     echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | command <repoRoot> <redline|redline-revise> [--force] [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--merge [--pick <n>=ours|theirs]... | --keep] [--dry-run] | unattended --version <shape-spec.md> | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh|repoRoot>" >&2
@@ -1479,6 +1488,45 @@ version_plugin() {
         '{self: $s, inPlace: $i, pluginRoot: $p, version: $v, workflow: $w}'
     [[ "$inplace" != false ]] || { echo "redline-setup: this repository is the plugin, but the run loads Redline from $PLUGIN_ROOT; start the session with claude --plugin-dir $root to run this checkout's own code" >&2; return 1; }
 }
+# version_installs <repoRoot>: the installs of this plugin a session in <repoRoot> sees (user, and
+# project or local whose projectPath is <repoRoot>), from claude plugin list --json (#135). A session
+# runs the one listed first, and an install or update in another process reorders the list, so a
+# session that reloads or reopens can switch versions mid-run, and the run then stops at its next
+# relaunch. Prints them as [{scope, version, running}], running true for the install whose
+# installPath is this script's root, the copy the session loaded, and only installs of that one's id.
+# A root that no seen install uses is no install this session runs, so nothing is listed.
+# Returns 1 with one stderr line when their versions differ: each install, and the update command for
+# each one behind the newest, a project or local one run from <repoRoot>, since from elsewhere the CLI
+# can pick another repository's install (measured on Claude Code 2.1.332). Prints [] and returns 0
+# when the session runs no install (a checkout loaded in place: --plugin-dir hides every install), or
+# when the CLI is missing, fails or prints no list.
+version_installs() {
+    local root="$1" list rootp ownp res line
+    list="$("$CLAUDE_BIN" plugin list --json 2>/dev/null)" || list=""
+    jq -e 'type == "array"' >/dev/null 2>&1 <<<"$list" || { echo '[]'; return 0; }
+    rootp="$(cd "$root" && pwd -P)"
+    ownp="$(cd "$PLUGIN_ROOT" && pwd -P)"
+    res="$(jq -c --arg rootp "$rootp" --arg ownp "$ownp" --arg own "$PLUGIN_ROOT" --arg root "$root" '
+        def mine: (.installPath // "" | rtrimstr("/")) as $p | $p == $ownp or $p == $own;
+        def num: .version // "" | split(".") | map(tonumber? // 0);
+        [.[] | select(type == "object" and (.scope == "user" or ((.scope == "project" or .scope == "local") and (.projectPath // "" | rtrimstr("/")) == $rootp)))] as $visible
+        | ([$visible[] | select(mine) | .id] | first) as $id
+        | [$visible[] | select($id != null and .id == $id)] as $seen
+        | ($seen | map(num) | max) as $top
+        | [$seen[] | select(num < $top)] as $behind
+        | {installs: [$seen[] | {scope, version, running: mine}],
+           line: (if ($behind | length) == 0 then ""
+                  else "redline-setup: the Redline installs this repository sees differ: "
+                       + ([$seen[] | "\(.scope) \(.version)" + (if mine then " (this session\u0027s)" else "" end)] | join(", "))
+                       + "; a reload or a reopen runs whichever is listed first, and a run that switches stops at its next relaunch. Update the older "
+                       + (if ($behind | length) == 1 then "one: " else "ones: " end)
+                       + ([$behind[] | "claude plugin update \($id) --scope \(.scope)" + (if .scope == "user" then "" else ", run from \($root)" end)] | join("; "))
+                       + "; then restart the session or run /reload-plugins"
+                  end)}' <<<"$list")"
+    jq -c '.installs' <<<"$res"
+    line="$(jq -r '.line' <<<"$res")"
+    [[ -z "$line" ]] || { echo "$line" >&2; return 1; }
+}
 # version <checks.sh>: the file form. version <repoRoot>: the root form, the one call the launch
 # precheck makes (#15): checks.sh, the unattended section, settings.json and, since #16, whether a
 # self-hosted root loads in place; one stderr line per warning, exit 1 when any warns.
@@ -1503,7 +1551,9 @@ cmd_version() {
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
     local pl; part=0; pl="$(version_plugin "$root")" || part=$?
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
-    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" '{checks: $c, unattended: $u, settings: $s, plugin: $p}'
+    local ins; part=0; ins="$(version_installs "$root")" || part=$?
+    [[ $part -eq 0 ]] || rc=1
+    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" --argjson i "$ins" '{checks: $c, unattended: $u, settings: $s, plugin: $p, installs: $i}'
     return $rc
 }
 

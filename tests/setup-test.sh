@@ -28,6 +28,18 @@ UN="${UV#v}"
 UHIST="$PLUGIN/templates/history"
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/redline-setup-test.XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+# The claude CLI version <repoRoot> reads the plugin's installs from (#135): a stub for every case, so
+# no case reads this machine's installs. It prints the file STUB_LIST names ([] when unset) for
+# claude plugin list --json and exits STUB_EXIT (0 when unset).
+mkdir -p "$WORK/bin"
+cat > "$WORK/bin/claude" <<'STUB'
+#!/usr/bin/env bash
+[[ "$*" == "plugin list --json" ]] || exit 64
+if [[ -n "${STUB_LIST:-}" ]]; then cat "$STUB_LIST"; else echo '[]'; fi
+exit "${STUB_EXIT:-0}"
+STUB
+chmod +x "$WORK/bin/claude"
+export REDLINE_CLAUDE="$WORK/bin/claude"
 pass=0; fail=0
 ok() { pass=$((pass+1)); printf 'ok   %s\n' "$1"; }
 bad() { fail=$((fail+1)); printf 'FAIL %s\n     got: %s\n' "$1" "$2"; }
@@ -982,6 +994,83 @@ CPW="$(git hash-object --no-filters "$CP/workflows/redline-loop.js")"
 [[ "$CPW" != "$(git hash-object --no-filters "$PLUGIN/workflows/redline-loop.js")" ]] && ok "the copy's workflow blob differs from this checkout's" || bad "the copy's workflow blob differs from this checkout's" "$CPW"
 cpout="$("$CP/scripts/redline-setup.sh" version "$VR" 2>/dev/null)"
 [[ "$(jq -r '[.plugin.version, .plugin.workflow, .plugin.pluginRoot] | join(",")' <<<"$cpout")" == "9.8.7,$CPW,$(cd "$CP" && pwd)" ]] && ok "a copy at another version reports its own version, blob and root (#135)" || bad "a copy at another version reports its own version, blob and root (#135)" "$(jq -c .plugin <<<"$cpout")"
+
+echo "# version <repoRoot>: the installs this repository sees, and the launch warning (#135)"
+# A session runs the install listed first among the ones it sees (user, and project or local for its
+# directory), and an install or update elsewhere reorders the list, so a session that reloads can
+# switch versions mid-run. claude plugin list --json lists every install; the one this session runs is
+# the one whose installPath is this script's root.
+PP="$(cd "$PLUGIN" && pwd -P)"; VRP="$(cd "$VR" && pwd -P)"; VRL="$(cd "$VR" && pwd)"
+# installs <file> <scope:version:path>...: a list as the CLI prints one; path is self (this script's
+# root), root (the fixture root, for a project or local install) or any other path.
+installs() {
+    local out="$1"; shift
+    local e scope ver at json='[]'
+    for e in "$@"; do
+        IFS=: read -r scope ver at <<<"$e"
+        case "$at" in self) at="$PP" ;; esac
+        json="$(jq -c --arg s "$scope" --arg v "$ver" --arg at "$at" --arg pp "$PP" --arg root "$VRP" '. + [{id: "redline@m", scope: $s, version: $v, enabled: true,
+            installPath: (if $at == $pp then $pp else "/c/redline/" + $v end)}
+            + (if $s == "user" then {} else {projectPath: (if $at == "root" then $root else $at end)} end)]' <<<"$json")"
+    done
+    printf '%s\n' "$json" > "$out"
+}
+LINE_TAIL="; a reload or a reopen runs whichever is listed first, and a run that switches stops at its next relaunch."
+installs "$WORK/i-self-behind.json" user:0.4.3:self project:0.5.1:root
+export STUB_LIST="$WORK/i-self-behind.json"
+expect_exit "installs: this session's install behind another: exit 1" 1 version "$VR"
+expect_json "installs: each seen install with its scope, version and whether this session runs it" '[.installs[] | "\(.scope):\(.version):\(.running)"] | join(",")' "user:0.4.3:true,project:0.5.1:false" version "$VR"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.4.3 (this session's), project 0.5.1$LINE_TAIL Update the older one: claude plugin update redline@m --scope user; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: this session's behind: the line names both and updates the user install, from anywhere" || bad "installs: this session's behind: the line names both and updates the user install, from anywhere" "$err"
+installs "$WORK/i-other-behind.json" user:0.5.1:self project:0.4.3:root
+export STUB_LIST="$WORK/i-other-behind.json"
+expect_exit "installs: another install behind this session's: exit 1" 1 version "$VR"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3$LINE_TAIL Update the older one: claude plugin update redline@m --scope project, run from $VRL; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: the other behind: the project update runs from the repository root" || bad "installs: the other behind: the project update runs from the repository root" "$err"
+installs "$WORK/i-three.json" user:0.5.1:self project:0.4.3:root local:0.5.0:root
+export STUB_LIST="$WORK/i-three.json"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3, local 0.5.0$LINE_TAIL Update the older ones: claude plugin update redline@m --scope project, run from $VRL; claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: two behind: one line, an update for each" || bad "installs: two behind: one line, an update for each" "$err"
+installs "$WORK/i-numeric.json" user:0.10.0:self project:0.9.0:root
+export STUB_LIST="$WORK/i-numeric.json"
+expect_stderr "installs: versions compare by number, so 0.9.0 is older than 0.10.0" "Update the older one: claude plugin update redline@m --scope project," version "$VR"
+installs "$WORK/i-agree.json" user:0.5.1:self project:0.5.1:root
+export STUB_LIST="$WORK/i-agree.json"
+expect_exit "installs: every seen install at one version: exit 0" 0 version "$VR"
+[[ -z "$("$SETUP" version "$VR" 2>&1 >/dev/null)" ]] && ok "installs: at one version: no line" || bad "installs: at one version: no line" "$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+expect_json "installs: at one version: both listed" '.installs | length' "2" version "$VR"
+installs "$WORK/i-elsewhere.json" user:0.5.1:self project:0.4.3:/elsewhere local:0.4.0:/elsewhere
+export STUB_LIST="$WORK/i-elsewhere.json"
+expect_exit "installs: another repository's project and local installs are not seen: exit 0" 0 version "$VR"
+expect_json "installs: and are not listed" '[.installs[] | .scope] | join(",")' "user" version "$VR"
+installs "$WORK/i-other-id.json" user:0.5.1:self
+jq -c '. + [{id: "other@m", scope: "user", version: "9.9.9", installPath: "/c/other/9.9.9"}, {id: "redline@n", scope: "user", version: "0.1.0", installPath: "/c/redline-n/0.1.0"}]' "$WORK/i-other-id.json" > "$WORK/i-other-id2.json"
+export STUB_LIST="$WORK/i-other-id2.json"
+expect_exit "installs: another plugin, or this one from another marketplace, is not compared: exit 0" 0 version "$VR"
+installs "$WORK/i-inplace.json" user:0.5.1:/c/one project:0.4.3:root
+jq -c 'map(.installPath = "/c/redline/" + .version)' "$WORK/i-inplace.json" > "$WORK/i-inplace2.json"
+export STUB_LIST="$WORK/i-inplace2.json"
+expect_exit "installs: a session that runs no install (a checkout loaded in place): exit 0" 0 version "$VR"
+expect_json "installs: in place: none listed" '.installs | length' "0" version "$VR"
+# An install directory that only another repository's install uses is not one this session can run.
+installs "$WORK/i-not-seen.json" user:0.5.1:/c/redline/0.5.1 project:0.4.3:root project:0.2.0:/elsewhere
+jq -c 'map(if .version == "0.2.0" then .installPath = $pp else . end)' --arg pp "$PP" "$WORK/i-not-seen.json" > "$WORK/i-not-seen2.json"
+export STUB_LIST="$WORK/i-not-seen2.json"
+expect_exit "installs: a root that only another repository's install uses is no install this session runs: exit 0" 0 version "$VR"
+expect_json "installs: and none is listed" '.installs | length' "0" version "$VR"
+export STUB_LIST="$WORK/i-other-behind.json"
+STUB_EXIT=1 expect_exit "installs: the CLI fails: exit 0" 0 version "$VR"
+printf 'not json\n' > "$WORK/i-notjson.json"
+export STUB_LIST="$WORK/i-notjson.json"
+expect_exit "installs: the CLI prints no list: exit 0" 0 version "$VR"
+expect_json "installs: no list: none listed" '.installs | length' "0" version "$VR"
+export STUB_LIST="$WORK/i-other-behind.json"
+REDLINE_CLAUDE="$WORK/bin/no-such-claude" expect_exit "installs: no claude CLI: exit 0" 0 version "$VR"
+REDLINE_CLAUDE="$WORK/bin/no-such-claude" expect_json "installs: no CLI: none listed" '.installs | length' "0" version "$VR"
+unset STUB_LIST
 # The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.
 SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; SRP="$(cd "$SR" && pwd)"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
 expect_exit "a self-hosted root loaded from elsewhere: exit 1" 1 version "$SR"
