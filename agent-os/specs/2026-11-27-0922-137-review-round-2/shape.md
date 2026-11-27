@@ -207,6 +207,17 @@ Proposed below, under "Standards retrospective (proposed)". The standards approv
 
 Decided by: redline
 
+### Deviations as built
+
+1. **Green counts.** The plan asks for each task's green count off the gate's summary lines. The gate prints a harness's output only for a check that fails, so a green run shows prefs exiting 0 and no summary line. So:
+   - Tasks 2 and 3: each one's new checks were read passing on the next task's red run, which holds its commit.
+   - Task 4: its green run and the final run show every check exiting 0, and no summary line was read. The total from its red run is 235.
+
+   `plan.md`, As built, says which run each count comes from.
+2. **When the mutations ran.** All three mutation runs ran after Task 4's commit. So Task 2's mutations (A, B, C) were made in `copy_line`, where Task 4 had moved the comparison, and not in `run drift`'s block. Each mutation turns on the clause the plan names, and every planned case went red under it.
+
+Decided by: redline
+
 ## Declined
 
 - **R2-4.** could not confirm: needs `claude plugin list --json` read after a project-scope install made from a repository opened through a symlinked path, to see whether `projectPath` is that path or its physical one, which is what `version_installs` compares with. Every project install on this machine sits under a path with no symlink, and this role cannot run `claude`.

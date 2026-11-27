@@ -465,3 +465,82 @@ Steps 10, 11, 12 and 13 stay as written:
     - that shellcheck was left to CI.
   - Any deviation is recorded under Decisions in `shape.md`.
   - Its files: `agent-os/specs/2026-11-27-0922-137-review-round-2/plan.md`, `agent-os/specs/2026-11-27-0922-137-review-round-2/shape.md`.
+
+## As built
+
+Built by the implementer, one task at a time: each task's cases were added, seen red on a gate run, then the change was made, seen green on a gate run, and committed with only its own cases. Ten gate runs in all: a red and a green run for each of Tasks 2, 3 and 4, three mutation runs, and the final run.
+
+### Commits
+
+| Task | Finding | Commit |
+|---|---|---|
+| 1 | spec folder | `fe3d0e3` |
+| 2 | R2-1 | `5fa5631` |
+| 3 | R2-2 | `c49dea2` |
+| 4 | R2-3 | `d4c68b6` |
+| 5 | R2-5 | `234a836` |
+| 6 | R2-6 | `2679035` |
+| 7, step 12 | standards retrospective | `52c1d04` |
+| 7, step 13 | As built | this commit |
+
+### Red and green, read off the gate's summary lines
+
+The gate prints a harness's output only for a check that fails, so a green run shows prefs exiting 0 and no summary line. Each task's new checks are read passing on the next task's red run instead, as the deviation in `shape.md` records.
+
+- **Task 2, red run:** prefs `221 passed, 4 failed`: case (i)'s two checks, case (ii) and the #81 list's case. Cases (iii) and (iv) held before, as planned.
+- **Task 2, green run:** every check exits 0. On Task 3's red run, which holds Task 2's commit, Task 2's six new checks all read `ok`.
+- **Task 3, red run:** prefs `225 passed, 2 failed`: the two new checks.
+- **Task 3, green run:** every check exits 0. On Task 4's red run, Task 3's two new checks read `ok`.
+- **Task 4, red run:** prefs `231 passed, 4 failed`: case (a)'s two checks, case (b) and case (f). Cases (c), (d) (both checks) and (e) held before, as planned.
+- **Task 4, green run:** every check exits 0. No later red run holds all eight of its checks, so the count was not read; the total from the red run is 235.
+- **Tasks 5 and 6** change only text no harness reads (`grep` of `tests/` for the changed sentences finds none). The final run stays green.
+- **Final run, the committed tree (`52c1d04`):** `done: PASS`, every check exits 0, and `git.unexpected_files` and `git.uncommitted` are empty.
+
+### Mutations, each run once on the tree at `d4c68b6`
+
+Each was made with Edit on `scripts/redline-prefs.sh`, and undone by copying back a copy saved before it. `cmp` against that copy and `git diff --quiet` confirmed each restore. They ran after Task 4, so Task 2's mutations were made in `copy_line`, where Task 4 had moved the comparison.
+
+- **Run 1** (prefs `231 passed, 4 failed`):
+  - (A) each of the launch copy's agent files compared with `cmp`, the two lists never compared: case (iii) and case (iv) red.
+  - (D) in `run check`, the copy check called before the version check: case (d)'s check red (`copy`).
+  - (E) in `run drift`, the copy check called before the version check: case (d)'s drift red.
+- **Run 2** (prefs `227 passed, 8 failed`):
+  - (B) only the top of `agents/` listed (`find agents -maxdepth 1 -type f`): case (iv) red.
+  - (C) the two lists compared and the `cmp` dropped: the neighbours at 471 and 474 red, with their exit checks at 472 and 475, and Task 4's cases (a) (both checks) and (b).
+- **Run 3** (prefs `231 passed, 4 failed`):
+  - (F) `diff -rq` put back in `copy_line`: case (e) red, and Task 2's cases (i) (both checks) and (ii).
+
+### Pins that held before the change
+
+- Task 2: cases (iii) and (iv), seen red under A and B. The neighbours at 471 and 474 were seen red under C.
+- Task 4: case (c), which still holds under every mutation above. Case (d)'s two checks, seen red under D and E. Case (e), seen red under F.
+
+### Small additions beside the plan
+
+- `agent_paths` and `agent_list` each carry a one-line comment under the shared comment the plan gives.
+- The #81 list's comment wraps onto two lines.
+- `run drift` names `copy_line` in a one-line comment where the block stood.
+- The harness defines `CHECK` as a shell variable for the filter Task 4 names.
+
+### Existing checks
+
+No existing check's expectation changed, and none went red outside the mutation runs.
+
+### shellcheck
+
+Tasks 2 to 4 change `.sh` files. shellcheck is not on the implementer's allowlist, so it was left to CI's shellcheck job on the push.
+
+### Docs (gate step 10)
+
+- `scripts/redline-prefs.sh`, Task 2: `docs/scripts.md`, the `redline-prefs.sh` header block, and `docs/running.md`, "Hand-off and relaunch", in `5fa5631`.
+- `scripts/redline-prefs.sh`, Task 3: no reader-facing change (`c49dea2`). The skill passes an absolute path.
+- `scripts/redline-prefs.sh`, Task 4: `docs/scripts.md`, the header block, and `docs/running.md`, "Run markers and resume" and "Hand-off and relaunch", in `d4c68b6`.
+- `skills/redline/SKILL.md`, Task 4: `docs/running.md`, "Run markers and resume", in `d4c68b6`.
+- `skills/redline/SKILL.md`, Task 5: no reader-facing change (`234a836`). `docs/scripts.md` already gives both exit 2s.
+- `skills/redline/SKILL.md`, Task 6: `docs/running.md`, "Hand-off and relaunch", in `2679035`.
+- `docs/scripts.md`'s block was diffed against the script's header after Tasks 2 and 4, and matches it.
+
+### Version and standards
+
+- **Version:** `0.5.1`, unchanged.
+- **Standards retrospective:** the four approved edits, in `52c1d04`. No finding's fix ran through them, so the commit names none.
