@@ -452,6 +452,42 @@ runj "drift: another repository, a launch that ran the file itself, as launched:
 # The same release from another install directory: the record's path is the first install's file.
 cp -R "$PLUG" "$REC/plugin2"
 runj "drift: the same version from another install directory goes by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin2"
+# Another copy at the same version (#137, R1-3): its agents are another build's unless they equal the launch copy's.
+mkdir -p "$PLUG/agents"
+printf 'shaper v1\n' > "$PLUG/agents/redline-shaper.md"
+cp -R "$PLUG" "$REC/plugin3"
+CPIN="$REC/redline-loop-wf_26.js"
+printf 'launch script\n' > "$CPIN"
+printf '%s\n' '{"runId":"wf_26","scriptPath":"'"$CPIN"'","args":{'"$L"'"pr":7,"pluginRoot":"'"$PLUG"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-copy.json"
+run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1
+# cline <launch copy> <session copy>: the refusal's line
+cline() { printf '%s' "The run on #7 started from the Redline 1.2.3 copy at $1, and this session loads Redline 1.2.3 from $2, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER"; }
+runj "drift: another copy at the same version, its workflow and agents as the launch copy's: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose files agree exits 0" 0 drift "$REPO" 7 --plugin "$REC/plugin3"
+printf 'checkout script\n' > "$REC/plugin3/workflows/redline-loop.js"
+runj "drift: another copy, its workflow edited, its agents as the launch copy's: from the pin" "$DRIFT" "false|scriptPath|$CPIN||{\"workflow\":\"workflows/redline-loop.js\",\"pinned\":true,\"agents\":[]}|" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose agents agree, from the pin, exits 0" 0 drift "$REPO" 7 --plugin "$REC/plugin3"
+printf 'shaper v2\n' > "$REC/plugin3/agents/redline-shaper.md"
+runj "drift: another copy, its workflow and an agent edited, is refused, naming both copies" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose agents differ exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin3"
+printf 'launch script\n' > "$REC/plugin3/workflows/redline-loop.js"
+runj "drift: another copy, its workflow as launched and an agent edited, is refused too" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin3")" drift "$REPO" 7 --plugin "$REC/plugin3"
+runx "drift: another copy whose agents differ, by name, exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin3"
+cp -R "$REC/plugin3" "$REC/plugin4"
+rm -r "$REC/plugin4/agents"
+printf 'shaper v1\n' > "$REC/plugin3/agents/redline-shaper.md"
+runj "drift: another copy with no agents/ beside a launch copy with one is refused" "$DRIFT" "false|refuse|||null|$(cline "$PLUG" "$REC/plugin4")" drift "$REPO" 7 --plugin "$REC/plugin4"
+runx "drift: another copy with no agents/ exits 1" 1 drift "$REPO" 7 --plugin "$REC/plugin4"
+printf '%s\n' '{"runId":"wf_27","scriptPath":"'"$CPIN"'","args":{'"$L"'"pr":7,"pluginRoot":"'"$REC"'/gone"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-gone.json"
+run save "$REPO" 7 --run-id wf_27 --record "$REC/pinned-gone.json" >/dev/null 2>&1
+runj "drift: a launch copy that is gone cannot be compared, so the relaunch is refused, naming it" "$DRIFT" "false|refuse|||null|$(cline "$REC/gone" "$PLUG")" drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: a launch copy that is gone exits 1" 1 drift "$REPO" 7 --plugin "$PLUG"
+run save "$REPO" 7 --run-id wf_26 --record "$REC/pinned-copy.json" >/dev/null 2>&1
+runj "drift: the copy the run launched from, its agents as launched: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$PLUG"
+printf 'shaper v2\n' > "$PLUG/agents/redline-shaper.md"
+runj "drift: the copy the run launched from, an agent edited within it: still by name (decision 4's case)" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$PLUG"
+rm -r "$PLUG/agents"
+run save "$REPO" 7 --run-id wf_22 --record "$REC/fallback-other.json" >/dev/null 2>&1
 # A live session runs the workflow it loaded until it reloads, so after an edit on disk a launch by
 # name runs the cached copy while the launch recorded the edited file's blob: the pin holds what ran,
 # and a live file that differs from it relaunches from it, never by name.

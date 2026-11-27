@@ -275,9 +275,15 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       #135), as {self, launch, scriptPath, workflow, agents, drift, line}, on every repository.
 #       self is true when the repository is --plugin's directory. First the version: when the
 #       marker's args.launch records another version than --plugin's manifest, or none, launch is
-#       refuse and line is run check's version line. Then the script: the live file is
-#       --plugin's workflows/redline-loop.js, since a checkout loaded in place can change while it
-#       reviews any repository, and the pin is the script path in the marker's record: the copy the
+#       refuse and line is run check's version line. Then the copy (#137, R1-3): when
+#       args.pluginRoot is another directory than --plugin (a checkout and a release, or two
+#       checkouts, at one version), launch is refuse when the two copies' agents/ differ (an
+#       agents/ on one side only differs, none on either side agrees) or args.pluginRoot is no
+#       longer a directory, since the launch's script would run under another build's agents;
+#       line names both copies. A marker with no args.pluginRoot skips this. Then the script:
+#       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
+#       can change while it reviews any repository, and the pin is the script path in the
+#       marker's record: the copy the
 #       harness persisted when the run was launched by name, which holds what the launch ran (in a
 #       live session, the copy it loaded, even after the file on disk changed). launch is name
 #       while the live file equals the pin (relaunch as before), scriptPath when it differs

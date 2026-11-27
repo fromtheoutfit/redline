@@ -78,9 +78,15 @@
 #       #135), as {self, launch, scriptPath, workflow, agents, drift, line}, on every repository.
 #       self is true when the repository is --plugin's directory. First the version: when the
 #       marker's args.launch records another version than --plugin's manifest, or none, launch is
-#       refuse and line is run check's version line. Then the script: the live file is
-#       --plugin's workflows/redline-loop.js, since a checkout loaded in place can change while it
-#       reviews any repository, and the pin is the script path in the marker's record: the copy the
+#       refuse and line is run check's version line. Then the copy (#137, R1-3): when
+#       args.pluginRoot is another directory than --plugin (a checkout and a release, or two
+#       checkouts, at one version), launch is refuse when the two copies' agents/ differ (an
+#       agents/ on one side only differs, none on either side agrees) or args.pluginRoot is no
+#       longer a directory, since the launch's script would run under another build's agents;
+#       line names both copies. A marker with no args.pluginRoot skips this. Then the script:
+#       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
+#       can change while it reviews any repository, and the pin is the script path in the
+#       marker's record: the copy the
 #       harness persisted when the run was launched by name, which holds what the launch ran (in a
 #       live session, the copy it loaded, even after the file on disk changed). launch is name
 #       while the live file equals the pin (relaunch as before), scriptPath when it differs
@@ -280,6 +286,35 @@ if [[ "$cmd" == "run" ]]; then
             jq -n --argjson self "$self" --arg wf "$wf" --arg line "$vline" \
                 '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
             exit 1
+        fi
+        # Then the copy (#137, R1-3). A checkout and a release at one version are two builds, and a
+        # relaunch under the session's copy would run the launch's script, or the name, under that
+        # copy's agents, which mix with the replayed steps' (the #135 spec's m4-agents-pin-reopen).
+        # So when the session loads another copy than the one the run launched from, the two
+        # agents/ must agree; an agents/ on one side only differs, and a launch copy that is gone
+        # cannot be compared. A marker with no args.pluginRoot skips this.
+        lroot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")"
+        if [[ -n "$lroot" ]]; then
+            lreal=""
+            if [[ -d "$lroot" ]]; then
+                lreal="$(realdir "$lroot")" || lreal=""
+            fi
+            if [[ "$lreal" != "$(realdir "$plugin")" ]]; then
+                differ=false
+                if [[ -z "$lreal" ]]; then
+                    differ=true
+                elif [[ -d "$lroot/agents" || -d "$plugin/agents" ]]; then
+                    diff -rq "$lroot/agents" "$plugin/agents" >/dev/null 2>&1 || differ=true
+                fi
+                if [[ "$differ" == true ]]; then
+                    now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json")"
+                    folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
+                    cline="The run on #$pr started from the Redline $now copy at $lroot, and this session loads Redline $now from $plugin, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
+                    jq -n --argjson self "$self" --arg wf "$wf" --arg line "$cline" \
+                        '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
+                    exit 1
+                fi
+            fi
         fi
         start=""
         if [[ "$self" == true ]]; then
