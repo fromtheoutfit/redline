@@ -1,0 +1,1 @@
+Redline round 2: fixed in 5fa5631 (redline: R2-1 compare and list only agent files, the *.md files under agents/ (#135)). · decided by: redline

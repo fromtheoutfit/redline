@@ -1,0 +1,1 @@
+Redline round 3: fixed in 6182bdb (redline: R3-2 refuse a relaunch or a resume from any other copy by its real path, whatever its agent files hold (#135)). · decided by: redline

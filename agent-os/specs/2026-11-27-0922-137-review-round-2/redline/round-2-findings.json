@@ -1,0 +1,234 @@
+{
+  "round": 2,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "57234d04e264dec34cae1678ca29a4d14b2672e3",
+    "to": "704bbafcdf8b65543f8f9fe6354648c22d752ae0"
+  },
+  "summary": "Round 1's fixes land as described: `run save` searches the session's config directory, the installs warning falls back to `[]` on any list it cannot read, and the workflow's refusal leaves the next step to the skill. The findings mostly concern when a refusal is found: the copy check added for R1-3 exists in `run drift` only and compares whole directories, and at a stop the marker and drift run only after the person has answered. No scheduled or queued work touches `.claude/redline.local.json` or the installs list, since this repository has no scheduler.",
+  "findings": [
+    {
+      "id": "R2-1",
+      "file": "scripts/redline-prefs.sh",
+      "line": 307,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The copy check refuses a same-version relaunch when the checkout's agents/ holds any non-agent file",
+      "description": "The R1-3 fix compares the launch copy's and the session copy's agents/ with `diff -rq \"$lroot/agents\" \"$plugin/agents\"` (line 307). That compares every file in both trees, dotfiles, ignored and untracked files included. An installed release's cache directory holds only the shipped files, so a checkout whose agents/ holds a Finder `.DS_Store`, an editor swap or backup file, or an untracked scratch file sets differ=true. Drift then prints `launch: refuse` with the 'agent files differ' line (lines 309-315), and the skill runs `run clear` and stops (SKILL.md line 249), so a run that could have relaunched is finished and started fresh. Traced through lines 296-316; `diff -rq` exits 1 on an 'Only in' entry. Conditions: a run whose launch copy and session copy are two different directories at one version (a checkout loaded in place and a release, or two checkouts) and a stray file in either agents/. Nothing on GitHub is lost.",
+      "proposedFix": "Compare only the agent files: the `*.md` files at the top of each agents/ (for example, build the two sorted name lists and `cmp` each pair), or exclude dotfiles and files git does not track in a checkout. Add prefs cases: a `.DS_Store` only in the checkout's agents/ goes on; a differing `redline-reviewer.md` still refuses.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-2",
+      "file": "scripts/redline-prefs.sh",
+      "line": 347,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "run drift hashes a relative --plugin against the repository root, while every other read uses the caller's directory",
+      "description": "With no pin, drift compares `git -C \"$root\" hash-object --no-filters \"$live\"` with `args.launch.workflow` (line 347), where `live=\"$plugin/workflows/redline-loop.js\"` (line 333). `git -C` runs as if started in `$root`, so a relative `--plugin` is resolved against the repository root. `cmp` (line 345), `diff -rq` (line 307), `realdir` (lines 281, 302, 339) and the manifest read in `version_line` (line 186) resolve the same `$plugin` against the caller's directory. Called as `cd <checkout> && redline-prefs.sh run drift /other/repo 7 --plugin .` with a scriptPath-fallback marker, hash-object reads `/other/repo/workflows/redline-loop.js` (absent, so git fails and the comparison is false, or that repository's own file), and the answer is `refuse`, or `name`, whatever the plugin's workflow holds. Conditions: only a hand call with a relative `--plugin`; the skill always passes `${CLAUDE_PLUGIN_ROOT}`, an absolute path, and the script's header does not say the path must be absolute.",
+      "proposedFix": "Make `plugin` absolute once after the `-d` check at line 203 (`plugin=\"$(realdir \"$plugin\")\"`), or hash the file without `-C` (`git hash-object --no-filters \"$live\"` run from the caller's directory). Add a prefs case with `--plugin` given relative to a directory other than the repository.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-3",
+      "file": "scripts/redline-prefs.sh",
+      "line": 390,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "run check does not refuse another copy at the same version, so a hand-off resume asks every call before drift refuses",
+      "description": "The R1-3 fix added the copy check (another directory than args.pluginRoot whose agents/ differ, or a launch root that is gone) to `run drift` only (lines 290-318). `run check` refuses another version through `version_line` (lines 389-390), which the PR placed there so a resume is refused before any question, but nothing in check (lines 373-457) reads args.pluginRoot or agents/. On a resume, SKILL.md section 2 runs `run check` first (line 51); for a `handoff` or `reviewed` marker it then presents the calls, drafts or findings and records the answers (line 53), and only the relaunch runs drift (line 55, 'Every relaunch here goes through \"The script a relaunch runs\" first'). Scenario: a run launched with `claude --plugin-dir <checkout at 0.5.1 with edited agents/>` stops at a decisions hand-off; the session is reopened without `--plugin-dir` (installed 0.5.1); Resume: check prints ok:true, the person answers every call and types `relaunch`, drift prints `launch: refuse` (copy), the skill runs `run clear`, and the answers are discarded. Conditions: a checkout and a release (or two checkouts) at one version with differing agent files, and a reopen that switches between them. Nothing on GitHub is lost.",
+      "proposedFix": "Move the copy comparison into a shared helper beside `version_line` and call it from `run check` as its own reason after `version` (for example `copy`), with a prefs case; have SKILL.md's Resume bullet treat that reason as it treats `version` (say the line, then Start fresh / Stop).",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R1-3"
+      ]
+    },
+    {
+      "id": "R2-4",
+      "file": "scripts/redline-setup.sh",
+      "line": 1517,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "unconfirmed",
+      "title": "The installs warning may miss a project or local install recorded under a symlinked spelling of the root",
+      "description": "`version_installs` keeps a project or local install only when its `projectPath` (trailing slash trimmed) equals `$rootp`, the physical root from `cd \"$root\" && pwd -P` (lines 1512, 1517). `mine` accepts both the physical and the given spelling of the plugin root (`$ownp` or `$own`), but the projectPath test accepts only the physical one. If Claude Code records projectPath through a symlink (the repository at ~/work/app with ~/work a link to /Volumes/data/work), a project install at 0.4.3 beside a user install at 0.5.1 is not seen, nothing warns, and a reload can switch the session mid-run (the workflow's startup check then refuses the relaunch). Whether this happens turns on how Claude Code spells projectPath, which the repository cannot show; the guard refuses `claude` for this role. Note that the skill's repoRoot comes from `git rev-parse --show-toplevel` (SKILL.md line 15), which normally already resolves symlinks, so comparing `$root` as well would help only when the two spellings differ.",
+      "proposedFix": "Compare projectPath, after resolving it with `pwd -P` when it is a directory, with `$rootp`, or accept `$root` as well as `$rootp` as `mine` does; add a setup case with a symlinked fixture root.",
+      "wouldConfirm": "Install Redline at project scope from a repository opened through a symlinked directory and read projectPath in `claude plugin list --json`.",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-5",
+      "file": "skills/redline/SKILL.md",
+      "line": 51,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The skill has no instruction for run check's exit 2, and drift's exit-2 sentence names only a missing marker",
+      "description": "`version_line` returns 2 when `--plugin`'s manifest holds no version (scripts/redline-prefs.sh lines 186-187), and check and drift pass it on with `|| exit $?` (lines 284, 389); the headers document it (lines 74-75, 105-106). The Resume bullet (SKILL.md line 51) handles only exit 1 and exit 0 from `run check`, so an exit 2 there, from this cause or a missing `--plugin`, has no instruction. Section 7 explains drift's exit 2 as 'no marker, or, on the plugin's own repository, a marker with no start commit ... without the marker the launch's script is unknown' (line 251), which is wrong for a manifest with no version; the skill does say the script's own line first, which names the real cause. Conditions: a loaded Redline copy whose plugin.json has no version; no shipped copy lacks one, since the setup test requires the three version places to agree.",
+      "proposedFix": "In the Resume bullet, say the script's line and stop on exit 2 from `run check`; word section 7's exit-2 sentence to cover a `--plugin` whose manifest holds no version as well as a missing marker or start commit.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R2-6",
+      "file": "skills/redline/SKILL.md",
+      "line": 245,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "At a stop, run save and run drift run only after the person has answered every call and typed relaunch",
+      "description": "At a decisions hand-off, a review-dial stop or the end-of-run drafts stop, the skill presents every call, draft or finding, records the answers and asks for the word (SKILL.md lines 237, 200, 263), and only the relaunch turn writes the marker ('Write the marker', line 243, before saving the record, which is 'before the relaunch') and runs `run drift` ('Before every relaunch ..., after the marker is written', line 245). This PR made both of those a stop: `run save` exit 2 now says its line and stops (line 243), and drift refuses another version or another copy on every repository (line 249), after which the skill clears the marker. So a refusal found there discards every answer the person gave, held only in the conversation, and the fresh run asks them again. The reachable trigger in one session is the plugin's own repository loaded in place: a round fixes the reviewer's Version nit by bumping plugin.json, and the next hand-off's drift refuses (the behaviour R1-1 recorded as deliberate; this finding is only about when it is found, not that it ends the run). `run save` exiting 2 (no session id, or zero or two matching records) at that point does the same. Before this PR the same ordering applied, but on any repository but the plugin's drift answered `name` without a marker and a failed `run save` went on. Nothing on GitHub is lost.",
+      "proposedFix": "Write the marker and run `run drift` as soon as the stop is reported, before presenting any call, and say a refusal there (then clear and stop); run drift again in the relaunch turn only to get `args.drift`. Mirror the order in docs/running.md 'Hand-off and relaunch'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "704bbafcdf8b65543f8f9fe6354648c22d752ae0",
+    "candidates": 8,
+    "counts": {
+      "verified": 5,
+      "unconfirmed": 1,
+      "refuted": 2,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {
+        "index": 1,
+        "outcome": "verified",
+        "ref": "R2-6"
+      },
+      {
+        "index": 2,
+        "outcome": "verified",
+        "ref": "R2-3"
+      },
+      {
+        "index": 3,
+        "outcome": "refuted",
+        "ref": "Claim: after the workflow's version refusal the person is not told which spec folders to commit or remove. Against it: SKILL.md's error section (line 275) has the skill report `git status` and then name the uncommitted spec folders, and those are exactly the folders a fresh launch needs committed or removed; the result's empty specFolders and the comment at redline-loop.js line 48 describe this launch, which made none."
+      },
+      {
+        "index": 4,
+        "outcome": "verified",
+        "ref": "R2-2"
+      },
+      {
+        "index": 5,
+        "outcome": "verified",
+        "ref": "R2-1"
+      },
+      {
+        "index": 6,
+        "outcome": "unconfirmed",
+        "ref": "R2-4"
+      },
+      {
+        "index": 7,
+        "outcome": "verified",
+        "ref": "R2-5"
+      },
+      {
+        "index": 8,
+        "outcome": "refuted",
+        "ref": "Claim: for a marker with no args.launch, the refusal can name the session's own version as the launch's. Against it: the plugin cache names each directory by version (~/.claude/plugins/cache/redline/redline/0.2.0 ... 0.4.5 on this machine), so a cache root keeps its own manifest's version. args.launch and the 0.5.1 bump arrive in one commit (b2d81dd), so a launch without args.launch came from a build at 0.5.0 or earlier, and its manifest cannot equal the 0.5.1-or-later version of the session's copy that runs this script."
+      }
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "skills/redline/SKILL.md",
+        "line": 245,
+        "summary": "At a hand-off, a review-dial stop or the end-of-run drafts stop, the person answers every call and types `relaunch` before Redline learns the run cannot be relaunched, so a refusal throws all those answers away. 'Write the marker' (line 243) and 'The script a relaunch runs' (line 245) run `run save` and then `run drift` only in the relaunch turn, after 'Relaunch only from the word'. This change made `run save`'s exit 2 a stop, and made `run drift` refuse another version or another copy on every repository. R1-1 and R1-2 settled that these end the run; this finding is about when they are found. Fix: run `run save` and `run drift` as soon as the stop is reported, before presenting any call, and say a refusal there. Run drift again just before the relaunch only to get `args.drift`.",
+        "failure_scenario": "Self-review loaded in place on this repository. Round 1 fixes the reviewer's Version nit by bumping plugin.json. Round 2's guided hand-off presents 5 calls; the person answers all 5 and types `relaunch`. Only then does `run drift` return launch: refuse (version). The skill clears the marker and stops, and the 5 answers, held only in the conversation, are lost; the fresh run asks them again. The same happens when `run save` exits 2 (no session id, or two records match) after every answer is in."
+      },
+      {
+        "index": 2,
+        "file": "scripts/redline-prefs.sh",
+        "line": 390,
+        "summary": "Resuming a hand-off or review-dial stop from a session that loads another Redline copy at the same version makes the person answer every call again before the run is refused. `run check` refuses another version (line 390), which was put there so a resume is refused before any question. It does not refuse another copy whose agents differ: R1-3 added that check to `run drift` only, and on a resume the skill runs drift only at the relaunch, after it has read the record's calls and recorded the answers. Fix: move the copy comparison into a shared helper, as `version_line` is, and add it to `run check` as its own reason after `version`, with a prefs case. Have SKILL.md's Resume bullet handle that reason as it handles `version` (Start fresh / Stop).",
+        "failure_scenario": "A run is launched with `claude --plugin-dir <checkout at 0.5.1 with edited agents/>` and stops at a decisions hand-off. The session is reopened without --plugin-dir (installed 0.5.1). `/redline:redline <n>`, then Resume: `run check` prints ok:true. The skill presents 4 calls, the person answers and types `relaunch`. `run drift` then prints launch: refuse (copy), the skill runs `run clear`, and the answers are discarded."
+      },
+      {
+        "index": 3,
+        "file": "workflows/redline-loop.js",
+        "line": 71,
+        "summary": "When the workflow refuses a relaunch for its version, the person is not told which spec folders to commit or remove. The early return reports `specFolders: []`, and its comment (line 48) says the run holds no spec folder. On a relaunch, though, the earlier rounds' folders are uncommitted. The skill's error section runs `run clear` first, which deletes the marker that listed them, and then is told to 'name the uncommitted spec folders'. Fix: for a stage `relaunch` error, have the skill read `specFolders` from the marker before `run clear`, and correct the comment to say this launch made no folder.",
+        "failure_scenario": "The #839 case: the session is reloaded onto 0.5.2 at a round 2 hand-off. The skill's stale root lets `run drift` pass. The relaunch by name runs 0.5.2's workflow, which returns specFolders []. The skill clears the marker (the only list of the round 1 and round 2 folders) and can only guess them from git status. The next fresh launch stops at the clean-tree precheck with no folder list."
+      },
+      {
+        "index": 4,
+        "file": "scripts/redline-prefs.sh",
+        "line": 347,
+        "summary": "`run drift` with a relative `--plugin` decides the no-pin case against the wrong file. Line 347 hashes `$plugin/workflows/redline-loop.js` with `git -C \"$root\" hash-object`, which resolves a relative path against the repository root. `cmp`, `diff -rq` and `realdir` resolve the same `$plugin` against the caller's directory. Fix: make `plugin` absolute once, after the `-d` check (`plugin=\"$(realdir \"$plugin\")\"`), or hash the file without `-C`.",
+        "failure_scenario": "`cd <redline checkout> && redline-prefs.sh run drift /other/repo 7 --plugin .` with a scriptPath-fallback marker. hash-object reads /other/repo/workflows/redline-loop.js (missing, so empty, or that repository's own file) instead of the checkout's. The answer is refuse, or name, whether or not the plugin's workflow changed."
+      },
+      {
+        "index": 5,
+        "file": "scripts/redline-prefs.sh",
+        "line": 307,
+        "summary": "A relaunch from a checkout against a release at the same version is refused as 'agent files differ' when the checkout's agents/ holds any file that is not an agent. Line 307 runs `diff -rq` over the whole directory, so a Finder `.DS_Store`, an editor swap or backup file, or an untracked scratch file counts as a difference. Fix: compare only the agent files (the `*.md` at the top of agents/), or ignore dotfiles and untracked files, with a prefs case for each.",
+        "failure_scenario": "A checkout at 0.5.1 is identical to the release except for agents/.DS_Store, left by opening the folder in Finder. `run drift` sets differ=true and prints launch: refuse. The skill clears the marker, and a run that could have relaunched is finished."
+      },
+      {
+        "index": 6,
+        "file": "scripts/redline-setup.sh",
+        "line": 1517,
+        "summary": "The launch warning can miss a project or local Redline install when the repository's path goes through a symlink. `version_installs` compares `projectPath` only with the physical root `$rootp`, while `mine` accepts both the physical and the logical spelling of the plugin root. Fix: compare `projectPath` with `$root` as well as `$rootp`, as `mine` does, and add a setup case with a symlinked fixture root.",
+        "failure_scenario": "The repository is at ~/work/app, where ~/work is a symlink to /Volumes/data/work. If Claude Code records projectPath as /Users/me/work/app, `$rootp` is /Volumes/data/work/app. The project install at 0.4.3 is then not seen beside the user install at 0.5.1, so nothing warns, and a reload can switch the session to 0.4.3 mid-run."
+      },
+      {
+        "index": 7,
+        "file": "skills/redline/SKILL.md",
+        "line": 51,
+        "summary": "This change adds an exit-2 cause to `run check` and `run drift`: a `--plugin` whose manifest holds no version, from `version_line`'s `return 2`. The Resume bullet handles only exit 1 and exit 0 from `run check`. Section 7 explains drift's exit 2 only as 'without the marker the launch's script is unknown', which is wrong for this cause. Fix: say the script's line and stop on exit 2 from `run check`, and word drift's exit-2 sentence so it also covers a manifest with no version.",
+        "failure_scenario": "The session's plugin root has a plugin.json with no version. On Resume, `run check` exits 2 with 'holds no version', and the skill has no instruction for that exit code. At a relaunch, drift exits 2 and the skill tells the person the marker is missing when it is not."
+      },
+      {
+        "index": 8,
+        "file": "scripts/redline-prefs.sh",
+        "line": 197,
+        "summary": "For a marker with no `args.launch`, the refusal can read 'started under Redline 0.5.1, and this session loads Redline 0.5.1: a relaunch under another version would rerun steps'. Lines 194-197 name the launch from the version in `args.pluginRoot`'s manifest whenever that root is under plugins/cache/, assuming the directory never changes. They never check that the version found differs from the session's `now`. Fix: use `pv` only when it differs from `now`, and otherwise say 'a Redline build before 0.5.1'.",
+        "failure_scenario": "A run from before 0.5.1 was launched from a cache directory whose contents were later replaced by an install at the session's version at the same path (a cache directory not named by version). The refusal names the same version twice and calls it another version."
+      }
+    ]
+  }
+}

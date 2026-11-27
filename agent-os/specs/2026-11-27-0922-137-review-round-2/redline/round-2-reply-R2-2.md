@@ -1,0 +1,1 @@
+Redline round 2: fixed in c49dea2 (redline: R2-2 make the --plugin of run check and run drift absolute once, so drift hashes the file it compares (#135)). · decided by: redline

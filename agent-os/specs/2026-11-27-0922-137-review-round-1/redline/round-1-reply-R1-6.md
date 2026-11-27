@@ -1,0 +1,1 @@
+Redline round 1: fixed in 247ba99 (redline: R1-6 relaunch without the record's copy only on a resume (#135)). · decided by: redline

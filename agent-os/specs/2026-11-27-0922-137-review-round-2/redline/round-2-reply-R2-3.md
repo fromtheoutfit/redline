@@ -1,0 +1,1 @@
+Redline round 2: fixed in d4c68b6 (redline: R2-3 refuse another copy at the run's version in run check too, before a resume asks anything (#135)). · decided by: redline

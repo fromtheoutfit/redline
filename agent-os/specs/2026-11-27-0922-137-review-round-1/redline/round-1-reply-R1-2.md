@@ -1,0 +1,1 @@
+Redline round 1: fixed in 2bf2678 (redline: R1-2 find the run record under the session's config directory as well as ~/.claude/, and copy the one run save found (#135)). · decided by: redline
