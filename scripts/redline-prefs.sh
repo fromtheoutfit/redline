@@ -80,10 +80,13 @@
 #       marker's args.launch records another version than --plugin's manifest, or none, launch is
 #       refuse and line is run check's version line. Then the copy (#137, R1-3): when
 #       args.pluginRoot is another directory than --plugin (a checkout and a release, or two
-#       checkouts, at one version), launch is refuse when the two copies' agents/ differ (an
-#       agents/ on one side only differs, none on either side agrees) or args.pluginRoot is no
-#       longer a directory, since the launch's script would run under another build's agents;
-#       line names both copies. A marker with no args.pluginRoot skips this. Then the script:
+#       checkouts, at one version), launch is refuse when the two copies' agent files differ
+#       (#137, R2-1: an agent file is a *.md file under agents/ whose path has no part that
+#       starts with a dot, so a .DS_Store or an editor's backup there is none; the two lists are
+#       compared by path, then each pair by its bytes, and a copy with no agents/ has none) or
+#       args.pluginRoot is no longer a directory, since the launch's script would run under
+#       another build's agents; line names both copies. A marker with no args.pluginRoot skips
+#       this. Then the script:
 #       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
 #       can change while it reviews any repository, and the pin is the script path in the
 #       marker's record: the copy the
@@ -94,9 +97,9 @@
 #       itself (a launch by the scriptPath fallback leaves no pin), name while the live file's git
 #       blob id is args.launch.workflow and refuse when it is not; line then names the file and
 #       says to finish with a fresh run. agents, on the plugin's own repository only (empty
-#       anywhere else), lists every file under agents/ that differs from the launch commit
-#       (args.startSha), uncommitted and untracked ones included; the run goes on, and line is the
-#       sentence the skill says. drift is what the skill
+#       anywhere else), lists every agent file (by the same rule) that differs from the launch
+#       commit (args.startSha), uncommitted and untracked ones included; the run goes on, and
+#       line is the sentence the skill says. drift is what the skill
 #       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
 #       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
 #       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
@@ -131,6 +134,27 @@ run_usage() {
 }
 
 realdir() { (cd "$1" 2>/dev/null && pwd -P); }
+
+# The agent files of a copy (#137, R2-1): a *.md file under agents/ whose path has no part that
+# starts with a dot. The roles are the Markdown files under agents/, and a .DS_Store, an editor's
+# backup, an AppleDouble ._ file or a scratch note there is no role. A *.md file in a subdirectory
+# counts, as the comparison it replaces counted it.
+# agent_paths: the paths on stdin, one a line, that are agent files.
+agent_paths() {
+    local p
+    while IFS= read -r p; do
+        case "/$p" in */.*) continue ;; esac
+        case "$p" in *.md) printf '%s\n' "$p" ;; esac
+    done
+    return 0
+}
+# agent_list <copy>: the copy's agent files as paths from its root (agents/...), sorted; nothing
+# when it has no agents/.
+agent_list() {
+    [[ -d "$1/agents" ]] || return 0
+    (cd "$1" 2>/dev/null && { find agents -type f 2>/dev/null || true; } | agent_paths | LC_ALL=C sort) || true
+    return 0
+}
 
 if [[ "$cmd" == "run" ]]; then
     [[ $# -ge 4 ]] || run_usage
@@ -290,9 +314,9 @@ if [[ "$cmd" == "run" ]]; then
         # Then the copy (#137, R1-3). A checkout and a release at one version are two builds, and a
         # relaunch under the session's copy would run the launch's script, or the name, under that
         # copy's agents, which mix with the replayed steps' (the #135 spec's m4-agents-pin-reopen).
-        # So when the session loads another copy than the one the run launched from, the two
-        # agents/ must agree; an agents/ on one side only differs, and a launch copy that is gone
-        # cannot be compared. A marker with no args.pluginRoot skips this.
+        # So when the session loads another copy than the one the run launched from, their agent
+        # files must agree (agent_list, #137, R2-1): a copy with no agents/ has none, and a launch
+        # copy that is gone cannot be compared. A marker with no args.pluginRoot skips this.
         lroot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")"
         if [[ -n "$lroot" ]]; then
             lreal=""
@@ -303,8 +327,16 @@ if [[ "$cmd" == "run" ]]; then
                 differ=false
                 if [[ -z "$lreal" ]]; then
                     differ=true
-                elif [[ -d "$lroot/agents" || -d "$plugin/agents" ]]; then
-                    diff -rq "$lroot/agents" "$plugin/agents" >/dev/null 2>&1 || differ=true
+                else
+                    lagents="$(agent_list "$lroot")"
+                    pagents="$(agent_list "$plugin")"
+                    if [[ "$lagents" != "$pagents" ]]; then
+                        differ=true
+                    elif [[ -n "$lagents" ]]; then
+                        while IFS= read -r f; do
+                            cmp -s "$lroot/$f" "$plugin/$f" || { differ=true; break; }
+                        done <<<"$lagents"
+                    fi
                 fi
                 if [[ "$differ" == true ]]; then
                     now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json")"
@@ -346,10 +378,11 @@ if [[ "$cmd" == "run" ]]; then
         else
             [[ "$(git -C "$root" hash-object --no-filters "$live")" == "$(jq -r '.args.launch.workflow // ""' <<<"$entry")" ]] || changed=true
         fi
-        # Agent files: only the plugin's own repository lists them (#81).
+        # Agent files: only the plugin's own repository lists them (#81), and only agent files
+        # (agent_paths, #137, R2-1).
         agents='[]'
         if [[ "$self" == true ]]; then
-            agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | sort -u | jq -R . | jq -sc .)"
+            agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | agent_paths | sort -u | jq -R . | jq -sc .)"
         fi
         # The agent list drift passes (#91, R1-1). The handoff comment is the one prompt that names
         # it, and an error or stopped resume can rerun Finish from a step after the comment posted,
