@@ -298,12 +298,14 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       anywhere else), lists every agent file (#137, R2-1: a *.md file under agents/ whose path
 #       has no part that starts with a dot, so a .DS_Store or an editor's backup there is none)
 #       that differs from the launch commit (args.startSha), uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
-#       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
-#       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
-#       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
-#       when none), since that resume can rerun Finish from a step after the handoff comment
-#       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
+#       included, each as it is named (#137, R3-4: git lists them with -z, so a name it would
+#       quote is read whole); the run goes on, and line is the sentence the skill says. drift is
+#       what the skill passes as args.drift ({workflow, pinned, agents}), null when the workflow
+#       file is as launched and drift's agents is empty. drift's agents is agents at a hand-off or
+#       a reviewed stop; on an error or stopped marker it is the list the marker's own args.drift
+#       passed ([] when none), since that resume can rerun Finish from a step after the handoff
+#       comment posted, and the comment, the one prompt that names the list, must not change
+#       (#91, R1-1).
 #       Exit 0, 1 refused, 2 with no --plugin or a --plugin whose manifest holds no version, no
 #       marker, or, on the plugin's own repository, no start commit.
 #   redline-prefs.sh run clear <repoRoot> <pr>

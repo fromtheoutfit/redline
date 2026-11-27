@@ -596,6 +596,19 @@ printf 'notes\n' > "$REPO/agents/notes.txt"
 printf 'finder\n' > "$REPO/agents/.DS_Store"
 runj "drift: an untracked file under agents/ that is no agent file is not listed (#137, R2-1)" '.agents | join(",")' "agents/redline-reviewer.md" drift "$REPO" 7 --plugin "$REPO"
 rm "$REPO/agents/notes.txt" "$REPO/agents/.DS_Store"
+# A name git would quote is listed as it is named (#137, R3-4): both git listings run with -z, and agent_paths reads NUL-terminated names.
+printf 'role\n' > "$REPO/agents/zé.md"
+runj "drift: an untracked agent file whose name holds a byte above 0x7f is listed as it is named (#137, R3-4)" '.agents | join(",")' "agents/redline-reviewer.md,agents/zé.md" drift "$REPO" 7 --plugin "$REPO"
+"${G[@]}" add agents/zé.md
+runj "drift: the same agent file staged is listed from the diff as it is named (#137, R3-4)" '.agents | join(",")' "agents/redline-reviewer.md,agents/zé.md" drift "$REPO" 7 --plugin "$REPO"
+"${G[@]}" rm -q --cached agents/zé.md
+rm "$REPO/agents/zé.md"
+printf 'role\n' > "$REPO/agents/z\"q.md"
+runj "drift: an agent file whose name holds a double quote is listed as it is named (#137, R3-4)" '.agents | join(",")' 'agents/redline-reviewer.md,agents/z"q.md' drift "$REPO" 7 --plugin "$REPO"
+rm "$REPO/agents/z\"q.md"
+printf 'role\n' > "$REPO/agents/z"$'\n'"n.md"
+runj "drift: an agent file whose name holds a newline is listed as one entry (#137, R3-4)" '.agents | tojson' '["agents/redline-reviewer.md","agents/z\nn.md"]' drift "$REPO" 7 --plugin "$REPO"
+rm "$REPO/agents/z"$'\n'"n.md"
 run save "$REPO" 7 --run-id wf_12 --record "$REC/fallback.json" >/dev/null 2>&1
 runj "drift: a changed workflow whose launch ran the live file has no pin and is refused, naming the file" '[.launch, .scriptPath, (.drift.pinned|tostring), .line] | join("|")' "refuse||false|workflows/redline-loop.js changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline 7" drift "$REPO" 7 --plugin "$REPO"
 runx "drift: refused exits 1" 1 drift "$REPO" 7 --plugin "$REPO"

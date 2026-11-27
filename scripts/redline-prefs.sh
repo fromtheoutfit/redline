@@ -101,12 +101,14 @@
 #       anywhere else), lists every agent file (#137, R2-1: a *.md file under agents/ whose path
 #       has no part that starts with a dot, so a .DS_Store or an editor's backup there is none)
 #       that differs from the launch commit (args.startSha), uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
-#       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
-#       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
-#       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
-#       when none), since that resume can rerun Finish from a step after the handoff comment
-#       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
+#       included, each as it is named (#137, R3-4: git lists them with -z, so a name it would
+#       quote is read whole); the run goes on, and line is the sentence the skill says. drift is
+#       what the skill passes as args.drift ({workflow, pinned, agents}), null when the workflow
+#       file is as launched and drift's agents is empty. drift's agents is agents at a hand-off or
+#       a reviewed stop; on an error or stopped marker it is the list the marker's own args.drift
+#       passed ([] when none), since that resume can rerun Finish from a step after the handoff
+#       comment posted, and the comment, the one prompt that names the list, must not change
+#       (#91, R1-1).
 #       Exit 0, 1 refused, 2 with no --plugin or a --plugin whose manifest holds no version, no
 #       marker, or, on the plugin's own repository, no start commit.
 #   redline-prefs.sh run clear <repoRoot> <pr>
@@ -141,12 +143,16 @@ realdir() { (cd "$1" 2>/dev/null && pwd -P); }
 # under agents/ whose path has no part that starts with a dot. The roles are the Markdown files
 # under agents/, and a .DS_Store, an editor's backup, an AppleDouble ._ file or a scratch note
 # there is no role. A *.md file in a subdirectory counts.
-# agent_paths: the paths on stdin, one a line, that are agent files.
+# agent_paths: the NUL-terminated paths on stdin, as git prints them with -z, that are agent
+# files, each printed as a JSON string on a line of its own. Without -z git quotes a name holding
+# a byte above 0x7f, a double quote, a backslash or a control character, and core.quotePath=false
+# lifts only the first, so such a file was dropped as no *.md (#137, R3-4); as a JSON string a
+# name holding a newline stays one entry.
 agent_paths() {
     local p
-    while IFS= read -r p; do
+    while IFS= read -r -d '' p; do
         case "/$p" in */.*) continue ;; esac
-        case "$p" in *.md) printf '%s\n' "$p" ;; esac
+        case "$p" in *.md) jq -cn --arg p "$p" '$p' ;; esac
     done
     return 0
 }
@@ -373,10 +379,10 @@ if [[ "$cmd" == "run" ]]; then
             [[ "$(git -C "$root" hash-object --no-filters "$live")" == "$(jq -r '.args.launch.workflow // ""' <<<"$entry")" ]] || changed=true
         fi
         # Agent files: only the plugin's own repository lists them (#81), and only agent files
-        # (agent_paths, #137, R2-1).
+        # (agent_paths, #137, R2-1), each as it is named (git's -z, #137, R3-4).
         agents='[]'
         if [[ "$self" == true ]]; then
-            agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | agent_paths | sort -u | jq -R . | jq -sc .)"
+            agents="$({ git -C "$root" diff -z --name-only "$start" -- agents/; git -C "$root" ls-files -z --others --exclude-standard -- agents/; } | agent_paths | sort -u | jq -sc .)"
         fi
         # The agent list drift passes (#91, R1-1). The handoff comment is the one prompt that names
         # it, and an error or stopped resume can rerun Finish from a step after the comment posted,
