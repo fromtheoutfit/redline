@@ -46,6 +46,8 @@ function fail(message) {
 // rather than a throw about the field. An absent args.launch is a launch by a build before 0.5.1, the
 // first that records it. The result is the error the skill already treats as not resumable (stage
 // relaunch, resumeFrom null, #81); nothing has run, so it holds no round, commit or spec folder.
+// The line names no next step: a fresh launch and a relaunch reach it alike, and the skill's error
+// section, which knows which it made, gives each its own (#137, R1-8).
 if (A.launch !== undefined && A.launch !== null) {
   const l = A.launch
   if (typeof l !== 'object' || Array.isArray(l) || typeof l.version !== 'string' || l.version === '' || typeof l.workflow !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(l.workflow)) {
@@ -58,7 +60,7 @@ if (launchedUnder !== REDLINE_VERSION) {
     status: 'error',
     pr: Number(A.pr),
     stage: 'relaunch',
-    error: `This run started under ${launchedUnder ? `Redline ${launchedUnder}` : 'a Redline build before 0.5.1'}, and the workflow running now is Redline ${REDLINE_VERSION}: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost. Start fresh: /redline:redline ${A.pr}`,
+    error: `The Redline ${REDLINE_VERSION} workflow is running, and this run's args record ${launchedUnder ? `Redline ${launchedUnder}` : 'no version, as a Redline build before 0.5.1 launched it'}: a run runs only under the version its launch recorded, since a relaunch under another would rerun steps already recorded, so it stops here, before any agent. Nothing on GitHub is lost.`,
     detail: {},
     resumeFrom: null,
     ownCheck: false,
