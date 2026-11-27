@@ -133,7 +133,7 @@ copy `templates/command-redline.md` and `templates/command-redline-revise.md` to
 gh auth status
 ```
 
-The guard table prints `N passed, 0 mismatched`; the baseline exits 0; `check` and `version` exit 0 (the stamp matches the gate; `checks.sh`, the unattended section and `settings.json` are at the plugin's versions); `gh` is signed in.
+The guard table prints `N passed, 0 mismatched`; the baseline exits 0; `check` and `version` exit 0 (the stamp matches the gate; `checks.sh`, the unattended section and `settings.json` are at the plugin's versions); `gh` is signed in. `version` also exits 1 when the Redline installs the repository sees are at different versions (#135): no setup step changes that, so its line, with the `claude plugin update` command for each older install, is said and the setup goes on ([upgrading.md](upgrading.md), "A stopped run across a version change").
 
 ### 14. Hand back
 

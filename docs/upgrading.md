@@ -4,7 +4,7 @@ How a plugin update reaches a repository, and what a rerun of `/redline:setup` c
 
 ## Updating the plugin
 
-`claude plugin update redline@redline` in a terminal, or **Enable auto-update** for the `redline` marketplace under `/plugin` → Marketplaces (auto-update is off by default for a marketplace that is not Anthropic's), then restart or `/reload-plugins`. An update replaces the plugin's files only. The per-repository contract (the `checks.sh` template version, the unattended section of `shape-spec.md`, the allow list in `settings.json`, the alias command files) is carried by a rerun of `/redline:setup`, and the launch precheck names which part is behind, as the paragraphs below describe. `CHANGELOG.md` says what each version changed and which changes need the rerun.
+`claude plugin update redline@redline` in a terminal, or **Enable auto-update** for the `redline` marketplace under `/plugin` → Marketplaces (auto-update is off by default for a marketplace that is not Anthropic's), then restart or `/reload-plugins`. Update every scope that holds Redline for a repository, user and the repository's project or local install alike: a session runs whichever is listed first, so installs at different versions can switch a session mid-run, and the launch warns when they differ (see "A stopped run across a version change" below). An update replaces the plugin's files only. The per-repository contract (the `checks.sh` template version, the unattended section of `shape-spec.md`, the allow list in `settings.json`, the alias command files) is carried by a rerun of `/redline:setup`, and the launch precheck names which part is behind, as the paragraphs below describe. `CHANGELOG.md` says what each version changed and which changes need the rerun.
 
 ## The gate stamp, on a repository set up before it existed
 
@@ -46,7 +46,27 @@ A run also keeps every earlier resume in its args, and each one's line is built 
 
 On a pull request where an earlier Redline run replied to at least one finding with anything other than "not changed in this round", the run's first review is also asked whether each finding is one class with an earlier fixed one (`sameClassAs`), so its prompt changed too. There a stopped run replays only what came before that review, whatever stopped it, the review dial included: the review runs again, and so does the post, which finds the round already posted and posts nothing, but writes the round's `round-<n>-review.json` and `round-<n>-findings.json` again from the rerun's findings, which need not be the findings GitHub shows under the same ids. In both cases, finish or restart a stopped run before updating across 0.5.0, a run stopped at the review dial on such a pull request included; a decision you had already given is kept in the run's arguments and applied again, as an answer in your own words.
 
-The workflow has no fallback for a shape made under an older release, because none can reach it: a shape result from before 0.5.0 never replays under a changed shape prompt. On the plugin's own repository a relaunch runs the script the run launched with (#81), so a run in flight there is not affected.
+The workflow has no fallback for a shape made under an older release, because none can reach it: a shape result from before 0.5.0 never replays under a changed shape prompt. On the plugin's own repository a relaunch runs the script the run launched with (#81), so a run in flight there is not affected. From 0.5.1 a stopped run is not relaunched under another version at all, on any repository: it is refused and started fresh (see the next section).
+
+## A stopped run across a version change (#135)
+
+From 0.5.1 a run records the version it starts under, the one in `.claude-plugin/plugin.json`, and the git blob id of the workflow file it starts with, as `args.launch`; a relaunch or a resume under another version is refused, never run ([running.md](running.md), "Hand-off and relaunch"). Before 0.5.1 a relaunch ran whatever the workflow's name resolved to. A session runs the install listed first among those it sees (user scope, and project or local scope for its directory), an install or update in another process reorders that list, and a session that reloads or is reopened resolves the name afresh, so on Losers League #839 a run launched from 0.4.3 relaunched under 0.4.5: 9 of 26 recorded steps replayed, and the run went back to round 1's shape with that round already pushed.
+
+Two layers refuse it. Before every relaunch and every resume, `redline-prefs.sh run drift` and `run check` compare the version the run recorded with the copy of Redline the session loaded. At startup, before any agent, the workflow compares it with its own version: when the session switched after the skill was expanded, only the script that runs can see it. Either refusal names both versions, says nothing on GitHub is lost, and leads to a fresh run, whose first round carries the open findings forward; nothing needs fixing by hand.
+
+A run stopped under a release before 0.5.1 holds no `args.launch`, so its marker is refused like any version change. The line names the version from the manifest of the release the run was launched from (an update leaves the older version's directory in the plugin cache), or says a build before 0.5.1 when it was launched from a checkout, whose manifest may have moved on since. Finish a stopped run before updating to 0.5.1, or start it fresh after.
+
+The check lives in the new workflow, so it closes the gap in one direction only until every install a session sees is 0.5.1 or later. A session that launched under 0.5.1 and then reloads, or is reopened, onto an install from before 0.5.1 runs that build's workflow, which has no check: the relaunch goes ahead and replays only up to that build's first changed prompt, as before; typing the command again runs that build's skill, which has no check either. No code can close it, since the older build's files are what run: bring the older install up to date.
+
+That is what the launch warning is for. At every fresh launch `redline-setup.sh version` reads `claude plugin list --json` and, when the installs this repository sees are at different versions, says so in one line and gives the update for each older one:
+
+```bash
+claude plugin update redline@redline --scope <user|project|local>
+```
+
+A project or local update is run from the repository's root: run from elsewhere, the command can pick another repository's install of the same scope and report it already up to date (measured on Claude Code 2.1.332). Then restart the session or run `/reload-plugins`. The warning never stops a launch, and it says nothing when the session loads Redline from a checkout (`--plugin-dir` hides every install) or when the `claude` CLI is missing or fails.
+
+A checkout loaded in place carries the plugin's version too. Its workflow can change during a run without the version changing, and a relaunch then runs the launch's copy of the script, on any repository. A commit that changes its version ends a run at the next relaunch, like any version change, and a fresh launch in a session that loaded the checkout before such a commit is refused until the session is reopened.
 
 ## What a template bump means
 

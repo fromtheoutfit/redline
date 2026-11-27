@@ -250,10 +250,15 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       round, handoffKind, specFolders, args}.
 #   redline-prefs.sh run read <repoRoot> <pr>
 #       Prints the entry, or null. Exit 0 either way.
-#   redline-prefs.sh run check <repoRoot> <pr> [--plugin <dir>] [--session <id>]
+#   redline-prefs.sh run check <repoRoot> <pr> --plugin <dir> [--session <id>]
 #       Whether the run can be resumed from here, as {ok, reason, line, marker, head, hand, untracked}:
 #       the first failing reason wins, in this order: none (no marker), session (another session
-#       launched it; the line gives claude --resume <id>), branch (not the run's branch),
+#       launched it; the line gives claude --resume <id>), version (#135: the version the marker's
+#       args.launch records is not the one in --plugin's .claude-plugin/plugin.json, the copy this
+#       session loaded, or the marker holds no args.launch, written by a build before 0.5.1; the line
+#       names both versions, says nothing on GitHub is lost and to start fresh; a marker with no
+#       launch is named from args.pluginRoot's manifest when that root is an installed release,
+#       under plugins/cache/, else as a build before 0.5.1), branch (not the run's branch),
 #       head-moved (HEAD is not the marker's and not on top of it, the marker's kind is not error
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
@@ -261,27 +266,33 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       names for this PR). Hand commits are accepted only on an error marker, since only an error
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
-#       which the workflow excuses. Exit 0 ok, 1 refused.
-#   redline-prefs.sh run drift <repoRoot> <pr> [--plugin <dir>]
-#       Which script a relaunch runs, and which agent files changed since the run launched (#81),
-#       as {self, launch, scriptPath, workflow, agents, drift, line}. Only the plugin's own
-#       repository (the repository is --plugin's directory) can see its workflow or agent files
-#       change during a run; anywhere else self is false, launch is name and nothing is listed.
-#       The pin is the script path in the marker's record: the copy the harness persisted when the
-#       run was launched by name. launch is name while workflows/redline-loop.js equals the pin
-#       (relaunch as before), scriptPath when it differs (relaunch from the pin, given as
-#       scriptPath), and refuse when it differs from the launch commit (args.startSha) and the
-#       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
-#       pin; line then names the file and says to finish with a fresh run. agents lists every
-#       file under agents/ that differs from the launch commit, uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
+#       which the workflow excuses. Exit 0 ok, 1 refused, 2 with no --plugin or a --plugin whose
+#       manifest holds no version.
+#   redline-prefs.sh run drift <repoRoot> <pr> --plugin <dir>
+#       Which script a relaunch runs, and which agent files changed since the run launched (#81,
+#       #135), as {self, launch, scriptPath, workflow, agents, drift, line}, on every repository.
+#       self is true when the repository is --plugin's directory. First the version: when the
+#       marker's args.launch records another version than --plugin's manifest, or none, launch is
+#       refuse and line is run check's version line. Then the script: the live file is
+#       --plugin's workflows/redline-loop.js, since a checkout loaded in place can change while it
+#       reviews any repository, and the pin is the script path in the marker's record: the copy the
+#       harness persisted when the run was launched by name, which holds what the launch ran (in a
+#       live session, the copy it loaded, even after the file on disk changed). launch is name
+#       while the live file equals the pin (relaunch as before), scriptPath when it differs
+#       (relaunch from the pin, given as scriptPath), and, when the record's path is the live file
+#       itself (a launch by the scriptPath fallback leaves no pin), name while the live file's git
+#       blob id is args.launch.workflow and refuse when it is not; line then names the file and
+#       says to finish with a fresh run. agents, on the plugin's own repository only (empty
+#       anywhere else), lists every file under agents/ that differs from the launch commit
+#       (args.startSha), uncommitted and untracked ones included; the run goes on, and line is the
+#       sentence the skill says. drift is what the skill
 #       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
 #       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
 #       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
 #       when none), since that resume can rerun Finish from a step after the handoff comment
 #       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
-#       Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's own repository only;
-#       anywhere else no marker is read).
+#       Exit 0, 1 refused, 2 with no --plugin or a --plugin whose manifest holds no version, no
+#       marker, or, on the plugin's own repository, no start commit.
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #
@@ -456,14 +467,26 @@ The scriptable parts of `/redline:setup`. The setup skill runs the writing subco
 #       and since the skill runs this script by CLAUDE_PLUGIN_ROOT, this script's own root is the
 #       copy the session loaded; a self-hosted root at another real path is the released copy
 #       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
-#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot}}
-#       (inPlace null unless self), one stderr line per
-#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
+#       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
+#       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
+#       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
+#       records as args.launch (#135).
+#       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
+#       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
+#       whose installPath is this script's root, as {scope, version, running}; [] when no seen
+#       install is this script's root (a checkout loaded in place) or the CLI is missing, fails or
+#       prints no list. When their versions differ, the stderr line names each and gives the update
+#       command for each one behind the newest (claude plugin update <id> --scope <scope>, run from
+#       <repoRoot> for a project or local one), then a restart or /reload-plugins.
+#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
+#       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
+#       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
 #       settings.json is not JSON or has a byte-order mark, or
 #       <repoRoot>/.claude-plugin/plugin.json is not JSON.
 #
-# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, and REDLINE_UNATTENDED_TEMPLATE
-# templates/shape-spec-unattended.md, whose history/ directory sits beside it (tests).
+# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, REDLINE_UNATTENDED_TEMPLATE
+# templates/shape-spec-unattended.md, whose history/ directory sits beside it, and REDLINE_CLAUDE the
+# claude CLI that version <repoRoot> reads the installs from (tests).
 #
 # checks.json: {"repo": "<phrase after 'Redline gate for'>", "gateFile": ".claude/commands/agent-os/shape-spec.md",
 #   "selfHosted": false, "alwaysAllowed": ["openapi.json"],
