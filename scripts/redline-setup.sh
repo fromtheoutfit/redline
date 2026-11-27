@@ -124,10 +124,12 @@
 #       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
 #       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
 #       whose installPath is this script's root, as {scope, version, running}; [] when no seen
-#       install is this script's root (a checkout loaded in place) or the CLI is missing, fails or
-#       prints no list. When their versions differ, the stderr line names each and gives the update
-#       command for each one behind the newest (claude plugin update <id> --scope <scope>, run from
-#       <repoRoot> for a project or local one), then a restart or /reload-plugins.
+#       install is this script's root (a checkout loaded in place), or the CLI is missing, fails,
+#       or prints anything but one list, or one this script cannot read (#137, R1-4); a version or
+#       a path that is not a string is read as its text, so a list reads alike under jq 1.7 and 1.8.
+#       When their versions differ, the stderr line names each and gives the update command for
+#       each one behind the newest (claude plugin update <id> --scope <scope>, run from <repoRoot>
+#       for a project or local one), then a restart or /reload-plugins.
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
 #       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
@@ -1499,17 +1501,20 @@ version_plugin() {
 # each one behind the newest, a project or local one run from <repoRoot>, since from elsewhere the CLI
 # can pick another repository's install (measured on Claude Code 2.1.332). Prints [] and returns 0
 # when the session runs no install (a checkout loaded in place: --plugin-dir hides every install), or
-# when the CLI is missing, fails or prints no list.
+# when the CLI is missing, fails or prints anything but one JSON list, or when this program fails on
+# the list (#137, R1-4). A version, installPath or projectPath that is not a string is read as its
+# text: jq 1.8's rtrimstr fails on a non-string where jq 1.7's returns it unchanged, and as text the
+# list reads alike under both.
 version_installs() {
     local root="$1" list rootp ownp res line
     list="$("$CLAUDE_BIN" plugin list --json 2>/dev/null)" || list=""
-    jq -e 'type == "array"' >/dev/null 2>&1 <<<"$list" || { echo '[]'; return 0; }
+    jq -se 'length == 1 and (.[0] | type == "array")' >/dev/null 2>&1 <<<"$list" || { echo '[]'; return 0; }
     rootp="$(cd "$root" && pwd -P)"
     ownp="$(cd "$PLUGIN_ROOT" && pwd -P)"
     res="$(jq -c --arg rootp "$rootp" --arg ownp "$ownp" --arg own "$PLUGIN_ROOT" --arg root "$root" '
-        def mine: (.installPath // "" | rtrimstr("/")) as $p | $p == $ownp or $p == $own;
-        def num: .version // "" | split(".") | map(tonumber? // 0);
-        [.[] | select(type == "object" and (.scope == "user" or ((.scope == "project" or .scope == "local") and (.projectPath // "" | rtrimstr("/")) == $rootp)))] as $visible
+        def mine: (.installPath // "" | tostring | rtrimstr("/")) as $p | $p == $ownp or $p == $own;
+        def num: .version // "" | tostring | split(".") | map(tonumber? // 0);
+        [.[] | select(type == "object" and (.scope == "user" or ((.scope == "project" or .scope == "local") and (.projectPath // "" | tostring | rtrimstr("/")) == $rootp)))] as $visible
         | ([$visible[] | select(mine) | .id] | first) as $id
         | [$visible[] | select($id != null and .id == $id)] as $seen
         | ($seen | map(num) | max) as $top
@@ -1522,7 +1527,7 @@ version_installs() {
                        + (if ($behind | length) == 1 then "one: " else "ones: " end)
                        + ([$behind[] | "claude plugin update \($id) --scope \(.scope)" + (if .scope == "user" then "" else ", run from \($root)" end)] | join("; "))
                        + "; then restart the session or run /reload-plugins"
-                  end)}' <<<"$list")"
+                  end)}' <<<"$list")" || { echo '[]'; return 0; }
     jq -c '.installs' <<<"$res"
     line="$(jq -r '.line' <<<"$res")"
     [[ -z "$line" ]] || { echo "$line" >&2; return 1; }
@@ -1552,6 +1557,7 @@ cmd_version() {
     local pl; part=0; pl="$(version_plugin "$root")" || part=$?
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
     local ins; part=0; ins="$(version_installs "$root")" || part=$?
+    jq -se 'length == 1 and (.[0] | type == "array")' >/dev/null 2>&1 <<<"$ins" || ins='[]'
     [[ $part -eq 0 ]] || rc=1
     jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" --argjson i "$ins" '{checks: $c, unattended: $u, settings: $s, plugin: $p, installs: $i}'
     return $rc

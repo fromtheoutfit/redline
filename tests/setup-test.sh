@@ -1070,6 +1070,27 @@ expect_json "installs: no list: none listed" '.installs | length' "0" version "$
 export STUB_LIST="$WORK/i-other-behind.json"
 REDLINE_CLAUDE="$WORK/bin/no-such-claude" expect_exit "installs: no claude CLI: exit 0" 0 version "$VR"
 REDLINE_CLAUDE="$WORK/bin/no-such-claude" expect_json "installs: no CLI: none listed" '.installs | length' "0" version "$VR"
+# A CLI output the program cannot read is no stop (#137, R1-4). A version or a path that is not a
+# string is read as its text: jq 1.8's rtrimstr fails on a non-string, and jq 1.7's, CI's, returns
+# it unchanged, so as text a list reads alike under both. Only one whole list is read.
+INSTALLS='[.installs[] | "\(.scope):\(.version):\(.running)"] | join(",")'
+jq -cn --arg pp "$PP" '[{id: "redline@m", scope: "user", version: 5, enabled: true, installPath: $pp}]' > "$WORK/i-numver.json"
+export STUB_LIST="$WORK/i-numver.json"
+expect_exit "installs: a version that is a number is read as text: exit 0" 0 version "$VR"
+expect_json "installs: and is listed" "$INSTALLS" "user:5:true" version "$VR"
+jq -cn --arg pp "$PP" '[{id: "redline@m", scope: "user", version: "0.5.1", enabled: true, installPath: $pp}, {id: "redline@m", scope: "project", version: "0.4.3", enabled: true, installPath: "/c/redline/0.4.3", projectPath: 7}]' > "$WORK/i-numproject.json"
+export STUB_LIST="$WORK/i-numproject.json"
+expect_exit "installs: a projectPath that is not a string is read as its text: exit 0" 0 version "$VR"
+expect_json "installs: so that project install is not seen, and the user install is listed" "$INSTALLS" "user:0.5.1:true" version "$VR"
+jq -cn --arg pp "$PP" '[{id: "redline@m", scope: "user", version: "0.5.1", enabled: true, installPath: $pp}, {id: "redline@m", scope: "user", version: "0.5.1", enabled: true, installPath: 7}]' > "$WORK/i-numinstall.json"
+export STUB_LIST="$WORK/i-numinstall.json"
+expect_exit "installs: an installPath that is not a string is read as its text: exit 0" 0 version "$VR"
+expect_json "installs: so that install is listed, and is not this session's" "$INSTALLS" "user:0.5.1:true,user:0.5.1:false" version "$VR"
+installs "$WORK/i-one.json" user:0.5.1:self
+cat "$WORK/i-one.json" "$WORK/i-one.json" > "$WORK/i-twolists.json"
+export STUB_LIST="$WORK/i-twolists.json"
+expect_exit "installs: an output of two lists is no list: exit 0" 0 version "$VR"
+expect_json "installs: two lists: none listed" '.installs | length' "0" version "$VR"
 unset STUB_LIST
 # The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.
 SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; SRP="$(cd "$SR" && pwd)"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
