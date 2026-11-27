@@ -173,32 +173,42 @@ saved "save still writes its own fields" '.interrupt' "guided"
 # marker's head), on branch work. The records live outside it, so they never show as untracked.
 REC="$(mktemp -d "${TMPDIR:-/tmp}/redline-prefs-records.XXXXXX")"
 trap 'rm -rf "$REPO" "$REC"' EXIT
+# The copy of Redline a session loads (--plugin, #135): its manifest's version and its workflow file,
+# an installed release. Every record's args carry the launch the skill recorded from it: the version
+# and the workflow file's blob id, as redline-setup.sh version prints them.
+PLUG="$REC/plugin"
+mkdir -p "$PLUG/.claude-plugin" "$PLUG/workflows"
+printf '{"name": "redline", "version": "1.2.3"}\n' > "$PLUG/.claude-plugin/plugin.json"
+printf 'launch script\n' > "$PLUG/workflows/redline-loop.js"
+LBLOB="$(git hash-object --no-filters "$PLUG/workflows/redline-loop.js")"
+L='"launch":{"version":"1.2.3","workflow":"'"$LBLOB"'"},'
 G=(git -C "$REPO" -c user.name=t -c user.email=t@t -c commit.gpgsign=false)
 "${G[@]}" init -q
 "${G[@]}" symbolic-ref HEAD refs/heads/work
 printf '.claude/redline.local.json\n.claude/.redline.local.*\n' > "$REPO/.gitignore"
-mkdir -p "$REPO/app" "$REPO/.claude/redline"
+mkdir -p "$REPO/app" "$REPO/.claude/redline" "$REPO/.claude-plugin"
 printf '{}\n' > "$REPO/.claude/redline/checks.json"
 printf 'x\n' > "$REPO/app/x.php"
-"${G[@]}" add .gitignore app .claude/redline >/dev/null
+printf '{"name": "redline", "version": "1.2.3"}\n' > "$REPO/.claude-plugin/plugin.json"
+"${G[@]}" add .gitignore app .claude/redline .claude-plugin >/dev/null
 "${G[@]}" commit -q -m base
 printf 'y\n' > "$REPO/app/x.php"
 "${G[@]}" commit -q -am "redline: R1-1 fix"
 RUNHEAD="$("${G[@]}" rev-parse HEAD)"
 FOLDER="agent-os/specs/2026-11-01-0900-7-review-round-1"
-printf '%s\n' '{"runId":"wf_1","args":{"pr":7,"headRef":"work","files":["app/x.php"]},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":["'"$FOLDER"'"],"snapshotStart":"'"$REPO/$FOLDER"'/redline/snapshot-start.json"}}' > "$REC/error.json"
-printf '%s\n' '{"runId":"wf_2","args":{"pr":7},"result":{"status":"error","stage":"gather","error":"head moved","resumeFrom":null,"specFolders":["'"$FOLDER"'"]}}' > "$REC/gather.json"
-printf '%s\n' '{"runId":"wf_3","args":{"pr":7},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/handoff.json"
-printf '%s\n' '{"runId":"wf_4","args":{"pr":7},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/reviewed.json"
-printf '%s\n' '{"runId":"wf_5","args":{"pr":7,"repoRoot":"'"$REPO"'","snapshotPath":"'"$REPO/$FOLDER"'/redline/snapshot-start.json","launchedAt":"2026-11-01T09:00:00-0400"}}' > "$REC/stopped.json"
+printf '%s\n' '{"runId":"wf_1","args":{'"$L"'"pr":7,"headRef":"work","files":["app/x.php"]},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":["'"$FOLDER"'"],"snapshotStart":"'"$REPO/$FOLDER"'/redline/snapshot-start.json"}}' > "$REC/error.json"
+printf '%s\n' '{"runId":"wf_2","args":{'"$L"'"pr":7},"result":{"status":"error","stage":"gather","error":"head moved","resumeFrom":null,"specFolders":["'"$FOLDER"'"]}}' > "$REC/gather.json"
+printf '%s\n' '{"runId":"wf_3","args":{'"$L"'"pr":7},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/handoff.json"
+printf '%s\n' '{"runId":"wf_4","args":{'"$L"'"pr":7},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/reviewed.json"
+printf '%s\n' '{"runId":"wf_5","args":{'"$L"'"pr":7,"repoRoot":"'"$REPO"'","snapshotPath":"'"$REPO/$FOLDER"'/redline/snapshot-start.json","launchedAt":"2026-11-01T09:00:00-0400"}}' > "$REC/stopped.json"
 # An error at post r2: the result lists round 1 only, since a round joins the result after its post.
-printf '%s\n' '{"runId":"wf_8","args":{"pr":7,"repoRoot":"'"$REPO"'","launchedAt":"2026-11-01T09:00:00-0400"},"result":{"status":"error","stage":"post","error":"GitHub refused the review","resumeFrom":{"label":"post r2","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/later.json"
-printf '%s\n' '{"runId":"wf_6","args":{"pr":7},"result":{"status":"done"}}' > "$REC/done.json"
+printf '%s\n' '{"runId":"wf_8","args":{'"$L"'"pr":7,"repoRoot":"'"$REPO"'","launchedAt":"2026-11-01T09:00:00-0400"},"result":{"status":"error","stage":"post","error":"GitHub refused the review","resumeFrom":{"label":"post r2","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/later.json"
+printf '%s\n' '{"runId":"wf_6","args":{'"$L"'"pr":7},"result":{"status":"done"}}' > "$REC/done.json"
 # A stop that is the workflow's own check of what an agent returned (#116): the result says so.
-printf '%s\n' '{"runId":"wf_14","args":{"pr":7},"result":{"status":"error","stage":"resolve","error":"the resolve agent stated no disposition for R1-1","resumeFrom":{"label":"resolve r1","attempt":2},"ownCheck":true,"specFolders":["'"$FOLDER"'"]}}' > "$REC/own.json"
+printf '%s\n' '{"runId":"wf_14","args":{'"$L"'"pr":7},"result":{"status":"error","stage":"resolve","error":"the resolve agent stated no disposition for R1-1","resumeFrom":{"label":"resolve r1","attempt":2},"ownCheck":true,"specFolders":["'"$FOLDER"'"]}}' > "$REC/own.json"
 # A repository whose own path holds /redline/ (this plugin's checkout does): the start snapshot's
 # folder is read off args.repoRoot and the snapshot's fixed tail, never by splitting on /redline/.
-printf '%s\n' '{"runId":"wf_7","args":{"pr":7,"repoRoot":"/tmp/redline/app"},"result":{"status":"handoff","handoffRound":2,"specFolders":["agent-os/specs/2026-11-01-0900-7-review-round-2"],"snapshotStart":"/tmp/redline/app/agent-os/specs/2026-11-01-0900-7-review-round-1/redline/snapshot-start.json"}}' > "$REC/nested.json"
+printf '%s\n' '{"runId":"wf_7","args":{'"$L"'"pr":7,"repoRoot":"/tmp/redline/app"},"result":{"status":"handoff","handoffRound":2,"specFolders":["agent-os/specs/2026-11-01-0900-7-review-round-2"],"snapshotStart":"/tmp/redline/app/agent-os/specs/2026-11-01-0900-7-review-round-1/redline/snapshot-start.json"}}' > "$REC/nested.json"
 SESSION=s1
 # run <args...>: the run subcommand under the test's session id
 run() { CLAUDE_CODE_SESSION_ID="$SESSION" "$PREFS" run "$@"; }
@@ -265,49 +275,74 @@ runj "read: another pr is null" '.' "null" read "$REPO" 8
 runx "read: exit 0 either way" 0 read "$REPO" 8
 
 echo "# run check"
-runj "check: same session, same head, clean tree" '[(.ok|tostring), .reason, .line] | join("|")' "true||" check "$REPO" 7
-runx "check: ok exits 0" 0 check "$REPO" 7
-runj "check: carries the marker and the head" '[.marker.runId, .head] | join(" ")' "wf_1 $RUNHEAD" check "$REPO" 7
-runj "check: no marker" '[(.ok|tostring), .reason, .line] | join("|")' "false|none|no stopped run is recorded for #8" check "$REPO" 8
-runx "check: refused exits 1" 1 check "$REPO" 8
+runj "check: same session, same head, clean tree" '[(.ok|tostring), .reason, .line] | join("|")' "true||" check "$REPO" 7 --plugin "$PLUG"
+runx "check: ok exits 0" 0 check "$REPO" 7 --plugin "$PLUG"
+runj "check: carries the marker and the head" '[.marker.runId, .head] | join(" ")' "wf_1 $RUNHEAD" check "$REPO" 7 --plugin "$PLUG"
+runj "check: no marker" '[(.ok|tostring), .reason, .line] | join("|")' "false|none|no stopped run is recorded for #8" check "$REPO" 8 --plugin "$PLUG"
+runx "check: refused exits 1" 1 check "$REPO" 8 --plugin "$PLUG"
 SESSION=s2
-runj "check: another session is refused" '[(.ok|tostring), .reason] | join("|")' "false|session" check "$REPO" 7
-runj "check: the line gives the resume command" '.line' "the run on #7 was launched from session s1; reopen it with: claude --resume s1, then type /redline:redline 7 again" check "$REPO" 7
+runj "check: another session is refused" '[(.ok|tostring), .reason] | join("|")' "false|session" check "$REPO" 7 --plugin "$PLUG"
+runj "check: the line gives the resume command" '.line' "the run on #7 was launched from session s1; reopen it with: claude --resume s1, then type /redline:redline 7 again" check "$REPO" 7 --plugin "$PLUG"
 SESSION=s1
 "${G[@]}" checkout -q -b other
-runj "check: another branch is refused" '[.reason, .line] | join("|")' "branch|check out work" check "$REPO" 7
+runj "check: another branch is refused" '[.reason, .line] | join("|")' "branch|check out work" check "$REPO" 7 --plugin "$PLUG"
+# The version the run launched under against this session's copy (#135): after session, before branch.
+printf '%s\n' '{"runId":"wf_20","args":{"launch":{"version":"1.2.2","workflow":"'"$LBLOB"'"},"pr":7},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/old-version.json"
 "${G[@]}" checkout -q work
+run save "$REPO" 7 --run-id wf_20 --record "$REC/old-version.json" >/dev/null 2>&1
+"${G[@]}" checkout -q other
+runj "check: another version comes before the branch" '[(.ok|tostring), .reason] | join("|")' "false|version" check "$REPO" 7 --plugin "$PLUG"
+"${G[@]}" checkout -q work
+runj "check: a marker launched under another version is refused, naming both" '[.reason, .line] | join("|")' "version|The run on #7 started under Redline 1.2.2, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
+runx "check: another version exits 1" 1 check "$REPO" 7 --plugin "$PLUG"
+SESSION=s2
+runj "check: another session still comes first" '.reason' "session" check "$REPO" 7 --plugin "$PLUG"
+SESSION=s1
+# A marker written before 0.5.1 holds no launch (#135, answer b): refused, naming the version from
+# args.pluginRoot's manifest when that root is an installed release, else as a build before 0.5.1.
+mkdir -p "$REC/plugins/cache/m/redline/0.4.3/.claude-plugin"
+printf '{"name": "redline", "version": "0.4.3"}\n' > "$REC/plugins/cache/m/redline/0.4.3/.claude-plugin/plugin.json"
+printf '%s\n' '{"runId":"wf_21","args":{"pr":7,"pluginRoot":"'"$REC"'/plugins/cache/m/redline/0.4.3"},"result":{"status":"error","stage":"check","error":"x","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/no-launch.json"
+run save "$REPO" 7 --run-id wf_21 --record "$REC/no-launch.json" >/dev/null 2>&1
+runj "check: a marker with no launch is refused, the release named from its cache manifest" '[.reason, .line] | join("|")' "version|The run on #7 started under Redline 0.4.3, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
+printf '%s\n' '{"runId":"wf_21","args":{"pr":7,"pluginRoot":"'"$REPO"'"},"result":{"status":"error","stage":"check","error":"x","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/no-launch-inplace.json"
+run save "$REPO" 7 --run-id wf_21 --record "$REC/no-launch-inplace.json" >/dev/null 2>&1
+runj "check: a marker with no launch from a checkout is a build before 0.5.1, its manifest unread" '[.reason, .line] | join("|")' "version|The run on #7 started under a Redline build before 0.5.1, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
+printf '%s\n' '{"runId":"wf_21","args":{"pr":7},"result":{"status":"error","stage":"check","error":"x","resumeFrom":{"label":"recheck r1","attempt":2},"specFolders":[]}}' > "$REC/no-launch-bare.json"
+run save "$REPO" 7 --run-id wf_21 --record "$REC/no-launch-bare.json" >/dev/null 2>&1
+runj "check: a marker with no launch and no plugin root is a build before 0.5.1" '.line' "The run on #7 started under a Redline build before 0.5.1, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing its spec folders" check "$REPO" 7 --plugin "$PLUG"
+run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 "${G[@]}" branch -q -D other
 mkdir -p "$REPO/$FOLDER/redline"
 printf '{}\n' > "$REPO/$FOLDER/redline/round-1-reply-R1-1.md"
-runj "check: untracked under the run's folder is fine" '[(.ok|tostring), (.untracked|join(","))] | join("|")' "true|$FOLDER/redline/round-1-reply-R1-1.md" check "$REPO" 7
+runj "check: untracked under the run's folder is fine" '[(.ok|tostring), (.untracked|join(","))] | join("|")' "true|$FOLDER/redline/round-1-reply-R1-1.md" check "$REPO" 7 --plugin "$PLUG"
 printf 'stray\n' > "$REPO/stray.txt"
-runj "check: untracked outside it is refused" '[.reason, .line] | join("|")' "untracked|commit or remove stray.txt, or start fresh" check "$REPO" 7
+runj "check: untracked outside it is refused" '[.reason, .line] | join("|")' "untracked|commit or remove stray.txt, or start fresh" check "$REPO" 7 --plugin "$PLUG"
 rm "$REPO/stray.txt"
 printf 'z\n' >> "$REPO/app/x.php"
-runj "check: a modified tracked file outside it is refused" '[.reason, .line] | join("|")' "untracked|commit or remove app/x.php, or start fresh" check "$REPO" 7
+runj "check: a modified tracked file outside it is refused" '[.reason, .line] | join("|")' "untracked|commit or remove app/x.php, or start fresh" check "$REPO" 7 --plugin "$PLUG"
 "${G[@]}" checkout -q -- app/x.php
 printf '{"baseline": null}\n' > "$REPO/.claude/redline/checks.json"
 "${G[@]}" commit -q -am "Fix the gate config"
 HAND="$("${G[@]}" rev-parse HEAD)"
-runj "check: a hand commit under .claude/ is allowed" '[(.ok|tostring), .reason, (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true||$HAND|.claude/redline/checks.json" check "$REPO" 7
+runj "check: a hand commit under .claude/ is allowed" '[(.ok|tostring), .reason, (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true||$HAND|.claude/redline/checks.json" check "$REPO" 7 --plugin "$PLUG"
 runj "check: the plugin's own checkout refuses a moved head" '[.reason, .line] | join("|")' "plugin|the repository is the plugin and HEAD moved since the run stopped (1 commit); a plugin fix changes what runs, so start fresh: the next round carries the findings forward" check "$REPO" 7 --plugin "$REPO"
-runj "check: another plugin root is not the plugin case" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$REC"
+runj "check: another plugin root is not the plugin case" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$PLUG"
 # Only an error resume carries a hand commit into the workflow, so any other stop refuses one.
 "${G[@]}" reset -q --hard "$RUNHEAD"
 run save "$REPO" 7 --run-id wf_3 --record "$REC/handoff.json" >/dev/null 2>&1
 "${G[@]}" reset -q --hard "$HAND"
-runj "check: a hand commit after a hand-off is refused" '[.reason, .line] | join("|")' "head-moved|the run stopped at a hand-off and HEAD moved since (1 commit); only a run that stopped with an error accepts a hand commit, so start fresh after committing or removing $FOLDER" check "$REPO" 7
+runj "check: a hand commit after a hand-off is refused" '[.reason, .line] | join("|")' "head-moved|the run stopped at a hand-off and HEAD moved since (1 commit); only a run that stopped with an error accepts a hand commit, so start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
 "${G[@]}" reset -q --hard "$RUNHEAD"
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 "${G[@]}" reset -q --hard "$HAND"
 printf 'w\n' > "$REPO/app/y.php"
 "${G[@]}" add app/y.php
 "${G[@]}" commit -q -m "Hand fix"
-runj "check: a hand commit outside .claude/ is refused" '[.reason, .line] | join("|")' "head-moved|2 commits since the run stopped touch app/y.php outside .claude/; start fresh after committing or removing $FOLDER" check "$REPO" 7
+runj "check: a hand commit outside .claude/ is refused" '[.reason, .line] | join("|")' "head-moved|2 commits since the run stopped touch app/y.php outside .claude/; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
 "${G[@]}" reset -q --hard "$RUNHEAD~1"
 BELOW="$("${G[@]}" rev-parse HEAD)"
-runj "check: a head below the run's commit is refused" '[.reason, .line] | join("|")' "head-moved|HEAD ${BELOW:0:7} is not on top of the run's last commit ${RUNHEAD:0:7}; start fresh after committing or removing $FOLDER" check "$REPO" 7
+runj "check: a head below the run's commit is refused" '[.reason, .line] | join("|")' "head-moved|HEAD ${BELOW:0:7} is not on top of the run's last commit ${RUNHEAD:0:7}; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
 "${G[@]}" reset -q --hard "$RUNHEAD"
 rm -rf "$REPO/agent-os"
 
@@ -315,7 +350,7 @@ echo "# run check: the run's own folders come from its args"
 run save "$REPO" 7 --run-id wf_5 --record "$REC/stopped.json" >/dev/null 2>&1
 mkdir -p "$REPO/$FOLDER/redline"
 printf '{}\n' > "$REPO/$FOLDER/redline/snapshot-start.json"
-runj "check: a stopped run's untracked start snapshot is the run's own" '[(.ok|tostring), .reason, (.untracked|join(","))] | join("|")' "true||$FOLDER/redline/snapshot-start.json" check "$REPO" 7
+runj "check: a stopped run's untracked start snapshot is the run's own" '[(.ok|tostring), .reason, (.untracked|join(","))] | join("|")' "true||$FOLDER/redline/snapshot-start.json" check "$REPO" 7 --plugin "$PLUG"
 rm -rf "$REPO/agent-os"
 run save "$REPO" 7 --run-id wf_8 --record "$REC/later.json" >/dev/null 2>&1
 LATER="agent-os/specs/2026-11-01-0900-7-review-round-2"
@@ -324,30 +359,30 @@ mkdir -p "$REPO/$LATER/redline" "$REPO/$HUMAN/redline"
 printf '{}\n' > "$REPO/$LATER/redline/round-2-review.json"
 printf '[]\n' > "$REPO/$LATER/redline/round-2-findings.json"
 printf '{}\n' > "$REPO/$HUMAN/redline/review.json"
-runj "check: a later round the result does not list yet is the run's own" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7
+runj "check: a later round the result does not list yet is the run's own" '[(.ok|tostring), .reason] | join("|")' "true|" check "$REPO" 7 --plugin "$PLUG"
 rm -rf "$REPO/agent-os"
 OTHERSTAMP="agent-os/specs/2026-11-01-0800-7-review-round-2"
 OTHERPR="agent-os/specs/2026-11-01-0900-8-review-round-1"
 mkdir -p "$REPO/$OTHERSTAMP/redline" "$REPO/$OTHERPR/redline"
 printf '{}\n' > "$REPO/$OTHERSTAMP/redline/round-2-review.json"
 printf '{}\n' > "$REPO/$OTHERPR/redline/round-1-review.json"
-runj "check: a folder of another launch stamp or another PR is refused" '[.reason, .line] | join("|")' "untracked|commit or remove $OTHERSTAMP/redline/round-2-review.json, $OTHERPR/redline/round-1-review.json, or start fresh" check "$REPO" 7
+runj "check: a folder of another launch stamp or another PR is refused" '[.reason, .line] | join("|")' "untracked|commit or remove $OTHERSTAMP/redline/round-2-review.json, $OTHERPR/redline/round-1-review.json, or start fresh" check "$REPO" 7 --plugin "$PLUG"
 rm -rf "$REPO/agent-os"
 
 echo "# run check: a second resume at the same label keeps the first's hand commits"
 H1=1111111111111111111111111111111111111111
-printf '%s\n' '{"runId":"wf_9","args":{"pr":7,"resume":{"recheck r1":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/again.json"
-printf '%s\n' '{"runId":"wf_10","args":{"pr":7,"resume":{"check r2":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/otherlabel.json"
+printf '%s\n' '{"runId":"wf_9","args":{'"$L"'"pr":7,"resume":{"recheck r1":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/again.json"
+printf '%s\n' '{"runId":"wf_10","args":{'"$L"'"pr":7,"resume":{"check r2":{"attempt":2,"error":"x","hand":{"commits":["'"$H1"'"],"paths":[".claude/redline/checks.json"]}}}},"result":{"status":"error","stage":"check","error":"checks.sh still fails","resumeFrom":{"label":"recheck r1","attempt":3},"specFolders":["'"$FOLDER"'"]}}' > "$REC/otherlabel.json"
 run save "$REPO" 7 --run-id wf_9 --record "$REC/again.json" >/dev/null 2>&1
-runj "check: the label's earlier hand list is printed when HEAD has not moved" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1|.claude/redline/checks.json" check "$REPO" 7
+runj "check: the label's earlier hand list is printed when HEAD has not moved" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1|.claude/redline/checks.json" check "$REPO" 7 --plugin "$PLUG"
 printf '{}\n' > "$REPO/.claude/redline/other.json"
 "${G[@]}" add .claude/redline/other.json
 "${G[@]}" commit -q -m "Fix the gate again"
 AGAIN="$("${G[@]}" rev-parse HEAD)"
-runj "check: a new hand commit joins the label's earlier one" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1,$AGAIN|.claude/redline/checks.json,.claude/redline/other.json" check "$REPO" 7
+runj "check: a new hand commit joins the label's earlier one" '[(.ok|tostring), (.hand.commits|join(",")), (.hand.paths|join(","))] | join("|")' "true|$H1,$AGAIN|.claude/redline/checks.json,.claude/redline/other.json" check "$REPO" 7 --plugin "$PLUG"
 "${G[@]}" reset -q --hard "$RUNHEAD"
 run save "$REPO" 7 --run-id wf_10 --record "$REC/otherlabel.json" >/dev/null 2>&1
-runj "check: an entry under another label adds nothing" '[(.ok|tostring), (.hand.commits|length|tostring), (.hand.paths|length|tostring)] | join("|")' "true|0|0" check "$REPO" 7
+runj "check: an entry under another label adds nothing" '[(.ok|tostring), (.hand.commits|length|tostring), (.hand.paths|length|tostring)] | join("|")' "true|0|0" check "$REPO" 7 --plugin "$PLUG"
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
 # The script a relaunch runs (#81): only the plugin's own repository can see its workflow or agent
@@ -363,12 +398,55 @@ printf 'shaper v1\n' > "$REPO/agents/redline-shaper.md"
 START="$("${G[@]}" rev-parse HEAD)"
 PIN="$REC/redline-loop-wf_11.js"
 cp "$REPO/workflows/redline-loop.js" "$PIN"
-printf '%s\n' '{"runId":"wf_11","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned.json"
-printf '%s\n' '{"runId":"wf_12","scriptPath":"'"$REPO"'/workflows/redline-loop.js","args":{"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/fallback.json"
+printf '%s\n' '{"runId":"wf_11","scriptPath":"'"$PIN"'","args":{'"$L"'"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned.json"
+printf '%s\n' '{"runId":"wf_12","scriptPath":"'"$REPO"'/workflows/redline-loop.js","args":{'"$L"'"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/fallback.json"
 run save "$REPO" 7 --run-id wf_11 --record "$REC/pinned.json" >/dev/null 2>&1
 DRIFT='[(.self|tostring), .launch, .scriptPath, (.agents|join(",")), (.drift|tostring), .line] | join("|")'
-runj "drift: another plugin root is not the plugin's own repository" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC"
-runj "drift: no --plugin is not the plugin's own repository" "$DRIFT" "false|name|||null|" drift "$REPO" 7
+runj "drift: another plugin root is not the plugin's own repository" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: an installed release at the version the run launched with exits 0" 0 drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: no --plugin exits 2 (#135)" 2 drift "$REPO" 7
+runx "check: no --plugin exits 2 (#135)" 2 check "$REPO" 7
+mkdir -p "$REC/noversion/.claude-plugin"; printf '{"name": "redline"}\n' > "$REC/noversion/.claude-plugin/plugin.json"
+runx "drift: a --plugin whose manifest holds no version exits 2 (#135)" 2 drift "$REPO" 7 --plugin "$REC/noversion"
+runx "check: a --plugin whose manifest holds no version exits 2 (#135)" 2 check "$REPO" 7 --plugin "$REC/noversion"
+# The script a relaunch runs, on every repository (#135). A checkout of the plugin loaded in place
+# elsewhere can change while it reviews another repository, so the live workflow file is the
+# session's copy's (--plugin), compared with the pin, or, with no pin, with the blob the launch
+# recorded.
+printf 'edited checkout\n' > "$PLUG/workflows/redline-loop.js"
+runj "drift: another repository whose loaded checkout changed relaunches from the pin" "$DRIFT" "false|scriptPath|$PIN||{\"workflow\":\"workflows/redline-loop.js\",\"pinned\":true,\"agents\":[]}|" drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: from the pin on another repository exits 0" 0 drift "$REPO" 7 --plugin "$PLUG"
+printf '%s\n' '{"runId":"wf_22","scriptPath":"'"$PLUG"'/workflows/redline-loop.js","args":{'"$L"'"pr":7},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/fallback-other.json"
+run save "$REPO" 7 --run-id wf_22 --record "$REC/fallback-other.json" >/dev/null 2>&1
+runj "drift: another repository, a launch that ran the changed file itself, is refused" '[(.self|tostring), .launch, .scriptPath, (.drift.pinned|tostring), .line] | join("|")' "false|refuse||false|workflows/redline-loop.js changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline 7" drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: refused on another repository exits 1" 1 drift "$REPO" 7 --plugin "$PLUG"
+printf 'launch script\n' > "$PLUG/workflows/redline-loop.js"
+runj "drift: another repository, a launch that ran the file itself, as launched: by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$PLUG"
+# The same release from another install directory: the record's path is the first install's file.
+cp -R "$PLUG" "$REC/plugin2"
+runj "drift: the same version from another install directory goes by name" "$DRIFT" "false|name|||null|" drift "$REPO" 7 --plugin "$REC/plugin2"
+# A live session runs the workflow it loaded until it reloads, so after an edit on disk a launch by
+# name runs the cached copy while the launch recorded the edited file's blob: the pin holds what ran,
+# and a live file that differs from it relaunches from it, never by name.
+printf 'cached script\n' > "$REC/redline-loop-wf_23.js"
+printf '%s\n' '{"runId":"wf_23","scriptPath":"'"$REC"'/redline-loop-wf_23.js","args":{'"$L"'"pr":7},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-cached.json"
+run save "$REPO" 7 --run-id wf_23 --record "$REC/pinned-cached.json" >/dev/null 2>&1
+runj "drift: a pin that is not the file the launch hashed relaunches from the pin" "$DRIFT" "false|scriptPath|$REC/redline-loop-wf_23.js||{\"workflow\":\"workflows/redline-loop.js\",\"pinned\":true,\"agents\":[]}|" drift "$REPO" 7 --plugin "$PLUG"
+# Another version (#135): refused on every repository, before the pin is read, naming both versions.
+printf '%s\n' '{"runId":"wf_24","scriptPath":"'"$PIN"'","args":{"launch":{"version":"1.2.2","workflow":"'"$LBLOB"'"},"pr":7,"startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-old.json"
+run save "$REPO" 7 --run-id wf_24 --record "$REC/pinned-old.json" >/dev/null 2>&1
+VLINE="The run on #7 started under Redline 1.2.2, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER"
+runj "drift: another version on another repository is refused, naming both" "$DRIFT" "false|refuse|||null|$VLINE" drift "$REPO" 7 --plugin "$PLUG"
+runx "drift: another version exits 1" 1 drift "$REPO" 7 --plugin "$PLUG"
+runj "drift: another version on the plugin's own repository is refused the same way" "$DRIFT" "true|refuse|||null|$VLINE" drift "$REPO" 7 --plugin "$REPO"
+# A marker written before 0.5.1 holds no launch: refused, its version named from an installed
+# release's manifest, never from a checkout's, which may have moved on since the launch.
+mkdir -p "$REC/plugins/cache/m/redline/0.4.3/.claude-plugin"
+printf '{"name": "redline", "version": "0.4.3"}\n' > "$REC/plugins/cache/m/redline/0.4.3/.claude-plugin/plugin.json"
+printf '%s\n' '{"runId":"wf_25","scriptPath":"'"$PIN"'","args":{"pr":7,"pluginRoot":"'"$REC"'/plugins/cache/m/redline/0.4.3","startSha":"'"$START"'"},"result":{"status":"handoff","handoffKind":"decisions","handoffRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-nolaunch.json"
+run save "$REPO" 7 --run-id wf_25 --record "$REC/pinned-nolaunch.json" >/dev/null 2>&1
+runj "drift: a marker with no launch is refused, the release named from its cache manifest" '[.launch, .line] | join("|")' "refuse|The run on #7 started under Redline 0.4.3, and this session loads Redline 1.2.3: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing $FOLDER" drift "$REPO" 7 --plugin "$PLUG"
+run save "$REPO" 7 --run-id wf_11 --record "$REC/pinned.json" >/dev/null 2>&1
 runj "drift: the plugin's own repository, nothing changed: by name" "$DRIFT" "true|name|||null|" drift "$REPO" 7 --plugin "$REPO"
 runx "drift: by name exits 0" 0 drift "$REPO" 7 --plugin "$REPO"
 runj "drift: names the workflow file" '.workflow' "workflows/redline-loop.js" drift "$REPO" 7 --plugin "$REPO"
@@ -387,9 +465,9 @@ runj "drift: the agent files ride in drift for the workflow" '.drift.agents | jo
 # own args passed, while agents and line still name every changed file; a hand-off (the case above)
 # or a reviewed stop, both before Finish, reads the list afresh (#91, R1-1).
 HELD='{"workflow":"workflows/redline-loop.js","pinned":true,"agents":["agents/redline-reviewer.md"]}'
-printf '%s\n' '{"runId":"wf_13","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"error","stage":"finish","error":"committing the run record failed: push rejected: fetch first","resumeFrom":{"label":"record commit","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-error.json"
-printf '%s\n' '{"runId":"wf_14","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'"}}' > "$REC/pinned-stopped.json"
-printf '%s\n' '{"runId":"wf_15","scriptPath":"'"$PIN"'","args":{"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-reviewed.json"
+printf '%s\n' '{"runId":"wf_13","scriptPath":"'"$PIN"'","args":{'"$L"'"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"error","stage":"finish","error":"committing the run record failed: push rejected: fetch first","resumeFrom":{"label":"record commit","attempt":2},"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-error.json"
+printf '%s\n' '{"runId":"wf_14","scriptPath":"'"$PIN"'","args":{'"$L"'"pr":7,"startSha":"'"$START"'"}}' > "$REC/pinned-stopped.json"
+printf '%s\n' '{"runId":"wf_15","scriptPath":"'"$PIN"'","args":{'"$L"'"pr":7,"startSha":"'"$START"'","drift":'"$HELD"'},"result":{"status":"reviewed","reviewedRound":1,"specFolders":["'"$FOLDER"'"]}}' > "$REC/pinned-reviewed.json"
 run save "$REPO" 7 --run-id wf_13 --record "$REC/pinned-error.json" >/dev/null 2>&1
 runj "drift: an error marker keeps the agent list its args passed" '[.launch, (.agents|join(",")), (.drift|tostring)] | join("|")' "scriptPath|agents/redline-reviewer.md,agents/redline-shaper.md|$HELD" drift "$REPO" 7 --plugin "$REPO"
 runj "drift: on an error marker the line still names every changed file" '.line' "$SENTENCE" drift "$REPO" 7 --plugin "$REPO"
@@ -409,7 +487,7 @@ runx "drift: refused exits 1" 1 drift "$REPO" 7 --plugin "$REPO"
 runj "drift: a launch from the live file with the workflow as launched goes by name" '[.launch, .drift.workflow, (.drift.agents|join(","))] | join("|")' "name||agents/redline-reviewer.md" drift "$REPO" 7 --plugin "$REPO"
 "${G[@]}" reset -q --hard "$RUNHEAD"
 runx "drift: no marker exits 2" 2 drift "$REPO" 8 --plugin "$REPO"
-runj "drift: another repository needs no marker" '[(.self|tostring), .launch] | join("|")' "false|name" drift "$REPO" 8 --plugin "$REC"
+runx "drift: another repository with no marker exits 2, since the launch it records is unknown (#135)" 2 drift "$REPO" 8 --plugin "$PLUG"
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 runx "drift: a marker whose args hold no start commit exits 2" 2 drift "$REPO" 7 --plugin "$REPO"
 

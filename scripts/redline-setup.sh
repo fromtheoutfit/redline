@@ -118,8 +118,9 @@
 #       copy the session loaded; a self-hosted root at another real path is the released copy
 #       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
 #       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
-#       id of its workflows/redline-loop.js (git hash-object --no-filters, the same id wherever the
-#       file sits), which the skill records as args.launch (#135).
+#       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
+#       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
+#       records as args.launch (#135).
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}} (inPlace null unless self), one stderr line per
 #       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
@@ -1466,7 +1467,7 @@ version_plugin() {
     local root="$1" self=false inplace=null name="" own ver blob
     own="$(jq -r '.name // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
     ver="$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
-    blob="$(git hash-object --no-filters "$PLUGIN_ROOT/workflows/redline-loop.js")"
+    blob="$(git -C "$root" hash-object --no-filters "$PLUGIN_ROOT/workflows/redline-loop.js")"
     if [[ -f "$root/.claude-plugin/plugin.json" ]]; then
         name="$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null)" || die2 "$root/.claude-plugin/plugin.json is not JSON"
     fi

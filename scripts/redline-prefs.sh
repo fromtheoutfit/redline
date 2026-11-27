@@ -53,10 +53,15 @@
 #       round, handoffKind, specFolders, args}.
 #   redline-prefs.sh run read <repoRoot> <pr>
 #       Prints the entry, or null. Exit 0 either way.
-#   redline-prefs.sh run check <repoRoot> <pr> [--plugin <dir>] [--session <id>]
+#   redline-prefs.sh run check <repoRoot> <pr> --plugin <dir> [--session <id>]
 #       Whether the run can be resumed from here, as {ok, reason, line, marker, head, hand, untracked}:
 #       the first failing reason wins, in this order: none (no marker), session (another session
-#       launched it; the line gives claude --resume <id>), branch (not the run's branch),
+#       launched it; the line gives claude --resume <id>), version (#135: the version the marker's
+#       args.launch records is not the one in --plugin's .claude-plugin/plugin.json, the copy this
+#       session loaded, or the marker holds no args.launch, written by a build before 0.5.1; the line
+#       names both versions, says nothing on GitHub is lost and to start fresh; a marker with no
+#       launch is named from args.pluginRoot's manifest when that root is an installed release,
+#       under plugins/cache/, else as a build before 0.5.1), branch (not the run's branch),
 #       head-moved (HEAD is not the marker's and not on top of it, the marker's kind is not error
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
@@ -64,27 +69,33 @@
 #       names for this PR). Hand commits are accepted only on an error marker, since only an error
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
-#       which the workflow excuses. Exit 0 ok, 1 refused.
-#   redline-prefs.sh run drift <repoRoot> <pr> [--plugin <dir>]
-#       Which script a relaunch runs, and which agent files changed since the run launched (#81),
-#       as {self, launch, scriptPath, workflow, agents, drift, line}. Only the plugin's own
-#       repository (the repository is --plugin's directory) can see its workflow or agent files
-#       change during a run; anywhere else self is false, launch is name and nothing is listed.
-#       The pin is the script path in the marker's record: the copy the harness persisted when the
-#       run was launched by name. launch is name while workflows/redline-loop.js equals the pin
-#       (relaunch as before), scriptPath when it differs (relaunch from the pin, given as
-#       scriptPath), and refuse when it differs from the launch commit (args.startSha) and the
-#       record's path is the live file itself, since a launch by the scriptPath fallback leaves no
-#       pin; line then names the file and says to finish with a fresh run. agents lists every
-#       file under agents/ that differs from the launch commit, uncommitted and untracked ones
-#       included; the run goes on, and line is the sentence the skill says. drift is what the skill
+#       which the workflow excuses. Exit 0 ok, 1 refused, 2 with no --plugin or a --plugin whose
+#       manifest holds no version.
+#   redline-prefs.sh run drift <repoRoot> <pr> --plugin <dir>
+#       Which script a relaunch runs, and which agent files changed since the run launched (#81,
+#       #135), as {self, launch, scriptPath, workflow, agents, drift, line}, on every repository.
+#       self is true when the repository is --plugin's directory. First the version: when the
+#       marker's args.launch records another version than --plugin's manifest, or none, launch is
+#       refuse and line is run check's version line. Then the script: the live file is
+#       --plugin's workflows/redline-loop.js, since a checkout loaded in place can change while it
+#       reviews any repository, and the pin is the script path in the marker's record: the copy the
+#       harness persisted when the run was launched by name, which holds what the launch ran (in a
+#       live session, the copy it loaded, even after the file on disk changed). launch is name
+#       while the live file equals the pin (relaunch as before), scriptPath when it differs
+#       (relaunch from the pin, given as scriptPath), and, when the record's path is the live file
+#       itself (a launch by the scriptPath fallback leaves no pin), name while the live file's git
+#       blob id is args.launch.workflow and refuse when it is not; line then names the file and
+#       says to finish with a fresh run. agents, on the plugin's own repository only (empty
+#       anywhere else), lists every file under agents/ that differs from the launch commit
+#       (args.startSha), uncommitted and untracked ones included; the run goes on, and line is the
+#       sentence the skill says. drift is what the skill
 #       passes as args.drift ({workflow, pinned, agents}), null when the workflow file is as
 #       launched and drift's agents is empty. drift's agents is agents at a hand-off or a reviewed
 #       stop; on an error or stopped marker it is the list the marker's own args.drift passed ([]
 #       when none), since that resume can rerun Finish from a step after the handoff comment
 #       posted, and the comment, the one prompt that names the list, must not change (#91, R1-1).
-#       Exit 0, 1 refused, 2 no marker or no start commit (on the plugin's own repository only;
-#       anywhere else no marker is read).
+#       Exit 0, 1 refused, 2 with no --plugin or a --plugin whose manifest holds no version, no
+#       marker, or, on the plugin's own repository, no start commit.
 #   redline-prefs.sh run clear <repoRoot> <pr>
 #       Removes the entry. Prints {cleared: true|false}.
 #
@@ -107,7 +118,7 @@ cmd="$1"
 # ---------------------------------------------------------------------------
 
 run_usage() {
-    echo "usage: redline-prefs.sh run save|read|check|drift|clear <repoRoot> <pr> [--run-id <id>] [--session <id>] [--record <file>] [--plugin <dir>]" >&2
+    echo "usage: redline-prefs.sh run save|read|check|drift|clear <repoRoot> <pr> [--run-id <id>] [--session <id>] [--record <file>] [--plugin <dir>] (check and drift need --plugin)" >&2
     exit 2
 }
 
@@ -154,6 +165,34 @@ if [[ "$cmd" == "run" ]]; then
     if [[ "$sub" == "read" ]]; then
         printf '%s\n' "$entry" | jq '.'
         exit 0
+    fi
+
+    # The version a run launched under against the copy this session loaded (#135), shared by check
+    # and drift: prints the refusal line when they differ, nothing when they agree, and returns 2 when
+    # --plugin's manifest holds no version. A marker with no args.launch was written by a build before
+    # 0.5.1, the first that records it. Its version is named from args.pluginRoot's manifest when that
+    # root is an installed release, since a cache version directory never changes, and otherwise only
+    # as a build before 0.5.1, since a checkout's manifest may have moved on since the launch.
+    version_line() {
+        local now launched proot pv folders
+        now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json" 2>/dev/null || true)"
+        [[ -n "$now" ]] || { echo "redline-prefs: $plugin/.claude-plugin/plugin.json holds no version" >&2; return 2; }
+        launched="$(jq -r '.args.launch.version // ""' <<<"$entry")"
+        [[ "$launched" != "$now" ]] || return 0
+        if [[ -n "$launched" ]]; then
+            launched="Redline $launched"
+        else
+            proot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")" pv=""
+            case "$proot" in
+                */plugins/cache/*) pv="$(jq -r '.version // ""' "$proot/.claude-plugin/plugin.json" 2>/dev/null || true)" ;;
+            esac
+            if [[ -n "$pv" ]]; then launched="Redline $pv"; else launched="a Redline build before 0.5.1"; fi
+        fi
+        folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
+        echo "The run on #$pr started under $launched, and this session loads Redline $now: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
+    }
+    if [[ "$sub" == "check" || "$sub" == "drift" ]]; then
+        [[ -n "$plugin" && -d "$plugin" ]] || { echo "redline-prefs: run $sub needs --plugin <the root of the Redline copy this session loaded>" >&2; exit 2; }
     fi
 
     if [[ "$sub" == "clear" ]]; then
@@ -212,46 +251,64 @@ if [[ "$cmd" == "run" ]]; then
         exit 0
     fi
 
-    # drift (#81): which script a relaunch runs, and which agent files changed since launch.
+    # drift (#81, #135): which script a relaunch runs, and which agent files changed since launch.
     if [[ "$sub" == "drift" ]]; then
         wf="workflows/redline-loop.js"
-        if [[ -z "$plugin" || ! -d "$plugin" || "$(realdir "$plugin")" != "$(realdir "$root")" ]]; then
-            jq -n --arg wf "$wf" '{self: false, launch: "name", scriptPath: "", workflow: $wf, agents: [], drift: null, line: ""}'
-            exit 0
-        fi
         [[ "$entry" != "null" ]] || { echo "redline-prefs: no stopped run is recorded for #$pr, so the script it launched with is unknown" >&2; exit 2; }
-        start="$(jq -r '.args.startSha // ""' <<<"$entry")"
-        if [[ -z "$start" ]] || ! git -C "$root" cat-file -e "$start^{commit}" 2>/dev/null; then
-            echo "redline-prefs: the run marker for #$pr holds no start commit this repository knows (args.startSha: '${start}')" >&2
-            exit 2
+        self=false
+        [[ "$(realdir "$plugin")" == "$(realdir "$root")" ]] && self=true
+        # Another version first, on every repository: nothing this session's copy holds is the
+        # launch's, so neither the pin nor the live file is read.
+        vline="$(version_line)" || exit $?
+        if [[ -n "$vline" ]]; then
+            jq -n --argjson self "$self" --arg wf "$wf" --arg line "$vline" \
+                '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
+            exit 1
         fi
-        # The pin: the script path the harness recorded for the run, unless it is the live file
-        # itself (a launch by the scriptPath fallback ran the file, so nothing was persisted).
+        start=""
+        if [[ "$self" == true ]]; then
+            start="$(jq -r '.args.startSha // ""' <<<"$entry")"
+            if [[ -z "$start" ]] || ! git -C "$root" cat-file -e "$start^{commit}" 2>/dev/null; then
+                echo "redline-prefs: the run marker for #$pr holds no start commit this repository knows (args.startSha: '${start}')" >&2
+                exit 2
+            fi
+        fi
+        # The live file is the session's copy's, wherever it reviews: a checkout loaded in place can
+        # change during a run on any repository. The pin is the script path the harness recorded for
+        # the run, unless it is the live file itself (a launch by the scriptPath fallback ran the file,
+        # so nothing was persisted). The pin holds what the launch ran, which in a live session is the
+        # copy it loaded even after the file on disk changed, so a pin is compared with the live file;
+        # with no pin, the launch read the file from disk, whose blob args.launch recorded.
+        live="$plugin/$wf"
         mrecord="$(jq -r '.record // ""' <<<"$entry")"
         recorded=""
         [[ -n "$mrecord" && -f "$mrecord" ]] && recorded="$(jq -r '.scriptPath // ""' "$mrecord" 2>/dev/null || true)"
         pin=""
         if [[ -n "$recorded" && -f "$recorded" ]]; then
-            if [[ "$(realdir "$(dirname "$recorded")")/$(basename "$recorded")" != "$(realdir "$root")/$wf" ]]; then
+            if [[ "$(realdir "$(dirname "$recorded")")/$(basename "$recorded")" != "$(realdir "$plugin")/$wf" ]]; then
                 pin="$recorded"
             fi
         fi
         changed=false
         if [[ -n "$pin" ]]; then
-            cmp -s "$pin" "$root/$wf" || changed=true
+            cmp -s "$pin" "$live" || changed=true
         else
-            git -C "$root" diff --quiet "$start" -- "$wf" 2>/dev/null || changed=true
+            [[ "$(git -C "$root" hash-object --no-filters "$live")" == "$(jq -r '.args.launch.workflow // ""' <<<"$entry")" ]] || changed=true
         fi
-        agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | sort -u | jq -R . | jq -sc .)"
+        # Agent files: only the plugin's own repository lists them (#81).
+        agents='[]'
+        if [[ "$self" == true ]]; then
+            agents="$({ git -C "$root" diff --name-only "$start" -- agents/; git -C "$root" ls-files --others --exclude-standard -- agents/; } | sort -u | jq -R . | jq -sc .)"
+        fi
         # The agent list drift passes (#91, R1-1). The handoff comment is the one prompt that names
         # it, and an error or stopped resume can rerun Finish from a step after the comment posted,
         # so on those markers drift keeps the list the marker's own args passed; a hand-off or a
         # reviewed stop, both before Finish, reads it afresh (held is null there).
         held="$(jq -c 'if .kind == "error" or .kind == "stopped" then (.args.drift | .agents? // []) else null end' <<<"$entry")"
-        jq -n --arg wf "$wf" --arg pin "$pin" --argjson changed "$changed" --argjson agents "$agents" --argjson held "$held" --arg pr "$pr" --arg q "'" '
+        jq -n --argjson self "$self" --arg wf "$wf" --arg pin "$pin" --argjson changed "$changed" --argjson agents "$agents" --argjson held "$held" --arg pr "$pr" --arg q "'" '
             (if $changed then (if $pin != "" then "scriptPath" else "refuse" end) else "name" end) as $launch
             | ($held // $agents) as $passed
-            | {self: true, launch: $launch, scriptPath: (if $launch == "scriptPath" then $pin else "" end), workflow: $wf, agents: $agents,
+            | {self: $self, launch: $launch, scriptPath: (if $launch == "scriptPath" then $pin else "" end), workflow: $wf, agents: $agents,
                drift: (if $changed or ($passed | length) > 0 then {workflow: (if $changed then $wf else "" end), pinned: ($pin != ""), agents: $passed} else null end),
                line: (if $launch == "refuse"
                       then "\($wf) changed since this run launched, and the launch ran from the file itself, so no pinned copy exists; a relaunch would rerun recorded rounds under the edited script. Finish with a fresh run: /redline:redline \($pr)"
@@ -278,6 +335,8 @@ if [[ "$cmd" == "run" ]]; then
     if [[ -z "$session" || "$session" != "$msession" ]]; then
         refuse session "the run on #$pr was launched from session $msession; reopen it with: claude --resume $msession, then type /redline:redline $pr again"
     fi
+    vline="$(version_line)" || exit $?
+    [[ -z "$vline" ]] || refuse version "$vline"
     mbranch="$(jq -r '.branch // ""' <<<"$entry")"
     branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
     if [[ "$branch" != "$mbranch" ]]; then
@@ -306,7 +365,7 @@ if [[ "$cmd" == "run" ]]; then
             esac
             refuse head-moved "the run stopped $where and HEAD moved since ($n $plural); only a run that stopped with an error accepts a hand commit, so $fresh"
         fi
-        if [[ -n "$plugin" && -d "$plugin" && "$(realdir "$plugin")" == "$(realdir "$root")" ]]; then
+        if [[ "$(realdir "$plugin")" == "$(realdir "$root")" ]]; then
             refuse plugin "the repository is the plugin and HEAD moved since the run stopped ($n $plural); a plugin fix changes what runs, so start fresh: the next round carries the findings forward"
         fi
         outside="$(jq -r '[.paths[] | select(startswith(".claude/") | not)] | join(", ")' <<<"$hand")"
