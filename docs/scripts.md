@@ -260,7 +260,9 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       session loaded, or the marker holds no args.launch, written by a build before 0.5.1; the line
 #       names both versions, says nothing on GitHub is lost and to start fresh; a marker with no
 #       launch is named from args.pluginRoot's manifest when that root is an installed release,
-#       under plugins/cache/, else as a build before 0.5.1), branch (not the run's branch),
+#       under plugins/cache/, else as a build before 0.5.1), copy (#137, R2-3: the copy check run
+#       drift makes, below, so a resume is refused before any question; the line is the same, and
+#       nothing needs fixing by hand), branch (not the run's branch),
 #       head-moved (HEAD is not the marker's and not on top of it, the marker's kind is not error
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
@@ -282,8 +284,8 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       starts with a dot, so a .DS_Store or an editor's backup there is none; the two lists are
 #       compared by path, then each pair by its bytes, and a copy with no agents/ has none) or
 #       args.pluginRoot is no longer a directory, since the launch's script would run under
-#       another build's agents; line names both copies. A marker with no args.pluginRoot skips
-#       this. Then the script:
+#       another build's agents; line names both copies, and run check refuses the same copy as
+#       its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then the script:
 #       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
 #       can change while it reviews any repository, and the pin is the script path in the
 #       marker's record: the copy the

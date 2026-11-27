@@ -63,7 +63,9 @@
 #       session loaded, or the marker holds no args.launch, written by a build before 0.5.1; the line
 #       names both versions, says nothing on GitHub is lost and to start fresh; a marker with no
 #       launch is named from args.pluginRoot's manifest when that root is an installed release,
-#       under plugins/cache/, else as a build before 0.5.1), branch (not the run's branch),
+#       under plugins/cache/, else as a build before 0.5.1), copy (#137, R2-3: the copy check run
+#       drift makes, below, so a resume is refused before any question; the line is the same, and
+#       nothing needs fixing by hand), branch (not the run's branch),
 #       head-moved (HEAD is not the marker's and not on top of it, the marker's kind is not error
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
@@ -85,8 +87,8 @@
 #       starts with a dot, so a .DS_Store or an editor's backup there is none; the two lists are
 #       compared by path, then each pair by its bytes, and a copy with no agents/ has none) or
 #       args.pluginRoot is no longer a directory, since the launch's script would run under
-#       another build's agents; line names both copies. A marker with no args.pluginRoot skips
-#       this. Then the script:
+#       another build's agents; line names both copies, and run check refuses the same copy as
+#       its copy reason (#137, R2-3). A marker with no args.pluginRoot skips this. Then the script:
 #       the live file is --plugin's workflows/redline-loop.js, since a checkout loaded in place
 #       can change while it reviews any repository, and the pin is the script path in the
 #       marker's record: the copy the
@@ -223,6 +225,43 @@ if [[ "$cmd" == "run" ]]; then
         folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
         echo "The run on #$pr started under $launched, and this session loads Redline $now: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
     }
+    # The copy a run launched from against the copy this session loaded (#137, R1-3), shared by check
+    # and drift, as version_line is (#137, R2-3): prints the refusal line when they differ, nothing
+    # when they agree, and always returns 0. A checkout and a release at one version are two builds,
+    # and a relaunch under the session's copy would run the launch's script, or the name, under that
+    # copy's agents, which mix with the replayed steps' (the #135 spec's m4-agents-pin-reopen). So
+    # when the session loads another copy than the one the run launched from, their agent files must
+    # agree (agent_list, #137, R2-1): a copy with no agents/ has none, and a launch copy that is gone
+    # cannot be compared. A marker with no args.pluginRoot prints nothing.
+    copy_line() {
+        local lroot lreal lagents pagents f differ now folders
+        lroot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")"
+        [[ -n "$lroot" ]] || return 0
+        lreal=""
+        if [[ -d "$lroot" ]]; then
+            lreal="$(realdir "$lroot")" || lreal=""
+        fi
+        [[ "$lreal" != "$(realdir "$plugin")" ]] || return 0
+        differ=false
+        if [[ -z "$lreal" ]]; then
+            differ=true
+        else
+            lagents="$(agent_list "$lroot")"
+            pagents="$(agent_list "$plugin")"
+            if [[ "$lagents" != "$pagents" ]]; then
+                differ=true
+            elif [[ -n "$lagents" ]]; then
+                while IFS= read -r f; do
+                    cmp -s "$lroot/$f" "$plugin/$f" || { differ=true; break; }
+                done <<<"$lagents"
+            fi
+        fi
+        [[ "$differ" == true ]] || return 0
+        now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json")"
+        folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
+        echo "The run on #$pr started from the Redline $now copy at $lroot, and this session loads Redline $now from $plugin, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
+        return 0
+    }
     if [[ "$sub" == "check" || "$sub" == "drift" ]]; then
         [[ -n "$plugin" && -d "$plugin" ]] || { echo "redline-prefs: run $sub needs --plugin <the root of the Redline copy this session loaded>" >&2; exit 2; }
         # A path the script receives is made absolute once (bash-conventions), so every read of --plugin
@@ -316,42 +355,12 @@ if [[ "$cmd" == "run" ]]; then
                 '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
             exit 1
         fi
-        # Then the copy (#137, R1-3). A checkout and a release at one version are two builds, and a
-        # relaunch under the session's copy would run the launch's script, or the name, under that
-        # copy's agents, which mix with the replayed steps' (the #135 spec's m4-agents-pin-reopen).
-        # So when the session loads another copy than the one the run launched from, their agent
-        # files must agree (agent_list, #137, R2-1): a copy with no agents/ has none, and a launch
-        # copy that is gone cannot be compared. A marker with no args.pluginRoot skips this.
-        lroot="$(jq -r '.args.pluginRoot // ""' <<<"$entry")"
-        if [[ -n "$lroot" ]]; then
-            lreal=""
-            if [[ -d "$lroot" ]]; then
-                lreal="$(realdir "$lroot")" || lreal=""
-            fi
-            if [[ "$lreal" != "$(realdir "$plugin")" ]]; then
-                differ=false
-                if [[ -z "$lreal" ]]; then
-                    differ=true
-                else
-                    lagents="$(agent_list "$lroot")"
-                    pagents="$(agent_list "$plugin")"
-                    if [[ "$lagents" != "$pagents" ]]; then
-                        differ=true
-                    elif [[ -n "$lagents" ]]; then
-                        while IFS= read -r f; do
-                            cmp -s "$lroot/$f" "$plugin/$f" || { differ=true; break; }
-                        done <<<"$lagents"
-                    fi
-                fi
-                if [[ "$differ" == true ]]; then
-                    now="$(jq -r '.version // ""' "$plugin/.claude-plugin/plugin.json")"
-                    folders="$(jq -r '[.specFolders // [] | .[]] | join(", ")' <<<"$entry")"
-                    cline="The run on #$pr started from the Redline $now copy at $lroot, and this session loads Redline $now from $plugin, another copy whose agent files differ from that one's or cannot be compared with it: a relaunch would run the rest of the run under another build's agents. Nothing on GitHub is lost; start fresh after committing or removing ${folders:-its spec folders}"
-                    jq -n --argjson self "$self" --arg wf "$wf" --arg line "$cline" \
-                        '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
-                    exit 1
-                fi
-            fi
+        # Then the copy (#137, R1-3), by copy_line, which run check calls too (#137, R2-3).
+        cline="$(copy_line)"
+        if [[ -n "$cline" ]]; then
+            jq -n --argjson self "$self" --arg wf "$wf" --arg line "$cline" \
+                '{self: $self, launch: "refuse", scriptPath: "", workflow: $wf, agents: [], drift: null, line: $line}'
+            exit 1
         fi
         start=""
         if [[ "$self" == true ]]; then
@@ -426,6 +435,8 @@ if [[ "$cmd" == "run" ]]; then
     fi
     vline="$(version_line)" || exit $?
     [[ -z "$vline" ]] || refuse version "$vline"
+    cline="$(copy_line)"
+    [[ -z "$cline" ]] || refuse copy "$cline"
     mbranch="$(jq -r '.branch // ""' <<<"$entry")"
     branch="$(git -C "$root" rev-parse --abbrev-ref HEAD)"
     if [[ "$branch" != "$mbranch" ]]; then
