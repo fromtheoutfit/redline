@@ -66,7 +66,7 @@ claude plugin update redline@redline --scope <user|project|local>
 
 A project or local update is run from the repository's root: run from elsewhere, the command can pick another repository's install of the same scope and report it already up to date (measured on Claude Code 2.1.332). Then restart the session or run `/reload-plugins`. The warning never stops a launch, and it says nothing when the session loads Redline from a checkout (`--plugin-dir` hides every install) or when the `claude` CLI is missing or fails.
 
-A checkout loaded in place carries the plugin's version too. Its workflow can change during a run without the version changing, and a relaunch then runs the launch's copy of the script, on any repository. A commit that changes its version ends a run at the next relaunch, like any version change, and a fresh launch in a session that loaded the checkout before such a commit is refused until the session is reopened.
+A checkout loaded in place carries the plugin's version too. Its workflow can change during a run without the version changing, and a relaunch then runs the launch's copy of the script, on any repository. A commit that changes its version ends a run at the next relaunch, like any version change, and a fresh launch in a session that loaded the checkout before such a commit is refused until the session is reopened with the checkout loaded in place (`claude --plugin-dir <checkout> --resume <session id>`), since a reopen without the flag runs the installed release (#137, R1-7).
 
 ## What a template bump means
 
