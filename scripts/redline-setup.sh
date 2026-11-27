@@ -117,8 +117,11 @@
 #       and since the skill runs this script by CLAUDE_PLUGIN_ROOT, this script's own root is the
 #       copy the session loaded; a self-hosted root at another real path is the released copy
 #       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
-#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot}}
-#       (inPlace null unless self), one stderr line per
+#       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
+#       id of its workflows/redline-loop.js (git hash-object --no-filters, the same id wherever the
+#       file sits), which the skill records as args.launch (#135).
+#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
+#       version, workflow}} (inPlace null unless self), one stderr line per
 #       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
 #       settings.json is not JSON or has a byte-order mark, or
 #       <repoRoot>/.claude-plugin/plugin.json is not JSON.
@@ -1455,12 +1458,15 @@ entries() { [[ "$1" -eq 1 ]] && echo entry || echo entries; }
 # plugin as the plugin's own manifest), and does the run load it in place (the two real paths are one
 # directory)? The skill runs this script by CLAUDE_PLUGIN_ROOT, so this script's own root is the copy
 # the session loaded: a self-hosted root at another path means the released copy's skill, workflow,
-# agents and guard review the checkout, not the branch's own (#16). Prints {self, inPlace, pluginRoot}
-# (inPlace null unless self); returns 1 with the stderr line when self and not in place; exits 2 on a
-# root manifest that is not JSON.
+# agents and guard review the checkout, not the branch's own (#16). It also prints the loaded copy's
+# own version and its workflow file's git blob id, which the skill records as args.launch (#135).
+# Prints {self, inPlace, pluginRoot, version, workflow} (inPlace null unless self); returns 1 with the
+# stderr line when self and not in place; exits 2 on a root manifest that is not JSON.
 version_plugin() {
-    local root="$1" self=false inplace=null name="" own
+    local root="$1" self=false inplace=null name="" own ver blob
     own="$(jq -r '.name // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+    ver="$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+    blob="$(git hash-object --no-filters "$PLUGIN_ROOT/workflows/redline-loop.js")"
     if [[ -f "$root/.claude-plugin/plugin.json" ]]; then
         name="$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null)" || die2 "$root/.claude-plugin/plugin.json is not JSON"
     fi
@@ -1468,7 +1474,8 @@ version_plugin() {
         self=true
         [[ "$(cd "$root" && pwd -P)" == "$(cd "$PLUGIN_ROOT" && pwd -P)" ]] && inplace=true || inplace=false
     fi
-    jq -n --argjson s "$self" --argjson i "$inplace" --arg p "$PLUGIN_ROOT" '{self: $s, inPlace: $i, pluginRoot: $p}'
+    jq -n --argjson s "$self" --argjson i "$inplace" --arg p "$PLUGIN_ROOT" --arg v "$ver" --arg w "$blob" \
+        '{self: $s, inPlace: $i, pluginRoot: $p, version: $v, workflow: $w}'
     [[ "$inplace" != false ]] || { echo "redline-setup: this repository is the plugin, but the run loads Redline from $PLUGIN_ROOT; start the session with claude --plugin-dir $root to run this checkout's own code" >&2; return 1; }
 }
 # version <checks.sh>: the file form. version <repoRoot>: the root form, the one call the launch

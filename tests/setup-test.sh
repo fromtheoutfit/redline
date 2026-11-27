@@ -3,7 +3,7 @@
 # Unit test of scripts/redline-setup.sh: the scriptable parts of /redline:setup. The settings.json
 # merge, the .gitignore line, the unattended section of shape-spec.md, redline.json from a baseline
 # time, checks.sh generated from checks.json (and read back), the alias command files (#44), and the
-# template version line, and the plugin's own manifest and marketplace entry (one semver version, #16). Runs
+# template version line, and the plugin's own manifest, marketplace entry and workflow constant (one semver version, #16, #135). Runs
 # on the fixtures under tests/setup-fixtures/ (and two of tests/gate-fixtures/), copied into a
 # throwaway directory under the system temp directory. The last cases regenerate this checkout's own
 # .claude/redline/checks.sh from its committed .claude/redline/checks.json and compare.
@@ -971,6 +971,17 @@ echo "# version <repoRoot>: a self-hosted root, and whether the run loads it in 
 # root is what loads; a root whose manifest names the same plugin from another path is the released copy
 # reviewing a checkout.
 expect_json "a root that is not the plugin: self false, inPlace null, pluginRoot the plugin" '[(.plugin.self|tostring), (.plugin.inPlace|tostring), .plugin.pluginRoot] | join(",")' "false,null,$PLUGIN" version "$VR"
+# What a run records as args.launch (#135): the loaded copy's manifest version and its workflow file's git
+# blob id, read off this script's own root whatever root is under review.
+expect_json "the plugin's version and workflow blob are the loaded copy's (#135)" '[.plugin.version, .plugin.workflow] | join(",")' "$(jq -r .version "$PLUGIN/.claude-plugin/plugin.json"),$(git hash-object --no-filters "$PLUGIN/workflows/redline-loop.js")" version "$VR"
+# A copy of the plugin at another version, with an edited workflow, reports its own pair, not this checkout's.
+CP="$WORK/plugin-copy"; mkdir -p "$CP"; cp -R "$PLUGIN/scripts" "$PLUGIN/templates" "$PLUGIN/.claude-plugin" "$PLUGIN/workflows" "$CP/"
+jq '.version = "9.8.7"' "$PLUGIN/.claude-plugin/plugin.json" > "$CP/.claude-plugin/plugin.json"
+printf '\n// an edit\n' >> "$CP/workflows/redline-loop.js"
+CPW="$(git hash-object --no-filters "$CP/workflows/redline-loop.js")"
+[[ "$CPW" != "$(git hash-object --no-filters "$PLUGIN/workflows/redline-loop.js")" ]] && ok "the copy's workflow blob differs from this checkout's" || bad "the copy's workflow blob differs from this checkout's" "$CPW"
+cpout="$("$CP/scripts/redline-setup.sh" version "$VR" 2>/dev/null)"
+[[ "$(jq -r '[.plugin.version, .plugin.workflow, .plugin.pluginRoot] | join(",")' <<<"$cpout")" == "9.8.7,$CPW,$(cd "$CP" && pwd)" ]] && ok "a copy at another version reports its own version, blob and root (#135)" || bad "a copy at another version reports its own version, blob and root (#135)" "$(jq -c .plugin <<<"$cpout")"
 # The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.
 SR="$WORK/selfroot"; cp -R "$VR" "$SR"; mkdir -p "$SR/.claude-plugin"; SRP="$(cd "$SR" && pwd)"; printf '{"name": "redline", "version": "0.0.0"}\n' > "$SR/.claude-plugin/plugin.json"
 expect_exit "a self-hosted root loaded from elsewhere: exit 1" 1 version "$SR"
@@ -999,11 +1010,16 @@ cp "$PLUGIN/.claude/redline/checks.sh" "$WORK/plugin-rerun.sh"
 expect_json "regenerating over the committed file is a no-op" '[.changed, .written, .stampKept] | join(",")' "false,false,true" checks "$PJ" "$WORK/plugin-rerun.sh"
 same "regenerating over the committed file leaves it byte-identical" "$WORK/plugin-rerun.sh" "$PLUGIN/.claude/redline/checks.sh"
 
-echo "# this checkout: the manifest and the marketplace entry carry one semver version (#16)"
+echo "# this checkout: the manifest, the marketplace entry and the workflow carry one semver version (#16, #135)"
 PV="$(jq -r .version "$PLUGIN/.claude-plugin/plugin.json")"
 MV="$(jq -r '.plugins[0].version' "$PLUGIN/.claude-plugin/marketplace.json")"
+# The workflow's own constant is what its startup check compares a run's args.launch.version with (#135):
+# a release that bumps two of the three fails here.
+WV="$(sed -n "s/^const REDLINE_VERSION = '\([^']*\)'\$/\1/p" "$PLUGIN/workflows/redline-loop.js")"
 [[ "$PV" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] && ok "plugin.json carries a semver version" || bad "plugin.json carries a semver version" "$PV"
 [[ "$MV" == "$PV" ]] && ok "the marketplace entry carries the same version (claude plugin tag refuses a disagreement)" || bad "the marketplace entry carries the same version (claude plugin tag refuses a disagreement)" "entry $MV, manifest $PV"
+[[ "$WV" == "$PV" ]] && ok "the workflow's REDLINE_VERSION is the same version (#135)" || bad "the workflow's REDLINE_VERSION is the same version (#135)" "workflow '${WV}', manifest $PV"
+[[ "$(grep -c "^const REDLINE_VERSION = " "$PLUGIN/workflows/redline-loop.js")" == 1 ]] && ok "the workflow declares REDLINE_VERSION once (#135)" || bad "the workflow declares REDLINE_VERSION once (#135)" "$(grep -c "^const REDLINE_VERSION = " "$PLUGIN/workflows/redline-loop.js") declarations"
 [[ "$(jq -r '.plugins[0].name' "$PLUGIN/.claude-plugin/marketplace.json")" == "$(jq -r .name "$PLUGIN/.claude-plugin/plugin.json")" ]] && ok "the marketplace entry's name is the manifest's name" || bad "the marketplace entry's name is the manifest's name" "$(jq -c '{entry: .plugins[0].name}' "$PLUGIN/.claude-plugin/marketplace.json")"
 
 # A dry run: a missing alias file reads absent and stays missing, never written into the checkout (#63, R1-3).

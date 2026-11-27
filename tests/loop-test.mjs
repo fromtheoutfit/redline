@@ -399,7 +399,11 @@ const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split
 // those cases are answered here, by the person, from the first launch.
 const typedAnswer = (...ids) => Object.fromEntries(ids.map((id) => [id, { choice: 'In their own words', notes: `The author answers ${id} in their own words.`, date: '2026-11-18' }]))
 const goAhead = (...ids) => Object.fromEntries(ids.map((id) => [id, { action: 'file', title: '', notes: '', date: '2026-11-16', draft: 1 }]))
+// The version the workflow carries (#135), read off its own constant: every scenario launches under
+// it, as the skill records it in args.launch at a launch, and section 17a relaunches under others.
+const RUNNING_VERSION = (src.match(/^const REDLINE_VERSION = '([^']+)'$/m) || [])[1]
 const baseArgs = {
+  launch: { version: RUNNING_VERSION, workflow: 'c'.repeat(40) },
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
   // coverage null: the reviewer alone, as before the coverage pass existed (#79), so every scenario
@@ -2721,6 +2725,51 @@ function samePrefix(name, first, second, n) {
   // A read that failed is an error at its own label, which a resume reruns.
   const unread = await go('finish: the read fails', baseArgs, { reviews: [[]], lastRoundError: 'gh: not logged in' })
   check('finish: a failed read stops the run at the read, resumable there', unread.res.status === 'error' && unread.res.stage === 'finish' && unread.res.resumeFrom && unread.res.resumeFrom.label === 'last round' && unread.res.error.includes('gh: not logged in') && labels(unread.calls).slice(-1)[0] === 'last round', [unread.res.error, unread.res.resumeFrom])
+}
+
+// ---------------------------------------------------------------------------
+// 17a. The version a run launched under (#135). A session can load another install of Redline
+//     between two launches of one run, and a relaunch by name then runs that install's script,
+//     which replays only up to its first changed prompt (loser #839). The skill records the
+//     version a run starts under in args.launch, and a script of any other version refuses at
+//     startup, before any agent and before every other args check, with a line naming both
+//     versions. An absent args.launch is a launch by a build before 0.5.1.
+// ---------------------------------------------------------------------------
+{
+  check('launch: the workflow carries one REDLINE_VERSION, a semver version', /^\d+\.\d+\.\d+$/.test(RUNNING_VERSION || '') && (src.match(/^const REDLINE_VERSION = /gm) || []).length === 1, RUNNING_VERSION)
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const decided = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-26' } } }
+  const same = await go('launch: the same version', decided, scenario)
+  check('launch: a relaunch under the version it launched with runs', same.res.status === 'done', [same.res.status, same.res.error])
+  const refusedShape = (run) => run.thrown === null && run.res.status === 'error' && run.res.stage === 'relaunch' && run.res.resumeFrom === null && run.res.ownCheck === false && run.calls.length === 0
+  const other = await go('launch: another version', { ...decided, launch: { version: '0.4.3', workflow: 'd'.repeat(40) } }, scenario)
+  check('launch: a relaunch under another version is refused at stage relaunch, before any agent, not resumable and not its own check', refusedShape(other), [other.thrown && other.thrown.message, other.res && other.res.status, other.res && other.res.stage, labels(other.calls)])
+  check('launch: the refusal names both versions, says nothing on GitHub is lost and how to start fresh', other.res && other.res.error === `This run started under Redline 0.4.3, and the workflow running now is Redline ${RUNNING_VERSION}: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost. Start fresh: /redline:redline 114`, other.res && other.res.error)
+  check('launch: the refusal is an error result as the skill reads one, with no rounds, commits or spec folders', other.res && Array.isArray(other.res.rounds) && other.res.rounds.length === 0 && Array.isArray(other.res.commits) && other.res.commits.length === 0 && Array.isArray(other.res.specFolders) && other.res.specFolders.length === 0 && Array.isArray(other.res.warnings) && other.res.pr === 114, other.res)
+  const absent = { ...decided }
+  delete absent.launch
+  const old = await go('launch: no launch recorded', absent, scenario)
+  check('launch: a relaunch of a run whose args hold no launch is refused the same way', refusedShape(old), [old.thrown && old.thrown.message, old.res && old.res.status, labels(old.calls)])
+  check('launch: its line says the run started under a build before 0.5.1', old.res && old.res.error === `This run started under a Redline build before 0.5.1, and the workflow running now is Redline ${RUNNING_VERSION}: a relaunch under another version would rerun steps already recorded. Nothing on GitHub is lost. Start fresh: /redline:redline 114`, old.res && old.res.error)
+  const nulled = await go('launch: launch null', { ...decided, launch: null }, scenario)
+  check('launch: a launch of null reads as none recorded', refusedShape(nulled) && nulled.res.error === old.res.error, nulled.res && nulled.res.error)
+  // Before every other args check: args an older skill built, which may lack a field this build
+  // requires, still get the version line, never a throw about the field.
+  const older = { ...absent }
+  delete older.repoRoot
+  const olderRun = await go('launch: no launch and a field this build requires missing', older, scenario)
+  check('launch: the version refusal comes before every other args check', refusedShape(olderRun) && olderRun.res.error === old.res.error, [olderRun.thrown && olderRun.thrown.message, olderRun.res && olderRun.res.error])
+  const fresh = await go('launch: a fresh launch under another version', { ...baseArgs, launch: { version: '9.0.0', workflow: 'd'.repeat(40) } }, scenario)
+  check('launch: a fresh launch whose skill is another version is refused too, before any agent', refusedShape(fresh) && fresh.res.error.startsWith('This run started under Redline 9.0.0, and the workflow running now is Redline '), fresh.res && fresh.res.error)
+  for (const bad of ['0.5.1', [], { version: '' , workflow: 'c'.repeat(40) }, { version: 1, workflow: 'c'.repeat(40) }, { version: RUNNING_VERSION }, { version: RUNNING_VERSION, workflow: 'xyz' }, { version: RUNNING_VERSION, workflow: 'C'.repeat(40) }]) {
+    const run = await go('launch: malformed launch', { ...decided, launch: bad }, scenario)
+    check(`launch: args.launch ${JSON.stringify(bad)} fails at startup`, run.thrown !== null && run.thrown.message.includes('args.launch') && run.calls.length === 0, run.thrown ? run.thrown.message : run.res && run.res.status)
+  }
+  const sha256 = await go('launch: a blob id from a sha256 repository', { ...decided, launch: { version: RUNNING_VERSION, workflow: 'e'.repeat(64) } }, scenario)
+  check('launch: a 64-hex blob id is a well-formed launch', sha256.res && sha256.res.status === 'done', [sha256.thrown && sha256.thrown.message, sha256.res && sha256.res.status])
+  // The launch is read at startup only: no prompt of any run names the blob id or a launch field.
+  check('launch: the result tells a relaunching session to keep launch as recorded', same.res.relaunch.how.includes('launch ({version, workflow}) stays as the launch recorded it: a script of another version refuses the relaunch at startup, before any agent (#135).'), same.res.relaunch.how.slice(-400))
+  check('launch: no prompt of the run holds the recorded blob id', same.calls.every((c) => !c.prompt.includes('c'.repeat(40))), labels(same.calls.filter((c) => c.prompt.includes('c'.repeat(40)))))
 }
 
 // ---------------------------------------------------------------------------
