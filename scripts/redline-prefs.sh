@@ -38,12 +38,14 @@
 # to resume it, from the session that launched it (#10):
 #
 #   redline-prefs.sh run save <repoRoot> <pr> --run-id <id> [--session <id>] [--record <file>]
-#       Write the marker from the harness's own record of the run: ~/.claude/projects/*/<session>/
-#       workflows/<runId>.json (or --record), whose args and result it copies. The session is
-#       --session, else CLAUDE_CODE_SESSION_ID (set in every Bash tool subprocess). kind is error,
-#       handoff or reviewed from the result's status, or stopped when the record has no result;
-#       any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot be
-#       resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
+#       Write the marker from the harness's own record of the run:
+#       <config>/projects/*/<session>/workflows/<runId>.json, <config> being the directory
+#       CLAUDE_CONFIG_DIR names when it is set and holds the record, else ~/.claude (#137, R1-2), or
+#       --record; the entry's record is the file it read, whose args and result it copies. The
+#       session is --session, else CLAUDE_CODE_SESSION_ID (set in every Bash tool subprocess). kind
+#       is error, handoff or reviewed from the result's status, or stopped when the record has no
+#       result; any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot
+#       be resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
 #       result's, plus the start snapshot's folder, from the result's snapshotStart or, without
 #       one (a stopped run has no result), from args.snapshotPath. ownCheck is the result's:
 #       true when the stop was the workflow's own check of what an agent returned, which needs
@@ -209,11 +211,25 @@ if [[ "$cmd" == "run" ]]; then
         [[ -n "$runid" ]] || { echo "redline-prefs: run save needs --run-id" >&2; exit 2; }
         [[ -n "$session" ]] || { echo "redline-prefs: no session id; pass --session or run from a Claude Code session" >&2; exit 2; }
         if [[ -z "$record" ]]; then
+            # The session's config directory holds the record: the one CLAUDE_CONFIG_DIR names when
+            # it is set, else ~/.claude. Where Claude Code keeps it under the variable was not
+            # measured, so both are searched, in that order, and the first that holds any match is
+            # the one read (#137, R1-2).
+            dirs=()
+            if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+                dirs+=("${CLAUDE_CONFIG_DIR%/}")
+            fi
+            dirs+=("$HOME/.claude")
+            searched="" matches=()
             shopt -s nullglob
-            matches=("$HOME"/.claude/projects/*/"$session"/workflows/"$runid".json)
+            for dir in "${dirs[@]}"; do
+                searched="${searched:+$searched or }$dir/projects/*/$session/workflows/$runid.json"
+                matches=("$dir"/projects/*/"$session"/workflows/"$runid".json)
+                [[ ${#matches[@]} -eq 0 ]] || break
+            done
             shopt -u nullglob
             if [[ ${#matches[@]} -ne 1 ]]; then
-                echo "redline-prefs: ${#matches[@]} run records match ~/.claude/projects/*/$session/workflows/$runid.json; pass --record <file>" >&2
+                echo "redline-prefs: ${#matches[@]} run records match $searched; pass --record <file>" >&2
                 exit 2
             fi
             record="${matches[0]}"

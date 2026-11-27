@@ -267,6 +267,33 @@ env -u CLAUDE_CODE_SESSION_ID "$PREFS" run save "$REPO" 7 --run-id wf_1 --record
 runx "save: a missing record exits 2" 2 save "$REPO" 7 --run-id wf_9 --record "$REC/none.json"
 runx "run: a bad pr exits 2" 2 read "$REPO" x
 runx "run: a bad subcommand exits 2" 2 frob "$REPO" 7
+# The harness's record under the session's config directory (#137, R1-2)
+mkdir -p "$REC/cfg/projects/p/s1/workflows" "$REC/home/.claude/projects/p/s1/workflows" "$REC/cfg-empty" "$REC/home-empty"
+cp "$REC/handoff.json" "$REC/cfg/projects/p/s1/workflows/wf_30.json"
+cp "$REC/handoff.json" "$REC/home/.claude/projects/p/s1/workflows/wf_31.json"
+# cfgsave <home> <config dir, or - for none set> <run id>: run save with no --record, under that HOME
+# and CLAUDE_CONFIG_DIR
+cfgsave() {
+    if [[ "$2" == "-" ]]; then
+        env -u CLAUDE_CONFIG_DIR HOME="$1" CLAUDE_CODE_SESSION_ID=s1 "$PREFS" run save "$REPO" 7 --run-id "$3"
+    else
+        env HOME="$1" CLAUDE_CONFIG_DIR="$2" CLAUDE_CODE_SESSION_ID=s1 "$PREFS" run save "$REPO" 7 --run-id "$3"
+    fi
+}
+got="$(cfgsave "$REC/home-empty" "$REC/cfg" wf_30 2>/dev/null | jq -r '.record')"
+[[ "$got" == "$REC/cfg/projects/p/s1/workflows/wf_30.json" ]] && ok "save: a record under CLAUDE_CONFIG_DIR is found there" || bad "save: a record under CLAUDE_CONFIG_DIR is found there" "$got"
+saved "save: and the marker's record is that file" '.runs."7".record' "$REC/cfg/projects/p/s1/workflows/wf_30.json"
+got="$(cfgsave "$REC/home" "$REC/cfg-empty" wf_31 2>/dev/null | jq -r '.record')"
+[[ "$got" == "$REC/home/.claude/projects/p/s1/workflows/wf_31.json" ]] && ok "save: CLAUDE_CONFIG_DIR set, the record under ~/.claude: found there" || bad "save: CLAUDE_CONFIG_DIR set, the record under ~/.claude: found there" "$got"
+got="$(cfgsave "$REC/home" - wf_31 2>/dev/null | jq -r '.record')"
+[[ "$got" == "$REC/home/.claude/projects/p/s1/workflows/wf_31.json" ]] && ok "save: CLAUDE_CONFIG_DIR unset: the record under ~/.claude, as before" || bad "save: CLAUDE_CONFIG_DIR unset: the record under ~/.claude, as before" "$got"
+cfgsave "$REC/home-empty" "$REC/cfg-empty" wf_32 >/dev/null 2>&1; rc=$?
+[[ $rc -eq 2 ]] && ok "save: a record under neither directory exits 2" || bad "save: a record under neither directory exits 2" "exit $rc"
+got="$(cfgsave "$REC/home-empty" "$REC/cfg-empty" wf_32 2>&1 >/dev/null)"
+[[ "$got" == *"$REC/cfg-empty/projects/*/s1/workflows/wf_32.json"* && "$got" == *"$REC/home-empty/.claude/projects/*/s1/workflows/wf_32.json"* ]] && ok "save: the line names both places searched" || bad "save: the line names both places searched" "$got"
+got="$(cfgsave "$REC/home" "$REC/home/.claude" wf_31 2>"$REC/cfg-same.err")"; rc=$?
+[[ $rc -eq 0 && "$(jq -r '.record' <<<"$got")" == "$REC/home/.claude/projects/p/s1/workflows/wf_31.json" ]] && ok "save: CLAUDE_CONFIG_DIR that is ~/.claude itself finds the record once" || bad "save: CLAUDE_CONFIG_DIR that is ~/.claude itself finds the record once" "exit $rc: $got"
+grep -q '2 run records match' "$REC/cfg-same.err" && bad "save: and does not count it twice" "$(cat "$REC/cfg-same.err")" || ok "save: and does not count it twice"
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
 echo "# run read"

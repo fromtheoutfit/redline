@@ -235,12 +235,14 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 # to resume it, from the session that launched it (#10):
 #
 #   redline-prefs.sh run save <repoRoot> <pr> --run-id <id> [--session <id>] [--record <file>]
-#       Write the marker from the harness's own record of the run: ~/.claude/projects/*/<session>/
-#       workflows/<runId>.json (or --record), whose args and result it copies. The session is
-#       --session, else CLAUDE_CODE_SESSION_ID (set in every Bash tool subprocess). kind is error,
-#       handoff or reviewed from the result's status, or stopped when the record has no result;
-#       any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot be
-#       resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
+#       Write the marker from the harness's own record of the run:
+#       <config>/projects/*/<session>/workflows/<runId>.json, <config> being the directory
+#       CLAUDE_CONFIG_DIR names when it is set and holds the record, else ~/.claude (#137, R1-2), or
+#       --record; the entry's record is the file it read, whose args and result it copies. The
+#       session is --session, else CLAUDE_CODE_SESSION_ID (set in every Bash tool subprocess). kind
+#       is error, handoff or reviewed from the result's status, or stopped when the record has no
+#       result; any other status leaves no marker (exit 2). An error whose resumeFrom is null cannot
+#       be resumed: exit 1 with the folders to commit or remove, and no marker. specFolders are the
 #       result's, plus the start snapshot's folder, from the result's snapshotStart or, without
 #       one (a stopped run has no result), from args.snapshotPath. ownCheck is the result's:
 #       true when the stop was the workflow's own check of what an agent returned, which needs
