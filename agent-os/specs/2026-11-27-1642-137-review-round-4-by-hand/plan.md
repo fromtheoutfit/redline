@@ -81,4 +81,48 @@ If writing table C out finds anything that is not a rewording, it comes to you a
 
 ## As built
 
-Written at the gate (Task 7).
+Built on 2026-11-27 and 2026-11-28. Every commit is @michaelfromtheoutfit's.
+
+| Commit | What |
+|---|---|
+| `4a76f1e` | Task 1, this folder |
+| `959c5d9` | Task 2's record in `shape.md`, and Task 3, R4-1 |
+| `d26af98` | Task 4, R4-2 and R3-5 |
+| `7bb667b` | Task 5, R4-3, with the R1-5 and R2-4 sentences and R1-5's pin |
+| `ee59192` | Task 6, R4-4 and table C's remaining rewordings |
+| `fb40dc6` | Task 7, the standards retrospective, eight edits |
+
+**Harnesses, each red before green, counts read off the runs.**
+
+- `tests/prefs-test.sh`: 239 passed before; with R4-1's seven cases and no change, 240 passed and 6 failed (the seventh, a rename out of the run's folder, is the neighbour); 246 passed, 0 failed as built.
+- `tests/setup-test.sh`: 557 before. R4-2: 559 passed, 7 failed, then 566. R4-3: 566 passed, 4 failed (three changed expectations and the mixed case), then 570. R1-5's two cases pass against the code as it was; under a mutation that drops an install whose `enabled` is false, 568 passed and 2 failed, and the script was byte-identical after the mutation was reverted.
+- `tests/loop-test.mjs`: 2068 before; with R4-4's two statement checks, 2068 passed and 2 failed; 2070 passed, 0 failed as built. `workflows/redline-loop.js` is unchanged, so no prompt changed.
+
+**The gate.** `.claude/redline/checks.sh --baseline` at `ee59192`: syntax, validate, guard, loop, prefs, gate, setup, gh and background each exit 0. `scripts/redline-gate.sh check .` matches, and `scripts/redline-setup.sh version .` exits 0. CI's shellcheck command (`shellcheck -S warning -f gcc scripts/*.sh tests/*.sh .claude/redline/checks.sh`, shellcheck 0.11.0) printed nothing and exited 0 before each of the three commits that touch a `.sh` file.
+
+**Docs (gate step 10).**
+
+- `scripts/redline-prefs.sh`: its header, quoted in `docs/scripts.md`, "`redline-prefs.sh`"; README, "Known limits", a new bullet on a name git quotes (`959c5d9`).
+- `scripts/redline-setup.sh`: its header, quoted in `docs/scripts.md`, "`redline-setup.sh`" (`d26af98`, `7bb667b`); `docs/running.md`, the precheck paragraph and "Hand-off and relaunch" (`d26af98`, `7bb667b`); `docs/setup.md`, "Verify" (`d26af98`); `docs/upgrading.md`, "A stopped run across a version change" (`d26af98`, `7bb667b`).
+- `skills/redline/SKILL.md`: `docs/running.md`, "Hand-off and relaunch" (`d26af98`, `7bb667b`, `ee59192`).
+- `skills/setup/SKILL.md`: `docs/setup.md`, "Verify" (`d26af98`).
+- A new meaning for an exit code, `redline-setup.sh version`'s exit 2 for a loaded copy that cannot launch: the header and the sections above (`d26af98`).
+- `tests/`: no reader-facing change; no sentence that lists what a harness pins names a surface these cases added.
+
+**Version.** Kept at 0.5.1 on purpose (the brief's decision 3): the pull request already carries its bump from 0.5.0, and the template is not touched.
+
+**The tables.** Rerun at `ee59192`; `shape.md` holds each "As built" column. A: 43 rows, 20 changed, every path named as it is. B: 60 rows, 16 changed; no row behind `version_plugin` ends in a throw or a loop. C: 50 rows; every cell marked false is reworded or stopped at its source, and six rows share the cell #138 tracks.
+
+**Deviations from the plan.**
+
+1. **Task 2's record and R4-1 went in one commit** (`959c5d9`). The plan gave Task 2 no commit of its own; its `shape.md` change was offered as a group of its own at boundary 2 and the person committed both together.
+2. **R4-2's stop has three lines, not one**, one for each cause: no version string in `plugin.json`, no `REDLINE_VERSION` line in the workflow file, and the two disagreeing. Each names the file and the value, so the person is not left to work out which of the three it is.
+3. **`docs/upgrading.md` changed in R4-2's slice too.** Its last paragraph says a fresh launch is refused until the session is reopened, which is the sentence R4-2 qualifies.
+4. **`docs/contract.md` and `docs/running.md`'s "Run markers and resume" are unchanged.** The first lists no exit code of `version`; the second was already true of the fixed script.
+5. **R1-5's pin was proven by mutation.** The code never read `enabled`, so the two new cases could not be seen red against it.
+6. **The reload caution is not in the script's line.** Decision 5 keeps the line's ending as round 3's case pins it, so the skill and `docs/upgrading.md` carry it.
+7. **"either kind" stood in four places in the skill**, twice in "The script a relaunch runs". All four changed.
+8. **Table B was not rerun against the uncommitted tree in Task 4.** The scratch script's copy step failed there; the rerun was made at the gate from the committed tree, as the plan's gate step asks.
+9. **Task 2's first interactive run was repeated.** Its reload may have landed within seconds of the disable, so it was rerun with the install disabled from the session's start, and that run is the one `shape.md` cites.
+
+**Left for the person.** The two drafted issues and the comment for #138 (`shape.md`, "For you to open" and "For you to add"); the replies in `redline/`, to post through a session after the push; and the pull request's tag and CHANGELOG entry, as #135 left them.
