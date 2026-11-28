@@ -310,7 +310,31 @@ A sentence the pull request did not add but this spec changes: the precheck's "A
 
 ## R1-5 and R2-4
 
-Both were declined as unconfirmed, each for want of a run of `claude` that the shaper's role could not make. Both can be measured here: Claude Code is 2.1.332, the #135 probe plugin `probe135` and its local marketplace are still on disk, `claude plugin list --json` prints `enabled` for each install, `claude plugin disable` takes `--scope`, and `/tmp` is a link to `/private/tmp`, which gives a scratch repository a symlinked spelling. Task 2 measures them (decision 4); what it shows, and what the person decides, is recorded here after it.
+Both were declined as unconfirmed, each for want of a run of `claude` that the shaper's role could not make. Both can be measured here: Claude Code is 2.1.332, the #135 probe plugin `probe135` and its local marketplace are still on disk, `claude plugin list --json` prints `enabled` for each install, `claude plugin disable` takes `--scope`, and `/tmp` is a link to `/private/tmp`, which gives a scratch repository a symlinked spelling. Task 2 measured them (decision 4).
+
+**How.** A copy of `probe135` in a marketplace of its own, `probe137-mkt`, installed at user scope at 0.0.1 and then, after the plugin's repository moved to 0.0.2, at project scope in a scratch repository. That install was made from the repository's symlinked spelling, `/tmp/.../T2/work`, with the shell's directory and `PWD` both at it. Small headless sessions (`claude -p --output-format stream-json`) show which install a session loads in their `init` event; an interactive one, driven with `expect`, invoked the probe's skill before and after `/reload-plugins`. The registry's three files were backed up first and diffed after the probe and its marketplace were removed: identical. The person was told before the first change and shown the diff before the first result. Raw output was in the session's scratchpad (`T2/out/`).
+
+**R2-4: refuted.** Claude Code recorded the project install's `projectPath` as the physical path, `/private/tmp/.../T2/work`, in `claude plugin list --json` and in `installed_plugins.json`, though the install was made from the `/tmp` spelling. `git rev-parse --show-toplevel` prints the physical path from that spelling too. So `version_installs`, which compares `projectPath` with the root's physical path, sees the install. Sessions started from either spelling loaded the same install.
+
+- Asked on 2026-11-28: record it, with no change to the code. One sentence in `version_installs`' docblock says `projectPath` is the physical path, as measured (Task 5), and a follow-up reply for the thread is drafted.
+- Decided by: @michaelfromtheoutfit
+
+**R1-5: refuted.**
+
+| State | `enabled` in the list, read inside the repository | read outside it | What a session in the repository loaded |
+|---|---|---|---|
+| both scopes enabled | user true, project true | not read | 0.0.1, the user install, listed first (a fresh session from each spelling) |
+| user disabled, project enabled | user true, project true | user false, project false | 0.0.1, the user install: a fresh session, a reopen of the earlier one, and a session before and after `/reload-plugins` |
+| user enabled, project disabled | user false, project false | user true, project true | none |
+
+- `enabled` is not an install's own. It is the merged setting for the plugin id, as seen from the directory the CLI runs in, and both installs always read alike.
+- A session ran the install at the scope that was disabled. Enablement decides whether the id loads; which install runs is still the one listed first.
+- So dropping an entry whose `enabled` is false, the finding's proposed fix, would hide the install the session runs.
+- Outside the repository, where only the user install is seen and it is disabled, a session loaded none.
+- Asked on 2026-11-28: record it, with no change to the code. One sentence in `version_installs`' docblock says why `enabled` is not read (Task 5), a setup-test case pins that an install whose `enabled` is false is still listed, seen red under a mutation that drops it, and a follow-up reply for the thread is drafted.
+- Decided by: @michaelfromtheoutfit
+
+Nothing is left over for an issue from either.
 
 ## For you to open
 

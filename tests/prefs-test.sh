@@ -412,6 +412,51 @@ run save "$REPO" 7 --run-id wf_10 --record "$REC/otherlabel.json" >/dev/null 2>&
 runj "check: an entry under another label adds nothing" '[(.ok|tostring), (.hand.commits|length|tostring), (.hand.paths|length|tostring)] | join("|")' "true|0|0" check "$REPO" 7 --plugin "$PLUG"
 run save "$REPO" 7 --run-id wf_1 --record "$REC/error.json" >/dev/null 2>&1
 
+# Both of run check's lists are read from git with -z (#137, R4-1), as run drift's agent list is
+# (R3-4): without it git prints a name holding a byte above 0x7f, a double quote, a backslash or a
+# control character in quoted form, git status quotes one holding a space as well, and the sed that
+# took a rename's destination cut a name at " -> ". A quoted name starts with a double quote, so it
+# was never under .claude/ and never under the run's own folders.
+echo "# run check: a path is read as it is named (#137, R4-1)"
+mkdir -p "$REPO/$FOLDER/redline"
+printf 'x\n' > "$REPO/$FOLDER/redline/zé.md"
+printf 'x\n' > "$REPO/$FOLDER/redline/z q.md"
+printf 'x\n' > "$REPO/$FOLDER/redline/a -> b.md"
+printf 'x\n' > "$REPO/$FOLDER/redline/z\"q\\.md"
+runj "check: untracked files in the run's folder whose names git status quotes or cuts pass, each named as it is (#137, R4-1)" '[(.ok|tostring)] + (.untracked|sort) | join("|")' "true|$FOLDER/redline/a -> b.md|$FOLDER/redline/z q.md|$FOLDER/redline/z\"q\\.md|$FOLDER/redline/zé.md" check "$REPO" 7 --plugin "$PLUG"
+rm -rf "$REPO/agent-os"
+mkdir -p "$REPO/$FOLDER/redline"
+printf 'x\n' > "$REPO/$FOLDER/redline/z"$'\n'"q.md"
+runj "check: a name holding a newline is one entry of the list (#137, R4-1)" '[(.ok|tostring), (.untracked|length|tostring), (.untracked[0] | tojson)] | join("|")' "true|1|\"$FOLDER/redline/z\\nq.md\"" check "$REPO" 7 --plugin "$PLUG"
+rm -rf "$REPO/agent-os"
+mkdir -p "$REPO/notes"
+printf 'x\n' > "$REPO/notes/zé q.md"
+runj "check: such a name outside the run's folders is still refused, and named as it is (#137, R4-1)" '[.reason, .line] | join("|")' "untracked|commit or remove notes/zé q.md, or start fresh" check "$REPO" 7 --plugin "$PLUG"
+rm -rf "$REPO/notes"
+# A staged rename is read by its destination, as before: with -z git prints the destination, then
+# the source as a field of its own, which is read and dropped.
+mkdir -p "$REPO/$FOLDER/redline"
+"${G[@]}" mv app/x.php "$FOLDER/redline/moved é.md"
+runj "check: a staged rename to a name git quotes, into the run's folder, passes by its destination (#137, R4-1)" '[(.ok|tostring), (.untracked|join("|"))] | join("|")' "true|$FOLDER/redline/moved é.md" check "$REPO" 7 --plugin "$PLUG"
+"${G[@]}" reset -q --hard "$RUNHEAD"; rm -rf "$REPO/agent-os"
+mkdir -p "$REPO/notes"
+"${G[@]}" mv app/x.php notes/moved.php
+runj "check: a staged rename out to a path outside the run's folders is refused by its destination, as before" '[.reason, .line, (.untracked|join("|"))] | join("|")' "untracked|commit or remove notes/moved.php, or start fresh|notes/moved.php" check "$REPO" 7 --plugin "$PLUG"
+"${G[@]}" reset -q --hard "$RUNHEAD"; rm -rf "$REPO/notes"
+# The hand list: a fix under .claude/ after an error stop is accepted whatever its name holds.
+printf '{}\n' > "$REPO/.claude/redline/zé.json"
+printf '{}\n' > "$REPO/.claude/redline/z\"q\\.json"
+"${G[@]}" add .claude/redline
+"${G[@]}" commit -q -m "Fix the gate, in files whose names git would quote"
+QUOTED="$("${G[@]}" rev-parse HEAD)"
+runj "check: a hand commit to .claude/ files whose names git quotes resumes, each path named as it is (#137, R4-1)" '[(.ok|tostring), (.hand.commits|join(","))] + (.hand.paths|sort) | join("|")' "true|$QUOTED|.claude/redline/z\"q\\.json|.claude/redline/zé.json" check "$REPO" 7 --plugin "$PLUG"
+"${G[@]}" reset -q --hard "$RUNHEAD"
+printf 'z\n' > "$REPO/app/zé.php"
+"${G[@]}" add app
+"${G[@]}" commit -q -m "Fix the code, in a file whose name git would quote"
+runj "check: a hand commit outside .claude/ is still refused, its path named as it is (#137, R4-1)" '[.reason, .line] | join("|")' "head-moved|1 commit since the run stopped touch app/zé.php outside .claude/; start fresh after committing or removing $FOLDER" check "$REPO" 7 --plugin "$PLUG"
+"${G[@]}" reset -q --hard "$RUNHEAD"
+
 # The script a relaunch runs (#81): only the plugin's own repository can see its workflow or agent
 # files change during a run. The record's scriptPath is the copy the harness persisted at launch
 # (the pin), or the live file itself when the launch went by the scriptPath fallback (no pin).

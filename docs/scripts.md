@@ -267,7 +267,9 @@ The saved launch settings and the run markers in `.claude/redline.local.json`. O
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
 #       outside the run's spec folders: the listed ones, and every folder the run's launch stamp
-#       names for this PR). Hand commits are accepted only on an error marker, since only an error
+#       names for this PR). Every path in hand and in untracked is as it is named (#137, R4-1: git
+#       lists them with -z, so a name it would quote, or one holding " -> ", is read whole; a staged
+#       rename is its destination). Hand commits are accepted only on an error marker, since only an error
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
 #       which the workflow excuses. Exit 0 ok, 1 refused, 2 with no --plugin or a --plugin whose

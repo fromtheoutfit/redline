@@ -70,7 +70,9 @@
 #       and HEAD moved at all, or the commits on top touch a path outside .claude/), plugin (the repository is --plugin's directory and HEAD moved: a
 #       plugin fix changes what runs, so start fresh), untracked (an untracked or modified path
 #       outside the run's spec folders: the listed ones, and every folder the run's launch stamp
-#       names for this PR). Hand commits are accepted only on an error marker, since only an error
+#       names for this PR). Every path in hand and in untracked is as it is named (#137, R4-1: git
+#       lists them with -z, so a name it would quote, or one holding " -> ", is read whole; a staged
+#       rename is its destination). Hand commits are accepted only on an error marker, since only an error
 #       resume carries them into the workflow. hand lists the commits and paths on top of the marker's
 #       head, plus the hand list the marker's own label already carries in its args.resume,
 #       which the workflow excuses. Exit 0 ok, 1 refused, 2 with no --plugin or a --plugin whose
@@ -153,6 +155,32 @@ agent_paths() {
     while IFS= read -r -d '' p; do
         case "/$p" in */.*) continue ;; esac
         case "$p" in *.md) jq -cn --arg p "$p" '$p' ;; esac
+    done
+    return 0
+}
+# The two lists run check reads from git are read the same way (#137, R4-1): with -z, each name
+# printed as a JSON string on a line of its own, so the .claude/ test and the run's-own-folders test
+# read a path as it is named. Without -z git diff --name-only quotes the names above, git status
+# quotes one holding a space as well, and a sed that took a rename's destination cut a name at
+# " -> ".
+# nul_paths: the NUL-terminated paths on stdin, as git diff -z --name-only prints them.
+nul_paths() {
+    local p
+    while IFS= read -r -d '' p; do
+        jq -cn --arg p "$p" '$p'
+    done
+    return 0
+}
+# status_paths: the entries of git status --porcelain=v1 -z on stdin, each two status letters, a
+# space and the path. A rename or a copy (an R or a C in either letter) is followed by its source as
+# a field of its own: the entry's path is the destination, as it was read before, and the source is
+# read and dropped.
+status_paths() {
+    local e
+    while IFS= read -r -d '' e; do
+        [[ ${#e} -gt 3 ]] || continue
+        jq -cn --arg p "${e:3}" '$p'
+        case "${e:0:2}" in *R*|*C*) IFS= read -r -d '' e || true ;; esac
     done
     return 0
 }
@@ -436,8 +464,8 @@ if [[ "$cmd" == "run" ]]; then
             refuse head-moved "HEAD ${head:0:7} is not on top of the run's last commit ${mhead:0:7}; $fresh"
         fi
         commits="$(git -C "$root" rev-list "$mhead..$head")"
-        paths="$(git -C "$root" diff --name-only "$mhead" "$head")"
-        hand="$(jq -cn --arg c "$commits" --arg p "$paths" '{commits: ($c | split("\n") | map(select(. != ""))), paths: ($p | split("\n") | map(select(. != "")))}')"
+        paths="$(git -C "$root" diff -z --name-only "$mhead" "$head" | nul_paths | jq -sc .)"
+        hand="$(jq -cn --arg c "$commits" --argjson p "$paths" '{commits: ($c | split("\n") | map(select(. != ""))), paths: $p}')"
         n="$(jq -r '.commits | length' <<<"$hand")"
         plural="commits"; [[ "$n" -eq 1 ]] && plural="commit"
         # Only an error resume carries the hand list into the workflow (args.resume), so a hand
@@ -472,7 +500,7 @@ def list: if type == "array" then map(select(type == "string" and . != "")) else
 JQ
 )"
     hand="$(jq -c --argjson marker "$entry" "$hand_prog" <<<"$hand")"
-    untracked_json="$(git -C "$root" status --porcelain --untracked-files=all | cut -c4- | sed 's/^.* -> //' | jq -R . | jq -sc .)"
+    untracked_json="$(git -C "$root" status --porcelain=v1 -z --untracked-files=all | status_paths | jq -sc .)"
     # The run's own paths: under a folder the marker lists, or under any folder the run's launch
     # stamp names for this PR (the workflow's specFolderFor and humanFolderFor), so the start
     # snapshot and a round its result does not list yet count as the run's.
