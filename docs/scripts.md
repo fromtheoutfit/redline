@@ -498,9 +498,12 @@ The scriptable parts of `/redline:setup`. The setup skill runs the writing subco
 #       install is this script's root (a checkout loaded in place), or the CLI is missing, fails,
 #       or prints anything but one list, or one this script cannot read (#137, R1-4); a version or
 #       a path that is not a string is read as its text, so a list reads alike under jq 1.7 and 1.8.
-#       When their versions differ, the stderr line names each and gives the update command for
-#       each one behind the newest (claude plugin update <id> --scope <scope>, run from <repoRoot>
-#       for a project or local one), then a restart or /reload-plugins.
+#       When their versions differ, the stderr line names each, says what a switch does (a run
+#       that switches stops at its next relaunch, except onto an install older than 0.5.1, which
+#       has no version check and reruns recorded steps: each such install that is not this
+#       session's is named, #137, R4-3), and gives the update command for each one behind the newest
+#       (claude plugin update <id> --scope <scope>, run from <repoRoot> for a project or local
+#       one), then a restart or /reload-plugins.
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
 #       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,

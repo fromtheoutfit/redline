@@ -1063,6 +1063,10 @@ installs() {
     printf '%s\n' "$json" > "$out"
 }
 LINE_TAIL="; a reload or a reopen runs whichever is listed first, and a run that switches stops at its next relaunch."
+# The tail when an install the session could switch onto is older than 0.5.1 (#137, R4-3): that build's
+# workflow has no version check, so a run that switches onto it is not stopped, and the line names it.
+# unchecked_tail <the installs, as the line names them> [<the clause for the others>]
+unchecked_tail() { printf '%s' "; a reload or a reopen runs whichever is listed first, and a run that switches onto $1 is not stopped: a build before 0.5.1 has no version check, so its relaunch reruns steps already recorded${2:-}."; }
 installs "$WORK/i-self-behind.json" user:0.4.3:self project:0.5.1:root
 export STUB_LIST="$WORK/i-self-behind.json"
 expect_exit "installs: this session's install behind another: exit 1" 1 version "$VR"
@@ -1074,13 +1078,33 @@ installs "$WORK/i-other-behind.json" user:0.5.1:self project:0.4.3:root
 export STUB_LIST="$WORK/i-other-behind.json"
 expect_exit "installs: another install behind this session's: exit 1" 1 version "$VR"
 err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
-want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3$LINE_TAIL Update the older one: claude plugin update redline@m --scope project, run from $VRL; then restart the session or run /reload-plugins"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3$(unchecked_tail "project 0.4.3") Update the older one: claude plugin update redline@m --scope project, run from $VRL; then restart the session or run /reload-plugins"
 [[ "$err" == "$want" ]] && ok "installs: the other behind: the project update runs from the repository root" || bad "installs: the other behind: the project update runs from the repository root" "$err"
 installs "$WORK/i-three.json" user:0.5.1:self project:0.4.3:root local:0.5.0:root
 export STUB_LIST="$WORK/i-three.json"
 err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
-want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3, local 0.5.0$LINE_TAIL Update the older ones: claude plugin update redline@m --scope project, run from $VRL; claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.4.3, local 0.5.0$(unchecked_tail "project 0.4.3 or local 0.5.0") Update the older ones: claude plugin update redline@m --scope project, run from $VRL; claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
 [[ "$err" == "$want" ]] && ok "installs: two behind: one line, an update for each" || bad "installs: two behind: one line, an update for each" "$err"
+# What a switch does depends on the install switched onto, not on which is behind (#137, R4-3): one at
+# 0.5.1 or later refuses the relaunch at its workflow's startup; one older has no check and runs it.
+installs "$WORK/i-later.json" user:0.5.2:self project:0.5.1:root
+export STUB_LIST="$WORK/i-later.json"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.2 (this session's), project 0.5.1$LINE_TAIL Update the older one: claude plugin update redline@m --scope project, run from $VRL; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: every other install at 0.5.1 or later: a run that switches stops, as before (#137, R4-3)" || bad "installs: every other install at 0.5.1 or later: a run that switches stops, as before (#137, R4-3)" "$err"
+installs "$WORK/i-mixed.json" user:0.6.0:self project:0.4.5:root local:0.5.1:root
+export STUB_LIST="$WORK/i-mixed.json"
+err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
+want="redline-setup: the Redline installs this repository sees differ: user 0.6.0 (this session's), project 0.4.5, local 0.5.1$(unchecked_tail "project 0.4.5" "; onto any other it stops at its next relaunch") Update the older ones: claude plugin update redline@m --scope project, run from $VRL; claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
+[[ "$err" == "$want" ]] && ok "installs: one other install older than 0.5.1 and one not: the older is named as not stopped, the other as stopped (#137, R4-3)" || bad "installs: one other install older than 0.5.1 and one not: the older is named as not stopped, the other as stopped (#137, R4-3)" "$err"
+# enabled is not read (#137, R1-5): the CLI prints the merged setting for the plugin id, as seen from
+# the directory it runs in, on every install alike, and a session ran the install at the scope where
+# the plugin was disabled (measured on Claude Code 2.1.332). So an install whose enabled is false is
+# listed and compared like any other.
+jq -cn --arg pp "$PP" --arg root "$VRP" '[{id: "redline@m", scope: "user", version: "0.5.1", enabled: false, installPath: $pp}, {id: "redline@m", scope: "project", version: "0.5.2", enabled: false, installPath: "/c/redline/0.5.2", projectPath: $root}]' > "$WORK/i-disabled.json"
+export STUB_LIST="$WORK/i-disabled.json"
+expect_exit "installs: installs whose enabled is false are compared like any other: exit 1 (#137, R1-5)" 1 version "$VR"
+expect_json "installs: and each is listed (#137, R1-5)" '[.installs[] | "\(.scope):\(.version):\(.running)"] | join(",")' "user:0.5.1:true,project:0.5.2:false" version "$VR"
 installs "$WORK/i-numeric.json" user:0.10.0:self project:0.9.0:root
 export STUB_LIST="$WORK/i-numeric.json"
 expect_stderr "installs: versions compare by number, so 0.9.0 is older than 0.10.0" "Update the older one: claude plugin update redline@m --scope project," version "$VR"
@@ -1144,7 +1168,7 @@ jq -cn --arg pp "$PP" --arg root "$VRP" '[{id: "redline@m", scope: "user", versi
 export STUB_LIST="$WORK/i-shared.json"
 expect_json "installs: two installs sharing this session's folder are each marked running (#137, R3-6)" "$INSTALLS" "user:0.5.1:true,project:0.5.1:true,local:0.4.3:false" version "$VR"
 err="$("$SETUP" version "$VR" 2>&1 >/dev/null)"
-want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.5.1 (this session's), local 0.4.3$LINE_TAIL Update the older one: claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
+want="redline-setup: the Redline installs this repository sees differ: user 0.5.1 (this session's), project 0.5.1 (this session's), local 0.4.3$(unchecked_tail "local 0.4.3") Update the older one: claude plugin update redline@m --scope local, run from $VRL; then restart the session or run /reload-plugins"
 [[ "$err" == "$want" ]] && ok "installs: both are labelled this session's, and only the older one is updated (#137, R3-6)" || bad "installs: both are labelled this session's, and only the older one is updated (#137, R3-6)" "$err"
 unset STUB_LIST
 # The script prints the root as cd && pwd does: one slash where TMPDIR ends in one.

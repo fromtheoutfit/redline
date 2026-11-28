@@ -131,9 +131,12 @@
 #       install is this script's root (a checkout loaded in place), or the CLI is missing, fails,
 #       or prints anything but one list, or one this script cannot read (#137, R1-4); a version or
 #       a path that is not a string is read as its text, so a list reads alike under jq 1.7 and 1.8.
-#       When their versions differ, the stderr line names each and gives the update command for
-#       each one behind the newest (claude plugin update <id> --scope <scope>, run from <repoRoot>
-#       for a project or local one), then a restart or /reload-plugins.
+#       When their versions differ, the stderr line names each, says what a switch does (a run
+#       that switches stops at its next relaunch, except onto an install older than 0.5.1, which
+#       has no version check and reruns recorded steps: each such install that is not this
+#       session's is named, #137, R4-3), and gives the update command for each one behind the newest
+#       (claude plugin update <id> --scope <scope>, run from <repoRoot> for a project or local
+#       one), then a restart or /reload-plugins.
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
 #       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
@@ -1513,8 +1516,12 @@ version_plugin() {
 # version_installs <repoRoot>: the installs of this plugin a session in <repoRoot> sees (user, and
 # project or local whose projectPath is <repoRoot>), from claude plugin list --json (#135). A session
 # runs the one listed first, and an install or update in another process reorders the list, so a
-# session that reloads or reopens can switch versions mid-run, and the run then stops at its next
-# relaunch. Prints them as [{scope, version, running}], running true for each install whose
+# session that reloads or reopens can switch versions mid-run. What happens then turns on the install
+# it switched onto (#137, R4-3): one at 0.5.1 or later refuses the relaunch at its workflow's startup,
+# so the run stops there; one older has no version check, so its relaunch goes ahead and reruns steps
+# already recorded (each of the six older releases in a plugin cache started under a 0.5.1 launch
+# record). The line says which, naming each install older than 0.5.1 that is not this session's.
+# Prints them as [{scope, version, running}], running true for each install whose
 # installPath is this script's root, the copy the session loaded, and only installs of their id.
 # The plugin cache keeps one folder per version, so installs at one version share it: each of them
 # runs this session's files, whichever the session took as listed first, so each is marked and is
@@ -1528,6 +1535,13 @@ version_plugin() {
 # the list (#137, R1-4). A version, installPath or projectPath that is not a string is read as its
 # text: jq 1.8's rtrimstr fails on a non-string where jq 1.7's returns it unchanged, and as text the
 # list reads alike under both.
+# Two fields are left as the CLI prints them, each measured on Claude Code 2.1.332 with a throwaway
+# plugin at two scopes (#137). projectPath is compared with <repoRoot>'s physical path alone: an
+# install made from a symlinked spelling of a repository was recorded under its physical path (R2-4).
+# enabled is not read: it is the merged setting for the plugin id as seen from the directory the CLI
+# runs in, the same on every install, and with the plugin disabled at user scope and enabled at
+# project scope a fresh session, a reopened one and a reloaded one each ran the user install, listed
+# first, so dropping a "disabled" install would hide the one the session runs (R1-5).
 version_installs() {
     local root="$1" list rootp ownp res line
     list="$("$CLAUDE_BIN" plugin list --json 2>/dev/null)" || list=""
@@ -1542,11 +1556,19 @@ version_installs() {
         | [$visible[] | select($id != null and .id == $id)] as $seen
         | ($seen | map(num) | max) as $top
         | [$seen[] | select(num < $top)] as $behind
+        | [$seen[] | select(mine | not)] as $others
+        | [$others[] | select(num < [0, 5, 1])] as $unchecked
         | {installs: [$seen[] | {scope, version, running: mine}],
            line: (if ($behind | length) == 0 then ""
                   else "redline-setup: the Redline installs this repository sees differ: "
                        + ([$seen[] | "\(.scope) \(.version)" + (if mine then " (this session\u0027s)" else "" end)] | join(", "))
-                       + "; a reload or a reopen runs whichever is listed first, and a run that switches stops at its next relaunch. Update the older "
+                       + "; a reload or a reopen runs whichever is listed first, and a run that switches "
+                       + (if ($unchecked | length) == 0 then "stops at its next relaunch"
+                          else "onto " + ([$unchecked[] | "\(.scope) \(.version)"] | join(" or "))
+                               + " is not stopped: a build before 0.5.1 has no version check, so its relaunch reruns steps already recorded"
+                               + (if ($others | length) > ($unchecked | length) then "; onto any other it stops at its next relaunch" else "" end)
+                          end)
+                       + ". Update the older "
                        + (if ($behind | length) == 1 then "one: " else "ones: " end)
                        + ([$behind[] | "claude plugin update \($id) --scope \(.scope)" + (if .scope == "user" then "" else ", run from \($root)" end)] | join("; "))
                        + "; then restart the session or run /reload-plugins"
