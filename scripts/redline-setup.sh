@@ -117,14 +117,36 @@
 #       and since the skill runs this script by CLAUDE_PLUGIN_ROOT, this script's own root is the
 #       copy the session loaded; a self-hosted root at another real path is the released copy
 #       reviewing a checkout, and the line says to start the session with claude --plugin-dir.
-#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot}}
-#       (inPlace null unless self), one stderr line per
-#       warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
-#       settings.json is not JSON or has a byte-order mark, or
-#       <repoRoot>/.claude-plugin/plugin.json is not JSON.
+#       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
+#       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
+#       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
+#       records as args.launch (#135). The workflow compares that version with its own
+#       REDLINE_VERSION, so a loaded copy that cannot launch is stopped here, exit 2, with one line
+#       naming the file and the value (#137, R4-2): its plugin.json holds no version string, its
+#       workflows/redline-loop.js holds no REDLINE_VERSION line, or the two disagree. Only a
+#       checkout loaded in place can be in that state.
+#       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
+#       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
+#       whose installPath is this script's root, as {scope, version, running}; [] when no seen
+#       install is this script's root (a checkout loaded in place), or the CLI is missing, fails,
+#       or prints anything but one list, or one this script cannot read (#137, R1-4); a version or
+#       a path that is not a string is read as its text, so a list reads alike under jq 1.7 and 1.8.
+#       When their versions differ, the stderr line names each, says what a switch does (a run
+#       that switches stops at its next relaunch, except onto an install older than 0.5.1, which
+#       has no version check and reruns recorded steps: each such install that is not this
+#       session's is named, #137, R4-3), and gives the update command for each one behind the newest
+#       (claude plugin update <id> --scope <scope>, run from <repoRoot> for a project or local
+#       one), then a restart or /reload-plugins.
+#       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
+#       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
+#       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
+#       settings.json is not JSON or has a byte-order mark,
+#       <repoRoot>/.claude-plugin/plugin.json is not JSON, or the loaded copy's own version places
+#       are missing or disagree, as above. Its stderr line says which.
 #
-# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, and REDLINE_UNATTENDED_TEMPLATE
-# templates/shape-spec-unattended.md, whose history/ directory sits beside it (tests).
+# Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, REDLINE_UNATTENDED_TEMPLATE
+# templates/shape-spec-unattended.md, whose history/ directory sits beside it, and REDLINE_CLAUDE the
+# claude CLI that version <repoRoot> reads the installs from (tests).
 #
 # checks.json: {"repo": "<phrase after 'Redline gate for'>", "gateFile": ".claude/commands/agent-os/shape-spec.md",
 #   "selfHosted": false, "alwaysAllowed": ["openapi.json"],
@@ -154,6 +176,7 @@ RETIRED_TEMPLATE="$PLUGIN_ROOT/templates/settings.retired.json"
 CONFIG_TEMPLATE="$PLUGIN_ROOT/templates/redline.json.example"
 UNATTENDED_TEMPLATE="${REDLINE_UNATTENDED_TEMPLATE:-$PLUGIN_ROOT/templates/shape-spec-unattended.md}"
 UNATTENDED_HISTORY="$(dirname "$UNATTENDED_TEMPLATE")/history"
+CLAUDE_BIN="${REDLINE_CLAUDE:-claude}"
 
 usage() {
     echo "usage: redline-setup.sh settings <repoRoot> [--allow <entry>]... [--remove-stale] [--dry-run] | gitignore <repoRoot> [--dry-run] | command <repoRoot> <redline|redline-revise> [--force] [--dry-run] | unattended <shape-spec.md> --gate-steps <m>-<n> --prose-steps <text> --retro-step <n> (--pr-body-standard <name> | --no-pr-body) [--force] [--merge [--pick <n>=ours|theirs]... | --keep] [--dry-run] | unattended --version <shape-spec.md> | config --reviewer <handle> --baseline-seconds <n> [<repoRoot>] [--ask-rules <file>] [--force] [--dry-run] | suggest-ask-rules <repoRoot> | checks <checks.json> <checks.sh> [--dry-run] | read-checks <checks.sh> | version <checks.sh|repoRoot>" >&2
@@ -1455,12 +1478,30 @@ entries() { [[ "$1" -eq 1 ]] && echo entry || echo entries; }
 # plugin as the plugin's own manifest), and does the run load it in place (the two real paths are one
 # directory)? The skill runs this script by CLAUDE_PLUGIN_ROOT, so this script's own root is the copy
 # the session loaded: a self-hosted root at another path means the released copy's skill, workflow,
-# agents and guard review the checkout, not the branch's own (#16). Prints {self, inPlace, pluginRoot}
-# (inPlace null unless self); returns 1 with the stderr line when self and not in place; exits 2 on a
-# root manifest that is not JSON.
+# agents and guard review the checkout, not the branch's own (#16). It also prints the loaded copy's
+# own version and its workflow file's git blob id, which the skill records as args.launch (#135).
+# The workflow compares that version with its own REDLINE_VERSION, so the two are read here, where
+# the fact is first read, and a copy that cannot launch is stopped with its cause (#137, R4-2): one
+# whose manifest holds no version string (absent, or not a string: it went to the workflow as "" and
+# met a throw about args.launch, R3-5), whose workflow file holds no REDLINE_VERSION line, or whose
+# two places disagree. Each of those was refused or thrown at the workflow on every fresh launch, and
+# the reopen the skill advises for a refused fresh launch loads the same files. Only a checkout
+# loaded in place can be in that state, since a release passed the gate's test of the three places.
+# The constant is read in either quote style, so a copy that launches is never stopped for its
+# quotes; the gate's own test asks for single ones.
+# Prints {self, inPlace, pluginRoot, version, workflow} (inPlace null unless self); returns 1 with the
+# stderr line when self and not in place; exits 2 on a root manifest that is not JSON, and with its
+# line on the loaded copy's own version places as above.
 version_plugin() {
-    local root="$1" self=false inplace=null name="" own
-    own="$(jq -r '.name // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
+    local root="$1" self=false inplace=null name="" own ver blob wver
+    local manifest="$PLUGIN_ROOT/.claude-plugin/plugin.json" wfile="$PLUGIN_ROOT/workflows/redline-loop.js"
+    own="$(jq -r '.name // empty' "$manifest")"
+    ver="$(jq -r '.version | if type == "string" then . else "" end' "$manifest" 2>/dev/null || true)"
+    wver="$(sed -n "s/^const REDLINE_VERSION = ['\"]\([^'\"]*\)['\"].*\$/\1/p" "$wfile" 2>/dev/null | head -n 1)"
+    [[ -n "$ver" ]] || die2 "$manifest holds no version string, so a run from this copy of Redline has no version to record. Give it the version in $wfile's REDLINE_VERSION, then reopen the session so it loads the corrected file"
+    [[ -n "$wver" ]] || die2 "$wfile holds no line of the form const REDLINE_VERSION = '<version>', so the workflow's version cannot be compared with the $ver in $manifest. Give it that line, then reopen the session so it loads the corrected file"
+    [[ "$ver" == "$wver" ]] || die2 "this copy of Redline disagrees with itself: $manifest says version $ver and $wfile says REDLINE_VERSION $wver. A run records the first and the workflow compares it with the second, so every launch would be refused. Make the two agree, and the entry in .claude-plugin/marketplace.json with them, then reopen the session so it loads the corrected files"
+    blob="$(git -C "$root" hash-object --no-filters "$wfile")"
     if [[ -f "$root/.claude-plugin/plugin.json" ]]; then
         name="$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null)" || die2 "$root/.claude-plugin/plugin.json is not JSON"
     fi
@@ -1468,8 +1509,73 @@ version_plugin() {
         self=true
         [[ "$(cd "$root" && pwd -P)" == "$(cd "$PLUGIN_ROOT" && pwd -P)" ]] && inplace=true || inplace=false
     fi
-    jq -n --argjson s "$self" --argjson i "$inplace" --arg p "$PLUGIN_ROOT" '{self: $s, inPlace: $i, pluginRoot: $p}'
+    jq -n --argjson s "$self" --argjson i "$inplace" --arg p "$PLUGIN_ROOT" --arg v "$ver" --arg w "$blob" \
+        '{self: $s, inPlace: $i, pluginRoot: $p, version: $v, workflow: $w}'
     [[ "$inplace" != false ]] || { echo "redline-setup: this repository is the plugin, but the run loads Redline from $PLUGIN_ROOT; start the session with claude --plugin-dir $root to run this checkout's own code" >&2; return 1; }
+}
+# version_installs <repoRoot>: the installs of this plugin a session in <repoRoot> sees (user, and
+# project or local whose projectPath is <repoRoot>), from claude plugin list --json (#135). A session
+# runs the one listed first, and an install or update in another process reorders the list, so a
+# session that reloads or reopens can switch versions mid-run. What happens then turns on the install
+# it switched onto (#137, R4-3): one at 0.5.1 or later refuses the relaunch at its workflow's startup,
+# so the run stops there; one older has no version check, so its relaunch goes ahead and reruns steps
+# already recorded (each of the six older releases in a plugin cache started under a 0.5.1 launch
+# record). The line says which, naming each install older than 0.5.1 that is not this session's.
+# Prints them as [{scope, version, running}], running true for each install whose
+# installPath is this script's root, the copy the session loaded, and only installs of their id.
+# The plugin cache keeps one folder per version, so installs at one version share it: each of them
+# runs this session's files, whichever the session took as listed first, so each is marked and is
+# labelled this session's in the line (#137, R3-6). A root that no seen install uses is no install
+# this session runs, so nothing is listed.
+# Returns 1 with one stderr line when their versions differ: each install, and the update command for
+# each one behind the newest, a project or local one run from <repoRoot>, since from elsewhere the CLI
+# can pick another repository's install (measured on Claude Code 2.1.332). Prints [] and returns 0
+# when the session runs no install (a checkout loaded in place: --plugin-dir hides every install), or
+# when the CLI is missing, fails or prints anything but one JSON list, or when this program fails on
+# the list (#137, R1-4). A version, installPath or projectPath that is not a string is read as its
+# text: jq 1.8's rtrimstr fails on a non-string where jq 1.7's returns it unchanged, and as text the
+# list reads alike under both.
+# Two fields are left as the CLI prints them, each measured on Claude Code 2.1.332 with a throwaway
+# plugin at two scopes (#137). projectPath is compared with <repoRoot>'s physical path alone: an
+# install made from a symlinked spelling of a repository was recorded under its physical path (R2-4).
+# enabled is not read: it is the merged setting for the plugin id as seen from the directory the CLI
+# runs in, the same on every install, and with the plugin disabled at user scope and enabled at
+# project scope a fresh session, a reopened one and a reloaded one each ran the user install, listed
+# first, so dropping a "disabled" install would hide the one the session runs (R1-5).
+version_installs() {
+    local root="$1" list rootp ownp res line
+    list="$("$CLAUDE_BIN" plugin list --json 2>/dev/null)" || list=""
+    jq -se 'length == 1 and (.[0] | type == "array")' >/dev/null 2>&1 <<<"$list" || { echo '[]'; return 0; }
+    rootp="$(cd "$root" && pwd -P)"
+    ownp="$(cd "$PLUGIN_ROOT" && pwd -P)"
+    res="$(jq -c --arg rootp "$rootp" --arg ownp "$ownp" --arg own "$PLUGIN_ROOT" --arg root "$root" '
+        def mine: (.installPath // "" | tostring | rtrimstr("/")) as $p | $p == $ownp or $p == $own;
+        def num: .version // "" | tostring | split(".") | map(tonumber? // 0);
+        [.[] | select(type == "object" and (.scope == "user" or ((.scope == "project" or .scope == "local") and (.projectPath // "" | tostring | rtrimstr("/")) == $rootp)))] as $visible
+        | ([$visible[] | select(mine) | .id] | first) as $id
+        | [$visible[] | select($id != null and .id == $id)] as $seen
+        | ($seen | map(num) | max) as $top
+        | [$seen[] | select(num < $top)] as $behind
+        | [$seen[] | select(mine | not)] as $others
+        | [$others[] | select(num < [0, 5, 1])] as $unchecked
+        | {installs: [$seen[] | {scope, version, running: mine}],
+           line: (if ($behind | length) == 0 then ""
+                  else "redline-setup: the Redline installs this repository sees differ: "
+                       + ([$seen[] | "\(.scope) \(.version)" + (if mine then " (this session\u0027s)" else "" end)] | join(", "))
+                       + "; a reload or a reopen runs whichever is listed first, and a run that switches "
+                       + (if ($unchecked | length) == 0 then "stops at its next relaunch"
+                          else "onto " + ([$unchecked[] | "\(.scope) \(.version)"] | join(" or "))
+                               + " is not stopped: a build before 0.5.1 has no version check, so its relaunch reruns steps already recorded"
+                               + (if ($others | length) > ($unchecked | length) then "; onto any other it stops at its next relaunch" else "" end)
+                          end)
+                       + ". Update the older "
+                       + (if ($behind | length) == 1 then "one: " else "ones: " end)
+                       + ([$behind[] | "claude plugin update \($id) --scope \(.scope)" + (if .scope == "user" then "" else ", run from \($root)" end)] | join("; "))
+                       + "; then restart the session or run /reload-plugins"
+                  end)}' <<<"$list")" || { echo '[]'; return 0; }
+    jq -c '.installs' <<<"$res"
+    line="$(jq -r '.line' <<<"$res")"
+    [[ -z "$line" ]] || { echo "$line" >&2; return 1; }
 }
 # version <checks.sh>: the file form. version <repoRoot>: the root form, the one call the launch
 # precheck makes (#15): checks.sh, the unattended section, settings.json and, since #16, whether a
@@ -1495,7 +1601,10 @@ cmd_version() {
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
     local pl; part=0; pl="$(version_plugin "$root")" || part=$?
     [[ $part -ne 2 ]] || exit 2; [[ $part -eq 0 ]] || rc=1
-    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" '{checks: $c, unattended: $u, settings: $s, plugin: $p}'
+    local ins; part=0; ins="$(version_installs "$root")" || part=$?
+    jq -se 'length == 1 and (.[0] | type == "array")' >/dev/null 2>&1 <<<"$ins" || ins='[]'
+    [[ $part -eq 0 ]] || rc=1
+    jq -n --argjson c "$c" --argjson u "$u" --argjson s "$st" --argjson p "$pl" --argjson i "$ins" '{checks: $c, unattended: $u, settings: $s, plugin: $p, installs: $i}'
     return $rc
 }
 

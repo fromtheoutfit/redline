@@ -1,0 +1,1 @@
+Redline round 1: fixed in fc3d7aa (redline: R1-3 refuse a relaunch from another copy at the same version whose agent files differ (#135)). · decided by: redline

@@ -1,0 +1,1 @@
+Redline round 2: fixed in 2679035 (redline: R2-6 write the marker and run drift before a stop asks anything (#135)). · decided by: redline

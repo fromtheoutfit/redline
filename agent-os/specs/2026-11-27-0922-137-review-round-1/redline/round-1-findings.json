@@ -1,0 +1,243 @@
+{
+  "round": 1,
+  "reviewed": "pr",
+  "range": {
+    "from": "57234d04e264dec34cae1678ca29a4d14b2672e3",
+    "to": "57234d04e264dec34cae1678ca29a4d14b2672e3"
+  },
+  "summary": "The change records the version a run starts under and refuses any other in two places, the skill and the workflow, backed by a fixture table and a prompt sweep. The Version bump (0.5.0 to 0.5.1, patch, no template touched) and the Docs entries in plan.md are in order, and this repository has no scheduled or queued work. Most findings share one assumption: that a version string identifies the build, and that the marker can always be written. Under it, a self-review's own version bump refuses a relaunch that could run, records outside ~/.claude now stop every hand-off, a checkout and a release at one version mix agents silently, and the advice for a refused fresh launch reopens without --plugin-dir.",
+  "findings": [
+    {
+      "id": "R1-1",
+      "file": "scripts/redline-prefs.sh",
+      "line": 178,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A self-review's own version bump ends the run at its next relaunch, though the pin would run the launch's version",
+      "description": "On the plugin's own repository loaded in place, `--plugin` is the repository itself. `version_line` reads the version from `$plugin/.claude-plugin/plugin.json` on disk (line 178) and refuses when it differs from `args.launch.version` (lines 181-192). It is called from drift at line 262 and from check at line 338. So when a round bumps the version, the next `run drift` answers `refuse`, and the skill clears the marker and stops (SKILL.md section 7). The bump also changes the marketplace entry and `REDLINE_VERSION`, since setup-test requires all three to agree.\n\nThe relaunch it refuses would have run the launch's script:\n- The live file now differs from the pin, so drift would otherwise answer `scriptPath`.\n- The pin's `REDLINE_VERSION` equals `args.launch.version`, so the workflow's startup check passes.\n- A live session keeps the workflow it loaded (m6-inplace-edit), so the line's 'this session loads Redline <new>' is not what would run.\n\nThe trigger is ordinary on this repository. A PR that leaves the version equal to its base's gets the reviewer's Version nit, and a round fixes it by bumping the version. The failure needs a relaunch after that round: a guided or plan hand-off, a reviewed stop, or the deferred hand-off of `defer at end`. An autopilot run with no stop never calls drift. At the end-of-run deferred hand-off the refusal stops the run before Finish: no drafts filed, no handoff comment, no PR description, no record commit. The fresh run then starts with another review round.\n\nThe PR records this as intended: plan.md 'As built' deviation 10, and 'Behaviour that changes on purpose' in the PR body. Two readings:\n- (a) As built: a version change on the plugin's own repository ends the run, and the lost Finish is accepted.\n- (b) A relaunch that will run the pin is judged by the pin's version, so only a script of another version is refused.",
+      "proposedFix": "Under reading (b): when drift finds a pin, compare `args.launch.version` with the version the pin carries (its `REDLINE_VERSION` line) instead of the on-disk manifest. Refuse only when the script that will run is another version. Add a prefs-test case: the plugin's own repository, a version bump committed after launch, and a pin that holds the launch's version should give `scriptPath`, not `refuse`. Under reading (a): say in docs/running.md 'Hand-off and relaunch' that fixing the Version nit ends a self-review run at its next hand-off, including the end-of-run drafts hand-off, before Finish.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-2",
+      "file": "scripts/redline-prefs.sh",
+      "line": 257,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "When the marker cannot be written, every hand-off now ends the run on every repository",
+      "description": "`run save` looks for the harness record only at `$HOME/.claude/projects/*/<session>/workflows/<runId>.json` (line 213, unchanged). It exits 2 when that glob matches nothing (lines 215-217) or when no session id is set (line 210).\n\nBefore this PR that cost only a later resume. SKILL.md said 'say its line and go on', and on any repository but the plugin's own, `run drift` answered `name` without reading a marker (the removed early return, old lines 134-137).\n\nNow two changes make it fatal:\n- SKILL.md section 7 'Write the marker' (line 243) stops on exit 2.\n- `run drift` exits 2 with no marker on every repository (line 257).\n\nSo in a session whose run records are not under `$HOME/.claude/projects`, every hand-off, reviewed stop and harness stop ends the run, on any repository, and each fresh run stops again at its first stop. Autopilot runs with no stop are not affected. plan.md 'As built' deviation 7 assumes `run save` 'exits 2 only when the harness's record layout changes'.\n\nWhat the failure needs: Claude Code writing the record somewhere other than `$HOME/.claude/projects`, as its `CLAUDE_CONFIG_DIR` setting for the config directory does. The repository does not show where Claude Code writes records under that setting, and no file here reads `CLAUDE_CONFIG_DIR`. The skill's own Glob in 'Save the run record' (SKILL.md line 241, `~/.claude/projects/*/*/workflows/<runId>.json`) makes the same `~/.claude` assumption.",
+      "proposedFix": "Search `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects` in `run save` (line 213) and in the skill's Glob (SKILL.md line 241). Add a prefs-test case with the record under another config directory. Alternatively, let a relaunch in the same session go on without a marker by having drift take the launch from the args the skill holds.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-3",
+      "file": "scripts/redline-prefs.sh",
+      "line": 293,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A checkout and a release at the same version pass both checks, and the relaunch silently mixes their agents",
+      "description": "`version_line` treats an equal version string as the launch's build (line 181). Drift then compares only the pin with the session's live file (lines 293-294). When the session's copy is another build at the same version, a pin that differs from the live file answers `scriptPath` (line 309). The relaunch then runs the launch's script with the session's agents, which come from the session's copy. Agents are listed only on the plugin's own repository (lines 299-302), so on any other repository nothing is said.\n\nThis is reachable in two ways:\n- A run launched from a checkout loaded in place (`--plugin-dir`) is resumed after a reopen without `--plugin-dir`. The checkout's version equals an installed release's, but its files differ (unbumped changes). The line `run check` prints for `session` is plain `claude --resume <id>`.\n- The reverse: a run launched from the release is resumed after a reopen with `--plugin-dir`.\n\nThe spec measured the mixing itself (shape.md finding 6, m4-agents-pin-reopen): the replayed agent's text was the launch copy's, and the rerun agent's was the other copy's. That probe used two different versions, which the version check now refuses. At one version it is neither refused nor warned. Decision 4 and docs/running.md line 171 ('another release's agents arrive only with another version') cover two installed releases, not a checkout and a release at one version.\n\nThe failure needs a developer's checkout at a released version with unreleased changes, and a reopen that switches between the checkout and the release.",
+      "proposedFix": "When drift finds a pin that differs from the live file, also compare the real path of `--plugin` with `args.pluginRoot`. When they differ, the session loads another copy at the same version, and its agents are that copy's: refuse as for another version, or at least say so on every repository. Keep prefs-test line 427 (the same version from another install directory, live file equal to the pin, goes by name) unchanged, and add a case for a checkout and a release at one version with differing workflow files.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-4",
+      "file": "scripts/redline-setup.sh",
+      "line": 1509,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A runtime jq failure in version_installs makes the launch warning stop the launch as 'not set up'",
+      "description": "Reproduced in pieces. I ran `version_installs`' jq program (copied verbatim to /tmp/redlinerepro/installs.jq) on a list whose matching install has `\"version\": 5`. It fails with 'split input and separator must be strings'. `jq -n --argjson i \"\"` fails with 'invalid JSON text passed to --argjson'.\n\nHow the failure travels:\n1. `res` comes back empty (line 1509).\n2. `jq -c '.installs'` on that empty input prints nothing and exits 0, `line` is empty, and the function returns 0 (lines 1526-1528).\n3. `ins` is therefore empty, and line 1556's `--argjson i \"$ins\"` fails.\n4. Under `set -euo pipefail` (line 160), `version <repoRoot>` exits with jq's non-zero status (2).\n5. SKILL.md precheck step 1 treats exit 2 as 'stop as section 1 does: this repository is not set up for Redline yet'.\n\nSo a check documented as 'a warning, never a stop' stops every launch, with a false reason.\n\nWhat the failure needs: the CLI printing a version that is a number, `true`, an array or an object for an install of this plugin's id. A null, false or string version is handled. Redline's manifests carry a string, and no such CLI output is known.\n\nSeparately, the CLI call at line 1505 has no timeout, so the precheck waits for `claude plugin list` however long it takes.",
+      "proposedFix": "Make the function fall back on any failure: `res=\"$(jq ...)\" || { echo '[]'; return 0; }`, and also fall back when `res` is not one JSON object. Make `num` tolerate a non-string version (`(.version // \"\" | tostring)`). Add a setup-test case with a numeric version that expects exit 0 and `installs: []`. Consider a timeout on the CLI call at line 1505.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-5",
+      "file": "scripts/redline-setup.sh",
+      "line": 1512,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "unconfirmed",
+      "title": "The installs warning counts disabled installs",
+      "description": "The `$visible` filter (line 1512) keeps every user install and every project or local install for this root, and never reads an `enabled` field. The stub list setup-test builds 'as the CLI prints one' puts `enabled: true` on every entry (tests/setup-test.sh line 1012), so the CLI reports the field.\n\nI ran the program on a list with a disabled user install at 0.4.3 and an enabled project install at 0.5.1 (this session's). It printed the differ line and `claude plugin update redline@redline --scope user`.\n\nWhether that warning is wrong turns on Claude Code: whether a session ever runs a disabled install after a reload or a reopen, and what `enabled` means for each install. The spec measured which install runs (shape.md finding 1) but not with one disabled. The guard refuses `claude` for this role, so I could not read the real `claude plugin list --json` output.",
+      "proposedFix": "If Claude Code never runs a disabled install, drop entries whose `enabled` is false from `$visible`, and add a setup-test case with one.",
+      "wouldConfirm": "With Redline disabled at user scope and enabled at project scope, check that `/reload-plugins` and a reopen never run the disabled install and that `claude plugin list --json` reports it `enabled: false`.",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-6",
+      "file": "skills/redline/SKILL.md",
+      "line": 241,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "'Save the run record' still says to relaunch anyway, beside the new rule to stop",
+      "description": "Section 7 'Save the run record' still ends 'If the record cannot be found, say so in one line and relaunch anyway' (line 241). The next paragraph, changed here, says that when `run save` exits 2 (no record, no session id) the skill says its line and stops (line 243).\n\nAt a stop the two apply one after the other. `run save` looks for the same record under the same `~/.claude/projects` tree (scripts/redline-prefs.sh line 213), so a record the Glob cannot find makes `run save` exit 2, and 'relaunch anyway' is then wrong. Whichever sentence the skill follows, the relaunch does not happen, since `run drift` exits 2 with no marker (line 257). The cost is a contradictory instruction. On a resume (section 2), whose marker already exists, 'relaunch anyway' still holds.",
+      "proposedFix": "Say that at a stop, if the record cannot be found, the skill says so in one line and stops, since the marker step below cannot write the marker either; on a resume, whose marker exists, it relaunches anyway.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-7",
+      "file": "skills/redline/SKILL.md",
+      "line": 275,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The advice for a refused fresh launch reopens without --plugin-dir, which runs the installed release",
+      "description": "The error section's new sentence covers a fresh launch the workflow refuses for its version (line 275). It says that reopening the session with `claude --resume <session id>` and typing the command again 'launches under the checkout's current files'.\n\nThat case arises only in a session that loads Redline in place (`--plugin-dir`). The spec's own measurement shows that a reopen without `--plugin-dir` runs the installed release: shape.md rows 6 and 7, and every 'checkout loaded in place, unchanged' row, say 'A reopen without `--plugin-dir` runs the installed release (m5)'; finding 6 shows the same. Followed as written, the command launches under the installed release, not the checkout. On another repository nothing warns, since the precheck's `--plugin-dir` line fires only when the repository is the plugin.\n\ndocs/running.md line 169 ('reopen the session and type the command again') and docs/upgrading.md line 69 ('until the session is reopened') also say to reopen without naming the flag.",
+      "proposedFix": "Say to reopen with `claude --plugin-dir <root> --resume <session id>`, using the root the session loaded (`${CLAUDE_PLUGIN_ROOT}`). Name the flag in docs/running.md 'Hand-off and relaunch' and docs/upgrading.md 'A stopped run across a version change (#135)' too.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R1-8",
+      "file": "workflows/redline-loop.js",
+      "line": 61,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The startup refusal's text is wrong for a refused fresh launch",
+      "description": "The startup refusal (line 61) always says 'a relaunch under another version would rerun steps already recorded ... Start fresh: /redline:redline <pr>'.\n\nThe PR has its own case of a refused fresh launch: a session that loads Redline in place after a commit changed the version (loop-test 17a, plan.md deviation 9). That launch has no recorded steps. Typing the suggested command in the same session is refused the same way, because the session keeps the workflow it loaded.\n\nThe skill's error section adds the reopen paragraph next to this line (SKILL.md line 275), so the person reads both 'Start fresh' and 'reopen'. Only the wording is wrong; nothing runs.",
+      "proposedFix": "Word the line so it fits both cases, e.g. 'This launch runs the Redline <REDLINE_VERSION> workflow, and the run's args record Redline <launched>'. Leave the next step to the skill's error section, which already tells a refused fresh launch from a relaunch.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "57234d04e264dec34cae1678ca29a4d14b2672e3",
+    "candidates": 9,
+    "counts": {
+      "verified": 7,
+      "unconfirmed": 1,
+      "refuted": 1,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {"index": 1, "outcome": "verified", "ref": "R1-2"},
+      {"index": 2, "outcome": "verified", "ref": "R1-7"},
+      {"index": 3, "outcome": "verified", "ref": "R1-1"},
+      {"index": 4, "outcome": "verified", "ref": "R1-4"},
+      {"index": 5, "outcome": "unconfirmed", "ref": "R1-5"},
+      {"index": 6, "outcome": "verified", "ref": "R1-3"},
+      {"index": 7, "outcome": "verified", "ref": "R1-6"},
+      {"index": 8, "outcome": "verified", "ref": "R1-8"},
+      {"index": 9, "outcome": "refuted", "ref": "The claim is that after the workflow's version refusal the person is not told which spec folders to commit or remove, because the result's specFolders is [] and the marker is cleared first. That is not so. The skill's error section (skills/redline/SKILL.md line 275) reports `git status` with every error and then names the uncommitted spec folders. `git status` lists the untracked round folders whatever the result's specFolders holds, and the marker `run save` printed just before that relaunch (section 7, line 243) also names them in the conversation."}
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "scripts/redline-prefs.sh",
+        "line": 257,
+        "summary": "A run can no longer get past its first hand-off, on any repository, when the run marker cannot be written. `run drift` now exits 2 without a marker everywhere, and SKILL.md's 'Write the marker' now stops when `run save` exits 2. `run save` still looks for the harness record only under the hardcoded `$HOME/.claude/projects/*/<session>/workflows/<runId>.json` (line 213), so a user whose `CLAUDE_CONFIG_DIR` puts records elsewhere always gets exit 2. Before this change that only cost a later resume, because drift on another repository answered `name` without reading a marker; the change makes it fatal. Fix: search `${CLAUDE_CONFIG_DIR:-$HOME/.claude}/projects` in `run save` (and in the skill's 'Save the run record' Glob), or let drift take the launch and record path from the args the skill holds when no marker exists.",
+        "failure_scenario": "CLAUDE_CONFIG_DIR=/other/dir, guided run on any repository, round 1 raises a judgment call → hand-off → `run save` finds 0 records and exits 2 → skill stops; the drift call that would have answered `name` exits 2 anyway. The run cannot continue past any hand-off, reviewed stop or harness stop."
+      },
+      {
+        "index": 2,
+        "file": "skills/redline/SKILL.md",
+        "line": 275,
+        "summary": "The new recovery advice for a fresh launch the workflow refuses for its version is wrong. It tells the person that reopening with `claude --resume <session id>` and typing the command again launches under the checkout's current files. That case only arises in a session loaded with `--plugin-dir`, and the spec's own measurement m5 shows a reopen without `--plugin-dir` runs the installed release, not the checkout. docs/running.md (line 169) and docs/upgrading.md (line 69) repeat the advice. Fix: say to reopen with `claude --plugin-dir <root> --resume <session id>`, using the root the session loaded, in all three places.",
+        "failure_scenario": "Session started with `claude --plugin-dir ~/Code/redline` reviewing another repository; a commit in the checkout bumps 0.5.1→0.5.2; fresh `/redline:redline 839` is refused; the person follows the line, runs `claude --resume <id>` (no `--plugin-dir`), types the command → the run launches under the installed release (0.4.5 on this machine), not the checkout, with no warning since that repository is not the plugin."
+      },
+      {
+        "index": 3,
+        "file": "scripts/redline-prefs.sh",
+        "line": 262,
+        "summary": "On the plugin's own repository, Redline's own Version-nit fix can end the run at its next relaunch. `version_line` compares `args.launch.version` with the checkout's `plugin.json` on disk, not with the version the relaunch will run (the pin carries the launch's `REDLINE_VERSION`). The #135 spec records 'a round that changes plugin.json's version ends the run' as deviation 10. It does not note that the trigger is routine (the reviewer reports a missing bump as a nit, and the round fixes it), or that a refusal at the end-of-run deferred hand-off loses Finish: no drafts filed, no handoff comment, no PR description, no record commit. Fix: when the relaunch will run the pin, compare against the pin's REDLINE_VERSION rather than the disk manifest, or at least have the reviewer or shaper not fix a Version nit on the plugin's own repository mid-run.",
+        "failure_scenario": "Self-review in place of a PR that forgot its bump, `defer at end`: round 1 posts the Version nit, the implementer bumps plugin.json, marketplace.json and REDLINE_VERSION; at the deferred hand-off `run drift` prints launch `refuse` ('started under Redline 0.5.1 ... this session loads Redline 0.5.2'); the skill clears the marker and stops, although a relaunch from the pin would have run the launch's script."
+      },
+      {
+        "index": 4,
+        "file": "scripts/redline-setup.sh",
+        "line": 1509,
+        "summary": "The installs warning, documented as 'a warning, never a stop', can stop a launch with a misleading reason. If the jq program in `version_installs` fails at runtime, `res` and `ins` come back empty and the function still returns 0. `cmd_version` then runs `jq --argjson i \"\"` (line 1556), which fails, so `set -e` exits the whole `version` call with status 2, and the precheck treats exit 2 as 'this repository is not set up for Redline'. Reproduced: a stub `claude plugin list --json` whose matching install has `\"version\": 5` gives `split input and separator must be strings`, then `invalid JSON text passed to --argjson`, rc=2. Fix: fall back to `[]` and return 0 when the jq call fails or `res` is not JSON; consider a timeout on the CLI call too, which currently has none.",
+        "failure_scenario": "`claude plugin list --json` prints a non-string version for an install with this script's installPath → `redline-setup.sh version <repoRoot>` exits 2 → `/redline:redline <pr>` stops at the precheck saying the repository is not set up."
+      },
+      {
+        "index": 5,
+        "file": "scripts/redline-setup.sh",
+        "line": 1512,
+        "summary": "The launch warning counts installs the session cannot run. The `$visible` filter keeps every user install, and every project or local install for this root, without reading the `enabled` or `projectEnabled` fields that `claude plugin list --json` prints (seen in this machine's real output). So a disabled older install still triggers 'the Redline installs this repository sees differ ... a reload runs whichever is listed first' and an update command for it. Fix: drop entries whose `enabled` (or `projectEnabled`) is false from `$visible`, and add a setup-test case with one.",
+        "failure_scenario": "User-scope redline 0.4.3 disabled, project-scope 0.5.1 running → every fresh launch prints the differ line and 'claude plugin update redline@redline --scope user', though no reload can switch to the disabled install."
+      },
+      {
+        "index": 6,
+        "file": "scripts/redline-prefs.sh",
+        "line": 293,
+        "summary": "The check treats an equal version string as the same build, so a checkout and an installed release at the same version can still mix two builds' agents. If one was used at launch and the other after a reopen, `run check` and the version part of `run drift` both pass, and drift then finds pin ≠ live and answers `scriptPath`. The relaunch then runs the launch's script with the other copy's agents (the mixing measurement m4-agents-pin-reopen found), and with `self` false no agent warning is printed. This contradicts Decision 4's claim that another copy's agents arrive only with another version. Fix: when a pin exists, also compare it with `args.launch.workflow`, or compare the live file's blob with it, and refuse when the session's copy is a different build at the same version.",
+        "failure_scenario": "Run launched under `--plugin-dir` from a checkout at 0.5.1 with unbumped changes; reopened per the session line (`claude --resume <id>`, no `--plugin-dir`) onto the installed 0.5.1 → resume: versions equal, pin (checkout copy) ≠ live (cache file) → scriptPath → the checkout's script runs with the release's agents, silently."
+      },
+      {
+        "index": 7,
+        "file": "skills/redline/SKILL.md",
+        "line": 241,
+        "summary": "The skill now gives two opposite instructions at the same step. 'Save the run record' still says 'If the record cannot be found, say so in one line and relaunch anyway'. The next paragraph, changed here, says that when `run save` exits 2 (which happens when no record is found) the skill says the line and stops, because `run drift` needs the marker. Fix: replace 'relaunch anyway' with 'stop' for a stop's relaunch (keep it for a resume, whose marker already exists), or point it at the marker paragraph.",
+        "failure_scenario": "A hand-off whose record Glob finds nothing: the model reads 'relaunch anyway', then 'say its line and stop'; whichever it follows, drift exits 2, so the first instruction is stale and misleading."
+      },
+      {
+        "index": 8,
+        "file": "workflows/redline-loop.js",
+        "line": 61,
+        "summary": "The workflow's refusal text is wrong for a fresh launch. It says 'a relaunch under another version would rerun steps already recorded ... Start fresh: /redline:redline <pr>' even when the launch was fresh (the in-place version-commit case loop-test 17a pins). In that session, starting fresh is refused again in the same way, because the session still runs the workflow it loaded. The person sees an instruction that loops beside the skill's separate reopen paragraph. Fix: when `args.resume` or `resumeFromRunId` show no earlier launch (or always), word the line to cover both cases and point to reopening, or let the skill replace the line for a fresh-launch refusal.",
+        "failure_scenario": "In-place session, a version commit in the checkout, fresh `/redline:redline 137` → error 'This run started under Redline 0.5.2 ... a relaunch ... Start fresh: /redline:redline 137'; typing that in the same session is refused identically."
+      },
+      {
+        "index": 9,
+        "file": "workflows/redline-loop.js",
+        "line": 69,
+        "summary": "When the workflow refuses a relaunch for its version, the person is not told which spec folders to commit or remove. The hand-built refusal returns `specFolders: []` and `commits: []`, while the run's earlier rounds left uncommitted spec folders (a hand-off keeps them uncommitted by design). The skill's error section runs `run clear` first, which deletes the marker that held the folders, and then must 'name the uncommitted spec folders'. The prefs-side version line names them; this is the only layer that sees #839's case and it names none. The #81 refusal has the same gap. Fix: have the skill take the folders from the marker it just wrote before clearing it, or from `git status`, and say so in the error section.",
+        "failure_scenario": "Session reloaded onto 0.5.2 mid-run; relaunch after the round-2 hand-off → workflow refuses with empty specFolders → skill clears the marker and has no list to name; the next fresh launch stops at precheck step 4 with only 'commit or stash your changes'."
+      }
+    ]
+  }
+}

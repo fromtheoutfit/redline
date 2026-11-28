@@ -50,7 +50,7 @@
 # unnoticed. After bringing checks.json up to date with a changed gate, regenerate and restamp:
 # scripts/redline-gate.sh stamp .claude/commands/agent-os/shape-spec.md .claude/redline/checks.sh
 # redline-template: checks-template.sh v3
-# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-9 sha256:c18b4c85922835cf7a1efe6a5bde159451a89cc8e1b3f7b496e625771883aafb
+# redline-gate: .claude/commands/agent-os/shape-spec.md steps 1-9 sha256:2a4cfb6ef327eefd33e026df54730b15c504b125d4b70a4c0ddcb62cdbc0fe0d
 
 set -euo pipefail
 

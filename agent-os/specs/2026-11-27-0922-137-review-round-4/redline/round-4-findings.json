@@ -1,0 +1,134 @@
+{
+  "round": 4,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "9532f9d59bacb5a2cfab50f38edc66ae30fc0487",
+    "to": "148c672063c9ded97fa967eebd7f7fd4e2abbd65"
+  },
+  "summary": "Round 3's fixes do what they say. The copy check now refuses any other copy by its real path, `agent_list` and its pairwise compare are gone, and drift's agent list reads git's output with -z as JSON strings. The docs, the skill and the standards match, and the fix-diff recheck found no new defect. The four findings are things the run says that are not quite true: a git path list in `run check` that the new -z rule does not yet reach, a copy whose two version strings disagree and loops on the reopen advice, a launch warning that promises a stop for installs older than 0.5.1 where none happens, and a deferred hand-off sentence that names only the first `run drift`. No scheduled or queued work touches `.claude/redline.local.json` or the files these scripts read, since the repository has no scheduler.",
+  "findings": [
+    {
+      "id": "R4-1",
+      "file": "scripts/redline-prefs.sh",
+      "line": 439,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "run check reads its hand-commit and untracked path lists from git without -z, so a name git quotes fails the .claude/ and spec-folder tests",
+      "description": "`run check` builds its hand list with `git -C \"$root\" diff --name-only \"$mhead\" \"$head\"` (line 439) and its untracked list with `git status --porcelain --untracked-files=all | cut -c4- | sed 's/^.* -> //'` (line 475). Neither uses -z. This repository leaves `core.quotePath` unset, so it is true, and git C-quotes a name that holds a byte above 0x7f, a double quote, a backslash or a control character. It prints such a name as `\".claude/redline/\\303\\251.json\"`, with a leading double quote. Traced through the code: `startswith(\".claude/\")` on line 457 is false for that spelling, so a hand fix to such a file after an error stop is refused as head-moved with 'touch ... outside .claude/', although the rule allows that fix. In the same way an untracked file in the run's own spec folder whose name git quotes fails `stray_prog`'s prefix test (lines 476-484) and is refused as untracked. A name holding ' -> ' is also cut at that point by the sed meant for renames. This is the class R3-4 fixed for `run drift`'s agent list: the round 3 cases (prefs-test 'drift: an untracked agent file whose name holds a byte above 0x7f is listed as it is named') were seen red for that cause. The bash-conventions rule this fix diff adds says every git path list is read with -z, but round 3 applied it to drift alone. Conditions: a hand commit or an untracked file whose name holds such a character. The spec folders the workflow names are ASCII, so mostly this would come from a person's own file. The cause is outside this pull request's diff: both lines date from bce103b2, before the PR.",
+      "proposedFix": "Read both lists with -z and a NUL-delimited read, as agent_paths does: `git diff -z --name-only` into a JSON array (`jq -cn --arg p ... '$p'` per name, then `jq -sc .`), and `git status --porcelain=v1 -z --untracked-files=all`, parsing each entry's two-character status, and for a rename (R/C) taking the next NUL-terminated field as the source, instead of splitting on ' -> '. Add prefs-test cases for a hand commit to `.claude/redline/zé.json` after an error marker (resumes) and an untracked `zé.md` in a listed spec folder (passes).",
+      "wouldConfirm": "",
+      "outsideDiff": true,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R3-4"
+      ]
+    },
+    {
+      "id": "R4-2",
+      "file": "scripts/redline-setup.sh",
+      "line": 1480,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A loaded copy whose plugin.json and REDLINE_VERSION disagree refuses every fresh launch, and the skill's advice to reopen loops",
+      "description": "`version_plugin` records `args.launch.version` from the loaded copy's `.claude-plugin/plugin.json` (line 1480). The workflow compares that value with its own `REDLINE_VERSION` constant (workflows/redline-loop.js lines 24 and 57-58) and refuses at stage `relaunch` when they differ. Nothing at launch checks that the copy's two values agree. Only `tests/setup-test.sh` (lines 1137-1141) does, and only when the gate runs. Traced: in a checkout whose plugin.json says 0.5.2 while `REDLINE_VERSION` is still '0.5.1' (bumping two places, as every PR before #135 did), every fresh launch returns 'The Redline 0.5.1 workflow is running, and this run's args record Redline 0.5.2'. The skill's `error` section (SKILL.md line 277) reads any refused fresh launch as 'a commit changed the plugin's version after the session loaded it'. It says to reopen with `claude --plugin-dir <root> --resume <session id>` and type the command again. The reopened session loads the same mismatched files and is refused again, and no line names the third place. Conditions: only a checkout loaded in place can be in this state, since a tagged release passed the gate. It needs a commit or an edit that bumped plugin.json without the constant, which the gate refuses but a hand edit before a run does not. This is not R1-7 (#138), which is about the reopen line leaving out `--plugin-dir`. Here the reopen line is right, and the cause is that the copy disagrees with itself.",
+      "proposedFix": "In `version_plugin`, also read `REDLINE_VERSION` from `$PLUGIN_ROOT/workflows/redline-loop.js` (the sed the setup test uses). When it differs from the manifest's version, print a line naming both values and the file to fix, and return 2 (or a warning the skill stops on), so the launch stops with the cause rather than at the workflow. Or record `args.launch.version` from that constant, so the two layers compare one value.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-3",
+      "file": "scripts/redline-setup.sh",
+      "line": 1529,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The launch warning says a run that switches installs stops at its next relaunch, which is false when the install behind is older than 0.5.1",
+      "description": "The warning line built at line 1529 says 'a reload or a reopen runs whichever is listed first, and a run that switches stops at its next relaunch'. The docblock (lines 1495-1496) and the skill's precheck text (SKILL.md line 90, 'and the run then stops at its next relaunch') say the same. That holds only for a switch onto an install at 0.5.1 or later. A switch onto an install from before 0.5.1 runs that build's workflow, which has no version check. The skill text already in the conversation keeps the 0.5.1 root, so `run drift` compares the 0.5.1 copy and answers `name`. The relaunch by name then resolves to the older script and replays only up to its first changed prompt. docs/upgrading.md line 59 says exactly this: 'the relaunch goes ahead and replays only up to that build's first changed prompt', and line 61 says this is what the launch warning is for. The README's Known limit (line 124) says the same. The warning therefore tells a person who keeps an older install that the run is protected, in the one case the warning exists for. Every install from before 0.5.1 is in that case, so a warning printed now (user scope at 0.5.1, a project install still at 0.4.x) is wrong about the outcome. The warning still gives the update command for each older install.",
+      "proposedFix": "Build the clause per install. For an install behind the newest whose version is below 0.5.1, say that a switch onto it is not refused and reruns recorded rounds. Keep 'stops at its next relaunch' only when every install behind is at 0.5.1 or later. Change the docblock at 1495-1496 and SKILL.md line 90 to match, and add a setup-test case with a stub list holding a 0.4.5 install.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R4-4",
+      "file": "skills/redline/SKILL.md",
+      "line": 265,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The deferred hand-off names only the run drift taken before the first draft, and 'either kind' counts two of three hand-off kinds",
+      "description": "The deferred hand-off section (line 265) says to relaunch with `args.deferrals`, 'the marker having been written, and `run drift` run, before the first draft was presented'. That names only the first of the two runs R2-6's rule asks for. The rule's second run, in the relaunch turn, is in 'The script a relaunch runs' (line 247). That section scopes the double run to 'a hand-off of either kind', as do line 175 and line 245. The skill has three hand-off kinds: `plan` (line 185), `decisions` (line 204) and `deferred` (line 263). So a reader can take the deferred kind as outside the rule and relaunch on the answer from before the drafts. If the in-place checkout's workflow file changes while the person answers the drafts, that relaunch goes by name on a stale `name`. The general sentence 'Before every relaunch ... run run drift' still covers it, so this is a reading of the text, not code. Both sentences came in with R2-6's fix (2679035), in this pull request.",
+      "proposedFix": "In the deferred section, say to run `run drift` again in the relaunch turn and to relaunch on that answer ('The script a relaunch runs'). Change 'either kind' at lines 175, 245 and 247 to 'any kind'.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "148c672063c9ded97fa967eebd7f7fd4e2abbd65",
+    "candidates": 4,
+    "counts": {
+      "verified": 4,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {"index": 1, "outcome": "verified", "ref": "R4-2"},
+      {"index": 2, "outcome": "verified", "ref": "R4-3"},
+      {"index": 3, "outcome": "verified", "ref": "R4-1"},
+      {"index": 4, "outcome": "verified", "ref": "R4-4"}
+    ],
+    "list": [
+      {
+        "index": 1,
+        "file": "scripts/redline-setup.sh",
+        "line": 1480,
+        "summary": "A checkout whose plugin.json and REDLINE_VERSION disagree on disk can never launch a run. Every fresh launch is refused at the workflow's startup, and the skill tells the person to reopen the session, which only loads the same files and refuses again. version_plugin records args.launch.version from .claude-plugin/plugin.json, but the workflow compares it with its own REDLINE_VERSION constant (workflows/redline-loop.js:59). Nothing at launch checks that the loaded copy's two values agree; only tests/setup-test.sh does, at the gate. The skill's error section (skills/redline/SKILL.md:277) reads any refused fresh launch as 'a commit changed the version after the session loaded it'. Fix: have `redline-setup.sh version` read REDLINE_VERSION from the loaded copy's workflows/redline-loop.js and warn, or stop, with a line naming both values when they differ. Alternatively, record args.launch.version from that constant.",
+        "failure_scenario": "The next Redline PR bumps plugin.json and marketplace.json to 0.5.2, as every PR did before #135, and leaves REDLINE_VERSION at '0.5.1'. The person types /redline:redline <pr> in a `claude --plugin-dir .` session. The precheck records launch.version 0.5.2, and the workflow returns 'The Redline 0.5.1 workflow is running, and this run's args record Redline 0.5.2'. The skill says to reopen with `claude --plugin-dir <root> --resume <id>`. The reopened session loads the same mismatched files and is refused again, so self-review of the PR is impossible until the person finds the third version place themselves."
+      },
+      {
+        "index": 2,
+        "file": "scripts/redline-setup.sh",
+        "line": 1529,
+        "summary": "The launch warning tells the person that a run which switches installs 'stops at its next relaunch'. That is false in the case the warning exists for: a switch onto an install from before 0.5.1, which has no version check. In that case the relaunch goes ahead and reruns recorded steps; docs/upgrading.md ('closes the gap in one direction only ... That is what the launch warning is for') and the README's Known limits both say so. The same claim is in version_installs' docblock (lines 1495-1496) and in the skill's precheck description (skills/redline/SKILL.md:90, 'and the run then stops at its next relaunch'). Fix: when an install that is behind is older than 0.5.1, say that a switch onto it is not refused and reruns recorded rounds. Keep 'stops at its next relaunch' only for installs at 0.5.1 or later.",
+        "failure_scenario": "On this machine `claude plugin list --json` shows redline@redline at user scope 0.4.5, plus project installs at 0.4.3 (this repository) and 0.4.5 (Sites/loser). After the user scope moves to 0.5.1, a launch in loser warns '... and a run that switches stops at its next relaunch'. The person takes that as safe and keeps the 0.4.5 project install. A /reload-plugins mid-run switches the session to 0.4.5. The 0.5.1 skill's run drift answers `name`, and the 0.4.5 workflow runs the relaunch with no check, replays only up to its first changed prompt and reruns an already-pushed round: the Losers League #839 damage, after the warning said it would stop."
+      },
+      {
+        "index": 3,
+        "file": "scripts/redline-prefs.sh",
+        "line": 439,
+        "summary": "`run check` reads git paths without -z, so a path git C-quotes reaches its checks in the quoted spelling. The checks are the hand commit list (`git diff --name-only \"$mhead\" \"$head\"`, line 439) and the untracked list (`git status --porcelain | cut -c4- | sed 's/^.* -> //'`, line 475). Such a path holds a byte above 0x7f, a double quote, a backslash or a control character. The quoted spelling starts with a double quote, so it never matches `.claude/` or the run's own folders. This branch touches the function and adds a bash-conventions rule that git path lists are read with -z, but R3-4 applied -z to run drift's agent list only. Fix: read both lists with -z and a NUL-delimited read, as agent_paths does, and parse `git status --porcelain -z` for renames instead of splitting on ' -> '.",
+        "failure_scenario": "After an error stop, the person commits a hand fix to `.claude/redline/é.json`. `git diff --name-only` prints `\".claude/redline/\\303\\251.json\"`, `startswith(\".claude/\")` is false, and the resume is refused as head-moved, 'touch ... outside .claude/', for a fix the rule allows. An untracked file in the run's own spec folder whose name git quotes is likewise reported as outside the run's folders, and a name containing ' -> ' is cut in half."
+      },
+      {
+        "index": 4,
+        "file": "skills/redline/SKILL.md",
+        "line": 265,
+        "summary": "The end-of-run drafts hand-off can relaunch from the run drift answer taken before the first draft, instead of the second run the relaunch is to follow. The deferred section says to relaunch 'the marker having been written, and `run drift` run, before the first draft was presented', naming only that first run. The general rule (line 247) asks for a second run in the relaunch turn but scopes it to 'a hand-off of either kind', and there are three kinds (plan, decisions, deferred), so the deferred kind can be read as left out. Fix: in the deferred section, say to run `run drift` again in the relaunch turn and relaunch on that answer. Reword 'either kind' at lines 175, 245 and 247 to 'any kind'.",
+        "failure_scenario": "The run stops at the deferred hand-off, and the first run drift answers `name`. While the person answers the drafts, the in-place checkout's workflows/redline-loop.js changes. The skill, following the deferred section, relaunches by name on the stale answer instead of from the pin, and the relaunch replays only up to the first changed prompt."
+      }
+    ]
+  }
+}

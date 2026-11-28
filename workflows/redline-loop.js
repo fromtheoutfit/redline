@@ -17,6 +17,12 @@ export const meta = {
   ],
 }
 
+// The plugin version this script belongs to, the same as .claude-plugin/plugin.json and the
+// marketplace entry (tests/setup-test.sh fails when the three differ). A run records the version it
+// launched under in args.launch, and a relaunch under any other version is refused at startup,
+// before any agent (#135). It is read only there, never in a prompt.
+const REDLINE_VERSION = '0.5.1'
+
 // ---------------------------------------------------------------------------
 // Arguments. The /redline:redline skill builds these once and passes them verbatim on every
 // relaunch; only `decisions` is added after a hand-off, and each decision carries its
@@ -29,6 +35,42 @@ const A = args || {}
 
 function fail(message) {
   throw new Error('redline-loop: ' + message)
+}
+
+// The version a run launched under (#135). A relaunch replays only while the script builds the same
+// prompts, and a session can load another install of Redline between two launches of one run: it runs
+// the install listed first, and a reload or a reopen resolves the workflow's name afresh, agents and
+// all (loser #839). So the skill records the version in args.launch at the launch and never changes
+// it, and a script of any other version refuses here, before any agent. This comes before every other
+// args check, so args an older skill built, which may lack a field this build requires, get this line
+// rather than a throw about the field. An absent args.launch is a launch by a build before 0.5.1, the
+// first that records it. The result is the error the skill already treats as not resumable (stage
+// relaunch, resumeFrom null, #81); nothing has run, so it holds no round, commit or spec folder.
+// The line names no next step: a fresh launch and a relaunch reach it alike, and the skill's error
+// section, which knows which it made, gives each its own (#137, R1-8).
+if (A.launch !== undefined && A.launch !== null) {
+  const l = A.launch
+  if (typeof l !== 'object' || Array.isArray(l) || typeof l.version !== 'string' || l.version === '' || typeof l.workflow !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(l.workflow)) {
+    fail('args.launch must be {version, workflow} as redline-setup.sh version prints them under plugin; got ' + JSON.stringify(l))
+  }
+}
+const launchedUnder = A.launch ? A.launch.version : ''
+if (launchedUnder !== REDLINE_VERSION) {
+  return {
+    status: 'error',
+    pr: Number(A.pr),
+    stage: 'relaunch',
+    error: `The Redline ${REDLINE_VERSION} workflow is running, and this run's args record ${launchedUnder ? `Redline ${launchedUnder}` : 'no version, as a Redline build before 0.5.1 launched it'}: a run runs only under the version its launch recorded, since a relaunch under another would rerun steps already recorded, so it stops here, before any agent. Nothing on GitHub is lost.`,
+    detail: {},
+    resumeFrom: null,
+    ownCheck: false,
+    rounds: [],
+    judgmentCalls: [],
+    openFindings: [],
+    commits: [],
+    specFolders: [],
+    warnings: [],
+  }
 }
 
 if (typeof A.repoRoot !== 'string' || !A.repoRoot.startsWith('/')) {
@@ -340,10 +382,12 @@ if (A.resume !== undefined) {
     resume[label] = { attempt: entry.attempt, error: entry.error, hand: { commits: hand.commits || [], paths: hand.paths || [] }, ownCheck: entry.ownCheck === true }
   }
 }
-// The script a relaunch runs (#81). When Redline reviews its own repository, a round's commit can
-// change workflows/redline-loop.js or an agent file. The skill relaunches the launch's script (by
-// name while the file is as launched, from the copy the harness persisted once it differs) and
-// passes what changed as args.drift, from redline-prefs.sh run drift: {workflow, pinned, agents}.
+// The script a relaunch runs (#81, #135). When Redline is loaded in place from a checkout, its
+// workflows/redline-loop.js can change during a run on any repository, and when it reviews its own
+// repository a round's commit can change that file or an agent file. The skill relaunches the
+// launch's script (by name while the file is as launched, from the copy the harness persisted once
+// it differs) and passes what changed as args.drift, from redline-prefs.sh run drift: {workflow,
+// pinned, agents}, whose agents only the plugin's own repository lists.
 // It is read in two places only, both outside every replayed prompt: at startup, where a changed
 // workflow with no pinned copy (a launch by the scriptPath fallback ran the file itself) refuses
 // the relaunch, and at Finish, where the handoff comment says which agent files changed. Agent
@@ -3049,7 +3093,7 @@ function result(status, extra) {
     warnings: unique(warnings),
     relaunch: {
       workflow: 'redline:redline-loop',
-      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it, recorded with "call": true beside it, since it answers a call; any other disposition typed for one is not applied, and any other answer leaves it to the person with nothing filed. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. On the plugin\'s own repository a relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81).',
+      how: 'Relaunch with byte-identical args plus the answers this result asks for, and resumeFromRunId set to the runId of the launch that returned this result. Same session only. handoff (decisions): decisions ({"<id>": {"choice", "notes", "date"}}, every decision so far, unchanged, plus "disposition": "fix|defer" on a decline overruled at that stop). A call answered by picking one of its options also carries "option": "<the label of the option picked>", exactly as the call gives it, never beside "disposition": the workflow takes what the pick ends in from the option\'s ends; an answer in the person\'s own words carries no option. A finding left to the person (forced not null) is deferred to an issue by a pick of its option that ends in defer, or by "disposition": "defer" typed for it, recorded with "call": true beside it, since it answers a call; any other disposition typed for one is not applied, and any other answer leaves it to the person with nothing filed. For each id in overridesUnresolved, the restated decision ({"choice", "notes", "date", "disposition": "fix|defer|accept"}) replaces the one the resolve agent could not apply. handoff (plan): approvedPlans as approveWith gives it (this round\'s number added, or h<n> for a human review pass), plus decisions for every ask ({"choice", "notes", "date"}) and every changed disposition ({"choice", "notes", "date", "disposition": "fix|defer|accept"}). reviewed: selected ({"act": [ids], "dropped": {"<id>": "reason"}}). A stop that carries drafts (handoff decisions or plan with draftsNeeded not empty, and handoff deferred, the one stop before the run finishes when deferred items are raised at the end of the run): deferrals ({"<id>": {"action": "file|drop", "title": "<the person\'s title, or empty>", "notes": "<for a drop, the restated reason>", "date", "draft": <the draft number the stop gave for that id>}}, every answer so far, unchanged, plus one for each id in draftsNeeded). A draft turned back into a fix, or accepted with no change, is a disposition override in decisions instead, and only for a draft whose canFix is true. error: resume ({"<label>": {attempt, error, hand, ownCheck}}) for the label resumeFrom names, with ownCheck as this result gives it, through the skill\'s run marker. A relaunch runs the script the run launched with and may add drift ({workflow, pinned, agents}), as redline-prefs.sh run drift prints it (#81, #135). On every relaunch, launch ({version, workflow}) stays as the launch recorded it: a script of another version refuses the relaunch at startup, before any agent (#135).',
     },
     ...extra,
   }

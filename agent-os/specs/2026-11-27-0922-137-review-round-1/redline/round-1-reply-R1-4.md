@@ -1,0 +1,1 @@
+Redline round 1: fixed in 9d64705 (redline: R1-4 keep the installs warning a warning when the CLI's list cannot be read (#135)). · decided by: redline

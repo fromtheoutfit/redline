@@ -1,0 +1,148 @@
+{
+  "round": 3,
+  "reviewed": "fix-diff",
+  "range": {
+    "from": "704bbafcdf8b65543f8f9fe6354648c22d752ae0",
+    "to": "9532f9d59bacb5a2cfab50f38edc66ae30fc0487"
+  },
+  "summary": "The round 2 fixes put the copy check where both `run check` and `run drift` use it, give the skill an instruction for every exit code, and move the refusal ahead of any question. Four of the six findings are about how a relaunch tells copies apart. Agreeing agents are taken to mean the same copy, though `args.pluginRoot` still names the launch copy's scripts. A fallback launch's live file counts as a pin. The new agent-file listing misses symlinked files and drops paths git quotes. The other two are message nits in the launch precheck.",
+  "findings": [
+    {
+      "id": "R3-1",
+      "file": "scripts/redline-prefs.sh",
+      "line": 157,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The copy check lists no agent files in a copy whose agents/ or agent files are symbolic links",
+      "description": "`agent_list` gates on `[[ -d \"$1/agents\" ]]`, which follows a symlink, and then lists with `find agents -type f` (line 157). That find runs with the default -P. It does not enter a start directory that is a symlink, and `-type f` does not match a symlinked file. Shown on this machine: `/tmp` is a link to `private/tmp`, and `find /tmp -maxdepth 1 -type f` printed nothing while `find /tmp/ -maxdepth 1 -type f` listed files. So for a copy whose `agents/` is a link (or whose `agents/*.md` are links), `agent_list` prints nothing.\n\n- Both copies linked: lines 251-257 compare two empty lists and agree. `copy_line` prints nothing, and `run check` and `run drift` let a relaunch under another copy's differing agents through. That is the mixing R1-3's fix set out to refuse.\n- One copy linked: the lists differ, and a same-version copy with identical agents is refused.\n\nThe `diff -rq` this round's R2-1 fix replaced (removed line `diff -rq \"$lroot/agents\" \"$plugin/agents\"`) follows symlinked directories and files, so this came in with that fix.\n\nConditions: a developer's checkout whose agents/ or agent files are symlinks. An installed release under the plugin cache holds plain files. I could not run `redline-prefs.sh run` (the guard refuses it for this role), so the result is traced through lines 155-158 and 249-257, plus the find behaviour shown above.",
+      "proposedFix": "List through links: `find -L agents -type f` in `agent_list` (or start at `agents/`, and also match `-type l`). Add a prefs-test case with two copies whose agents/ are links to directories that differ, expecting `launch: refuse`, and one where only one side is a link to identical files, expecting it to agree.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R2-1"
+      ]
+    },
+    {
+      "id": "R3-2",
+      "file": "scripts/redline-prefs.sh",
+      "line": 244,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "A relaunch from another copy at the same version with equal agents passes both checks, then every agent's Redline script call is refused by the session's guard",
+      "description": "`copy_line` returns nothing when the session's copy is another directory at the run's version and the two copies' agent files agree (lines 244-259). `run check` and `run drift` then let the relaunch through, and docs/running.md \"Hand-off and relaunch\" says that in that case the relaunch goes on.\n\nThe relaunch keeps the marker's `args`, `args.pluginRoot` included (SKILL.md line 163: on a relaunch nothing else changes). That is the launch copy's root. The workflow builds every agent's script paths from it: `GH = ${pluginRoot}/scripts/redline-gh.sh` and `BACKGROUND` (workflows/redline-loop.js lines 484-486, and the README in `RUN_LINE`, line 488).\n\nThe guard that runs is the session's copy's. `REDLINE_GUARD_PLUGIN_ROOT` is `CLAUDE_PLUGIN_ROOT` (scripts/redline-guard.sh line 62). `script_name` accepts a Redline script only at `PLUGIN/scripts/<name>` and returns `bad-path` for any other copy (lines 754-761). The deny then reads \"'...' is not the Redline plugin's scripts/redline-gh.sh\" (line 1063).\n\nSo after a reopen that switches between a checkout loaded in place and an installed release at one version (or between two checkouts), the first rerun agent that calls `redline-gh.sh` or `redline-background.sh` is refused. Every resume hits the same refusal, since the args never change. Start fresh recovers, and nothing on GitHub is lost, but a round can stop part way.\n\nR1-3's fix added the copy check and refuses only when the agents differ. Round 2's R2-3 copied the same rule into `run check` unchanged. #138 (naming --plugin-dir in every reopen line) would make the switch less likely, but it does not track this failure. I could not feed the guard a hook input with another `CLAUDE_PLUGIN_ROOT` (it refuses `env -u` and that prefix for this role), so this is traced through the lines cited.",
+      "proposedFix": "In `copy_line`, refuse whenever the real path of `args.pluginRoot` is not that of `--plugin`, whatever the agent files hold, since `args.pluginRoot` cannot change without changing every prompt. Keep the agents wording in the line only as a reason. Correct docs/running.md's \"when they agree, the relaunch goes on as below\", and update the prefs-test cases that expect agreeing copies to pass.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R1-3"
+      ]
+    },
+    {
+      "id": "R3-3",
+      "file": "scripts/redline-prefs.sh",
+      "line": 385,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "medium",
+      "confidence": "confirmed",
+      "title": "After a scriptPath-fallback launch and a switch to another copy, drift treats the launch copy's live, possibly edited, workflow file as the pin",
+      "description": "A launch by the `scriptPath` fallback leaves the launch copy's own file in the harness record's `scriptPath`, for example `A/workflows/redline-loop.js`.\n\n- Line 385 counts the recorded path as a pin whenever it is not the session copy's workflow file (`$(realdir \"$plugin\")/$wf`).\n- In a session that now loads copy B at the same version, whose agents agree (so `copy_line` passes), A's live file therefore becomes `pin`.\n- Line 391 compares only its bytes with B's file. `args.launch.workflow`, the blob the launch actually ran, is read only when there is no pin (line 393).\n\nIf A's workflow was edited after the launch, drift answers `launch: scriptPath` with `scriptPath` A's edited file, or `name` when B's file equals A's edited one, and `drift.pinned: true`. Either way it exits 0, and the relaunch runs a script other than the launch's. The workflow's startup check compares only the version string. So a recorded step whose prompt changed reruns, which is the failure this pull request exists to prevent.\n\nConditions: a launch by the fallback (the PR description says no session was found that hits it), then a switch to another copy at the same version with equal agents, and an edit to the launch copy's workflow after the launch. The relaunch would also meet R3-2's script-path refusal at its first gh call, but steps before that call rerun under the edited script. I could not run `redline-prefs.sh run` (refused for this role), so this is traced through lines 380-394 and 407-410.",
+      "proposedFix": "Treat a recorded path equal to `realdir(args.pluginRoot)/workflows/redline-loop.js`, or any path that is not under the harness's `workflows/scripts/`, as no pin, and fall through to the blob comparison against `args.launch.workflow` and its refusal. Alternatively, also require a pin's own blob to equal `args.launch.workflow`. Add a prefs-test case: a fallback marker from copy A, A's workflow edited, drift from copy B at one version with equal agents, expecting `launch: refuse`.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-4",
+      "file": "scripts/redline-prefs.sh",
+      "line": 399,
+      "side": "RIGHT",
+      "category": "correctness",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "An agent file whose name git quotes is dropped from drift's agents list",
+      "description": "On the plugin's own repository, drift lists changed agent files by piping `git diff --name-only` and `git ls-files --others` through `agent_paths` (line 399). With `core.quotePath` at its default (it is unset in this repository), git prints a path holding a byte above 0x7f, a double quote, a backslash or a control character in C-quoted form, for example `\"agents/r\\303\\251viewer.md\"`.\n\n`agent_paths` keeps only paths matching `*.md` (line 149). A quoted path ends in `.md\"`, so it is dropped. The skill's line and the handoff comment then never name that edited agent.\n\nBefore this round's R2-1 fix, the same path was passed on, quoted. The removed line was `... -- agents/; } | sort -u | jq -R . | jq -sc .)`.\n\nConditions: a round on the plugin's own repository that adds or edits an agent file with such a character in its name. Every agent file today has an ASCII name (agents/redline-*.md). Traced through lines 145-152 and 399.",
+      "proposedFix": "Run both git commands with `-c core.quotePath=false`, or with `-z` and a NUL-delimited read in `agent_paths`, and add a prefs-test case with a non-ASCII agent file name on the plugin's own repository.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": true,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": "",
+      "sameClassAs": [
+        "R2-1"
+      ]
+    },
+    {
+      "id": "R3-5",
+      "file": "scripts/redline-setup.sh",
+      "line": 1480,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "A loaded copy whose manifest has no version gets an args-validation throw at launch rather than a clear line",
+      "description": "`version_plugin` reads `.version // empty` (line 1480) and prints `version: \"\"` with no warning and no exit 2. The skill records it as `args.launch.version` (SKILL.md lines 90 and 163). The workflow then throws `redline-loop: args.launch must be {version, workflow} ...` (workflows/redline-loop.js lines 51-55), since an empty version fails that check.\n\n`run check` and `run drift` give a plain line for the same state (\"... plugin.json holds no version\", exit 2, scripts/redline-prefs.sh line 213). The launch stops before any agent, so nothing is lost; only the message differs.\n\nConditions: a development copy loaded with --plugin-dir whose `.claude-plugin/plugin.json` has no `version`. The plugin's own setup test fails on such a manifest.",
+      "proposedFix": "In `version_plugin`, call die2 with \"$PLUGIN_ROOT/.claude-plugin/plugin.json holds no version\" when `ver` is empty, and add a setup-test case.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    },
+    {
+      "id": "R3-6",
+      "file": "scripts/redline-setup.sh",
+      "line": 1525,
+      "side": "RIGHT",
+      "category": "nit",
+      "severity": "low",
+      "confidence": "confirmed",
+      "title": "The installs warning labels every install that shares the session's cache folder \"(this session's)\"",
+      "description": "`mine` is true for every seen install whose `installPath` is this script's root (line 1515). Line 1525 labels each such install \"(this session's)\", and `installs[].running` is true for each (line 1522).\n\nThe plugin cache keeps one folder per version, so installs at one version share it. In this machine's `~/.claude/plugins/installed_plugins.json`, the user install and the project install for `/Users/michaelwitwicki/Code/Sites/loser` both have installPath `.../cache/redline/redline/0.4.5`.\n\nWith a third install at another version (a local 0.4.3, say), the line reads \"user 0.4.5 (this session's), project 0.4.5 (this session's), local 0.4.3\". Only one of those is the install the session runs, and the docblock (lines 1497-1498) says \"running true for the install whose installPath is this script's root\", in the singular.\n\nNo reader uses `running` (neither skill nor workflow), and the update commands for the older install are right. So only the label misreports.",
+      "proposedFix": "Mark only the first seen install whose installPath matches as running (the one listed first, which the session runs), or label matching installs as sharing the session's folder. Add a setup-test case with two installs at one version.",
+      "wouldConfirm": "",
+      "outsideDiff": false,
+      "inFixDiff": false,
+      "knownAs": "",
+      "carriedFrom": "",
+      "askRule": ""
+    }
+  ],
+  "coverage": {
+    "head": "9532f9d59bacb5a2cfab50f38edc66ae30fc0487",
+    "candidates": 6,
+    "counts": {
+      "verified": 6,
+      "unconfirmed": 0,
+      "refuted": 0,
+      "duplicate": 0,
+      "settled": 0,
+      "known": 0
+    },
+    "accounting": [
+      {"index": 1, "outcome": "verified", "ref": "R3-2"},
+      {"index": 2, "outcome": "verified", "ref": "R3-3"},
+      {"index": 3, "outcome": "verified", "ref": "R3-1"},
+      {"index": 4, "outcome": "verified", "ref": "R3-4"},
+      {"index": 5, "outcome": "verified", "ref": "R3-6"},
+      {"index": 6, "outcome": "verified", "ref": "R3-5"}
+    ]
+  }
+}

@@ -399,7 +399,11 @@ const prior = (id, disposition, extra) => ({ id, round: Number(id.slice(1).split
 // those cases are answered here, by the person, from the first launch.
 const typedAnswer = (...ids) => Object.fromEntries(ids.map((id) => [id, { choice: 'In their own words', notes: `The author answers ${id} in their own words.`, date: '2026-11-18' }]))
 const goAhead = (...ids) => Object.fromEntries(ids.map((id) => [id, { action: 'file', title: '', notes: '', date: '2026-11-16', draft: 1 }]))
+// The version the workflow carries (#135), read off its own constant: every scenario launches under
+// it, as the skill records it in args.launch at a launch, and section 17a relaunches under others.
+const RUNNING_VERSION = (src.match(/^const REDLINE_VERSION = '([^']+)'$/m) || [])[1]
 const baseArgs = {
+  launch: { version: RUNNING_VERSION, workflow: 'c'.repeat(40) },
   repoRoot: '/r', pluginRoot: '/p', pr: 114, launchedAt: '2026-10-20T16:00:00-0400', headRef: 'redline-seed-3', baseRef: 'main',
   startSha: 'a'.repeat(40), files: ['app/x.php'], snapshotPath: '/r/agent-os/specs/x/redline/snapshot-start.json', reviewer: 'sam', login: 'author',
   // coverage null: the reviewer alone, as before the coverage pass existed (#79), so every scenario
@@ -2724,6 +2728,52 @@ function samePrefix(name, first, second, n) {
 }
 
 // ---------------------------------------------------------------------------
+// 17a. The version a run launched under (#135). A session can load another install of Redline
+//     between two launches of one run, and a relaunch by name then runs that install's script,
+//     which replays only up to its first changed prompt (loser #839). The skill records the
+//     version a run starts under in args.launch, and a script of any other version refuses at
+//     startup, before any agent and before every other args check, with a line naming both
+//     versions. An absent args.launch is a launch by a build before 0.5.1.
+// ---------------------------------------------------------------------------
+{
+  check('launch: the workflow carries one REDLINE_VERSION, a semver version', /^\d+\.\d+\.\d+$/.test(RUNNING_VERSION || '') && (src.match(/^const REDLINE_VERSION = /gm) || []).length === 1, RUNNING_VERSION)
+  const scenario = { reviews: [[f('R1-1', 'correctness'), f('R1-2', 'correctness')], []], ask: ['R1-2'], commitIds: [['R1-1', 'R1-2']] }
+  const decided = { ...baseArgs, decisions: { 'R1-2': { choice: 'Keep it', notes: 'Kept.', date: '2026-11-26' } } }
+  const same = await go('launch: the same version', decided, scenario)
+  check('launch: a relaunch under the version it launched with runs', same.res.status === 'done', [same.res.status, same.res.error])
+  const refusedShape = (run) => run.thrown === null && run.res.status === 'error' && run.res.stage === 'relaunch' && run.res.resumeFrom === null && run.res.ownCheck === false && run.calls.length === 0
+  const other = await go('launch: another version', { ...decided, launch: { version: '0.4.3', workflow: 'd'.repeat(40) } }, scenario)
+  check('launch: a relaunch under another version is refused at stage relaunch, before any agent, not resumable and not its own check', refusedShape(other), [other.thrown && other.thrown.message, other.res && other.res.status, other.res && other.res.stage, labels(other.calls)])
+  check('launch: the refusal names both versions and says nothing on GitHub is lost', other.res && other.res.error === `The Redline ${RUNNING_VERSION} workflow is running, and this run's args record Redline 0.4.3: a run runs only under the version its launch recorded, since a relaunch under another would rerun steps already recorded, so it stops here, before any agent. Nothing on GitHub is lost.`, other.res && other.res.error)
+  check('launch: the refusal is an error result as the skill reads one, with no rounds, commits or spec folders', other.res && Array.isArray(other.res.rounds) && other.res.rounds.length === 0 && Array.isArray(other.res.commits) && other.res.commits.length === 0 && Array.isArray(other.res.specFolders) && other.res.specFolders.length === 0 && Array.isArray(other.res.warnings) && other.res.pr === 114, other.res)
+  const absent = { ...decided }
+  delete absent.launch
+  const old = await go('launch: no launch recorded', absent, scenario)
+  check('launch: a relaunch of a run whose args hold no launch is refused the same way', refusedShape(old), [old.thrown && old.thrown.message, old.res && old.res.status, labels(old.calls)])
+  check('launch: its line says a build before 0.5.1 launched the run', old.res && old.res.error === `The Redline ${RUNNING_VERSION} workflow is running, and this run's args record no version, as a Redline build before 0.5.1 launched it: a run runs only under the version its launch recorded, since a relaunch under another would rerun steps already recorded, so it stops here, before any agent. Nothing on GitHub is lost.`, old.res && old.res.error)
+  const nulled = await go('launch: launch null', { ...decided, launch: null }, scenario)
+  check('launch: a launch of null reads as none recorded', refusedShape(nulled) && nulled.res.error === old.res.error, nulled.res && nulled.res.error)
+  // Before every other args check: args an older skill built, which may lack a field this build
+  // requires, still get the version line, never a throw about the field.
+  const older = { ...absent }
+  delete older.repoRoot
+  const olderRun = await go('launch: no launch and a field this build requires missing', older, scenario)
+  check('launch: the version refusal comes before every other args check', refusedShape(olderRun) && olderRun.res.error === old.res.error, [olderRun.thrown && olderRun.thrown.message, olderRun.res && olderRun.res.error])
+  const fresh = await go('launch: a fresh launch under another version', { ...baseArgs, launch: { version: '9.0.0', workflow: 'd'.repeat(40) } }, scenario)
+  check('launch: a fresh launch whose skill is another version is refused too, before any agent', refusedShape(fresh) && fresh.res.error.startsWith('The Redline ' + RUNNING_VERSION + ' workflow is running, and this run\'s args record Redline 9.0.0: '), fresh.res && fresh.res.error)
+  check('launch: the refusal names no command, so a refused fresh launch is not told to type one in the session that refuses it again (#137, R1-8)', [other, old, fresh].every((r) => r.res && !r.res.error.includes('/redline:redline')), [other, old, fresh].map((r) => r.res && r.res.error))
+  for (const bad of ['0.5.1', [], { version: '' , workflow: 'c'.repeat(40) }, { version: 1, workflow: 'c'.repeat(40) }, { version: RUNNING_VERSION }, { version: RUNNING_VERSION, workflow: 'xyz' }, { version: RUNNING_VERSION, workflow: 'C'.repeat(40) }]) {
+    const run = await go('launch: malformed launch', { ...decided, launch: bad }, scenario)
+    check(`launch: args.launch ${JSON.stringify(bad)} fails at startup`, run.thrown !== null && run.thrown.message.includes('args.launch') && run.calls.length === 0, run.thrown ? run.thrown.message : run.res && run.res.status)
+  }
+  const sha256 = await go('launch: a blob id from a sha256 repository', { ...decided, launch: { version: RUNNING_VERSION, workflow: 'e'.repeat(64) } }, scenario)
+  check('launch: a 64-hex blob id is a well-formed launch', sha256.res && sha256.res.status === 'done', [sha256.thrown && sha256.thrown.message, sha256.res && sha256.res.status])
+  // The launch is read at startup only: no prompt of any run names the blob id or a launch field.
+  check('launch: the result tells a relaunching session to keep launch as recorded', same.res.relaunch.how.includes('launch ({version, workflow}) stays as the launch recorded it: a script of another version refuses the relaunch at startup, before any agent (#135).'), same.res.relaunch.how.slice(-400))
+  check('launch: no prompt of the run holds the recorded blob id', same.calls.every((c) => !c.prompt.includes('c'.repeat(40))), labels(same.calls.filter((c) => c.prompt.includes('c'.repeat(40)))))
+}
+
+// ---------------------------------------------------------------------------
 // 18. The shaper decides (#93): a decline is a disposition of its own, with a reason, a reply and
 //     a settled thread and no commit; a decline without a reason, and an ask outside the cases,
 //     stop at shape; a human review pass still refuses both a decline and nothing else it took
@@ -4626,6 +4676,14 @@ function samePrefix(name, first, second, n) {
   check('statements: the docs and the skill say a headless run that must not stop uses autopilot', read('docs', 'running.md').includes(headless) && read('skills', 'redline', 'SKILL.md').includes(headless), 'docs/running.md, Saved launch settings; skills/redline/SKILL.md, section 3')
   // The defer operation runs at two times, and the GitHub agent's file names both (#97, R3-1).
   check('statements: the GitHub agent\'s defer operation names the end-of-run filing at Finish', read('agents', 'redline-github.md').includes('or, with deferred items raised at the end of the run, at Finish, before the replies those items waited for'), 'agents/redline-github.md, defer')
+  // #137, R4-4: the skill has three kinds of hand-off (plan, decisions, deferred), so the rule that
+  // the marker is written and run drift run before anything is asked covers a hand-off of any kind,
+  // and the deferred hand-off, which named only the run drift taken before its first draft, names
+  // the second one too, in the relaunch turn, whose answer the relaunch follows.
+  const launchSkill = read('skills', 'redline', 'SKILL.md')
+  check('statements: the skill scopes the marker and run drift rule to a hand-off of any kind, never of either kind (#137, R4-4)', !launchSkill.includes('either kind') && launchSkill.includes('a hand-off of any kind, a `reviewed` result') && launchSkill.includes('a `handoff` of any kind, a `reviewed` result'), launchSkill.split('\n').filter((line) => line.includes('either kind')).map((line) => line.slice(0, 80)))
+  const deferredSection = ((launchSkill.split('### `handoff` with `handoffKind: "deferred"`')[1] || '').split('### `done`')[0]) || ''
+  check('statements: the deferred hand-off runs run drift again in the relaunch turn and relaunches on that answer (#137, R4-4)', deferredSection.includes('run `run drift` again in the relaunch turn, after the word, and relaunch on that answer'), deferredSection.slice(-500))
 }
 
 // ---------------------------------------------------------------------------

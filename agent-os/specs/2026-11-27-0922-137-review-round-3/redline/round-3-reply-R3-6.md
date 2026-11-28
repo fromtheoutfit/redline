@@ -1,0 +1,1 @@
+Redline round 3: fixed in ca2b0b5 (redline: R3-6 say that every install sharing the session's folder is marked running, and pin it (#135)). · decided by: redline
