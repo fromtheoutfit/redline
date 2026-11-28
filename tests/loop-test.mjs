@@ -4676,6 +4676,14 @@ function samePrefix(name, first, second, n) {
   check('statements: the docs and the skill say a headless run that must not stop uses autopilot', read('docs', 'running.md').includes(headless) && read('skills', 'redline', 'SKILL.md').includes(headless), 'docs/running.md, Saved launch settings; skills/redline/SKILL.md, section 3')
   // The defer operation runs at two times, and the GitHub agent's file names both (#97, R3-1).
   check('statements: the GitHub agent\'s defer operation names the end-of-run filing at Finish', read('agents', 'redline-github.md').includes('or, with deferred items raised at the end of the run, at Finish, before the replies those items waited for'), 'agents/redline-github.md, defer')
+  // #137, R4-4: the skill has three kinds of hand-off (plan, decisions, deferred), so the rule that
+  // the marker is written and run drift run before anything is asked covers a hand-off of any kind,
+  // and the deferred hand-off, which named only the run drift taken before its first draft, names
+  // the second one too, in the relaunch turn, whose answer the relaunch follows.
+  const launchSkill = read('skills', 'redline', 'SKILL.md')
+  check('statements: the skill scopes the marker and run drift rule to a hand-off of any kind, never of either kind (#137, R4-4)', !launchSkill.includes('either kind') && launchSkill.includes('a hand-off of any kind, a `reviewed` result') && launchSkill.includes('a `handoff` of any kind, a `reviewed` result'), launchSkill.split('\n').filter((line) => line.includes('either kind')).map((line) => line.slice(0, 80)))
+  const deferredSection = ((launchSkill.split('### `handoff` with `handoffKind: "deferred"`')[1] || '').split('### `done`')[0]) || ''
+  check('statements: the deferred hand-off runs run drift again in the relaunch turn and relaunches on that answer (#137, R4-4)', deferredSection.includes('run `run drift` again in the relaunch turn, after the word, and relaunch on that answer'), deferredSection.slice(-500))
 }
 
 // ---------------------------------------------------------------------------
