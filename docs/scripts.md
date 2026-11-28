@@ -487,7 +487,11 @@ The scriptable parts of `/redline:setup`. The setup skill runs the writing subco
 #       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
 #       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
 #       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
-#       records as args.launch (#135).
+#       records as args.launch (#135). The workflow compares that version with its own
+#       REDLINE_VERSION, so a loaded copy that cannot launch is stopped here, exit 2, with one line
+#       naming the file and the value (#137, R4-2): its plugin.json holds no version string, its
+#       workflows/redline-loop.js holds no REDLINE_VERSION line, or the two disagree. Only a
+#       checkout loaded in place can be in that state.
 #       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
 #       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
 #       whose installPath is this script's root, as {scope, version, running}; [] when no seen
@@ -500,8 +504,9 @@ The scriptable parts of `/redline:setup`. The setup skill runs the writing subco
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
 #       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
-#       settings.json is not JSON or has a byte-order mark, or
-#       <repoRoot>/.claude-plugin/plugin.json is not JSON.
+#       settings.json is not JSON or has a byte-order mark,
+#       <repoRoot>/.claude-plugin/plugin.json is not JSON, or the loaded copy's own version places
+#       are missing or disagree, as above. Its stderr line says which.
 #
 # Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, REDLINE_UNATTENDED_TEMPLATE
 # templates/shape-spec-unattended.md, whose history/ directory sits beside it, and REDLINE_CLAUDE the

@@ -120,7 +120,11 @@
 #       plugin also carries the loaded copy's own version (its plugin.json) and workflow, the git blob
 #       id of its workflows/redline-loop.js (hashed in <repoRoot> with --no-filters, as
 #       redline-prefs.sh run drift hashes it, so the same id wherever the file sits), which the skill
-#       records as args.launch (#135).
+#       records as args.launch (#135). The workflow compares that version with its own
+#       REDLINE_VERSION, so a loaded copy that cannot launch is stopped here, exit 2, with one line
+#       naming the file and the value (#137, R4-2): its plugin.json holds no version string, its
+#       workflows/redline-loop.js holds no REDLINE_VERSION line, or the two disagree. Only a
+#       checkout loaded in place can be in that state.
 #       installs lists the installs of this plugin a session in <repoRoot> sees, from claude plugin
 #       list --json (#135): user, and project or local ones for <repoRoot>, of the id of the one
 #       whose installPath is this script's root, as {scope, version, running}; [] when no seen
@@ -133,8 +137,9 @@
 #       Prints {checks, unattended, settings: {missing, stale}, plugin: {self, inPlace, pluginRoot,
 #       version, workflow}, installs: [{scope, version, running}]} (inPlace null unless self), one
 #       stderr line per warning, and exits 1 when any part warns; 2 when checks.sh or shape-spec.md is missing,
-#       settings.json is not JSON or has a byte-order mark, or
-#       <repoRoot>/.claude-plugin/plugin.json is not JSON.
+#       settings.json is not JSON or has a byte-order mark,
+#       <repoRoot>/.claude-plugin/plugin.json is not JSON, or the loaded copy's own version places
+#       are missing or disagree, as above. Its stderr line says which.
 #
 # Environment: REDLINE_TEMPLATE overrides scripts/checks-template.sh, REDLINE_UNATTENDED_TEMPLATE
 # templates/shape-spec-unattended.md, whose history/ directory sits beside it, and REDLINE_CLAUDE the
@@ -1472,13 +1477,28 @@ entries() { [[ "$1" -eq 1 ]] && echo entry || echo entries; }
 # the session loaded: a self-hosted root at another path means the released copy's skill, workflow,
 # agents and guard review the checkout, not the branch's own (#16). It also prints the loaded copy's
 # own version and its workflow file's git blob id, which the skill records as args.launch (#135).
+# The workflow compares that version with its own REDLINE_VERSION, so the two are read here, where
+# the fact is first read, and a copy that cannot launch is stopped with its cause (#137, R4-2): one
+# whose manifest holds no version string (absent, or not a string: it went to the workflow as "" and
+# met a throw about args.launch, R3-5), whose workflow file holds no REDLINE_VERSION line, or whose
+# two places disagree. Each of those was refused or thrown at the workflow on every fresh launch, and
+# the reopen the skill advises for a refused fresh launch loads the same files. Only a checkout
+# loaded in place can be in that state, since a release passed the gate's test of the three places.
+# The constant is read in either quote style, so a copy that launches is never stopped for its
+# quotes; the gate's own test asks for single ones.
 # Prints {self, inPlace, pluginRoot, version, workflow} (inPlace null unless self); returns 1 with the
-# stderr line when self and not in place; exits 2 on a root manifest that is not JSON.
+# stderr line when self and not in place; exits 2 on a root manifest that is not JSON, and with its
+# line on the loaded copy's own version places as above.
 version_plugin() {
-    local root="$1" self=false inplace=null name="" own ver blob
-    own="$(jq -r '.name // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
-    ver="$(jq -r '.version // empty' "$PLUGIN_ROOT/.claude-plugin/plugin.json")"
-    blob="$(git -C "$root" hash-object --no-filters "$PLUGIN_ROOT/workflows/redline-loop.js")"
+    local root="$1" self=false inplace=null name="" own ver blob wver
+    local manifest="$PLUGIN_ROOT/.claude-plugin/plugin.json" wfile="$PLUGIN_ROOT/workflows/redline-loop.js"
+    own="$(jq -r '.name // empty' "$manifest")"
+    ver="$(jq -r '.version | if type == "string" then . else "" end' "$manifest" 2>/dev/null || true)"
+    wver="$(sed -n "s/^const REDLINE_VERSION = ['\"]\([^'\"]*\)['\"].*\$/\1/p" "$wfile" 2>/dev/null | head -n 1)"
+    [[ -n "$ver" ]] || die2 "$manifest holds no version string, so a run from this copy of Redline has no version to record. Give it the version in $wfile's REDLINE_VERSION, then reopen the session so it loads the corrected file"
+    [[ -n "$wver" ]] || die2 "$wfile holds no line of the form const REDLINE_VERSION = '<version>', so the workflow's version cannot be compared with the $ver in $manifest. Give it that line, then reopen the session so it loads the corrected file"
+    [[ "$ver" == "$wver" ]] || die2 "this copy of Redline disagrees with itself: $manifest says version $ver and $wfile says REDLINE_VERSION $wver. A run records the first and the workflow compares it with the second, so every launch would be refused. Make the two agree, and the entry in .claude-plugin/marketplace.json with them, then reopen the session so it loads the corrected files"
+    blob="$(git -C "$root" hash-object --no-filters "$wfile")"
     if [[ -f "$root/.claude-plugin/plugin.json" ]]; then
         name="$(jq -r '.name // empty' "$root/.claude-plugin/plugin.json" 2>/dev/null)" || die2 "$root/.claude-plugin/plugin.json is not JSON"
     fi

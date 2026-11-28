@@ -989,11 +989,57 @@ expect_json "the plugin's version and workflow blob are the loaded copy's (#135)
 # A copy of the plugin at another version, with an edited workflow, reports its own pair, not this checkout's.
 CP="$WORK/plugin-copy"; mkdir -p "$CP"; cp -R "$PLUGIN/scripts" "$PLUGIN/templates" "$PLUGIN/.claude-plugin" "$PLUGIN/workflows" "$CP/"
 jq '.version = "9.8.7"' "$PLUGIN/.claude-plugin/plugin.json" > "$CP/.claude-plugin/plugin.json"
+# The copy's workflow carries the copy's version too: a copy whose two places disagree is stopped (#137, R4-2, below).
+sed "s/^const REDLINE_VERSION = .*\$/const REDLINE_VERSION = '9.8.7'/" "$PLUGIN/workflows/redline-loop.js" > "$CP/workflows/redline-loop.js"
 printf '\n// an edit\n' >> "$CP/workflows/redline-loop.js"
 CPW="$(git hash-object --no-filters "$CP/workflows/redline-loop.js")"
 [[ "$CPW" != "$(git hash-object --no-filters "$PLUGIN/workflows/redline-loop.js")" ]] && ok "the copy's workflow blob differs from this checkout's" || bad "the copy's workflow blob differs from this checkout's" "$CPW"
 cpout="$("$CP/scripts/redline-setup.sh" version "$VR" 2>/dev/null)"
 [[ "$(jq -r '[.plugin.version, .plugin.workflow, .plugin.pluginRoot] | join(",")' <<<"$cpout")" == "9.8.7,$CPW,$(cd "$CP" && pwd)" ]] && ok "a copy at another version reports its own version, blob and root (#135)" || bad "a copy at another version reports its own version, blob and root (#135)" "$(jq -c .plugin <<<"$cpout")"
+
+echo "# version <repoRoot>: the loaded copy's own two version places agree, or the launch stops (#137, R4-2, R3-5)"
+# A run records the version in the loaded copy's plugin.json as args.launch, and the workflow compares
+# it with its own REDLINE_VERSION. A copy whose manifest holds no version string, or whose two places
+# disagree, got every fresh launch refused or thrown at the workflow, and the reopen the skill then
+# advises loads the same files. So version stops such a copy itself, exit 2, with a line naming both
+# files and both values; it prints no JSON, so the skill has no version to record.
+# vcopy <dir> <jq filter for the manifest> <the workflow's REDLINE_VERSION line>
+vcopy() {
+    rm -rf "$1"; mkdir -p "$1"; cp -R "$PLUGIN/scripts" "$PLUGIN/templates" "$PLUGIN/.claude-plugin" "$PLUGIN/workflows" "$1/"
+    jq "$2" "$PLUGIN/.claude-plugin/plugin.json" > "$1/.claude-plugin/plugin.json"
+    sed "s|^const REDLINE_VERSION = .*\$|$3|" "$PLUGIN/workflows/redline-loop.js" > "$1/workflows/redline-loop.js"
+}
+SHIPPED="$(jq -r .version "$PLUGIN/.claude-plugin/plugin.json")"
+SHIPPED_LINE="const REDLINE_VERSION = '$SHIPPED'"
+VC="$WORK/v-copy"; VCP="$(mkdir -p "$VC" && cd "$VC" && pwd)"
+# vstop <name> <the line's text>: exit 2, the line on stderr, nothing on stdout
+vstop() {
+    local out err rc=0
+    out="$("$VC/scripts/redline-setup.sh" version "$VR" 2>"$WORK/v-copy.err")" || rc=$?
+    err="$(cat "$WORK/v-copy.err")"
+    [[ $rc -eq 2 && -z "$out" && "$err" == *"$2"* ]] && ok "$1" || bad "$1" "exit $rc, stdout '${out:0:80}', stderr: $err"
+}
+vcopy "$VC" '.version = "9.8.7"' "$SHIPPED_LINE"
+vstop "a copy whose plugin.json is ahead of its workflow's REDLINE_VERSION stops, exit 2, naming both files and both values (#137, R4-2)" "redline-setup: this copy of Redline disagrees with itself: $VCP/.claude-plugin/plugin.json says version 9.8.7 and $VCP/workflows/redline-loop.js says REDLINE_VERSION $SHIPPED."
+vstop "its line says what to do: make the two agree, then reopen the session (#137, R4-2)" "Make the two agree, and the entry in .claude-plugin/marketplace.json with them, then reopen the session so it loads the corrected files"
+vcopy "$VC" '.' "const REDLINE_VERSION = '9.9.9'"
+vstop "a copy whose workflow is ahead of its plugin.json stops the same way (#137, R4-2)" "$VCP/.claude-plugin/plugin.json says version $SHIPPED and $VCP/workflows/redline-loop.js says REDLINE_VERSION 9.9.9."
+vcopy "$VC" 'del(.version)' "$SHIPPED_LINE"
+vstop "a copy whose plugin.json holds no version stops with a line naming the file (#137, R3-5)" "redline-setup: $VCP/.claude-plugin/plugin.json holds no version string, so a run from this copy of Redline has no version to record."
+vcopy "$VC" '.version = 5' "$SHIPPED_LINE"
+vstop "a version that is not a string is no version string (#137, R4-2)" "$VCP/.claude-plugin/plugin.json holds no version string"
+vcopy "$VC" '.' "// no version constant"
+vstop "a copy whose workflow holds no REDLINE_VERSION line stops with a line naming the file (#137, R4-2)" "redline-setup: $VCP/workflows/redline-loop.js holds no line of the form const REDLINE_VERSION = '<version>', so the workflow's version cannot be compared with the $SHIPPED in $VCP/.claude-plugin/plugin.json."
+vcopy "$VC" '.' "const REDLINE_VERSION = 0.5"
+vstop "a REDLINE_VERSION that is not a quoted string is no such line (#137, R4-2)" "$VCP/workflows/redline-loop.js holds no line of the form const REDLINE_VERSION = '<version>'"
+# The neighbours: a copy whose two places agree is reported as before, in either quote style.
+vcopy "$VC" '.' "const REDLINE_VERSION = \"$SHIPPED\""
+vout="$("$VC/scripts/redline-setup.sh" version "$VR" 2>/dev/null)"
+[[ "$(jq -r '[.plugin.version, .plugin.pluginRoot] | join(",")' <<<"$vout")" == "$SHIPPED,$VCP" ]] && ok "a copy whose constant is in double quotes and agrees is reported as before" || bad "a copy whose constant is in double quotes and agrees is reported as before" "$(jq -c .plugin <<<"$vout")"
+vcopy "$VC" '.' "$SHIPPED_LINE"
+"$VC/scripts/redline-setup.sh" version "$VR" >/dev/null 2>&1; vrc=$?
+"$SETUP" version "$VR" >/dev/null 2>&1; src=$?
+[[ $vrc -eq $src && $vrc -ne 2 ]] && ok "a copy as shipped exits as this checkout does, never 2" || bad "a copy as shipped exits as this checkout does, never 2" "copy $vrc, checkout $src"
 
 echo "# version <repoRoot>: the installs this repository sees, and the launch warning (#135)"
 # A session runs the install listed first among the ones it sees (user, and project or local for its

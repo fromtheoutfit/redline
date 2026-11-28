@@ -166,7 +166,7 @@ Either file present, fresh setup or rerun: run the same command with `--dry-run`
 
 ## 13. Verify
 
-From the repository: `${CLAUDE_PLUGIN_ROOT}/tests/guard-test.sh` prints `N passed, 0 mismatched`; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` exits 0; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh version <repoRoot>` exits 0 (`checks.sh`, the unattended section and `settings.json` all current, #15), or exits 1 with only the line that the Redline installs this repository sees differ, which no setup step changes: say that line, with its update commands, and go on (#135); `jq . <repoRoot>/.claude/redline.json` and `jq . <repoRoot>/.claude/redline/checks.json` parse; the baseline was green in step 6; `gh auth status` signed in.
+From the repository: `${CLAUDE_PLUGIN_ROOT}/tests/guard-test.sh` prints `N passed, 0 mismatched`; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-gate.sh check <repoRoot>` exits 0; `${CLAUDE_PLUGIN_ROOT}/scripts/redline-setup.sh version <repoRoot>` exits 0 (`checks.sh`, the unattended section and `settings.json` all current, #15), or exits 1 with only the line that the Redline installs this repository sees differ, which no setup step changes: say that line, with its update commands, and go on (#135), and on exit 2 say its stderr line and stop: when the line names the loaded copy's `plugin.json` and its workflow's `REDLINE_VERSION`, the copy of Redline this session loaded is a checkout whose two version places are missing or disagree, which a person corrects before any setup or run (#137, R4-2); `jq . <repoRoot>/.claude/redline.json` and `jq . <repoRoot>/.claude/redline/checks.json` parse; the baseline was green in step 6; `gh auth status` signed in.
 
 ## 14. Hand back
 
