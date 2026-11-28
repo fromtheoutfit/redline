@@ -2,6 +2,20 @@
 
 One heading per tagged version, newest first, and one line per merged pull request under it, written by the person at tag time from the merged PR titles since the previous tag (see "Releases" in `CONTRIBUTING.md`). Three groups: Features; Fixes; Setup and templates, the changes a rerun of `/redline:setup` carries into a repository (a plugin update alone does not).
 
+## 0.5.1 (2026-11-28)
+
+### Features
+
+- #127 Every option of a judgment call states what it ends in and the call names the one it recommends, so a pick decides the finding and nothing is asked of the resolve agent; every fix states its cause as one place, a sweep or an instance, and a fix linked to a finding already fixed may not say instance; a finding left to the person under a repository rule can be deferred by a pick or a typed `<id>: defer.`, and Redline files the draft; the shaper's and the reviewer's results refuse a key they do not name (#105, #75, #126)
+
+### Fixes
+
+- #137 A run records the version and the workflow file it started under: a relaunch or a resume under another version, from another copy at the same version, or of a run started before 0.5.1 is refused before any agent runs, with a line that names both versions and leads to a fresh run; a checkout loaded in place whose workflow changed relaunches from the launch's pinned copy on any repository; and a fresh launch warns when the installs a repository sees are at different versions, with the update command for each older one (#135)
+
+### Setup and templates
+
+- The unattended section of `shape-spec.md` is at template v7 (#127; v6 was never released). A rerun of `/redline:setup` merges the new section; a point a repository added right after point 10 conflicts with the sentence beside it, and `docs/upgrading.md` says how to resolve that hunk
+
 ## 0.4.5 (2026-11-23)
 
 ### Fixes
